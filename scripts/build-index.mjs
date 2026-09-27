@@ -26,7 +26,7 @@ config.topics.forEach((topic, order) => {
     return;
   }
 
-  for (const entry of manifest.lessons || []) {
+  for (const [position, entry] of (manifest.lessons || []).entries()) {
     if (!entry || !entry.file) {
       problems.push(topic.id + ': entry without a file');
       continue;
@@ -38,6 +38,7 @@ config.topics.forEach((topic, order) => {
     lessons.push({
       topic: topic.id,
       order,
+      position,
       date: entry.date,
       slug: entry.slug,
       title: entry.title,
@@ -51,8 +52,17 @@ config.topics.forEach((topic, order) => {
   }
 });
 
-lessons.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.order - b.order));
-for (const lesson of lessons) delete lesson.order;
+// Newest day first, topics in their usual order, and within one topic the lesson that was
+// added last comes first.
+lessons.sort((a, b) => {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  if (a.order !== b.order) return a.order - b.order;
+  return b.position - a.position;
+});
+for (const lesson of lessons) {
+  delete lesson.order;
+  delete lesson.position;
+}
 
 const output = {
   site: config.site,
