@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Racing the beam: the Atari 2600 draws one line at a time · Game Dev Daily</title>
+<meta name="description" content="The Atari 2600 had no memory for a picture, so games rewrote the graphics chip between scanlines, inside a budget of 76 CPU cycles per line.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-09-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Racing the beam: the Atari 2600 draws one line at a time</h1>
+  <p class="lede">The Atari 2600 had no memory for a picture, so games rewrote the graphics chip between scanlines, inside a budget of 76 CPU cycles per line.</p>
+</header>
+
+<section data-section="hook">
+  <p>Today a game draws a whole frame into memory and then shows it. The Atari Video Computer System, released in 1977 and later renamed the Atari 2600, could not do that. It had 128 bytes of RAM in total. A picture 160 pixels wide and 192 lines tall needs 3,840 bytes even at one bit per pixel, which is thirty times more memory than the console had.</p>
+  <p>So the program drew the picture <em>while the television was displaying it</em>, a few pixels ahead of the beam. This is known as racing the beam.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: a chip that only knows the current line</h2>
+  <p>An old television draws with an electron beam that sweeps left to right, one line at a time, top to bottom. Each line is a <dfn>scanline</dfn>. The beam's trip back to the left edge is the <dfn>horizontal blank</dfn>, and its trip back to the top is the <dfn>vertical blank</dfn>.</p>
+  <p>The 2600's graphics chip, the TIA (Television Interface Adaptor), has no frame buffer: no memory holding a whole picture. It has a handful of <dfn>registers</dfn>, small slots the program writes to, that describe a single line:</p>
+  <ul>
+    <li>a background colour (<code>COLUBK</code>)</li>
+    <li>a coarse <dfn>playfield</dfn>: 20 bits spread across <code>PF0</code>, <code>PF1</code> and <code>PF2</code>, each bit four pixels wide, covering the left half of the screen. The right half repeats or mirrors it.</li>
+    <li>two <dfn>players</dfn>, 8-pixel-wide sprites whose shape is one byte each (<code>GRP0</code>, <code>GRP1</code>), plus two one-pixel missiles and a ball</li>
+  </ul>
+  <p>As the beam moves, the TIA turns those registers into a signal. If the program writes nothing, every line comes out the same and a sprite becomes a stripe from top to bottom. To draw a shape, the program must change the registers between lines, for the whole picture.</p>
+
+  <h2>The numbers</h2>
+  <p>The TIA counts in <dfn>colour clocks</dfn>, one per pixel position. A line lasts 228 colour clocks: 68 of horizontal blank and 160 visible. The processor, a 6507 at about 1.19 MHz, does one cycle per three colour clocks. That is 76 cycles per line, only about 22 of them inside the blank. A register write takes 3 cycles, so a line fits a couple of dozen instructions.</p>
+  <p>The usual NTSC frame has 262 lines, arranged as below.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="On the left, one frame of 262 lines split into 3 lines of vertical sync, 37 of vertical blank, 192 lines of picture and 30 of overscan. On the right, one line of 228 colour clocks, 68 in the horizontal blank and 160 visible, which is 76 processor cycles. Register writes placed in the first 22.7 cycles land in the blank.">
+      <text class="d-text" x="20" y="20">One frame: 262 lines</text>
+      <rect class="d-fill" x="20" y="32" width="220" height="26" rx="3"/>
+      <text class="d-muted" x="32" y="50">3 lines: vertical sync</text>
+      <rect class="d-fill" x="20" y="58" width="220" height="40" rx="3"/>
+      <text class="d-muted" x="32" y="82">37 lines: vertical blank</text>
+      <rect class="d-accent-soft" x="20" y="98" width="220" height="110" rx="3"/>
+      <text class="d-text" x="32" y="150">192 lines: the picture</text>
+      <text class="d-muted" x="32" y="170">the kernel runs here</text>
+      <rect class="d-fill" x="20" y="208" width="220" height="36" rx="3"/>
+      <text class="d-muted" x="32" y="230">30 lines: overscan</text>
+
+      <path class="d-dash" d="M240 140 C262 140 262 92 284 92"/>
+
+      <text class="d-text" x="284" y="52">One line: 228 colour clocks</text>
+      <rect class="d-fill" x="284" y="66" width="101" height="44" rx="3"/>
+      <text class="d-muted" x="334" y="92" text-anchor="middle">blank: 68</text>
+      <rect class="d-accent-soft" x="385" y="66" width="239" height="44" rx="3"/>
+      <text class="d-text" x="504" y="92" text-anchor="middle">160 visible pixels</text>
+
+      <path class="d-stroke" d="M284 140 H624"/>
+      <path class="d-stroke" d="M284 134 V146 M385 134 V146 M624 134 V146"/>
+      <text class="d-mono" x="284" y="164" text-anchor="start">0</text>
+      <text class="d-mono" x="385" y="164" text-anchor="middle">22.7</text>
+      <text class="d-mono" x="624" y="164" text-anchor="end">76 cycles</text>
+
+      <rect class="d-accent-fill" x="290" y="182" width="67" height="16" rx="2"/>
+      <text class="d-label" x="366" y="195">register writes, safe in the blank</text>
+      <text class="d-muted" x="284" y="226">Any write after cycle 22.7 changes the line</text>
+      <text class="d-muted" x="284" y="244">part way across, where the beam is at that moment.</text>
+    </svg>
+    <figcaption>A frame is mostly the 192 picture lines, and each of them gives the processor 76 cycles. Only the first 22.7 cycles of a line happen while the beam is switched off.</figcaption>
+  </figure>
+
+  <h2>The trick: a kernel synchronised to the beam</h2>
+  <p>The loop that runs during the 192 picture lines is called the <dfn>kernel</dfn>. Each pass writes the registers for this line, works out the values for the next, then writes to <code>WSYNC</code>, a register that stops the processor until the next line starts. That locks the loop to the television, one pass per line.</p>
+  <p>Three rules follow from the timing:</p>
+  <ol>
+    <li><strong>Write first, think later.</strong> The writes have to happen in the blank at the start of the line. Anything computed for the next line comes after them.</li>
+    <li><strong>Never go over 76.</strong> If one pass takes longer than a line, the <code>WSYNC</code> wait releases on the line after next. Every pass now takes two lines, the picture stretches, and the frame has too many lines for the television to lock on to.</li>
+    <li><strong>Game logic lives in the blanks.</strong> Moving enemies and reading the joystick happen during the vertical blank and overscan.</li>
+  </ol>
+  <p>Some effects write mid-line on purpose. Change the playfield after the left half is drawn and the right half no longer mirrors it. Even a sprite's horizontal position is set by timing: a write to <code>RESP0</code> puts the sprite wherever the beam is at that moment.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>With no memory for the result, the program <em>is</em> the picture: each piece is produced exactly when it is needed.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A toy TIA with the real line timing, and one line's cycle budget below the screen. Switch off <strong>Rewrite registers on every line</strong> and every line repeats. Switch it back on and set the beam to Slow to watch the picture build. Raise the extra work past 35 cycles. Then move the extra work before the writes, zoom in, and slide the sprite's X across the dashed GRP0 line.</p>
+
+  <figure class="demo wide" data-demo="beam">
+    <canvas id="beam"></canvas>
+    <figcaption>Dimmed rows are not yet drawn this frame. The dashed line marks where the beam is when GRP0 is written; left of it, each line still shows the previous line's sprite row.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has a frame buffer, so we pretend it does not. The table <code>tia</code> holds one line's settings. <code>kernel</code> rewrites it before each line, and <code>drawLine</code> plays the television, painting 160 pixels from whatever the registers hold. The numbers match the demo: sprite at x 76, top line 88, each sprite row on two lines.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A toy TIA: it holds the settings for ONE line, never a picture.</span>
+local tia = { colubk = { 0, 0, 0 }, grp0 = 0, p0x = 76 }
+
+local LINES = 192                 <span class="c">-- visible lines in an NTSC frame</span>
+local SCALE = 3                   <span class="c">-- screen pixels per console pixel</span>
+local SPRITE = { 0x18, 0x3C, 0x66, 0xC3, 0xC3, 0x66, 0x3C, 0x18 }
+local SPRITE_COLOUR = { 1, 0.9, 0.3 }
+local spriteY = 88                <span class="c">-- first line of the sprite</span>
+
+local function skyColour(line)
+  local t = line / (LINES - 1)
+  local shade = 1
+  if math.floor(line / 8) % 2 == 1 then shade = 0.85 end
+  return { (0.1 + 0.8 * t) * shade, (0.15 + 0.35 * t) * shade, (0.45 - 0.25 * t) * shade }
+end
+
+local function bitIsSet(byte, n)  <span class="c">-- n = 7 is the leftmost pixel</span>
+  return math.floor(byte / 2 ^ n) % 2 == 1
+end
+
+<span class="c">-- The kernel: runs between lines and rewrites the registers.</span>
+local function kernel(line)
+<span class="k">  tia.colubk = skyColour(line)
+  local row = math.floor((line - spriteY) / 2) + 1  -- each row lasts 2 lines
+  if row &gt;= 1 and row &lt;= #SPRITE then tia.grp0 = SPRITE[row] else tia.grp0 = 0 end</span>
+end
+
+<span class="c">-- The television: read the registers as they are now and paint one line.</span>
+local function drawLine(line)
+  for x = 0, 159 do
+    local c = tia.colubk
+    local bit = x - tia.p0x
+    if bit &gt;= 0 and bit &lt; 8 and bitIsSet(tia.grp0, 7 - bit) then c = SPRITE_COLOUR end
+    love.graphics.setColor(c[1], c[2], c[3])
+    love.graphics.rectangle("fill", x * SCALE, line * SCALE, SCALE, SCALE)
+  end
+end
+
+function love.draw()
+  for line = 0, LINES - 1 do
+<span class="k">    kernel(line)    -- comment this out and every line repeats the same settings</span>
+    drawLine(line)
+  end
+end</code></pre>
+  </div>
+  <p>The demo adds the playfield the same way and adds the clock: each write happens at a particular cycle, and a write after the blank only affects pixels the beam has not reached yet.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Thinking before writing.</strong> A kernel that computes first pushes its writes into the visible line. The damage is a one-line shear at the edge of a shape, easy to miss.</li>
+    <li><strong>A path that is sometimes slow.</strong> On the 6502 family a taken branch costs an extra cycle, and another if it crosses a page boundary. A kernel that overflows on only a few lines gives a picture that shakes, so programmers counted cycles for every path through the loop.</li>
+    <li><strong>Too many lines per frame.</strong> A frame that runs long or short can make the picture roll, so the blank periods are timed too, usually with the console's built-in timer.</li>
+    <li><strong>This toy is not an emulator.</strong> The real TIA has small delays between a write and its effect, and stores playfield bits in an unusual order. The demo and the Lua ignore both. The Lua also calls <code>rectangle</code> 30,720 times a frame: fine for a toy, wasteful for a game.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every 2600 game has a kernel, and most of the console's famous tricks are ways of getting more out of it:</p>
+  <ul>
+    <li><strong>Reusing sprites down the screen.</strong> Once a sprite has finished its lines, the kernel can move it and change its shape, so two sprites can show a column of objects, as long as no two share a line.</li>
+    <li><strong>Flicker.</strong> When more objects share lines than there are sprites, games draw some on one frame and the rest on the next. The 2600 version of Pac-Man is well known for its flickering ghosts.</li>
+    <li><strong>Wide graphics from mid-line writes.</strong> A well-known technique for six-digit scores places copies of both sprites side by side and rewrites their shapes while the beam crosses them, giving a 48-pixel-wide image.</li>
+  </ul>
+
+  <h3>The lesson for today</h3>
+  <p>The 76-cycle line became the 16.7 millisecond frame at 60 frames per second, and 8.3 at 120. The rules still hold. Do the work with a deadline first and prepare the next frame afterwards, as engines do when they record the next frame's drawing commands while the graphics card draws this one. Treat the budget as a hard limit: a frame that runs over is a visible hitch. And move work that need not happen now out of the loop, into loading screens, precomputed tables, or spread over several frames.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua above in LÖVE. Add a second sprite, <code>grp1</code> with its own <code>p1x</code>. In the kernel, give it one shape and position above line 96 and a different byte table and position below. You are done when three shapes are on screen using only two sprite registers.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The 2600 had 128 bytes of RAM and no frame buffer. Its graphics chip only describes the current line.</li>
+    <li>Games rewrote the registers before every line in a loop called the kernel, locked to the beam with <code>WSYNC</code>.</li>
+    <li>A line allows 76 cycles, about 22 in the blank, so writes come first and preparation second.</li>
+    <li>A kernel over budget stretches the picture and breaks the frame timing.</li>
+    <li>The modern frame budget is the same problem: deadlines first, heavy work out of the loop.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next in this series is Space Invaders, where a machine that got faster as it had less to draw produced one of the most copied difficulty curves in games.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: these works could not be opened while writing, so none are linked. The figures used are the widely documented ones, and a search summary of Atari's guide agreed on the 76-cycle line and <code>WSYNC</code>. Check the works below before relying on a detail.</p>
+  <ul>
+    <li>Steve Wright, <cite>Stella Programmer's Guide</cite> (Atari, 1979). Atari's manual for the TIA: line timing, frame layout, every register.</li>
+    <li>Nick Montfort and Ian Bogost, <cite>Racing the Beam: The Atari Video Computer System</cite> (MIT Press, 2009). How the hardware shaped individual games.</li>
+    <li>Andrew Davie, <cite>Atari 2600 Programming for Newbies</cite>. A tutorial series that builds a kernel from nothing.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Real line timing of the NTSC TIA.
+  var CLOCKS = 228;          // colour clocks per line
+  var HBLANK = 68;           // colour clocks of horizontal blank
+  var CYCLES = 76;           // CPU cycles per line (228 / 3)
+  var PICTURE = 192;         // visible lines
+  var TOP = 40;              // 3 lines of vertical sync + 37 of vertical blank
+  var BOTTOM = 30;           // overscan lines
+  var WIDTH = 160;
+
+  // Toy kernel costs, in CPU cycles.
+  var WRITES = 15;           // five register writes of 3 cycles each
+  var PREPARE = 20;          // look up the next line's values
+  var LOOP = 6;              // loop back and write WSYNC
+  var MAX_SHOWN = 104;       // cycles shown on the budget bar
+
+  var SPRITE = [0x18, 0x3C, 0x66, 0xC3, 0xC3, 0x66, 0x3C, 0x18];
+  var SPRITE_RGB = [255, 230, 77];
+  var PF_RGB = [46, 82, 51];
+
+  // Left half of the playfield, one string per band of 8 lines. The right half mirrors it.
+  var FULL = '11111111111111111111';
+  var WALL = '10000000000000000000';
+  var PF_BANDS = [];
+  for (var b = 0; b < 24; b++) PF_BANDS.push(WALL);
+  PF_BANDS[0] = FULL;
+  PF_BANDS[6] = '10000000000001111111';
+  PF_BANDS[12] = '10001111000000000000';
+  PF_BANDS[17] = '10000000000011110000';
+  PF_BANDS[22] = FULL;
+  PF_BANDS[23] = FULL;
+
+  function skyRGB(line) {
+    var t = line / (PICTURE - 1);
+    var shade = Math.floor(line / 8) % 2 === 1 ? 0.85 : 1;
+    return [
+      Math.round(255 * (0.1 + 0.8 * t) * shade),
+      Math.round(255 * (0.15 + 0.35 * t) * shade),
+      Math.round(255 * (0.45 - 0.25 * t) * shade)
+    ];
+  }
+
+  function pfBits(line) {
+    var s = PF_BANDS[Math.min(23, Math.floor(line / 8))];
+    var bits = [];
+    for (var i = 0; i < 20; i++) bits.push(s.charAt(i) === '1');
+    return bits;
+  }
+
+  function spriteRow(line, spriteY) {
+    var row = Math.floor((line - spriteY) / 2);
+    return row >= 0 && row < SPRITE.length ? SPRITE[row] : 0;
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="beam"]');
+  var rewrite = ui.toggle({ label: 'Rewrite registers on every line', value: true, onChange: rebuild });
+  var extra = ui.slider({ label: 'Extra work per line', min: 0, max: 60, step: 1, value: 0, unit: ' cycles', onInput: rebuild });
+  var order = ui.select({ label: 'Extra work happens', value: 'after',
+    options: [{ value: 'after', label: 'after the writes' }, { value: 'before', label: 'before the writes' }],
+    onChange: rebuild });
+  var speed = ui.select({ label: 'Beam speed', value: 'medium',
+    options: [
+      { value: 'stopped', label: 'Stopped (use Step)' },
+      { value: 'slow', label: 'Slow: 30 lines per second' },
+      { value: 'medium', label: 'One frame per second' },
+      { value: 'real', label: 'Real time: 60 frames per second' }
+    ] });
+  ui.button({ label: 'Step one line', onClick: function () {
+    speed.set('stopped');
+    advance(1);
+    if (handle) handle.redraw();
+  } });
+  var spriteX = ui.slider({ label: 'Sprite X', min: 0, max: 152, step: 1, value: 76, onInput: rebuild });
+  var spriteY = ui.slider({ label: 'Sprite Y', min: 0, max: 176, step: 1, value: 88, onInput: rebuild });
+  var zoom = ui.toggle({ label: 'Zoom in on the sprite', value: false, onChange: function () { if (handle) handle.redraw(); } });
+  var budget = ui.readout({ label: 'Budget' });
+  var lines = ui.readout({ label: 'Picture' });
+
+  var RATES = { stopped: 0, slow: 30, medium: 262, real: 262 * 60 };
+
+  // ---- the toy TIA ----
+  var off = document.createElement('canvas');
+  off.width = WIDTH;
+  off.height = PICTURE;
+  var offCtx = off.getContext('2d');
+  var image = offCtx.createImageData(WIDTH, PICTURE);
+
+  var frame = { pictureLines: PICTURE, cost: 0, segments: [], grp0Cycle: -1 };
+  var beamLine = 0;
+  var beamAcc = 0;
+  var handle = null;
+
+  function kernelSegments() {
+    var e = extra.value;
+    if (!rewrite.value) {
+      return { segs: [{ a: 0, b: LOOP, kind: 'loop', name: 'loop + WSYNC' }], writesAt: -1 };
+    }
+    if (order.value === 'after') {
+      return {
+        segs: [
+          { a: 0, b: WRITES, kind: 'write', name: 'writes' },
+          { a: WRITES, b: WRITES + PREPARE, kind: 'prep', name: 'prepare' },
+          { a: WRITES + PREPARE, b: WRITES + PREPARE + e, kind: 'extra', name: 'extra' },
+          { a: WRITES + PREPARE + e, b: WRITES + PREPARE + e + LOOP, kind: 'loop', name: 'loop' }
+        ],
+        writesAt: 0
+      };
+    }
+    return {
+      segs: [
+        { a: 0, b: PREPARE, kind: 'prep', name: 'prepare' },
+        { a: PREPARE, b: PREPARE + e, kind: 'extra', name: 'extra' },
+        { a: PREPARE + e, b: PREPARE + e + WRITES, kind: 'write', name: 'writes' },
+        { a: PREPARE + e + WRITES, b: PREPARE + e + WRITES + LOOP, kind: 'loop', name: 'loop' }
+      ],
+      writesAt: PREPARE + e
+    };
+  }
+
+  function rebuild() {
+    var k = kernelSegments();
+    var cost = k.segs[k.segs.length - 1].b;
+    var sy = spriteY.value;
+    var events = [];
+    var regs;
+    var resume = 0;
+
+    if (!rewrite.value) {
+      // Registers set once, during vertical blank, to the values of the middle line.
+      regs = { bk: skyRGB(96), pf: pfBits(96), grp0: SPRITE[3] };
+      resume = PICTURE * CYCLES;
+    } else {
+      regs = { bk: skyRGB(0), pf: pfBits(0), grp0: spriteRow(0, sy) };
+      for (var i = 0; i < PICTURE; i++) {
+        var w = resume + k.writesAt;
+        var pf = pfBits(i);
+        // A write takes 3 cycles and lands on its last cycle.
+        events.push({ cc: (w + 3) * 3, reg: 'bk', value: skyRGB(i) });
+        events.push({ cc: (w + 6) * 3, reg: 'pf', from: 0, value: pf.slice(0, 4) });
+        events.push({ cc: (w + 9) * 3, reg: 'pf', from: 4, value: pf.slice(4, 12) });
+        events.push({ cc: (w + 12) * 3, reg: 'pf', from: 12, value: pf.slice(12, 20) });
+        events.push({ cc: (w + 15) * 3, reg: 'grp0', value: spriteRow(i, sy) });
+        var end = resume + cost;
+        resume = Math.ceil(end / CYCLES) * CYCLES;   // WSYNC: wait for the next line to start
+      }
+    }
+
+    frame.pictureLines = resume / CYCLES;
+    frame.cost = cost;
+    frame.segments = k.segs;
+    frame.grp0Cycle = rewrite.value ? k.writesAt + 15 : -1;
+
+    // Paint the 192 lines the television can show.
+    var data = image.data;
+    var ei = 0;
+    var px = spriteX.value;
+    for (var line = 0; line < PICTURE; line++) {
+      var base = line * CLOCKS + HBLANK;
+      for (var x = 0; x < WIDTH; x++) {
+        var cc = base + x;
+        while (ei < events.length && events[ei].cc <= cc) {
+          var ev = events[ei];
+          if (ev.reg === 'bk') regs.bk = ev.value;
+          else if (ev.reg === 'grp0') regs.grp0 = ev.value;
+          else {
+            var copy = regs.pf.slice();
+            for (var j = 0; j < ev.value.length; j++) copy[ev.from + j] = ev.value[j];
+            regs.pf = copy;
+          }
+          ei++;
+        }
+        var rgb = regs.bk;
+        var bitIndex = x < 80 ? Math.floor(x / 4) : 19 - Math.floor((x - 80) / 4);
+        if (regs.pf[bitIndex]) rgb = PF_RGB;
+        var bit = x - px;
+        if (bit >= 0 && bit < 8 && (regs.grp0 >> (7 - bit)) & 1) rgb = SPRITE_RGB;
+        var o = (line * WIDTH + x) * 4;
+        data[o] = rgb[0];
+        data[o + 1] = rgb[1];
+        data[o + 2] = rgb[2];
+        data[o + 3] = 255;
+      }
+    }
+    offCtx.putImageData(image, 0, 0);
+
+    budget.set(frame.cost + ' of ' + CYCLES + ' cycles per line' +
+      (frame.cost > CYCLES ? ' (over)' : ''));
+    lines.set(frame.pictureLines + ' scanlines' +
+      (frame.pictureLines > PICTURE ? ', frame has ' + totalLines() + ' instead of 262' : ', frame has 262'));
+    if (beamLine >= totalLines()) beamLine = 0;
+    if (handle) handle.redraw();
+  }
+
+  function totalLines() {
+    return TOP + frame.pictureLines + BOTTOM;
+  }
+
+  function advance(n) {
+    beamLine = (beamLine + n) % totalLines();
+  }
+
+  // ---- drawing ----
+  function tvRect(s) {
+    var w = Math.min(s.width - 24, 400);
+    return { x: Math.round((s.width - w) / 2), y: 10, w: w, h: Math.round(w * 0.75) };
+  }
+
+  function zoomSource() {
+    var sw = 40, sh = 30;
+    var sx = DemoKit.clamp(spriteX.value + 4 - sw / 2, 0, WIDTH - sw);
+    var sy = DemoKit.clamp(spriteY.value + 8 - sh / 2, 0, PICTURE - sh);
+    return { x: sx, y: sy, w: sw, h: sh };
+  }
+
+  function drawTV(ctx, s, c) {
+    var tv = tvRect(s);
+    var src = zoom.value ? zoomSource() : { x: 0, y: 0, w: WIDTH, h: PICTURE };
+    var sxScale = tv.w / src.w;
+    var syScale = tv.h / src.h;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(tv.x, tv.y, tv.w, tv.h);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, src.x, src.y, src.w, src.h, tv.x, tv.y, tv.w, tv.h);
+
+    var picLine = beamLine - TOP;
+    var animating = speed.value !== 'real';
+
+    // Dim rows the beam has not reached yet this frame.
+    if (animating) {
+      var fromLine = picLine < 0 ? 0 : (picLine >= PICTURE ? PICTURE : picLine);
+      if (picLine < 0 || picLine < PICTURE) {
+        var yStart = tv.y + Math.max(0, (fromLine - src.y) * syScale);
+        if (yStart < tv.y + tv.h) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+          ctx.fillRect(tv.x, yStart, tv.w, tv.y + tv.h - yStart);
+        }
+      }
+      if (picLine >= 0 && picLine < PICTURE && picLine >= src.y && picLine < src.y + src.h) {
+        var by = tv.y + (picLine - src.y) * syScale;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(tv.x, by, tv.w, Math.max(1.5, syScale * 0.35));
+      }
+    }
+
+    // Where the GRP0 write lands, if it is in the visible part of the line.
+    if (frame.grp0Cycle >= 0) {
+      var pixel = frame.grp0Cycle * 3 - HBLANK;
+      if (pixel >= src.x && pixel < src.x + src.w) {
+        var gx = tv.x + (pixel - src.x) * sxScale;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(gx, tv.y);
+        ctx.lineTo(gx, tv.y + tv.h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = gx > tv.x + tv.w - 90 ? 'right' : 'left';
+        ctx.fillText('GRP0 write', gx + (ctx.textAlign === 'right' ? -5 : 5), tv.y + tv.h - 8);
+      }
+    }
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tv.x - 0.5, tv.y - 0.5, tv.w + 1, tv.h + 1);
+
+    if (zoom.value) {
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText('zoom: pixels ' + src.x + ' to ' + (src.x + src.w - 1) + ', lines ' + src.y + ' to ' + (src.y + src.h - 1), tv.x + 8, tv.y + 18);
+    }
+    if (frame.pictureLines > PICTURE) {
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText('Picture needs ' + frame.pictureLines + ' lines: bottom half lost,', tv.x + 8, tv.y + (zoom.value ? 36 : 18));
+      ctx.fillText('a real TV would roll', tv.x + 8, tv.y + (zoom.value ? 52 : 34));
+    }
+    return tv;
+  }
+
+  function status() {
+    if (speed.value === 'real') return 'Real time: the beam draws 60 frames per second';
+    var l = beamLine;
+    var where;
+    if (l < 3) where = 'vertical sync';
+    else if (l < TOP) where = 'vertical blank: game logic runs now';
+    else if (l < TOP + frame.pictureLines) where = 'picture line ' + (l - TOP + 1) + ' of ' + frame.pictureLines;
+    else where = 'overscan: game logic runs now';
+    return 'Beam on line ' + (l + 1) + ' of ' + totalLines() + ', ' + where;
+  }
+
+  function drawBudget(ctx, s, c, top) {
+    var left = 12;
+    var width = s.width - 24;
+    var k = width / MAX_SHOWN;
+    var font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+    ctx.font = font;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(status(), left, top + 12);
+
+    var barY = top + 26;
+    var barH = 18;
+    // The line itself: blank then visible.
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(left, barY, CYCLES * k, barH);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(left, barY, (HBLANK / 3) * k, barH);
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('blank', left + 4, barY + 13);
+    if (CYCLES * k - (HBLANK / 3) * k > 110) ctx.fillText('visible part of the line', left + (HBLANK / 3) * k + 6, barY + 13);
+
+    // The kernel's work, one block per segment.
+    var segY = barY + barH + 4;
+    var segH = 18;
+    for (var i = 0; i < frame.segments.length; i++) {
+      var sg = frame.segments[i];
+      if (sg.b <= sg.a) continue;
+      var x0 = left + Math.min(sg.a, MAX_SHOWN) * k;
+      var x1 = left + Math.min(sg.b, MAX_SHOWN) * k;
+      var colour = sg.kind === 'write' ? c.topic : sg.kind === 'extra' ? c.warn : c.ink3;
+      ctx.fillStyle = colour;
+      ctx.globalAlpha = sg.kind === 'loop' || sg.kind === 'prep' ? 0.45 : 0.85;
+      ctx.fillRect(x0, segY, Math.max(1, x1 - x0 - 1), segH);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = sg.kind === 'write' ? '#fff' : c.ink;
+      if (x1 - x0 > ctx.measureText(sg.name).width + 8) ctx.fillText(sg.name, x0 + 4, segY + 13);
+    }
+    // Overflow past the end of the line.
+    if (frame.cost > CYCLES) {
+      var ox0 = left + CYCLES * k;
+      var ox1 = left + Math.min(frame.cost, MAX_SHOWN) * k;
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox0, segY - 1, ox1 - ox0, segH + 2);
+    }
+
+    // End of line marker and ticks.
+    var endX = left + CYCLES * k;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(endX, barY - 4);
+    ctx.lineTo(endX, segY + segH + 4);
+    ctx.stroke();
+
+    var tickY = segY + segH + 18;
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'left';
+    ctx.fillText('0', left, tickY);
+    ctx.textAlign = 'center';
+    ctx.fillText('22.7', left + (HBLANK / 3) * k, tickY);
+    ctx.textAlign = 'right';
+    ctx.fillText('76: end of line', endX + 2, tickY);
+
+    ctx.textAlign = 'left';
+    var msgY = tickY + 20;
+    var msg;
+    if (!rewrite.value) {
+      ctx.fillStyle = c.ink2;
+      msg = 'No writes during the picture: every line repeats the same registers.';
+    } else if (frame.cost > CYCLES) {
+      ctx.fillStyle = c.bad;
+      msg = 'Over budget: WSYNC now releases a line late, so each pass takes 2 lines.';
+    } else if (frame.grp0Cycle * 3 > HBLANK) {
+      ctx.fillStyle = c.warn;
+      msg = 'Writes land in the visible line: pixels left of the dashed line show old values.';
+    } else {
+      ctx.fillStyle = c.good;
+      msg = 'All writes land in the blank, before the beam reaches pixel 0.';
+    }
+    wrapText(ctx, msg, left, msgY, width - 90, 16);
+  }
+
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    var words = text.split(' ');
+    var lineText = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = lineText ? lineText + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width > maxWidth && lineText) {
+        ctx.fillText(lineText, x, y);
+        lineText = words[i];
+        y += lineHeight;
+      } else {
+        lineText = test;
+      }
+    }
+    if (lineText) ctx.fillText(lineText, x, y);
+  }
+
+  rebuild();
+
+  handle = DemoKit.canvas('#beam', {
+    height: 470,
+    label: 'A toy Atari 2600 screen drawn one scanline at a time, with a bar below showing how the 76 processor cycles of one line are spent on register writes and other work.',
+    update: function (dt) {
+      var rate = RATES[speed.value] || 0;
+      if (rate === 0) { beamAcc = 0; return; }
+      beamAcc += dt * rate;
+      var n = Math.floor(beamAcc);
+      if (n > 0) {
+        beamAcc -= n;
+        advance(n);
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var tv = drawTV(ctx, s, c);
+      drawBudget(ctx, s, c, tv.y + tv.h + 12);
+    }
+  });
+})();
+</script>
+</body>
+</html>

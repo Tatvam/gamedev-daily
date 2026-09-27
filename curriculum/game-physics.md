@@ -5,7 +5,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 1: Time and motion
 
 - [x] **Fix your timestep** — Why physics driven by a variable frame time behaves differently on every machine and how a fixed timestep with an accumulator makes it consistent. Demo: two simulations of the same bouncing balls run side by side, one variable and one fixed, while a frame-rate slider shows them drift apart. (published 2026-09-27, fix-your-timestep)
-- [ ] **Position, velocity, and acceleration** — How the three quantities relate and how a game updates them once per step. Demo: drag arrows to set the velocity and acceleration of a ball and watch its path and live graphs.
+- [x] **Position, velocity, and acceleration** — How the three quantities relate and how a game updates them once per step. Demo: drag arrows to set the velocity and acceleration of a ball and watch its path and live graphs. (published 2026-09-27, position-velocity-acceleration)
 - [ ] **Forces and mass** — How force, mass and acceleration connect and why heavier objects respond more slowly to the same push. Demo: click to push three boxes with the same force while sliders change their mass and the size of the force.
 - [ ] **Explicit Euler integration** — How the simplest integrator works and why it slowly adds energy to a system. Demo: a step size slider drives an orbiting body that spirals outward while an energy graph climbs.
 - [ ] **Semi-implicit Euler integration** — Why updating velocity before position is far more stable for the same cost. Demo: an A/B view runs the same orbit with explicit and semi-implicit Euler at a shared step size slider.

@@ -4,7 +4,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 1: Game feel and juice
 
-- [ ] **Input response and latency** — How delay between pressing a button and seeing a result changes how a game feels, and how much delay players notice. Demo: A jumping character with a slider that adds input delay in milliseconds, plus a blind A/B test that asks which version feels more responsive.
+- [x] **Input response and latency** — How delay between pressing a button and seeing a result changes how a game feels, and how much delay players notice. Demo: A jumping character with a slider that adds input delay in milliseconds, plus a blind A/B test that asks which version feels more responsive. (published 2026-09-27, input-latency)
 - [ ] **Acceleration, friction and top speed** — How the curve from standing still to full speed decides whether movement feels tight, heavy or slippery. Demo: Move a character with sliders for acceleration, deceleration and top speed, a live speed graph, and presets named tight, heavy and ice.
 - [ ] **Screen shake** — How a short, decaying camera shake sells impact, and how direction, strength and duration keep it from becoming tiring. Demo: Trigger explosions with shake toggled on or off, with sliders for strength and decay and a switch between random and directional shake.
 - [ ] **Hit stop and freeze frames** — How pausing the action for a few frames on impact makes hits feel heavy. Demo: Strike a training dummy with a slider for freeze length from zero to two hundred milliseconds and a toggle to compare with none.

@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The game loop: input, update, render · Game Dev Daily</title>
+<meta name="description" content="Every engine repeats three jobs each frame: read input, update the world, draw it. Learn the order, who owns each piece of data, and where your code runs.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-09-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The game loop: input, update, render</h1>
+  <p class="lede">Every engine repeats three jobs each frame: read input, update the world, draw it. Learn the order, who owns each piece of data, and where your code runs.</p>
+</header>
+
+<section data-section="hook">
+  <p>You move the player in one script and the camera in another, and the camera wobbles a pixel behind the player on some frames. Or a button press registers one frame late, or not at all.</p>
+  <p>Bugs like these are about <em>order</em>: which code ran first inside a frame, and which copy of the data it saw.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One loop, three jobs</h2>
+  <p>A game is a program that never finishes its main loop until the player quits. That loop is the <dfn>game loop</dfn>. One pass through it is a <dfn>frame</dfn>. At 60 frames per second one pass has about 16.7 milliseconds to do everything.</p>
+  <p>Every engine, from a hand-written LÖVE game to Godot and Unity, does the same three jobs in each pass:</p>
+  <ol>
+    <li><strong>Input.</strong> Collect what happened since the last frame (keys, mouse, touch, gamepad) into a snapshot of the input state.</li>
+    <li><strong>Update.</strong> Advance the world by a small slice of time. Game code reads the snapshot and changes positions, health and timers. Nothing is drawn yet.</li>
+    <li><strong>Render.</strong> Read the world state and turn it into pixels. Rendering should only read the world, never change it.</li>
+  </ol>
+  <p>Then the loop goes around again. Each job writes one kind of data and only reads what came before it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Three boxes in a row: Input, Update and Render, joined by arrows. Input passes an input snapshot to Update, Update passes world state to Render, Render produces pixels. An arrow returns from Render to Input for the next frame.">
+      <rect class="d-accent-soft" x="20" y="60" width="140" height="64" rx="8"/>
+      <rect class="d-accent-soft" x="250" y="60" width="140" height="64" rx="8"/>
+      <rect class="d-accent-soft" x="480" y="60" width="140" height="64" rx="8"/>
+      <g text-anchor="middle">
+        <text class="d-label" x="90" y="88">1. Input</text>
+        <text class="d-muted" x="90" y="108">reads devices</text>
+        <text class="d-label" x="320" y="88">2. Update</text>
+        <text class="d-muted" x="320" y="108">changes the world</text>
+        <text class="d-label" x="550" y="88">3. Render</text>
+        <text class="d-muted" x="550" y="108">reads the world</text>
+      </g>
+      <path class="d-stroke" d="M164 92 H240"/>
+      <path class="d-accent-fill" d="M246 92 L236 86 L236 98 Z"/>
+      <path class="d-stroke" d="M394 92 H470"/>
+      <path class="d-accent-fill" d="M476 92 L466 86 L466 98 Z"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="205" y="40">input</text>
+        <text class="d-text" x="205" y="55">snapshot</text>
+        <text class="d-text" x="435" y="40">world</text>
+        <text class="d-text" x="435" y="55">state</text>
+      </g>
+      <text class="d-muted" x="550" y="30" text-anchor="middle">pixels on screen</text>
+      <path class="d-thin" d="M550 38 V56"/>
+      <path class="d-dash" d="M550 128 V170 H90 V134"/>
+      <path class="d-accent-fill" d="M90 128 L84 138 L96 138 Z"/>
+      <text class="d-muted" x="320" y="194" text-anchor="middle">next frame: start again, about 16.7 ms later at 60 fps</text>
+    </svg>
+    <figcaption>Each job writes one kind of data. Input writes the snapshot, Update writes the world, Render writes pixels. Data only flows forward inside a frame.</figcaption>
+  </figure>
+
+  <h3>Why the order matters</h3>
+  <p>Because the jobs run one after another, the same fact can have three different values at the same moment. The key on your keyboard is up, but this frame's snapshot still says it is down. The ball in memory has moved, but the screen still shows the old position until Render runs. That is not a bug; it is how every frame works.</p>
+  <p>It also explains the classic "one frame late" bug. If the camera reads the player's position during Update <em>before</em> the player script has moved, the camera follows last frame's position. On the screen that looks like a small jitter.</p>
+
+  <h3>Who owns the loop</h3>
+  <p>In LÖVE, the loop is a Lua function called <code>love.run</code>. A simplified version of the default reads like the three jobs above:</p>
+<pre><code><span class="c">-- simplified from LÖVE 11's default love.run, one frame</span>
+love.event.pump()                      <span class="c">-- 1. input: ask the OS for events</span>
+local dt = love.timer.step()           <span class="c">-- time since the last frame</span>
+love.update(dt)                        <span class="c">-- 2. update: your game code</span>
+love.graphics.clear()
+love.draw()                            <span class="c">-- 3. render: your drawing code</span>
+love.graphics.present()                <span class="c">-- show the finished frame</span></code></pre>
+  <p>Godot and Unity own the loop completely. You never write it. Instead you write <dfn>callbacks</dfn>: functions with special names that the engine calls at a fixed point in its loop. Both engines also add a fourth job that the simple loop above does not have: a <dfn>fixed step</dfn> for physics, which runs zero, one or several times per frame so that physics advances in equal slices of time.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Job</th><th>LÖVE</th><th>Godot 4</th><th>Unity</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Input</td><td>event callbacks such as <code>love.keypressed</code></td><td><code>_input</code>, <code>_unhandled_input</code></td><td>input is read at the start of the frame</td></tr>
+      <tr><td>Fixed step</td><td>not built in</td><td><code>_physics_process</code></td><td><code>FixedUpdate</code></td></tr>
+      <tr><td>Update</td><td><code>love.update(dt)</code></td><td><code>_process(delta)</code></td><td><code>Update</code>, then <code>LateUpdate</code></td></tr>
+      <tr><td>Render</td><td><code>love.draw()</code>, you draw everything</td><td>engine draws the scene tree</td><td>engine draws each camera</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Notice the Render row. In LÖVE you issue every draw call yourself, every frame. In Godot and Unity you mostly do not draw at all. You change data the engine owns, such as a node's <code>position</code> or a GameObject's <code>transform</code>, and the engine's renderer reads that data after your Update code has finished. The engine owns the pixels. You own the world state that feeds them.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Ask two questions about any line of game code: in which job does it run, and which data does it read? If it reads data that a later job in the same frame writes, it is looking at last frame.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>This is a tiny model of one game loop, slowed down so you can step through it. Each press of <strong>Next phase</strong> runs one job. Hold a direction with the <strong>Key held</strong> menu, or click the demo and hold the left and right arrow keys.</p>
+  <p>Try this: hold right, press Next phase until Input has run, then release the key and press Next phase again. The ball still moves, because Update reads the snapshot, not the keyboard. Then watch the bottom strip: the screen only catches up when Render runs.</p>
+
+  <figure class="demo" data-demo="game-loop">
+    <canvas id="game-loop"></canvas>
+    <figcaption>The highlighted row is the data the last job wrote. The keyboard row changes whenever you like, the snapshot only in Input, the world only in Update, and the screen only in Render. Each pretend frame lasts 50 ms, so at 120 units per second the ball moves 6 units per Update.</figcaption>
+  </figure>
+  <p>The model leaves a lot out: there is no fixed physics step, no waiting for the display, and a real frame takes milliseconds instead of a button press. Those get their own lessons.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version makes the three jobs visible by giving each one its own function, with the same names and numbers as the demo. LÖVE calls <code>love.update</code> and then <code>love.draw</code> once per frame, so the order is fixed by the loop, not by luck.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED = 120            <span class="c">-- world units per second</span>
+local WIDTH = 300            <span class="c">-- the world is 0..300 wide</span>
+local RADIUS = 10
+local ball = { x = 150, vx = 0 }
+local input = { dir = 0 }    <span class="c">-- snapshot, written once per frame</span>
+
+local function readInput()   <span class="c">-- 1. input: only writes the snapshot</span>
+  input.dir = 0
+  if love.keyboard.isDown("left") then input.dir = input.dir - 1 end
+  if love.keyboard.isDown("right") then input.dir = input.dir + 1 end
+end
+
+local function updateWorld(dt)   <span class="c">-- 2. update: reads the snapshot, writes the world</span>
+<span class="k">  ball.vx = input.dir * SPEED
+  ball.x = ball.x + ball.vx * dt</span>
+  ball.x = math.max(RADIUS, math.min(WIDTH - RADIUS, ball.x))
+end
+
+function love.update(dt)
+  readInput()
+  updateWorld(dt)
+end
+
+function love.draw()         <span class="c">-- 3. render: only reads the world</span>
+  love.graphics.circle("fill", ball.x, 100, RADIUS)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D in a new scene and run it.</span>
+extends Node2D
+
+const SPEED := 120.0
+
+func _ready() -&gt; void:
+    position = Vector2(150, 100)
+
+<span class="c"># Called once per frame, after Godot has collected this frame's input.</span>
+func _process(delta: float) -&gt; void:
+    var dir := Input.get_axis("ui_left", "ui_right")
+<span class="k">    position.x += dir * SPEED * delta</span>
+    position.x = clamp(position.x, 10.0, 290.0)
+
+<span class="c"># Called when the node first appears and after queue_redraw(), not every frame.</span>
+<span class="c"># The engine keeps the result and draws it at the node's new position.</span>
+func _draw() -&gt; void:
+    draw_circle(Vector2.ZERO, 10.0, Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS. Put on a GameObject with a SpriteRenderer.</span>
+<span class="c">// Uses the legacy Input Manager. In Unity 6 projects set Player Settings &gt;</span>
+<span class="c">// Active Input Handling to "Both", or read the keyboard through the Input System.</span>
+using UnityEngine;
+
+public class BallMover : MonoBehaviour
+{
+    <span class="c">// 1.2 units is about 120 pixels at the default 100 pixels per unit.</span>
+    const float Speed = 1.2f;
+
+    <span class="c">// Called once per frame, after Unity has read this frame's input.</span>
+    void Update()
+    {
+        float dir = Input.GetAxisRaw("Horizontal");
+<span class="k">        transform.position += new Vector3(dir * Speed * Time.deltaTime, 0f, 0f);</span>
+    }
+
+    <span class="c">// No draw code: Unity renders every camera after Update and LateUpdate.</span>
+}</code></pre>
+  </div>
+  <p>All three read input, then move by speed times the frame's duration. Only the Lua version draws by hand, because in LÖVE you are the renderer.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reading data before it is written.</strong> A camera that follows the player during Update may run before the player moved, so it follows last frame's position. In Unity, move followers in <code>LateUpdate</code>, which runs after every <code>Update</code>. In Godot, a node's <code>process_priority</code> controls the order of <code>_process</code> calls (lower runs first), or the follower can be placed later in the scene tree.</li>
+    <li><strong>Assuming an order between objects.</strong> Within one job, the engine decides which object goes first. Godot processes nodes in scene tree order unless priorities say otherwise. Unity does not promise an order between scripts unless you set one in Project Settings under Script Execution Order. Design so that the order does not matter, or make it explicit.</li>
+    <li><strong>Blocking the loop.</strong> A slow file load or long search inside Update also delays input and drawing, so the game freezes. Spread long work over several frames or move it off the main thread.</li>
+    <li><strong>Expecting changes to appear immediately.</strong> Setting a position draws nothing. The change becomes visible at the next Render.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every real-time game has this loop somewhere. LÖVE exposes it as <code>love.run</code>, which you can replace entirely. Godot's loop is driven by a <code>MainLoop</code> object, and the <code>SceneTree</code> you work with every day is the default one. Unity exposes the order of its internal systems through the <code>PlayerLoop</code> API, which advanced users can inspect and extend.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own project, add one print line to each callback on a single object, including the frame number: <code>Engine.get_process_frames()</code> in Godot, <code>Time.frameCount</code> in Unity. Use <code>_input</code>, <code>_physics_process</code> and <code>_process</code> in Godot, or <code>FixedUpdate</code>, <code>Update</code> and <code>LateUpdate</code> in Unity. Run for a second and read three frames of output.</p>
+  <p>Write the order down as a timeline. You are done when you can say, for one object that follows another (a camera, a health bar, a pet), which callback moves the leader, which moves the follower, and whether the follower sees this frame's position or last frame's.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A game loop repeats three jobs every frame: input, update, render.</li>
+    <li>Each job owns one kind of data: input writes a snapshot, update writes the world, render writes pixels.</li>
+    <li>Data flows forward inside a frame. Code that reads something written later in the frame sees last frame's value.</li>
+    <li>LÖVE lets you own the loop. Godot and Unity own it and call your code through callbacks at fixed points.</li>
+    <li>In Godot and Unity you rarely draw. You change world data, and the engine draws it after your update code finishes.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we pull update and render apart and look at why the simulation and the drawing can run at different rates without breaking the game.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Game Loop".</li>
+    <li>LÖVE wiki, <cite>love.run</cite>.</li>
+    <li>Godot documentation, <cite>Idle and Physics Processing</cite>.</li>
+    <li>Unity Manual, <cite>Order of execution for event functions</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FRAME = 1 / 20;     // each pretend frame lasts 50 ms
+  var SPEED = 120;        // world units per second
+  var WIDTH = 300;        // the world is 0..300 wide
+  var RADIUS = 10;
+  var PHASES = ['Input', 'Update', 'Render'];
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var frame, phase, input, ball, screen, lastText, autoClock;
+  var handle = null;
+
+  function reset() {
+    frame = 0;
+    phase = -1;            // -1 means no job has run yet
+    input = { dir: 0 };
+    ball = { x: 150, vx: 0 };
+    screen = { x: 150, frame: 0 };
+    lastText = 'nothing yet, press Next phase';
+    autoClock = 0;
+  }
+  reset();
+
+  function fmtDir(d) {
+    if (d < 0) return '-1 (left)';
+    if (d > 0) return '+1 (right)';
+    return '0 (none)';
+  }
+
+  var ui = DemoKit.controls('[data-demo="game-loop"]');
+  ui.button({ label: 'Next phase', onClick: function () { nextPhase(); refresh(); } });
+  ui.button({ label: 'Finish frame', onClick: function () {
+    do { nextPhase(); } while (phase !== 2);
+    refresh();
+  } });
+  var held = ui.select({ label: 'Key held', value: '0', onChange: function () { refresh(); },
+    options: [{ value: '0', label: 'none' }, { value: '-1', label: 'left' }, { value: '1', label: 'right' }] });
+  var auto = ui.toggle({ label: 'Auto-run', value: false });
+  var rate = ui.slider({ label: 'Auto-run speed', min: 1, max: 8, step: 1, value: 2, unit: ' phases/s' });
+  ui.button({ label: 'Reset', onClick: function () { reset(); refresh(); } });
+  var last = ui.readout({ label: 'Last job' });
+
+  // The live keyboard: arrow keys on the focused canvas win, otherwise the menu.
+  function liveDir() {
+    var keys = handle ? handle.state.keys : null;
+    var d = 0;
+    var any = false;
+    if (keys && keys.has('arrowleft')) { d -= 1; any = true; }
+    if (keys && keys.has('arrowright')) { d += 1; any = true; }
+    return any ? d : Number(held.value);
+  }
+
+  function nextPhase() {
+    phase = (phase + 1) % 3;
+    if (phase === 0) {
+      frame += 1;
+      input.dir = liveDir();
+      lastText = 'frame ' + frame + ', Input: snapshot dir = ' + fmtDir(input.dir);
+    } else if (phase === 1) {
+      var before = ball.x;
+      ball.vx = input.dir * SPEED;
+      ball.x = DemoKit.clamp(ball.x + ball.vx * FRAME, RADIUS, WIDTH - RADIUS);
+      lastText = 'frame ' + frame + ', Update: ball.x ' + before.toFixed(1) + ' to ' + ball.x.toFixed(1);
+    } else {
+      screen.x = ball.x;
+      screen.frame = frame;
+      lastText = 'frame ' + frame + ', Render: drew the ball at x = ' + screen.x.toFixed(1);
+    }
+  }
+
+  function refresh() {
+    last.set(lastText);
+    if (handle) handle.redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function tri(ctx, x1, y1, x2, y2, x3, y3) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var W = s.width;
+    var pad = 12;
+
+    // The three jobs, with the one that just ran filled in.
+    var top = 12;
+    var bh = 40;
+    var gap = 20;
+    var bw = (W - pad * 2 - gap * 2) / 3;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 13px ' + FONT;
+    for (var i = 0; i < 3; i++) {
+      var bx = pad + i * (bw + gap);
+      var active = i === phase;
+      ctx.fillStyle = active ? c.topic : c.surface2;
+      ctx.fillRect(bx, top, bw, bh);
+      ctx.strokeStyle = active ? c.topic : c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, top + 0.5, bw - 1, bh - 1);
+      ctx.fillStyle = active ? c.bg : c.ink;
+      ctx.fillText((i + 1) + '. ' + PHASES[i], bx + bw / 2, top + bh / 2);
+      if (i < 2) {
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 1.5;
+        var ay = top + bh / 2;
+        line(ctx, bx + bw + 3, ay, bx + bw + gap - 6, ay);
+        ctx.fillStyle = c.ink2;
+        tri(ctx, bx + bw + gap - 2, ay, bx + bw + gap - 8, ay - 4, bx + bw + gap - 8, ay + 4);
+      }
+    }
+    // Return arrow: after Render, back to Input.
+    var leftC = pad + bw / 2;
+    var rightC = pad + 2 * (bw + gap) + bw / 2;
+    var ry = top + bh + 12;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(rightC, top + bh + 2);
+    ctx.lineTo(rightC, ry);
+    ctx.lineTo(leftC, ry);
+    ctx.lineTo(leftC, top + bh + 8);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.ink3;
+    tri(ctx, leftC, top + bh + 2, leftC - 4, top + bh + 8, leftC + 4, top + bh + 8);
+    ctx.font = '12px ' + FONT;
+    ctx.fillText('next frame', W / 2, ry + 12);
+
+    // Status line.
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = c.ink;
+    var status = phase < 0
+      ? 'Frame 0, nothing has run yet'
+      : 'Frame ' + frame + ', just ran ' + PHASES[phase];
+    status += ', next: ' + PHASES[(phase + 1) % 3];
+    ctx.fillText(status, pad, 108);
+
+    // Data table: who holds which value right now.
+    var rows = [
+      { name: 'Keyboard now', value: fmtDir(liveDir()), owner: -2, by: 'changed by you' },
+      { name: 'Input snapshot', value: 'dir = ' + fmtDir(input.dir), owner: 0, by: 'written by Input' },
+      { name: 'World: ball', value: 'x = ' + ball.x.toFixed(1) + ', vx = ' + ball.vx, owner: 1, by: 'written by Update' },
+      { name: 'Screen shows', value: 'x = ' + screen.x.toFixed(1), owner: 2, by: 'written by Render' }
+    ];
+    var rowTop = 118;
+    var rowH = 26;
+    var valueX = pad + 116;
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      var y = rowTop + r * rowH;
+      if (row.owner === phase) {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(pad, y, W - pad * 2, rowH - 2);
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(pad, y, 4, rowH - 2);
+      }
+      ctx.font = '13px ' + FONT;
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText(row.name, pad + 10, y + 17);
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillStyle = c.ink;
+      ctx.fillText(row.value, valueX, y + 17);
+      if (W >= 520) {
+        ctx.font = '12px ' + FONT;
+        ctx.fillStyle = c.ink3;
+        ctx.textAlign = 'right';
+        ctx.fillText(row.by, W - pad - 8, y + 17);
+      }
+    }
+
+    // Two strips: the world in memory and the picture on the screen.
+    var stripTop = rowTop + rows.length * rowH + 10;
+    var span = W - pad * 2;
+    var scale = span / WIDTH;
+    function toX(x) { return pad + x * scale; }
+    var rad = RADIUS * scale;
+
+    ctx.textAlign = 'left';
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('World (in memory)', pad, stripTop + 12);
+    var wy = stripTop + 34;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    line(ctx, pad, wy + rad + 2, W - pad, wy + rad + 2);
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(toX(ball.x), wy, rad, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Screen (what the player sees)', pad, stripTop + 62);
+    var sTop = stripTop + 68;
+    var sH = 40;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(pad, sTop, span, sH);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad + 0.5, sTop + 0.5, span - 1, sH - 1);
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.arc(toX(screen.x), sTop + sH / 2, rad, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  handle = DemoKit.canvas('#game-loop', {
+    height: 380,
+    keys: true,
+    label: 'A step-through game loop. Three boxes show the Input, Update and Render jobs. A table shows the live keyboard, the input snapshot, the ball position in memory and the ball position on screen. Two strips show the ball in memory and on screen.',
+    update: function (dt) {
+      if (!auto.value) { autoClock = 0; return; }
+      autoClock += dt;
+      var period = 1 / rate.value;
+      var guard = 0;
+      while (autoClock >= period && guard < 10) {
+        autoClock -= period;
+        nextPhase();
+        guard += 1;
+      }
+      if (guard === 10) autoClock = 0;
+      last.set(lastText);
+    },
+    draw: draw
+  });
+  last.set(lastText);
+})();
+</script>
+</body>
+</html>

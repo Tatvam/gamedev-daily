@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What a shader is · Game Dev Daily</title>
+<meta name="description" content="A fragment shader is a small function that runs once for every pixel: it takes the pixel's position and returns a colour.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-09-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>What a shader is</h1>
+  <p class="lede">A fragment shader is a small function that runs once for every pixel: it takes the pixel's position and returns a colour.</p>
+</header>
+
+<section data-section="hook">
+  <p>You pasted a water shader from the internet into your project. It shimmers, and you have no idea why. You change one number and the screen goes black.</p>
+  <p>Shaders feel like magic until someone tells you the one sentence that explains them: <strong>a shader is a small function that runs once per pixel and returns a colour.</strong></p>
+</section>
+
+<section data-section="concept">
+  <h2>One function, run for every pixel</h2>
+  <p>In game code you write a loop to touch many things. A graphics card works the other way round: you hand it one small function, and it calls that function for every pixel of the shape being drawn, thousands of calls at the same time.</p>
+  <p>That function is a <dfn>fragment shader</dfn>. A <dfn>fragment</dfn> is one candidate pixel of a shape being drawn; for now you can read "fragment" as "pixel". Shaders are written in their own small languages. The one on this page is <dfn>GLSL</dfn>, the OpenGL Shading Language, which is also what LÖVE and WebGL use.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 225" role="img" aria-label="A grid of pixels with one pixel highlighted. An arrow carries that pixel's position into a box labelled your shader. Uniforms such as slider values also flow into the box from above. An arrow carries one colour out. A dashed line loops back to the grid to show that the GPU repeats this for every pixel.">
+      <g>
+        <rect class="d-fill" x="20" y="40" width="160" height="100"/>
+        <path class="d-thin" d="M40 40 V140 M60 40 V140 M80 40 V140 M100 40 V140 M120 40 V140 M140 40 V140 M160 40 V140"/>
+        <path class="d-thin" d="M20 60 H180 M20 80 H180 M20 100 H180 M20 120 H180"/>
+        <rect class="d-accent-fill" x="120" y="80" width="20" height="20"/>
+      </g>
+      <text class="d-muted" x="20" y="30">every square is a pixel</text>
+      <text class="d-muted" x="20" y="158">(0, 0)</text>
+
+      <path class="d-accent" d="M180 90 H292"/>
+      <path class="d-accent-fill" d="M300 90 L290 85 L290 95 Z"/>
+      <text class="d-label" x="240" y="80" text-anchor="middle">in: x, y</text>
+
+      <text class="d-muted" x="380" y="24" text-anchor="middle">uniforms: sliders, size, time</text>
+      <path class="d-thin" d="M380 32 V48"/>
+      <path class="d-thin" d="M380 55 L376 47 L384 47 Z"/>
+
+      <rect class="d-box" x="300" y="55" width="160" height="70" rx="8"/>
+      <text class="d-text" x="380" y="84" text-anchor="middle">your shader</text>
+      <text class="d-mono" x="380" y="106" text-anchor="middle">main()</text>
+
+      <path class="d-accent" d="M460 90 H532"/>
+      <path class="d-accent-fill" d="M540 90 L530 85 L530 95 Z"/>
+      <text class="d-label" x="498" y="80" text-anchor="middle">out</text>
+
+      <rect class="d-accent-soft" x="545" y="65" width="60" height="50" rx="6"/>
+      <text class="d-muted" x="575" y="134" text-anchor="middle">one colour</text>
+      <text class="d-muted" x="575" y="150" text-anchor="middle">r, g, b, a</text>
+
+      <path class="d-dash" d="M380 125 V185 H100 V150"/>
+      <path class="d-thin" d="M100 144 L96 152 L104 152 Z"/>
+      <text class="d-text" x="240" y="210" text-anchor="middle">the GPU repeats this for every pixel, many at once</text>
+    </svg>
+    <figcaption>The same function is called for every pixel. The only thing that changes between calls is the position that goes in, so the only way two pixels can differ is through that position.</figcaption>
+  </figure>
+
+  <h3>What goes in</h3>
+  <p>Each call knows exactly one thing on its own: where its pixel is. In WebGL that is the built-in variable <code>gl_FragCoord.xy</code>, measured in pixels from the <strong>bottom-left</strong> corner, with y pointing up. The centre of the bottom-left pixel is <code>(0.5, 0.5)</code>, not <code>(0, 0)</code>.</p>
+  <p>Everything else arrives as a <dfn>uniform</dfn>: a value your game code sends in before drawing, which is the same for every pixel during that draw. The canvas size, the time, and the sliders in the demo below are all uniforms.</p>
+
+  <h3>What comes out</h3>
+  <p>The function returns one colour as four numbers: red, green, blue and alpha (opacity), each from <code>0.0</code> to <code>1.0</code>. In WebGL you write it to <code>gl_FragColor</code>. <code>vec4(1.0, 0.0, 0.0, 1.0)</code> is solid red. Values outside the range are clamped when stored, so 1.7 shows as 1.0.</p>
+
+  <h3>What it cannot do</h3>
+  <p>A call cannot see what its neighbours returned, and it keeps nothing for the next frame. That is the price of running thousands of calls in parallel: every effect has to be computed from the position and the uniforms alone.</p>
+
+  <h3>Building a picture in four lines</h3>
+  <ol>
+    <li>Ignore the position and return the slider colour. Every pixel gets the same answer: a flat screen.</li>
+    <li>Divide the position by the canvas size. The result, <code>uv</code>, runs from 0.0 to 1.0 across the canvas at any resolution. Show <code>uv.x</code> as grey and you see a ramp.</li>
+    <li>Put <code>uv.x</code> in red and <code>uv.y</code> in green. Now each pixel's colour <em>is</em> its position, the most useful debugging view in shader work.</li>
+    <li>Multiply by the sliders. Red scales the horizontal ramp, green the vertical one, blue is the same everywhere.</li>
+  </ol>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>When a shader does something you do not understand, output the intermediate value as a colour. A number you can see is a number you can debug.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Use the Stage menu to walk through the four steps above. Then click or tap anywhere on the canvas, or focus it and use the arrow keys, to move the probe ring. The readout shows what goes into the function for that one pixel and what comes out.</p>
+  <p>On stage 3 the bottom-left is black and the top-right yellow: y grows upwards. On stage 4, drag Red to zero and watch the probe's red output drop to 0.00.</p>
+
+  <figure class="demo" data-demo="first-shader">
+    <canvas id="first-shader"></canvas>
+    <figcaption>Each pixel's colour is computed from its own position and the three slider values, nothing else. The probe readout does the same arithmetic for one pixel so you can check it.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string compiled with <code>love.graphics.newShader</code>. LÖVE writes <code>main</code> for you and calls your <code>effect</code> function, which returns the colour. <code>shader:send</code> sets uniforms, and the shader runs for every pixel drawn while it is active. This is stage 4 of the demo, with the same names and starting values.</p>
+  <p>One difference matters: LÖVE's <code>screen_coords</code> start at the <strong>top-left</strong> and y points down, like the rest of LÖVE. The line <code>uv.y = 1.0 - uv.y</code> flips it so the result matches the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local red, green, blue = 1.0, 1.0, 0.4   <span class="c">-- the three sliders</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_red;
+uniform float u_green;
+uniform float u_blue;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+<span class="k">    vec2 uv = screen_coords / u_resolution;   // 0.0 to 1.0 across the window</span>
+    uv.y = 1.0 - uv.y;                        // screen_coords start at the top-left
+<span class="k">    return vec4(uv.x * u_red, uv.y * u_green, u_blue, 1.0);</span>
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.draw()
+  local w, h = love.graphics.getPixelDimensions()   <span class="c">-- screen_coords are in pixels</span>
+  shader:send("u_resolution", { w, h })
+  shader:send("u_red", red)
+  shader:send("u_green", green)
+  shader:send("u_blue", blue)
+  love.graphics.setShader(shader)
+<span class="k">  love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())   <span class="c">-- effect() runs for each pixel of this</span></span>
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_red;
+uniform float u_green;
+uniform float u_blue;
+uniform float u_stage;
+uniform vec2 u_probe;
+uniform float u_dpr;
+
+void main() {
+  // What goes in: the position of this pixel, in pixels from the bottom-left corner.
+<span class="k">  vec2 uv = gl_FragCoord.xy / u_resolution;</span>
+
+  // What comes out: one colour. Each stage replaces the line before it.
+  vec3 col = vec3(u_red, u_green, u_blue);
+  if (u_stage &gt; 1.5) col = vec3(uv.x);
+  if (u_stage &gt; 2.5) col = vec3(uv.x, uv.y, 0.0);
+<span class="k">  if (u_stage &gt; 3.5) col = vec3(uv.x * u_red, uv.y * u_green, u_blue);</span>
+
+  // Demo only: a black and white ring around the probed pixel.
+  float d = length(gl_FragCoord.xy - u_probe);
+  col = mix(col, vec3(0.0), 1.0 - step(1.5 * u_dpr, abs(d - 9.0 * u_dpr)));
+  col = mix(col, vec3(1.0), 1.0 - step(1.0 * u_dpr, abs(d - 7.0 * u_dpr)));
+
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float u_red : hint_range(0.0, 1.0) = 1.0;
+uniform float u_green : hint_range(0.0, 1.0) = 1.0;
+uniform float u_blue : hint_range(0.0, 1.0) = 0.4;
+
+void fragment() {
+    // UV is 0 to 1 across the rectangle, with 0,0 at the top-left.
+<span class="k">    vec2 uv = vec2(UV.x, 1.0 - UV.y);</span>
+<span class="k">    COLOR = vec4(uv.x * u_red, uv.y * u_green, u_blue, 1.0);</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/FirstShader"
+{
+    Properties
+    {
+        _Red ("Red", Range(0, 1)) = 1
+        _Green ("Green", Range(0, 1)) = 1
+        _Blue ("Blue", Range(0, 1)) = 0.4
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float _Red, _Green, _Blue;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;   // 0,0 is the bottom-left of the quad
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+<span class="k">                return fixed4(i.uv.x * _Red, i.uv.y * _Green, _Blue, 1);</span>
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The engine versions use the mesh's own UVs instead of the screen position, because they usually draw on an object. Godot's canvas <code>UV</code> starts at the top-left, so it is flipped; Unity's starts at the bottom-left, like WebGL. For URP, build it in an Unlit Shader Graph: UV node into Split, multiply R and G by Red and Green properties, join them with a Blue property in a Combine node, and connect that to Base Color.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Writing <code>1</code> instead of <code>1.0</code>.</strong> GLSL ES 1.0, used by WebGL 1, does not convert integers to floats for you. <code>vec3(1, 0, 0)</code> works because constructors convert, but <code>uv.x * 2</code> is a compile error. Give every float a decimal point and the problem never comes up.</li>
+    <li><strong>Forgetting which corner is zero.</strong> WebGL and Unity UVs put 0,0 at the bottom-left. LÖVE's <code>screen_coords</code> and Godot's canvas <code>UV</code> put it at the top-left. An effect that appears upside down after porting nearly always comes from this.</li>
+    <li><strong>Sending a uniform the shader does not use.</strong> The compiler removes unused uniforms, and LÖVE's <code>shader:send</code> then raises an error because the name no longer exists. Comment out the <code>send</code> while you experiment.</li>
+    <li><strong>Expecting 0.5 to look half as bright.</strong> The numbers you return go to the screen as they are, and screens do not show them as a straight line of light. In a Unity project set to Linear colour space the output is also converted before display, so the same shader looks lighter there than on this page. The gamma and linear colour lesson later in this topic covers why.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The cost of a fragment shader is <em>pixels drawn</em> times <em>work per pixel</em>. A 1920 by 1080 screen has about 2.07 million pixels, so a full-screen shader at 60 frames per second runs about 124 million times a second. The shader on this page does a divide and a few multiplies per pixel, which any GPU, including a phone's, handles easily.</p>
+  <p>Loops, many texture reads and long chains of maths all get multiplied by those millions. Phones are usually limited by how many pixels they can fill, and their screens often have more pixels than a desktop monitor, so full-screen effects are the first suspect when a mobile game runs slowly.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Everything a modern engine draws goes through shaders. In Godot a <code>ShaderMaterial</code> lets you write your own <code>fragment()</code> function, as shown above. In Unity every material points at a shader, written by hand or built in Shader Graph.</p>
+  <p>The site Shadertoy is built around exactly the model in this lesson: one full-screen fragment shader that receives the resolution, time and mouse as uniforms and returns a colour for every pixel.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Put the Lua version into a new LÖVE project and run it. Then change the shader, one line at a time, so that:</p>
+  <ol>
+    <li>the gradient runs from top to bottom instead of left to right in the red channel (swap <code>uv.x</code> for <code>uv.y</code>),</li>
+    <li>the left half of the window is one colour and the right half another (hint: <code>uv.x &gt; 0.5</code> in an <code>if</code>),</li>
+    <li>the blue channel follows the mouse: send <code>love.mouse.getX() / love.graphics.getWidth()</code> as <code>u_blue</code>.</li>
+  </ol>
+  <p>You are done when all three work and you can say, for each one, what goes in and what comes out.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A fragment shader is a function that runs once per pixel and returns one colour.</li>
+    <li>What goes in is the pixel's position plus uniforms, values that are the same for every pixel in a draw.</li>
+    <li>Pixels cannot see each other's results and nothing is remembered between frames.</li>
+    <li>Dividing the position by the resolution gives UVs from 0 to 1, and showing them as colour is the first debugging tool to reach for.</li>
+    <li>The cost is pixels times work per pixel, which matters most on high-resolution phone screens.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we step back and follow one triangle through the rendering pipeline, to see where the fragments come from and what the vertex shader does before they arrive.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Hello World" and "Uniforms". A gentle, interactive introduction to fragment shaders.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>. The specification for the GLSL used by WebGL 1.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>. The reference for the <code>effect</code> entry point and sending uniforms.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite>. Lists the built-in variables such as <code>UV</code> and <code>COLOR</code>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    'precision mediump float;',
+    '',
+    'uniform vec2 u_resolution;',
+    'uniform float u_red;',
+    'uniform float u_green;',
+    'uniform float u_blue;',
+    'uniform float u_stage;',
+    'uniform vec2 u_probe;',
+    'uniform float u_dpr;',
+    '',
+    'void main() {',
+    '  // What goes in: the position of this pixel, in pixels from the bottom-left corner.',
+    '  vec2 uv = gl_FragCoord.xy / u_resolution;',
+    '',
+    '  // What comes out: one colour. Each stage replaces the line before it.',
+    '  vec3 col = vec3(u_red, u_green, u_blue);',
+    '  if (u_stage > 1.5) col = vec3(uv.x);',
+    '  if (u_stage > 2.5) col = vec3(uv.x, uv.y, 0.0);',
+    '  if (u_stage > 3.5) col = vec3(uv.x * u_red, uv.y * u_green, u_blue);',
+    '',
+    '  // Demo only: a black and white ring around the probed pixel.',
+    '  float d = length(gl_FragCoord.xy - u_probe);',
+    '  col = mix(col, vec3(0.0), 1.0 - step(1.5 * u_dpr, abs(d - 9.0 * u_dpr)));',
+    '  col = mix(col, vec3(1.0), 1.0 - step(1.0 * u_dpr, abs(d - 7.0 * u_dpr)));',
+    '',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  // The probe is stored as a fraction of the canvas (0..1, y measured from the bottom),
+  // so it stays in the same place when the canvas is resized.
+  var probe = { fx: 0.7, fy: 0.3 };
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="first-shader"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '1', label: '1. Same colour everywhere' },
+      { value: '2', label: '2. uv.x as grey' },
+      { value: '3', label: '3. uv as red and green' },
+      { value: '4', label: '4. uv times the sliders' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var red = ui.slider({ label: 'Red (u_red)', min: 0, max: 1, step: 0.01, value: 1.0,
+    onInput: function (v) { send('u_red', v); } });
+  var green = ui.slider({ label: 'Green (u_green)', min: 0, max: 1, step: 0.01, value: 1.0,
+    onInput: function (v) { send('u_green', v); } });
+  var blue = ui.slider({ label: 'Blue (u_blue)', min: 0, max: 1, step: 0.01, value: 0.4,
+    onInput: function (v) { send('u_blue', v); } });
+  var inputOut = ui.readout({ label: 'In: gl_FragCoord' });
+  var uvOut = ui.readout({ label: 'uv' });
+  var colOut = ui.readout({ label: 'Out: colour' });
+
+  function f2(v) { return v.toFixed(2); }
+
+  // The probed pixel in canvas pixels: the centre of the pixel under the probe.
+  function probePixel(s) {
+    var w = Math.max(1, Math.round(s.width * s.dpr));
+    var h = Math.max(1, Math.round(s.height * s.dpr));
+    var px = Math.min(Math.floor(probe.fx * w), w - 1) + 0.5;
+    var py = Math.min(Math.floor(probe.fy * h), h - 1) + 0.5;
+    return { x: px, y: py, w: w, h: h };
+  }
+
+  // The same arithmetic as the shader, done on the CPU for one pixel.
+  function shade(p) {
+    var u = p.x / p.w;
+    var v = p.y / p.h;
+    var n = Number(stage.value);
+    var c = [red.value, green.value, blue.value];
+    if (n > 1.5) c = [u, u, u];
+    if (n > 2.5) c = [u, v, 0];
+    if (n > 3.5) c = [u * red.value, v * green.value, blue.value];
+    return { u: u, v: v, c: c };
+  }
+
+  function updateReadout() {
+    if (!handle) return;
+    var s = handle.state;
+    var p = probePixel(s);
+    var r = shade(p);
+    inputOut.set('(' + p.x.toFixed(1) + ', ' + p.y.toFixed(1) + ')');
+    uvOut.set('(' + f2(r.u) + ', ' + f2(r.v) + ')');
+    colOut.set('(' + f2(r.c[0]) + ', ' + f2(r.c[1]) + ', ' + f2(r.c[2]) + ')');
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function moveProbeTo(p, s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    probe.fx = DemoKit.clamp(p.x / s.width, 0, 0.999);
+    probe.fy = DemoKit.clamp((s.height - p.y) / s.height, 0, 0.999);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#first-shader', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 200,
+    maxHeight: 360,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader filling the canvas with a colour computed from each pixel\'s position and three slider values. A ring marks the probed pixel; arrow keys move it.',
+    uniforms: {
+      u_red: 1.0,
+      u_green: 1.0,
+      u_blue: 0.4,
+      u_stage: 4,
+      u_dpr: function (s) { return s.dpr; },
+      u_probe: function (s) { var p = probePixel(s); return [p.x, p.y]; }
+    },
+    onDown: function (p, s) { moveProbeTo(p, s); },
+    onMove: function (p, s) { if (p.down) moveProbeTo(p, s); },
+    onResize: function () { updateReadout(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var stepSize = 0.02;
+      if (key === 'arrowleft') probe.fx = Math.max(0, probe.fx - stepSize);
+      if (key === 'arrowright') probe.fx = Math.min(0.999, probe.fx + stepSize);
+      if (key === 'arrowup') probe.fy = Math.min(0.999, probe.fy + stepSize);
+      if (key === 'arrowdown') probe.fy = Math.max(0, probe.fy - stepSize);
+      updateReadout();
+    }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

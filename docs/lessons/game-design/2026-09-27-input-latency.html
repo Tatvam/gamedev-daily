@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input latency: how late is too late? · Game Dev Daily</title>
+<meta name="description" content="Why the delay between pressing a button and seeing the result decides whether controls feel crisp or mushy, and where that delay hides in your game.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-09-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Input latency: how late is too late?</h1>
+  <p class="lede">Why the delay between pressing a button and seeing the result decides whether controls feel crisp or mushy, and where that delay hides in your game.</p>
+</header>
+
+<section data-section="hook">
+  <p>You press jump and the character jumps. Nothing is broken, yet the game feels like steering a boat. Players call it "floaty" or "unresponsive" and cannot say why. Very often the cause is a few dozen milliseconds between the press and the first pixel that moves.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Latency is the gap between intent and feedback</h2>
+  <p><dfn>Input latency</dfn> is the time from the moment a player presses a button to the moment the screen first shows a result. Players never see this number. With low latency the character feels like part of their hand; with high latency it feels like it is following orders.</p>
+  <p>Latency is not one delay. It is a chain of small waits, and every link adds to the total.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A chain of six stages from left to right: press, input read at the next frame, update, draw, wait for the display, pixels change. Below the chain, a bracket spans all six and is labelled total latency. A highlighted box under the update stage is labelled delay your game adds on purpose or by accident.">
+      <g>
+        <rect class="d-box" x="10" y="30" width="90" height="56" rx="6"/>
+        <rect class="d-box" x="116" y="30" width="90" height="56" rx="6"/>
+        <rect class="d-accent-soft" x="222" y="30" width="90" height="56" rx="6"/>
+        <rect class="d-box" x="328" y="30" width="90" height="56" rx="6"/>
+        <rect class="d-box" x="434" y="30" width="90" height="56" rx="6"/>
+        <rect class="d-box" x="540" y="30" width="90" height="56" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="55" y="63">Press</text>
+        <text class="d-text" x="161" y="54">Input read</text>
+        <text class="d-text" x="161" y="72">next frame</text>
+        <text class="d-text" x="267" y="63">Update</text>
+        <text class="d-text" x="373" y="63">Draw</text>
+        <text class="d-text" x="479" y="54">Wait for</text>
+        <text class="d-text" x="479" y="72">display</text>
+        <text class="d-text" x="585" y="54">Pixels</text>
+        <text class="d-text" x="585" y="72">change</text>
+      </g>
+      <g>
+        <path class="d-stroke" d="M100 58 H116"/>
+        <path class="d-stroke" d="M206 58 H222"/>
+        <path class="d-stroke" d="M312 58 H328"/>
+        <path class="d-stroke" d="M418 58 H434"/>
+        <path class="d-stroke" d="M524 58 H540"/>
+      </g>
+      <path class="d-dash" d="M267 86 V116"/>
+      <rect class="d-accent-soft" x="172" y="116" width="190" height="44" rx="6"/>
+      <text class="d-text" x="267" y="135" text-anchor="middle">wind-up animations,</text>
+      <text class="d-text" x="267" y="152" text-anchor="middle">queues, extra frames</text>
+      <path class="d-thin" d="M10 184 V194 H630 V184"/>
+      <text class="d-label" x="320" y="216" text-anchor="middle">total latency: what the player feels</text>
+    </svg>
+    <figcaption>Every stage waits for the one before it. The hardware and the engine own some links. The highlighted one belongs to your game code, and it is often the largest.</figcaption>
+  </figure>
+
+  <h3>Frames are the unit of delay</h3>
+  <p>Most games read input once per frame, at the start of the frame. A press that arrives just after that moment waits almost a whole frame to be noticed. At 60 frames per second a frame is 16.7 milliseconds, so every extra frame anywhere in the chain costs 16.7 ms. At 30 frames per second it costs 33.3 ms. This is one reason low frame rates feel sluggish even when the motion looks acceptable.</p>
+  <p>The display adds its own share. Many TVs process the picture before showing it, which is why many offer a "game mode" that skips some of that work. You cannot fix the player's TV, but you can avoid adding to the total.</p>
+
+  <h3>How much do players notice?</h3>
+  <p>There is no single threshold. It depends on the person, the action and what the eye is watching. Two research results give a sense of scale:</p>
+  <ul>
+    <li>Mark and Kajal Claypool (2006) sorted game actions by how precise they are and how quickly they must happen. Fast, precise actions such as aiming in a first-person shooter suffered at around 100 ms of added delay, while commanding units in a strategy game tolerated around a second.</li>
+    <li>Kjetil Raaen and Ragnhild Eg (2015) asked people to judge when a click changed the spin of a disc. When participants tuned the delay down themselves, the median result was about 40 ms, far lower than the delay they could reliably tell apart in a yes-or-no test. In other words, people can sense small delays when they are paying attention to them.</li>
+  </ul>
+  <p>These come from specific experiments. Treat them as a scale, not a target.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>For a platformer or action game, aim for the first visible response on the same frame the input is read, or the next one: under about 2 frames (33 ms) of delay added by your own code. For menus and turn-based choices, 100 ms of extra delay tends to go unnoticed. Measure your own game before you trust any of these numbers.</p>
+  </div>
+
+  <h3>The delay you add yourself</h3>
+  <p>The most fixable delay is often a design decision. A four-frame crouch before the feet leave the ground adds 67 ms at 60 frames per second. Waiting for the current animation to end before starting the next can add far more. The fix is not always to delete the wind-up. Often it is enough to show <em>something</em> on the first frame, such as a squash, a sound or a dust puff, so the player knows the press was heard.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Jump over the blocks with the added delay at 0 ms. Then drag it to 100 ms and keep playing. Watch the timeline at the top: a hollow circle is your press, a filled circle is the frame the jump actually fired, and the bar between them is the delay.</p>
+
+  <figure class="demo" data-demo="latency">
+    <canvas id="latency"></canvas>
+    <figcaption>Controls: Space, W or Up arrow to jump after clicking the canvas, or tap the canvas, or use the Jump button. The demo steps at 60 frames per second. Your device adds its own delay on top of the numbers shown. A press that fires while you are in the air is lost, drawn as a crossed circle.</figcaption>
+  </figure>
+
+  <p>At 150 ms you can still clear the blocks by pressing early, but you are now predicting instead of reacting. The second demo checks whether you can feel a delay you cannot see.</p>
+
+  <figure class="demo" data-demo="blindtest">
+    <canvas id="blindtest"></canvas>
+    <figcaption>Blind test, same controls. One version has no added delay, the other has the hidden difference. Play A, switch to B, then pick the quicker one. Lower the difference until your score drops to a coin flip.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's jump in LÖVE. Each press is stamped with the time it happened and queued, and the jump only fires once its delay has passed. In a real game <code>addedDelay</code> is zero; the queue is here to let you feel the difference and to measure what your code adds. Height <code>y</code> is measured upward from the ground.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GRAVITY = 3000       <span class="c">-- pixels per second squared</span>
+local JUMP_SPEED = 750     <span class="c">-- pixels per second at take-off</span>
+local GROUND = 300         <span class="c">-- screen y of the ground line</span>
+local addedDelay = 0.100   <span class="c">-- seconds; the demo's slider</span>
+
+local clock = 0
+local pending = {}         <span class="c">-- presses waiting for their delay</span>
+local player = { y = 0, vy = 0, grounded = true }
+local lastLatency = nil
+
+function love.keypressed(key)
+  if key == "space" or key == "w" or key == "up" then
+<span class="k">    table.insert(pending, { pressed = clock, fireAt = clock + addedDelay })</span>
+  end
+end
+
+function love.update(dt)
+  clock = clock + dt
+  local i = 1
+  while i &lt;= #pending do
+    local p = pending[i]
+    if clock &gt;= p.fireAt then
+      table.remove(pending, i)
+      if player.grounded then          <span class="c">-- in the air: the press is lost</span>
+        player.vy = JUMP_SPEED
+        player.grounded = false
+<span class="k">        lastLatency = clock - p.pressed</span>
+      end
+    else
+      i = i + 1
+    end
+  end
+
+  if not player.grounded then
+    player.vy = player.vy - GRAVITY * dt
+    player.y = player.y + player.vy * dt
+    if player.y &lt;= 0 then
+      player.y = 0
+      player.vy = 0
+      player.grounded = true
+    end
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", 100, GROUND - player.y - 24, 24, 24)
+  if lastLatency then
+    local ms = math.floor(lastLatency * 1000 + 0.5)
+    love.graphics.print("last jump fired " .. ms .. " ms after the press", 10, 10)
+  end
+end</code></pre>
+  </div>
+  <p>With <code>addedDelay</code> at 0 the jump fires on the next update after the press. That one-frame wait is the floor when input is read once per frame.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Testing only on your own machine.</strong> A fast monitor hides delay that a player on a TV at 30 frames per second will feel.</li>
+    <li><strong>Wind-up before any feedback.</strong> Anticipation frames look good in an animation tool and feel bad in the hand. If the action must wait, respond visibly or audibly on the first frame anyway.</li>
+    <li><strong>Reading input after the update.</strong> If your loop moves the character and only then reads the controller, every press waits an extra frame. Read input first, then update, then draw.</li>
+    <li><strong>Extra frames in the rendering setup.</strong> Vertical sync and extra frame buffering smooth the picture but can each add a frame or more. Let the player choose.</li>
+    <li><strong>Removing delay that was a design choice.</strong> Latency is not always a bug. A heavy knight or a fighting-game special move can wait on purpose, because commitment is part of the challenge. Keep such delay deliberate and consistent, and still acknowledge the press instantly.</li>
+    <li><strong>Inconsistent delay.</strong> A steady delay can be learned. One that wanders between 20 ms and 80 ms because of hitches cannot, and tends to feel worse than a larger steady one.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Fighting games commonly publish "frame data" for every move, listing its start-up frames: the delay before the attack can hit. Here the delay is designed and documented, and players plan around it.</p>
+  <p>Rhythm games usually include a calibration screen where the player taps along to a beat, so the game can measure and subtract the delay of that particular screen and audio setup.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick the most common action in your game, such as jump, attack or shoot. Film the screen and your hand at 60 frames per second with a phone. Step through the video frame by frame and count the frames from the press to the first frame where anything on screen changes.</p>
+  <p>If the count is well above what an empty test scene gives you, find where your code waits: a wind-up animation, an input read after the update, or a state machine that finishes one state first. You are done when the first visible response arrives within one or two frames of the press.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Input latency is the time from a press to the first visible result, and players feel it as control, not as a number.</li>
+    <li>It is a chain of waits. Each frame in the chain costs 16.7 ms at 60 frames per second.</li>
+    <li>The delay your own code adds, such as wind-ups and waiting for animations, is usually the easiest to cut.</li>
+    <li>When an action must wait by design, give instant feedback anyway and keep the delay consistent.</li>
+    <li>Thresholds from research are a scale, not a rule. Measure your own game.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Once the press is heard on time, the next lesson looks at what happens after it: how acceleration, friction and top speed decide whether movement feels tight, heavy or slippery.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Mark Claypool and Kajal Claypool, <cite>Latency and Player Actions in Online Games</cite>, Communications of the ACM 49(11), 2006. Groups game actions by precision and deadline and relates them to how much delay each tolerates.</li>
+    <li>Kjetil Raaen and Ragnhild Eg, <cite>Instantaneous Human-Computer Interactions: Button Causes and Screen Effects</cite>, HCI International 2015. Two experiments on how short a delay people can detect after pressing a button.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). A book-length treatment of responsiveness and control, the topic of this whole track.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 3000;     // pixels per second squared
+  var JUMP_SPEED = 750;   // pixels per second at take-off
+  var STEP = 1 / 60;      // the demo simulates at 60 frames per second
+  var BLOCK_SPEED = 300;  // pixels per second, blocks moving left
+  var SIZE = 24;          // player square
+  var BLOCK_W = 18;
+  var BLOCK_H = 30;
+  var WINDOW = 2;         // seconds of history on the timeline
+  var TIMELINE_H = 58;
+
+  function isJumpKey(key) {
+    return key === 'space' || key === 'w' || key === 'arrowup';
+  }
+
+  function circle(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+
+  // One small jumping game. getDelay() returns the added delay in seconds.
+  function makeGame(id, getDelay, showTimeline, onStats, seed) {
+    var clock, acc, player, pending, events, blocks, nextBlock, random, cleared, hits, lastLatency;
+
+    function reset() {
+      clock = 0;
+      acc = 0;
+      player = { y: 0, vy: 0, grounded: true };
+      pending = [];
+      events = [];
+      blocks = [];
+      nextBlock = 1.2;
+      random = DemoKit.rng(seed);
+      cleared = 0;
+      hits = 0;
+      lastLatency = null;
+      report();
+    }
+
+    function report() {
+      if (onStats) onStats(cleared, hits, lastLatency);
+    }
+
+    function press() {
+      var now = clock + acc;
+      var ev = { pressed: now, fired: null, lost: false };
+      events.push(ev);
+      if (events.length > 30) events.shift();
+      pending.push({ fireAt: now + getDelay(), ev: ev });
+    }
+
+    function step(width) {
+      clock += STEP;
+
+      // Fire presses whose delay is over.
+      var i = 0;
+      while (i < pending.length) {
+        var p = pending[i];
+        if (clock >= p.fireAt - 1e-9) {
+          pending.splice(i, 1);
+          p.ev.fired = clock;
+          if (player.grounded) {
+            player.vy = JUMP_SPEED;
+            player.grounded = false;
+            lastLatency = clock - p.ev.pressed;
+            report();
+          } else {
+            p.ev.lost = true;
+          }
+        } else {
+          i += 1;
+        }
+      }
+
+      // Jump physics. y is height above the ground.
+      if (!player.grounded) {
+        player.vy -= GRAVITY * STEP;
+        player.y += player.vy * STEP;
+        if (player.y <= 0) {
+          player.y = 0;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      }
+
+      // Blocks.
+      nextBlock -= STEP;
+      if (nextBlock <= 0) {
+        blocks.push({ x: width + 20, hit: false, counted: false });
+        nextBlock = 0.9 + random() * 0.8;
+      }
+      var px = playerX(width);
+      for (var b = blocks.length - 1; b >= 0; b--) {
+        var block = blocks[b];
+        block.x -= BLOCK_SPEED * STEP;
+        var overlapX = block.x < px + SIZE && block.x + BLOCK_W > px;
+        if (overlapX && player.y < BLOCK_H && !block.hit) {
+          block.hit = true;
+          hits += 1;
+          report();
+        }
+        if (!block.counted && block.x + BLOCK_W < px) {
+          block.counted = true;
+          if (!block.hit) { cleared += 1; report(); }
+        }
+        if (block.x < -BLOCK_W - 10) blocks.splice(b, 1);
+      }
+    }
+
+    function playerX(width) {
+      return Math.max(40, Math.round(width * 0.2));
+    }
+
+    function drawTimeline(ctx, s, c) {
+      var left = 12;
+      var right = s.width - 12;
+      var span = right - left;
+      var mid = 36;
+      var now = clock + acc;
+      function tx(t) { return right - (now - t) / WINDOW * span; }
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('timeline, last 2 s', left, 14);
+      ctx.textAlign = 'right';
+      ctx.fillText('now', right, 14);
+
+      // Frame ticks, one per simulated frame.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      var firstFrame = Math.ceil((now - WINDOW) / STEP);
+      var everyOther = span / (WINDOW / STEP) < 4;
+      for (var f = firstFrame; f * STEP <= now; f++) {
+        if (everyOther && f % 2 !== 0) continue;
+        var x = Math.round(tx(f * STEP)) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, mid - 6);
+        ctx.lineTo(x, mid + 6);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.moveTo(left, mid);
+      ctx.lineTo(right, mid);
+      ctx.stroke();
+
+      for (var e = 0; e < events.length; e++) {
+        var ev = events[e];
+        var end = ev.fired === null ? now : ev.fired;
+        if (end < now - WINDOW) continue;
+        var x1 = Math.max(left, tx(ev.pressed));
+        var x2 = tx(end);
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.45;
+        ctx.beginPath();
+        ctx.moveTo(x1, mid);
+        ctx.lineTo(x2, mid);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 2;
+        if (ev.pressed >= now - WINDOW) {
+          circle(ctx, x1, mid, 5);
+          ctx.fillStyle = c.surface;
+          ctx.fill();
+          ctx.strokeStyle = c.ink;
+          ctx.stroke();
+        }
+        if (ev.fired !== null) {
+          circle(ctx, x2, mid, 5);
+          if (ev.lost) {
+            ctx.fillStyle = c.surface;
+            ctx.fill();
+            ctx.strokeStyle = c.bad;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x2 - 4, mid - 4); ctx.lineTo(x2 + 4, mid + 4);
+            ctx.moveTo(x2 + 4, mid - 4); ctx.lineTo(x2 - 4, mid + 4);
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = c.topic;
+            ctx.fill();
+          }
+          var ms = Math.round((ev.fired - ev.pressed) * 1000);
+          ctx.fillStyle = c.ink2;
+          ctx.textAlign = 'center';
+          var labelX = DemoKit.clamp((x1 + x2) / 2, left + 20, right - 20);
+          ctx.fillText(ms + ' ms', labelX, mid + 20);
+        }
+      }
+    }
+
+    reset();
+
+    var handle = DemoKit.canvas('#' + id, {
+      height: 270,
+      keys: true,
+      label: 'A square that jumps over blocks moving toward it. Press Space, W or Up, or tap, to jump.' +
+        (showTimeline ? ' A timeline above shows each press and the frame its jump fired.' : ''),
+      update: function (dt, s) {
+        acc += dt;
+        var guard = 0;
+        while (acc >= STEP && guard < 12) {
+          acc -= STEP;
+          step(s.width);
+          guard += 1;
+        }
+        if (guard === 12) acc = 0;
+      },
+      onDown: function () { press(); },
+      onKey: function (key, down) { if (down && isJumpKey(key)) press(); },
+      draw: function (ctx, s) {
+        var c = s.colors;
+        var ground = s.height - 34;
+        var px = playerX(s.width);
+
+        if (showTimeline()) {
+          drawTimeline(ctx, s, c);
+        } else {
+          ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = c.ink3;
+          ctx.fillText('timeline hidden during the blind test', 12, 14);
+        }
+
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, ground);
+        ctx.lineTo(s.width, ground);
+        ctx.stroke();
+
+        for (var b = 0; b < blocks.length; b++) {
+          var block = blocks[b];
+          ctx.fillStyle = block.hit ? c.bad : c.ink2;
+          ctx.fillRect(Math.round(block.x), ground - BLOCK_H, BLOCK_W, BLOCK_H);
+        }
+
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(px, Math.round(ground - player.y - SIZE), SIZE, SIZE);
+
+        if (pending.length > 0 && showTimeline()) {
+          ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = c.ink3;
+          ctx.textAlign = 'left';
+          ctx.fillText('press heard, waiting...', px - 10, ground + 20);
+        }
+      }
+    });
+
+    return { press: press, reset: reset, handle: handle };
+  }
+
+  // ---- Demo 1: slider-controlled delay with a visible timeline ----
+  var ui = DemoKit.controls('[data-demo="latency"]');
+  var delay = ui.slider({ label: 'Added delay', min: 0, max: 250, step: 10, value: 0, unit: ' ms' });
+  var timeline = ui.toggle({ label: 'Show timeline', value: true });
+  var score = ui.readout({ label: 'Cleared / hit' });
+  var last = ui.readout({ label: 'Last jump fired after' });
+  var game1;
+  ui.button({ label: 'Jump', onClick: function () { game1.press(); } });
+  ui.button({ label: 'Reset', onClick: function () { game1.reset(); } });
+  last.set('no jump yet');
+
+  game1 = makeGame('latency',
+    function () { return delay.value / 1000; },
+    function () { return timeline.value; },
+    function (c, h, lat) {
+      score.set(c + ' / ' + h);
+      last.set(lat === null ? 'no jump yet' : Math.round(lat * 1000) + ' ms (' + Math.round(lat / STEP) + ' frames)');
+    },
+    3);
+
+  // ---- Demo 2: blind A/B test ----
+  var ui2 = DemoKit.controls('[data-demo="blindtest"]');
+  var pick = DemoKit.rng(11);
+  var slowIsA = pick() < 0.5;
+  var right = 0;
+  var tries = 0;
+  var version = ui2.select({ label: 'Playing version', options: ['A', 'B'], value: 'A' });
+  var gap = ui2.slider({ label: 'Hidden difference', min: 20, max: 200, step: 10, value: 100, unit: ' ms' });
+  var game2;
+  ui2.button({ label: 'Jump', onClick: function () { game2.press(); } });
+  ui2.button({ label: 'A felt quicker', onClick: function () { guess('A'); } });
+  ui2.button({ label: 'B felt quicker', onClick: function () { guess('B'); } });
+  var result = ui2.readout({ label: 'Result' });
+  var tally = ui2.readout({ label: 'Score' });
+  result.set('play both, then choose');
+  tally.set('0 of 0');
+
+  function guess(which) {
+    var quick = slowIsA ? 'B' : 'A';
+    tries += 1;
+    if (which === quick) right += 1;
+    result.set((which === quick ? 'Right. ' : 'Not this time. ') + (slowIsA ? 'A' : 'B') +
+      ' had +' + gap.value + ' ms. New pair drawn.');
+    tally.set(right + ' of ' + tries);
+    slowIsA = pick() < 0.5;
+    version.set('A');
+    game2.reset();
+  }
+
+  game2 = makeGame('blindtest',
+    function () {
+      var playingSlow = (version.value === 'A') === slowIsA;
+      return playingSlow ? gap.value / 1000 : 0;
+    },
+    function () { return false; },
+    null,
+    5);
+})();
+</script>
+</body>
+</html>

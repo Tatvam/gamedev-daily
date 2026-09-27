@@ -4,7 +4,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 
 ## Track 1: Pixels, canvases, and linework
 
-- [ ] **Pixels and resolution** — Why every pixel is a deliberate choice in pixel art and how the resolution of a sprite limits the detail it can hold. Demo: drag a slider to redraw the same procedural sprite on grids from 8 to 64 pixels wide and watch detail appear and vanish.
+- [x] **Pixels and resolution** — Why every pixel is a deliberate choice in pixel art and how the resolution of a sprite limits the detail it can hold. Demo: drag a slider to redraw the same procedural sprite on grids from 8 to 64 pixels wide and watch detail appear and vanish. (published 2026-09-27, pixels-and-resolution)
 - [ ] **Choosing a canvas size** — How common sprite sizes such as 8, 16, 32 and 64 pixels change your workload, your style and the screen resolution of the whole game. Demo: toggle a character between four canvas sizes placed on a mock game screen to compare how much space and detail each one gives.
 - [ ] **Nearest neighbour scaling** — Why pixel art must be enlarged with nearest neighbour sampling and how smooth filtering blurs it. Demo: an A/B view scales one sprite with nearest neighbour and with bilinear filtering while you move a zoom slider.
 - [ ] **Integer scaling and uneven pixels** — Why scaling by whole numbers keeps every pixel the same size while fractional scales create fat and thin pixels. Demo: a scale slider moves from 1x to 6x in small steps and highlights the columns that end up wider than their neighbours.
