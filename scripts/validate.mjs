@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,13 +126,17 @@ function browser() {
   return browserPath;
 }
 
-function runInBrowser(file, errors, warnings) {
-  const bin = browser();
-  if (!bin) return 'skipped';
+// Loads the page in a headless browser and returns the page as the browser left it. The
+// browser is stopped as soon as the page has been written out, because some versions keep
+// running long after that.
+function loadInBrowser(bin, file) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'gdd-chrome-'));
-  try {
-    const url = pathToFileURL(file).href + '#gdd-test';
-    const result = spawnSync(bin, [
+  const url = pathToFileURL(file).href + '#gdd-test';
+  return new Promise((resolve) => {
+    let dom = '';
+    let finished = false;
+    let timer = null;
+    const child = spawn(bin, [
       '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
       '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
       '--hide-scrollbars', '--mute-audio', '--no-first-run', '--no-default-browser-check',
@@ -141,9 +145,34 @@ function runInBrowser(file, errors, warnings) {
       '--virtual-time-budget=6000',
       '--user-data-dir=' + profile,
       '--dump-dom', url
-    ], { encoding: 'utf8', timeout: 90000, maxBuffer: 32 * 1024 * 1024 });
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
 
-    const dom = result.stdout || '';
+    function finish() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      setTimeout(() => {
+        try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
+        resolve(dom);
+      }, 200);
+    }
+    timer = setTimeout(finish, 60000);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      dom += chunk;
+      if (/<\/html>\s*$/i.test(dom)) setTimeout(finish, 150);
+    });
+    child.on('error', finish);
+    child.on('exit', () => setTimeout(finish, 50));
+  });
+}
+
+async function runInBrowser(file, errors, warnings) {
+  const bin = browser();
+  if (!bin) return 'skipped';
+  {
+    const dom = await loadInBrowser(bin, file);
     if (!/<html/i.test(dom)) {
       warnings.push('runtime check could not run (browser produced no page)');
       return 'failed';
@@ -168,8 +197,6 @@ function runInBrowser(file, errors, warnings) {
       }
     }
     return 'ran';
-  } finally {
-    try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 
@@ -271,7 +298,7 @@ function checkManifest(file, topic, meta, errors, warnings) {
   if (meta.engine && entry.engine !== meta.engine) warnings.push('manifest engine differs from the page meta tag');
 }
 
-function checkPage(file) {
+async function checkPage(file) {
   const errors = [];
   const warnings = [];
   const notes = [];
@@ -470,7 +497,7 @@ function checkPage(file) {
   if (!draft && topic) checkManifest(file, topic, meta, errors, warnings);
 
   if (errors.length === 0) {
-    const outcome = runInBrowser(file, errors, warnings);
+    const outcome = await runInBrowser(file, errors, warnings);
     if (outcome === 'skipped') notes.push('runtime check skipped (no browser found)');
     if (outcome === 'ran') notes.push('ran in headless browser');
   } else {
@@ -486,9 +513,20 @@ if (pages.length === 0) {
   process.exit(args.includes('--date') || flags.has('--all') ? 0 : 1);
 }
 
+// Pages are checked a few at a time and reported in order.
+const results = new Array(pages.length);
+let nextPage = 0;
+async function worker() {
+  while (nextPage < pages.length) {
+    const index = nextPage;
+    nextPage += 1;
+    results[index] = await checkPage(pages[index]);
+  }
+}
+await Promise.all(Array.from({ length: Math.min(4, pages.length) }, worker));
+
 let failed = 0;
-for (const page of pages) {
-  const result = checkPage(page);
+for (const result of results) {
   const ok = result.errors.length === 0;
   if (!ok) failed += 1;
   console.log((ok ? 'PASS  ' : 'FAIL  ') + result.relative + '  [' + result.notes.join('; ') + ']');
