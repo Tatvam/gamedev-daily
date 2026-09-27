@@ -204,15 +204,129 @@
     });
   }
 
+  /* ---------- Reading progress ----------
+     Which lessons the reader has marked as complete. Kept in this browser only (localStorage),
+     as { "<topic>/<date>-<slug>": "YYYY-MM-DD" }. A lesson's id comes from its address, so
+     lessons need no markup for this: the panel is added to every lesson automatically. */
+
+  var READ_KEY = 'gdd-read';
+  var readMemory = {};       // used when the browser refuses to store anything
+  var readPersistent = true;
+
+  function readAll() {
+    try {
+      var raw = localStorage.getItem(READ_KEY);
+      var data = raw ? JSON.parse(raw) : {};
+      if (!data || typeof data !== 'object' || Array.isArray(data)) data = {};
+      readPersistent = true;
+      return data;
+    } catch (e) {
+      readPersistent = false;
+      return readMemory;
+    }
+  }
+
+  function readSave(data) {
+    readMemory = data;
+    try {
+      localStorage.setItem(READ_KEY, JSON.stringify(data));
+      readPersistent = true;
+    } catch (e) {
+      readPersistent = false;
+    }
+    document.dispatchEvent(new CustomEvent('gdd:read'));
+  }
+
+  function lessonId(address) {
+    var match = /lessons\/([^\/?#]+)\/([^\/?#]+?)(?:\.html)?(?:[?#].*)?$/.exec(String(address || ''));
+    return match ? match[1] + '/' + match[2] : '';
+  }
+
+  function todayLocal() {
+    var now = new Date();
+    function two(n) { return (n < 10 ? '0' : '') + n; }
+    return now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate());
+  }
+
+  var read = {
+    id: lessonId,
+    all: readAll,
+    has: function (id) { return !!readAll()[id]; },
+    when: function (id) { return readAll()[id] || ''; },
+    set: function (id, done) {
+      if (!id) return;
+      var data = readAll();
+      if (done) data[id] = todayLocal();
+      else delete data[id];
+      readSave(data);
+    },
+    persistent: function () { readAll(); return readPersistent; }
+  };
+
+  // Another tab changed the progress: tell this page.
+  window.addEventListener('storage', function (event) {
+    if (event.key === READ_KEY || event.key === null) document.dispatchEvent(new CustomEvent('gdd:read'));
+  });
+
+  function buildReadPanel() {
+    var article = document.querySelector('.lesson article');
+    var id = lessonId(window.location.pathname);
+    if (!article || !id) return;
+
+    var status = el('p', { 'class': 'read-status' });
+    var button = el('button', { 'class': 'btn read-toggle', type: 'button' });
+    var link = el('a', { 'class': 'read-link', href: root + 'index.html?status=todo#archive', text: 'See what is left to read' });
+    var note = el('p', { 'class': 'read-note' });
+    var panel = el('aside', { 'class': 'read-panel', 'aria-label': 'Reading progress' },
+      [status, el('div', { 'class': 'read-actions' }, [button, link]), note]);
+    article.appendChild(panel);
+
+    var chip = null;
+    var metaRow = document.querySelector('.lesson-meta');
+
+    function show() {
+      var done = read.has(id);
+      panel.setAttribute('data-done', done ? 'true' : 'false');
+      status.textContent = done
+        ? 'You completed this lesson on ' + formatDate(read.when(id)) + '.'
+        : 'Finished reading?';
+      button.textContent = done ? 'Mark as not completed' : 'Mark as completed';
+      button.setAttribute('aria-pressed', done ? 'true' : 'false');
+      note.textContent = read.persistent()
+        ? ''
+        : 'This browser window is not saving progress (private browsing?), so this will be forgotten when you close it.';
+      note.hidden = read.persistent();
+
+      if (metaRow) {
+        if (done && !chip) {
+          chip = el('li', { 'class': 'is-done', text: 'Completed' });
+          metaRow.appendChild(chip);
+        } else if (!done && chip) {
+          metaRow.removeChild(chip);
+          chip = null;
+        }
+      }
+    }
+
+    button.addEventListener('click', function () {
+      read.set(id, !read.has(id));
+    });
+    document.addEventListener('gdd:read', show);
+    show();
+  }
+
   function ready() {
     buildHeader();
     buildLessonHead();
     buildCodeTabs();
+    buildReadPanel();
     buildFooter();
   }
 
+  window.GDD = {
+    root: root, topics: TOPICS, engines: ENGINES, formatDate: formatDate, theme: currentTheme, read: read
+  };
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
-
-  window.GDD = { root: root, topics: TOPICS, engines: ENGINES, formatDate: formatDate, theme: currentTheme };
 })();

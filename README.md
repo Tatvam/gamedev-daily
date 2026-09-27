@@ -26,6 +26,15 @@ Pages publishes the `docs/` folder.
 The lessons are written by AI agents. They are checked automatically for structure and for
 errors in their demos, but not reviewed by a person, so they can contain mistakes.
 
+## Tracking what you have read
+
+Every lesson ends with a **Mark as completed** button. On the home page, the list of all
+lessons shows your progress, has a tick box next to each lesson, and can be filtered to
+**To read** or **Completed**, on its own or together with a topic.
+
+Progress is saved in the browser you are using, not in an account. Each browser and device
+keeps its own list, and clearing the browser's site data clears it.
+
 ## Changing what gets taught
 
 | To change | Edit |

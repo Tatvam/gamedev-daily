@@ -24,10 +24,16 @@
 
   <section aria-labelledby="archive-title" id="archive">
     <h2 id="archive-title">All lessons</h2>
-    <p class="section-note" id="archive-note"></p>
+    <div class="progress-line" id="progress" hidden>
+      <span><strong id="progress-count">0 of 0</strong> completed</span>
+      <div class="progress-bar" aria-hidden="true"><span id="progress-fill"></span></div>
+      <span class="progress-warning" id="progress-warning" hidden>This browser window is not saving progress (private browsing?), so it will be forgotten when you close it.</span>
+    </div>
+    <div class="filters" id="status-filters" role="group" aria-label="Filter by reading progress"></div>
     <div class="filters" id="filters" role="group" aria-label="Filter by topic"></div>
     <label class="visually-hidden" for="search">Search lessons</label>
     <input class="search" id="search" type="search" placeholder="Search titles and tags" autocomplete="off">
+    <p class="section-note" id="archive-note" aria-live="polite"></p>
     <div id="archive-list"></div>
   </section>
 
@@ -42,12 +48,24 @@
   var latestEl = document.getElementById('latest');
   var latestNote = document.getElementById('latest-note');
   var archiveNote = document.getElementById('archive-note');
+  var statusEl = document.getElementById('status-filters');
   var filtersEl = document.getElementById('filters');
   var searchEl = document.getElementById('search');
   var listEl = document.getElementById('archive-list');
+  var progressEl = document.getElementById('progress');
+  var progressCount = document.getElementById('progress-count');
+  var progressFill = document.getElementById('progress-fill');
+  var progressWarning = document.getElementById('progress-warning');
+
+  var STATUSES = [
+    { id: 'all', label: 'All' },
+    { id: 'todo', label: 'To read' },
+    { id: 'done', label: 'Completed' }
+  ];
 
   var data = null;
   var activeTopic = 'all';
+  var activeStatus = 'all';
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -84,6 +102,10 @@
     return id;
   }
 
+  function isDone(lesson) {
+    return GDD.read.has(GDD.read.id(lesson.url));
+  }
+
   function metaLine(lesson) {
     var parts = [GDD.formatDate(lesson.date)];
     if (lesson.level) parts.push(lesson.level);
@@ -104,11 +126,16 @@
       var card;
       if (lesson) {
         if (lesson.date === today) fresh += 1;
-        card = el('article', { 'class': 'card', 'data-topic': topic.id }, [
+        var done = isDone(lesson);
+        var meta = el('span', { 'class': 'card-meta' }, [
+          el('span', { text: metaLine(lesson) }),
+          done ? el('span', { 'class': 'done-mark', text: 'Completed' }) : null
+        ]);
+        card = el('article', { 'class': 'card' + (done ? ' is-done' : ''), 'data-topic': topic.id }, [
           el('span', { 'class': 'topic-badge', text: topic.title }),
           el('h3', {}, [el('a', { href: lesson.url, text: lesson.title })]),
           el('p', { text: lesson.summary || '' }),
-          el('span', { 'class': 'card-meta', text: metaLine(lesson) })
+          meta
         ]);
       } else {
         card = el('article', { 'class': 'card is-empty', 'data-topic': topic.id }, [
@@ -125,8 +152,45 @@
     else latestNote.textContent = 'Most recent set: ' + longDate(data.latest) + '.';
   }
 
+  function inTopic(lesson) {
+    return activeTopic === 'all' || lesson.topic === activeTopic;
+  }
+
+  function renderProgress() {
+    var total = data.lessons.length;
+    var done = data.lessons.filter(isDone).length;
+    progressEl.hidden = total === 0;
+    progressCount.textContent = done + ' of ' + total;
+    progressFill.style.width = (total ? Math.round(100 * done / total) : 0) + '%';
+    progressWarning.hidden = GDD.read.persistent();
+  }
+
   function renderFilters() {
+    // Progress filter. The counts follow the topic that is selected.
+    var scoped = data.lessons.filter(inTopic);
+    var doneCount = scoped.filter(isDone).length;
+    var counts = { all: scoped.length, todo: scoped.length - doneCount, done: doneCount };
+
+    statusEl.textContent = '';
+    statusEl.appendChild(el('span', { 'class': 'filter-label', text: 'Show' }));
+    STATUSES.forEach(function (status) {
+      var button = el('button', {
+        'class': 'chip is-all', type: 'button',
+        'aria-pressed': status.id === activeStatus ? 'true' : 'false'
+      }, [
+        document.createTextNode(status.label + ' '),
+        el('span', { 'class': 'count', text: String(counts[status.id]) })
+      ]);
+      button.addEventListener('click', function () {
+        activeStatus = status.id;
+        render();
+      });
+      statusEl.appendChild(button);
+    });
+
+    // Topic filter.
     filtersEl.textContent = '';
+    filtersEl.appendChild(el('span', { 'class': 'filter-label', text: 'Topic' }));
     function chip(id, label) {
       var button = el('button', {
         'class': 'chip' + (id === 'all' ? ' is-all' : ''), type: 'button',
@@ -135,8 +199,7 @@
       if (id !== 'all') button.setAttribute('data-topic', id);
       button.addEventListener('click', function () {
         activeTopic = id;
-        renderFilters();
-        renderArchive();
+        render();
       });
       return button;
     }
@@ -145,10 +208,25 @@
   }
 
   function matches(lesson, query) {
-    if (activeTopic !== 'all' && lesson.topic !== activeTopic) return false;
+    if (!inTopic(lesson)) return false;
+    if (activeStatus === 'done' && !isDone(lesson)) return false;
+    if (activeStatus === 'todo' && isDone(lesson)) return false;
     if (!query) return true;
     var haystack = [lesson.title, lesson.summary, (lesson.tags || []).join(' '), topicTitle(lesson.topic)].join(' ').toLowerCase();
     return query.split(/\s+/).every(function (word) { return haystack.indexOf(word) !== -1; });
+  }
+
+  function emptyMessage() {
+    if (!data.lessons.length) return 'The archive fills up one day at a time.';
+    if (activeStatus === 'todo' && !searchEl.value.trim()) {
+      return activeTopic === 'all'
+        ? 'Nothing left to read. You have completed every lesson.'
+        : 'Nothing left to read in this topic.';
+    }
+    if (activeStatus === 'done' && !searchEl.value.trim()) {
+      return 'No completed lessons here yet. Open a lesson and press "Mark as completed" at the end, or tick the box next to it in this list.';
+    }
+    return 'Nothing matches that filter.';
   }
 
   function renderArchive() {
@@ -157,12 +235,11 @@
     var shown = data.lessons.filter(function (lesson) { return matches(lesson, query); });
 
     archiveNote.textContent = data.lessons.length
-      ? shown.length + ' of ' + data.lessons.length + ' lessons'
+      ? 'Showing ' + shown.length + ' of ' + data.lessons.length + ' lessons'
       : '';
 
     if (!shown.length) {
-      listEl.appendChild(el('p', { 'class': 'empty-note',
-        text: data.lessons.length ? 'Nothing matches that filter.' : 'The archive fills up one day at a time.' }));
+      listEl.appendChild(el('p', { 'class': 'empty-note', text: emptyMessage() }));
       return;
     }
 
@@ -175,11 +252,21 @@
         group = el('ul', { 'class': 'archive' });
         listEl.appendChild(group);
       }
+      var done = isDone(lesson);
+      var id = GDD.read.id(lesson.url);
+
+      var box = el('input', { type: 'checkbox', 'aria-label': 'Completed: ' + lesson.title });
+      box.checked = done;
+      box.addEventListener('change', function () {
+        GDD.read.set(id, box.checked);
+      });
+
       var title = el('a', { 'class': 'title', href: lesson.url }, [
         document.createTextNode(lesson.title),
         el('span', { 'class': 'summary', text: lesson.summary || '' })
       ]);
-      group.appendChild(el('li', { 'class': 'archive-item', 'data-topic': lesson.topic }, [
+      group.appendChild(el('li', { 'class': 'archive-item' + (done ? ' is-done' : ''), 'data-topic': lesson.topic }, [
+        el('label', { 'class': 'done-toggle', title: done ? 'Completed' : 'Mark as completed' }, [box]),
         el('span', { 'class': 'topic-badge', text: topicTitle(lesson.topic) }),
         title,
         el('span', { 'class': 'mins', text: lesson.minutes ? lesson.minutes + ' min' : '' })
@@ -187,15 +274,43 @@
     });
   }
 
+  function render() {
+    renderLatest();
+    renderProgress();
+    renderFilters();
+    renderArchive();
+  }
+
+  // Ticking a box re-renders the list. Keep the keyboard focus on the same lesson's box
+  // when it is still on screen.
+  function renderKeepingFocus() {
+    var active = document.activeElement;
+    var label = active && active.getAttribute ? active.getAttribute('aria-label') : null;
+    render();
+    if (!label) return;
+    var boxes = listEl.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].getAttribute('aria-label') === label) { boxes[i].focus(); return; }
+    }
+  }
+
   function start(json) {
     data = json;
     data.lessons = data.lessons || [];
-    var wanted = new URLSearchParams(window.location.search).get('topic');
-    if (wanted && data.topics.some(function (t) { return t.id === wanted; })) activeTopic = wanted;
-    renderLatest();
-    renderFilters();
-    renderArchive();
+    var params = new URLSearchParams(window.location.search);
+    var wantedTopic = params.get('topic');
+    if (wantedTopic && data.topics.some(function (t) { return t.id === wantedTopic; })) activeTopic = wantedTopic;
+    var wantedStatus = params.get('status');
+    if (wantedStatus === 'todo' || wantedStatus === 'done') activeStatus = wantedStatus;
+    render();
     searchEl.addEventListener('input', renderArchive);
+    document.addEventListener('gdd:read', renderKeepingFocus);
+
+    // The list is filled in after the page loads, so a link to #archive has to be
+    // followed again once the content above it has its final height.
+    if (window.location.hash === '#archive') {
+      document.getElementById('archive').scrollIntoView();
+    }
   }
 
   fetch('lessons.json', { cache: 'no-cache' })

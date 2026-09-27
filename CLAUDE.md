@@ -33,6 +33,13 @@ except what is committed here, so the repository is the memory.
 The reference lesson that sets the quality bar is
 `docs/lessons/game-physics/2026-09-27-fix-your-timestep.html`. Read it before writing a lesson.
 
+## Reading progress
+
+Readers can mark a lesson as completed and filter the home page by "To read" and "Completed".
+`docs/assets/site.js` adds the "Mark as completed" panel to the end of every lesson by itself,
+and the home page adds the filters and tick boxes. The progress is stored in the reader's own
+browser. Lessons need no markup for this and must not add their own version of it.
+
 ## Hard rules
 
 1. **Self-contained pages.** A lesson may load only the three shared files in `docs/assets/` by
