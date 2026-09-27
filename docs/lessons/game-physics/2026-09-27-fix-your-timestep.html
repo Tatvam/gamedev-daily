@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fix your timestep · Game Dev Daily</title>
+<meta name="description" content="Why physics tied to the frame rate behaves differently on every machine, and how a fixed timestep with an accumulator makes it the same everywhere.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-09-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Fix your timestep</h1>
+  <p class="lede">Why physics tied to the frame rate behaves differently on every machine, and how a fixed timestep with an accumulator makes it the same everywhere.</p>
+</header>
+
+<section data-section="hook">
+  <p>On your computer the hero's jump just reaches the ledge. On a friend's older laptop the same jump falls short, and the level cannot be finished. Nobody changed the code. The only difference is how many frames per second each machine draws.</p>
+  <p>If the frame rate can change what happens in your game, the frame rate is part of your game rules. This lesson takes it back out.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Multiplying by delta time is not enough</h2>
+  <p>A game advances in small jumps of time. Each jump is a <dfn>step</dfn>, and its length in seconds is the <dfn>timestep</dfn>, usually written <code>dt</code>. The common approach is to measure how long the last frame took and use that as the timestep:</p>
+<pre><code>velocity += gravity * dt;
+position += velocity * dt;</code></pre>
+  <p>This is a <dfn>variable timestep</dfn>: a fast machine takes many small steps, a slow machine takes a few large ones. For an object moving at constant speed the result is the same either way, which is why this looks correct at first.</p>
+  <p>It stops being the same as soon as the speed changes during the step. Under gravity the velocity changes continuously, but the code only updates it once per step and then treats it as constant until the next one. Every step is a small approximation, and the size of the error depends on the size of the step.</p>
+
+  <h3>The numbers</h3>
+  <p>Take a jump with a launch speed of 600 pixels per second and gravity of 1800 pixels per second squared. On paper the peak is exactly 100 pixels. Here is what the two lines of code above produce:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Frame rate</th><th class="num">Step</th><th class="num">Jump peak</th><th>A 92 pixel ledge</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>144 per second</td><td class="num">6.9 ms</td><td class="num">97.9 px</td><td>reached</td></tr>
+      <tr><td>60 per second</td><td class="num">16.7 ms</td><td class="num">95.0 px</td><td>reached</td></tr>
+      <tr><td>30 per second</td><td class="num">33.3 ms</td><td class="num">90.0 px</td><td>missed</td></tr>
+      <tr><td>20 per second</td><td class="num">50.0 ms</td><td class="num">85.5 px</td><td>missed</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The level designer built that ledge while playing at 60 frames per second. Anyone running below about 38 cannot reach it.</p>
+  <p>Jump height is only the visible symptom. With large steps, fast objects move further per step and skip through thin walls, and stiff springs overshoot and explode. All of these come from the same cause: the step size is decided by the machine, not by you.</p>
+
+  <h2>The fix: choose the step yourself</h2>
+  <p>With a <dfn>fixed timestep</dfn> the simulation always advances by the same amount, for example one sixtieth of a second. The frame rate no longer decides how big a step is. It only decides <em>how many</em> steps to run before drawing.</p>
+  <p>The bookkeeping is done with an <dfn>accumulator</dfn>: a number holding time that has passed in the real world but has not been simulated yet.</p>
+  <ol>
+    <li>At the start of each frame, add the frame's duration to the accumulator.</li>
+    <li>While the accumulator holds at least one step's worth of time, run one step and subtract the step from the accumulator.</li>
+    <li>Draw. Whatever is left in the accumulator stays there for the next frame.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 214" role="img" aria-label="Seven frames of different lengths on the top row. Below them, nine simulation steps of equal length. Long frames run two steps, short frames run one, and a small amount of time is left over at the end.">
+      <text class="d-muted" x="12" y="34">Frames</text>
+      <text class="d-muted" x="12" y="50">(uneven)</text>
+      <g>
+        <rect class="d-box" x="80" y="20" width="50" height="40" rx="4"/>
+        <rect class="d-box" x="130" y="20" width="50" height="40" rx="4"/>
+        <rect class="d-box" x="180" y="20" width="120" height="40" rx="4"/>
+        <rect class="d-box" x="300" y="20" width="50" height="40" rx="4"/>
+        <rect class="d-box" x="350" y="20" width="100" height="40" rx="4"/>
+        <rect class="d-box" x="450" y="20" width="75" height="40" rx="4"/>
+        <rect class="d-box" x="525" y="20" width="50" height="40" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="105" y="45">17 ms</text>
+        <text class="d-text" x="155" y="45">17 ms</text>
+        <text class="d-text" x="240" y="45">40 ms</text>
+        <text class="d-text" x="325" y="45">17 ms</text>
+        <text class="d-text" x="400" y="45">33 ms</text>
+        <text class="d-text" x="487" y="45">25 ms</text>
+        <text class="d-text" x="550" y="45">17 ms</text>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-label" x="105" y="82">1 step</text>
+        <text class="d-label" x="155" y="82">1 step</text>
+        <text class="d-label" x="240" y="82">2 steps</text>
+        <text class="d-label" x="325" y="82">1 step</text>
+        <text class="d-label" x="400" y="82">2 steps</text>
+        <text class="d-label" x="487" y="82">1 step</text>
+        <text class="d-label" x="550" y="82">1 step</text>
+      </g>
+      <g>
+        <path class="d-dash" d="M80 60 V110"/>
+        <path class="d-dash" d="M130 60 V110"/>
+        <path class="d-dash" d="M180 60 V110"/>
+        <path class="d-dash" d="M300 60 V110"/>
+        <path class="d-dash" d="M350 60 V110"/>
+        <path class="d-dash" d="M450 60 V110"/>
+        <path class="d-dash" d="M525 60 V110"/>
+        <path class="d-dash" d="M575 60 V150"/>
+      </g>
+      <text class="d-muted" x="12" y="124">Steps</text>
+      <text class="d-muted" x="12" y="140">(all 1/60 s)</text>
+      <g>
+        <rect class="d-accent-soft" x="80" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="130" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="180" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="230" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="280" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="330" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="380" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="430" y="110" width="50" height="40" rx="4"/>
+        <rect class="d-accent-soft" x="480" y="110" width="50" height="40" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="105" y="135">1</text>
+        <text class="d-mono" x="155" y="135">2</text>
+        <text class="d-mono" x="205" y="135">3</text>
+        <text class="d-mono" x="255" y="135">4</text>
+        <text class="d-mono" x="305" y="135">5</text>
+        <text class="d-mono" x="355" y="135">6</text>
+        <text class="d-mono" x="405" y="135">7</text>
+        <text class="d-mono" x="455" y="135">8</text>
+        <text class="d-mono" x="505" y="135">9</text>
+      </g>
+      <rect class="d-fill" x="530" y="110" width="45" height="40" rx="4"/>
+      <path class="d-thin" d="M552 154 V176"/>
+      <text class="d-text" x="575" y="194" text-anchor="end">left in the accumulator for the next frame</text>
+    </svg>
+    <figcaption>The frames take whatever time they take. The simulation only ever moves in equal steps. A long frame runs two steps to catch up, and time that does not fill a whole step waits in the accumulator.</figcaption>
+  </figure>
+
+  <h3>Two details that make it production ready</h3>
+  <p><strong>Cap the frame time.</strong> If one frame takes a full second, the loop will try to run 60 steps in the next frame. If those steps are slow, that frame takes even longer, and the next one needs even more steps. This is often called the spiral of death. Capping the time added to the accumulator, for example at a quarter of a second, means the game slows down briefly instead of freezing.</p>
+  <p><strong>Interpolate when drawing.</strong> The leftover time in the accumulator means the screen is drawn somewhere <em>between</em> two steps. If you draw the latest step as it is, motion shows a small stutter whenever the frame rate and the step rate do not line up. The cure is to remember the previous state and blend: <code>alpha = accumulator / step</code>, then draw at <code>previous + (current - previous) * alpha</code>.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both boxes run the same jump code with the same numbers as the table. The left one takes one step per frame, as long as the frame. The right one uses a fixed step of one sixtieth of a second. The dashed line is a ledge 92 pixels up: the bottom of the box has to rise above it.</p>
+  <p>Drag the frame rate down to 30 and watch the left box start missing the ledge. Then switch on random hitches.</p>
+
+  <figure class="demo" data-demo="timestep">
+    <canvas id="timestep"></canvas>
+    <figcaption>The short line beside each box marks the peak of its last jump. On the left it moves whenever the frame rate changes. On the right it stays at 95.0 pixels at any frame rate, even though both sides get choppier to look at when frames are scarce.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The whole pattern is one loop. If you write your own engine or use a framework that only gives you a per-frame callback, this is what you add. Godot and Unity already contain this loop, so there the job is to put your physics code in the callback that it drives.</p>
+
+  <div class="code-tabs">
+<pre data-lang="JavaScript"><code>const STEP = 1 / 60;        <span class="c">// seconds per simulation step</span>
+const MAX_FRAME = 0.25;     <span class="c">// never simulate more than this per frame</span>
+let accumulator = 0;
+let last = performance.now();
+
+function frame(now) {
+  const frameTime = Math.min((now - last) / 1000, MAX_FRAME);
+  last = now;
+
+<span class="k">  accumulator += frameTime;
+  while (accumulator &gt;= STEP) {
+    previous = copy(current);   <span class="c">// kept for interpolation</span>
+    simulate(current, STEP);    <span class="c">// always the same step</span>
+    accumulator -= STEP;
+  }</span>
+
+  const alpha = accumulator / STEP;
+  draw(blend(previous, current, alpha));
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot runs the accumulator loop for you.</span>
+<span class="c"># _physics_process is called at a fixed rate: 60 times per second by default</span>
+<span class="c"># (Project Settings &gt; Physics &gt; Common &gt; Physics Ticks per Second).</span>
+
+func _physics_process(delta: float) -&gt; void:
+<span class="k">    velocity.y += gravity * delta   <span class="c"># delta is the fixed step here</span></span>
+    move_and_slide()
+
+<span class="c"># _process(delta) runs once per drawn frame. Keep visuals and UI there,</span>
+<span class="c"># and keep anything that affects gameplay out of it.</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity runs the accumulator loop for you.</span>
+<span class="c">// FixedUpdate is called at a fixed rate: every 0.02 s (50 per second) by default</span>
+<span class="c">// (Project Settings &gt; Time &gt; Fixed Timestep).</span>
+
+void FixedUpdate()
+{
+<span class="k">    body.AddForce(Vector2.down * extraGravity);   <span class="c">// physics goes here</span></span>
+}
+
+void Update()
+{
+    <span class="c">// Runs once per drawn frame. Read input here and remember it</span>
+    <span class="c">// until the next FixedUpdate uses it.</span>
+    if (Input.GetButtonDown("Jump")) jumpRequested = true;
+}</code></pre>
+  </div>
+  <p>Both engines can also interpolate for you. In Unity, set <code>Interpolate</code> on the Rigidbody. Godot 4.3 and later have a physics interpolation option in the project settings.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reading button presses inside the fixed step.</strong> A "was pressed this frame" check is true for one drawn frame. On a fast machine some frames run no step at all, so the press is never seen. Read input every frame, store it, and let the next step consume it.</li>
+    <li><strong>Using the frame time inside the fixed step.</strong> Inside the step, the timestep is the fixed step. Mixing in the frame's own duration brings the original bug straight back.</li>
+    <li><strong>No cap on frame time.</strong> Switching windows, hitting a breakpoint or loading a level produces one huge frame. Without a cap the game tries to simulate all of it at once.</li>
+    <li><strong>Steps that cost more than they simulate.</strong> If one step of 16 ms takes 20 ms to compute, the simulation can never catch up. Make the step cheaper or the step size larger.</li>
+    <li><strong>Expecting identical results on every machine.</strong> A fixed step makes the game behave the same at every frame rate. Bit-for-bit identical results across different processors is a harder problem, and a fixed step is only its first requirement.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines used in these lessons are built this way. Godot calls <code>_physics_process</code> on a fixed tick, 60 per second by default. Unity calls <code>FixedUpdate</code> on a fixed tick, 50 per second by default, and its built-in physics advances on the same tick.</p>
+  <p>The pattern is also the foundation of multiplayer techniques such as lockstep and rollback, which need every player's simulation to take the same steps in the same order.</p>
+  <p>You can recognise games that skipped this lesson: when players remove the frame rate limit, physics speeds up, jumps change height, or objects start to shake.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Open a project where a character jumps. Print the highest point of each jump. Limit the game to 30 frames per second and write the number down, then remove the limit and compare.</p>
+  <p>If the two numbers differ, find the movement code that runs once per drawn frame and move it into the fixed callback (<code>_physics_process</code> or <code>FixedUpdate</code>), or wrap it in the accumulator loop above. You are done when both frame rates print the same peak.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Multiplying by delta time only makes constant motion independent of frame rate. Anything that accelerates still depends on the step size.</li>
+    <li>A fixed timestep makes the step size your decision. The frame rate only changes how many steps run per frame.</li>
+    <li>The accumulator carries unsimulated time from one frame to the next, so no time is lost or invented.</li>
+    <li>Cap the frame time to survive long frames, and interpolate between the last two states to draw smoothly.</li>
+    <li>Gameplay belongs in the fixed step. Visuals and input reading belong in the frame.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>With a steady clock in place, the next lesson looks at what a step actually does: how position, velocity and acceleration feed into each other.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite><a href="https://gafferongames.com/post/fix_your_timestep/">Fix Your Timestep!</a></cite> (2004). The article that made the accumulator pattern widely known, including the interpolation step.</li>
+    <li>Robert Nystrom, <cite><a href="https://gameprogrammingpatterns.com/game-loop.html">Game Programming Patterns</a></cite>, chapter "Game Loop". Walks through the same idea from the point of view of the whole game loop.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 1800;     // pixels per second squared, pulling down
+  var JUMP = 600;         // pixels per second, launch speed
+  var STEP = 1 / 60;      // the fixed timestep, in seconds
+  var LEDGE = 92;         // pixels above the ground
+  var REST = 0.7;         // seconds spent on the ground between jumps
+  var MAX_FRAME = 0.25;   // cap on simulated time per frame
+  var HITCH = 0.15;       // length of a simulated hitch, in seconds
+  var BOX = 26;
+
+  function makeBody() {
+    return { y: 0, previousY: 0, velocity: 0, grounded: true, rest: 0, peak: 0, lastPeak: null };
+  }
+
+  // One simulation step. y is the height of the box's bottom edge above the ground.
+  function simulate(body, dt) {
+    body.previousY = body.y;
+    if (body.grounded) {
+      body.rest += dt;
+      if (body.rest >= REST) {
+        body.rest = 0;
+        body.grounded = false;
+        body.velocity = JUMP;
+        body.peak = 0;
+      }
+      return;
+    }
+    body.velocity -= GRAVITY * dt;
+    body.y += body.velocity * dt;
+    if (body.y > body.peak) body.peak = body.y;
+    if (body.velocity <= 0) body.lastPeak = body.peak;
+    if (body.y <= 0) {
+      body.y = 0;
+      body.velocity = 0;
+      body.grounded = true;
+    }
+  }
+
+  var variable, fixed, accumulator, alpha, clock, frameLength, hitchIn, random;
+
+  function reset() {
+    variable = makeBody();
+    fixed = makeBody();
+    accumulator = 0;
+    alpha = 0;
+    clock = 0;
+    hitchIn = 1.5;
+    random = DemoKit.rng(7);
+    frameLength = 1 / 60;
+  }
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="timestep"]');
+  var rate = ui.slider({ label: 'Frame rate', min: 10, max: 144, step: 1, value: 60, unit: ' per second',
+    onInput: showSteps });
+  var hitches = ui.toggle({ label: 'Random hitches', value: false });
+  var smooth = ui.toggle({ label: 'Interpolate drawing (right side)', value: true });
+  var steps = ui.readout({ label: 'Step size' });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  function showSteps() {
+    steps.set('left ' + (1000 / rate.value).toFixed(1) + ' ms, right ' + (1000 * STEP).toFixed(1) + ' ms');
+  }
+  showSteps();
+
+  // The demo pretends to be a game running at the chosen frame rate. Each pretend frame has a
+  // duration, and both simulations are given exactly that duration to deal with.
+  function nextFrameLength() {
+    var base = 1 / rate.value;
+    if (hitches.value) {
+      hitchIn -= base;
+      if (hitchIn <= 0) {
+        hitchIn = 1.2 + random() * 1.6;
+        return HITCH;
+      }
+    }
+    return base;
+  }
+
+  function gameFrame(frameTime) {
+    frameTime = Math.min(frameTime, MAX_FRAME);
+
+    // Left: variable timestep. One step, as long as the frame.
+    simulate(variable, frameTime);
+
+    // Right: fixed timestep. As many equal steps as the accumulator can pay for.
+    accumulator += frameTime;
+    while (accumulator >= STEP - 1e-9) {
+      simulate(fixed, STEP);
+      accumulator -= STEP;
+    }
+    if (accumulator < 0) accumulator = 0;
+    alpha = accumulator / STEP;
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawPanel(ctx, c, left, width, height, title, body, y) {
+    var ground = height - 34;
+    var centre = left + width * 0.5;
+    var pad = 14;
+
+    ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(title, left + pad, 24);
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    if (body.lastPeak === null) {
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('waiting for first jump', left + pad, 42);
+    } else {
+      var clears = body.lastPeak >= LEDGE;
+      ctx.fillStyle = clears ? c.good : c.bad;
+      ctx.fillText('peak ' + body.lastPeak.toFixed(1) + ' px, ' + (clears ? 'reaches it' : 'falls short'), left + pad, 42);
+    }
+
+    // The ledge to reach.
+    var ledgeY = ground - LEDGE;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    line(ctx, left + pad, ledgeY, left + width - pad, ledgeY);
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    ctx.fillText('ledge', left + width - pad, ledgeY - 6);
+
+    // Ground.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    line(ctx, left + pad, ground, left + width - pad, ground);
+
+    // Peak of the last jump.
+    if (body.lastPeak !== null) {
+      ctx.strokeStyle = body.lastPeak >= LEDGE ? c.good : c.bad;
+      ctx.lineWidth = 2;
+      var peakY = ground - body.lastPeak;
+      line(ctx, centre - BOX / 2 - 22, peakY, centre - BOX / 2 - 6, peakY);
+    }
+
+    // The box. Its bottom edge is at height y.
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(Math.round(centre - BOX / 2), ground - y - BOX, BOX, BOX);
+  }
+
+  DemoKit.canvas('#timestep', {
+    height: 250,
+    label: 'Two boxes jumping side by side. The left uses a variable timestep and its jump height changes with the frame rate. The right uses a fixed timestep and always jumps the same height.',
+    update: function (dt) {
+      clock += dt;
+      var guard = 0;
+      while (clock >= frameLength && guard < 40) {
+        clock -= frameLength;
+        gameFrame(frameLength);
+        frameLength = nextFrameLength();
+        guard += 1;
+      }
+      if (guard === 40) clock = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var half = s.width / 2;
+
+      drawPanel(ctx, c, 0, half, s.height, 'Variable step', variable, variable.y);
+
+      var y = smooth.value
+        ? DemoKit.lerp(fixed.previousY, fixed.y, DemoKit.clamp(alpha, 0, 1))
+        : fixed.y;
+      drawPanel(ctx, c, half, half, s.height, 'Fixed step', fixed, y);
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, Math.round(half) + 0.5, 0, Math.round(half) + 0.5, s.height);
+    }
+  });
+})();
+</script>
+</body>
+</html>

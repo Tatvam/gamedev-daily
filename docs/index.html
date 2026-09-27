@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Dev Daily</title>
+<meta name="description" content="Eight small, visual game development lessons every day: pixel art, physics, engines, history, game ideas, math, shaders and design.">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js"></script>
+</head>
+<body class="hub">
+<main>
+
+  <section class="hero">
+    <h1>Eight small lessons in making games. Every day.</h1>
+    <p>Each one is short, visual, and has something to play with. Pick a topic, or read today's set.</p>
+  </section>
+
+  <section aria-labelledby="latest-title">
+    <h2 id="latest-title">Latest from every topic</h2>
+    <p class="section-note" id="latest-note">Loading lessons…</p>
+    <ul class="card-grid" id="latest"></ul>
+  </section>
+
+  <section aria-labelledby="archive-title" id="archive">
+    <h2 id="archive-title">All lessons</h2>
+    <p class="section-note" id="archive-note"></p>
+    <div class="filters" id="filters" role="group" aria-label="Filter by topic"></div>
+    <label class="visually-hidden" for="search">Search lessons</label>
+    <input class="search" id="search" type="search" placeholder="Search titles and tags" autocomplete="off">
+    <div id="archive-list"></div>
+  </section>
+
+  <noscript><p class="empty-note">This page needs JavaScript to list the lessons.</p></noscript>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var latestEl = document.getElementById('latest');
+  var latestNote = document.getElementById('latest-note');
+  var archiveNote = document.getElementById('archive-note');
+  var filtersEl = document.getElementById('filters');
+  var searchEl = document.getElementById('search');
+  var listEl = document.getElementById('archive-list');
+
+  var data = null;
+  var activeTopic = 'all';
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (key) {
+      if (key === 'text') node.textContent = attrs[key];
+      else if (key === 'class') node.className = attrs[key];
+      else node.setAttribute(key, attrs[key]);
+    });
+    (children || []).forEach(function (child) { if (child) node.appendChild(child); });
+    return node;
+  }
+
+  function todayInIndia() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function longDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    if (!m) return iso || '';
+    var date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    try {
+      return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+    } catch (e) {
+      return iso;
+    }
+  }
+
+  function topicTitle(id) {
+    for (var i = 0; i < data.topics.length; i++) if (data.topics[i].id === id) return data.topics[i].title;
+    return id;
+  }
+
+  function metaLine(lesson) {
+    var parts = [GDD.formatDate(lesson.date)];
+    if (lesson.level) parts.push(lesson.level);
+    if (lesson.minutes) parts.push(lesson.minutes + ' min');
+    return parts.join(' · ');
+  }
+
+  function renderLatest() {
+    latestEl.textContent = '';
+    var today = todayInIndia();
+    var fresh = 0;
+
+    data.topics.forEach(function (topic) {
+      var lesson = null;
+      for (var i = 0; i < data.lessons.length; i++) {
+        if (data.lessons[i].topic === topic.id) { lesson = data.lessons[i]; break; }
+      }
+      var card;
+      if (lesson) {
+        if (lesson.date === today) fresh += 1;
+        card = el('article', { 'class': 'card', 'data-topic': topic.id }, [
+          el('span', { 'class': 'topic-badge', text: topic.title }),
+          el('h3', {}, [el('a', { href: lesson.url, text: lesson.title })]),
+          el('p', { text: lesson.summary || '' }),
+          el('span', { 'class': 'card-meta', text: metaLine(lesson) })
+        ]);
+      } else {
+        card = el('article', { 'class': 'card is-empty', 'data-topic': topic.id }, [
+          el('span', { 'class': 'topic-badge', text: topic.title }),
+          el('p', { text: topic.blurb }),
+          el('span', { 'class': 'card-meta', text: 'First lesson coming soon' })
+        ]);
+      }
+      latestEl.appendChild(el('li', {}, [card]));
+    });
+
+    if (!data.lessons.length) latestNote.textContent = 'No lessons yet. The first set arrives with the next daily run.';
+    else if (fresh > 0) latestNote.textContent = fresh + ' new today, ' + longDate(today) + '.';
+    else latestNote.textContent = 'Most recent set: ' + longDate(data.latest) + '.';
+  }
+
+  function renderFilters() {
+    filtersEl.textContent = '';
+    function chip(id, label) {
+      var button = el('button', {
+        'class': 'chip' + (id === 'all' ? ' is-all' : ''), type: 'button',
+        'aria-pressed': id === activeTopic ? 'true' : 'false', text: label
+      });
+      if (id !== 'all') button.setAttribute('data-topic', id);
+      button.addEventListener('click', function () {
+        activeTopic = id;
+        renderFilters();
+        renderArchive();
+      });
+      return button;
+    }
+    filtersEl.appendChild(chip('all', 'All topics'));
+    data.topics.forEach(function (topic) { filtersEl.appendChild(chip(topic.id, topic.title)); });
+  }
+
+  function matches(lesson, query) {
+    if (activeTopic !== 'all' && lesson.topic !== activeTopic) return false;
+    if (!query) return true;
+    var haystack = [lesson.title, lesson.summary, (lesson.tags || []).join(' '), topicTitle(lesson.topic)].join(' ').toLowerCase();
+    return query.split(/\s+/).every(function (word) { return haystack.indexOf(word) !== -1; });
+  }
+
+  function renderArchive() {
+    listEl.textContent = '';
+    var query = searchEl.value.trim().toLowerCase();
+    var shown = data.lessons.filter(function (lesson) { return matches(lesson, query); });
+
+    archiveNote.textContent = data.lessons.length
+      ? shown.length + ' of ' + data.lessons.length + ' lessons'
+      : '';
+
+    if (!shown.length) {
+      listEl.appendChild(el('p', { 'class': 'empty-note',
+        text: data.lessons.length ? 'Nothing matches that filter.' : 'The archive fills up one day at a time.' }));
+      return;
+    }
+
+    var currentDate = null;
+    var group = null;
+    shown.forEach(function (lesson) {
+      if (lesson.date !== currentDate) {
+        currentDate = lesson.date;
+        listEl.appendChild(el('h3', { 'class': 'archive-date', text: longDate(lesson.date) }));
+        group = el('ul', { 'class': 'archive' });
+        listEl.appendChild(group);
+      }
+      var title = el('a', { 'class': 'title', href: lesson.url }, [
+        document.createTextNode(lesson.title),
+        el('span', { 'class': 'summary', text: lesson.summary || '' })
+      ]);
+      group.appendChild(el('li', { 'class': 'archive-item', 'data-topic': lesson.topic }, [
+        el('span', { 'class': 'topic-badge', text: topicTitle(lesson.topic) }),
+        title,
+        el('span', { 'class': 'mins', text: lesson.minutes ? lesson.minutes + ' min' : '' })
+      ]));
+    });
+  }
+
+  function start(json) {
+    data = json;
+    data.lessons = data.lessons || [];
+    var wanted = new URLSearchParams(window.location.search).get('topic');
+    if (wanted && data.topics.some(function (t) { return t.id === wanted; })) activeTopic = wanted;
+    renderLatest();
+    renderFilters();
+    renderArchive();
+    searchEl.addEventListener('input', renderArchive);
+  }
+
+  fetch('lessons.json', { cache: 'no-cache' })
+    .then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
+    .then(start)
+    .catch(function () {
+      latestNote.textContent = 'The lesson list could not be loaded. Try reloading the page.';
+    });
+})();
+</script>
+</body>
+</html>
