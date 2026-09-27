@@ -35,8 +35,9 @@ so they can work with it instead of against it. `level` is usually `intermediate
 
 ## Code section
 
-Use code tabs: `GDScript` and `C# (Unity)`, plus `JavaScript` when you show the engine-neutral
-model. Keep each snippet runnable in a fresh project.
+Use code tabs: `Lua` first, showing the engine-neutral idea as you would build it yourself in
+LÖVE, then `GDScript` and `C# (Unity)` showing how each engine provides it. Keep each snippet
+runnable in a fresh project.
 
 ## Accuracy
 

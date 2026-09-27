@@ -31,8 +31,8 @@
 <section data-section="concept">
   <h2>Multiplying by delta time is not enough</h2>
   <p>A game advances in small jumps of time. Each jump is a <dfn>step</dfn>, and its length in seconds is the <dfn>timestep</dfn>, usually written <code>dt</code>. The common approach is to measure how long the last frame took and use that as the timestep:</p>
-<pre><code>velocity += gravity * dt;
-position += velocity * dt;</code></pre>
+<pre><code>velocity = velocity + gravity * dt
+position = position + velocity * dt</code></pre>
   <p>This is a <dfn>variable timestep</dfn>: a fast machine takes many small steps, a slow machine takes a few large ones. For an object moving at constant speed the result is the same either way, which is why this looks correct at first.</p>
   <p>It stops being the same as soon as the speed changes during the step. Under gravity the velocity changes continuously, but the code only updates it once per step and then treats it as constant until the next one. Every step is a small approximation, and the size of the error depends on the size of the step.</p>
 
@@ -153,30 +153,27 @@ position += velocity * dt;</code></pre>
 
 <section data-section="code">
   <h2>The code</h2>
-  <p>The whole pattern is one loop. If you write your own engine or use a framework that only gives you a per-frame callback, this is what you add. Godot and Unity already contain this loop, so there the job is to put your physics code in the callback that it drives.</p>
+  <p>The whole pattern is one loop. The Lua version is written for LÖVE, which hands you the duration of the last frame in <code>love.update(dt)</code> and nothing more, so you add the loop yourself. Godot and Unity already contain this loop, so there the job is to put your physics code in the callback that it drives.</p>
 
   <div class="code-tabs">
-<pre data-lang="JavaScript"><code>const STEP = 1 / 60;        <span class="c">// seconds per simulation step</span>
-const MAX_FRAME = 0.25;     <span class="c">// never simulate more than this per frame</span>
-let accumulator = 0;
-let last = performance.now();
+<pre data-lang="Lua"><code>local STEP = 1 / 60        <span class="c">-- seconds per simulation step</span>
+local MAX_FRAME = 0.25     <span class="c">-- never simulate more than this per frame</span>
+local accumulator = 0
+local previous, current    <span class="c">-- the last two simulation states</span>
 
-function frame(now) {
-  const frameTime = Math.min((now - last) / 1000, MAX_FRAME);
-  last = now;
+function love.update(dt)   <span class="c">-- dt is how long the last frame took</span>
+<span class="k">  accumulator = accumulator + math.min(dt, MAX_FRAME)
+  while accumulator &gt;= STEP do
+    previous = copy(current)     <span class="c">-- kept for interpolation</span>
+    simulate(current, STEP)      <span class="c">-- always the same step</span>
+    accumulator = accumulator - STEP
+  end</span>
+end
 
-<span class="k">  accumulator += frameTime;
-  while (accumulator &gt;= STEP) {
-    previous = copy(current);   <span class="c">// kept for interpolation</span>
-    simulate(current, STEP);    <span class="c">// always the same step</span>
-    accumulator -= STEP;
-  }</span>
-
-  const alpha = accumulator / STEP;
-  draw(blend(previous, current, alpha));
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);</code></pre>
+function love.draw()
+  local alpha = accumulator / STEP
+  draw(blend(previous, current, alpha))
+end</code></pre>
 <pre data-lang="GDScript"><code><span class="c"># Godot runs the accumulator loop for you.</span>
 <span class="c"># _physics_process is called at a fixed rate: 60 times per second by default</span>
 <span class="c"># (Project Settings &gt; Physics &gt; Common &gt; Physics Ticks per Second).</span>

@@ -44,7 +44,12 @@ Programmers who are comfortable with game code but see shaders as magic. `level`
 
 ## Code section
 
-Use code tabs: `GLSL` (the demo's shader), `Godot shader`, and `Unity (HLSL)`. For Unity, say
+Use code tabs. `Lua` comes first: how to load the shader and feed it values in LÖVE, with
+`love.graphics.newShader`, `shader:send` and `love.graphics.setShader`. Remember that LÖVE
+shaders use the entry point `vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2
+screen_coords)` instead of `main`, and show the shader in that form inside the Lua string.
+Then `GLSL` (the demo's shader exactly as it runs on the page), `Godot shader`, and
+`Unity (HLSL)`. For Unity, say
 whether it is for the Built-in pipeline or URP, or describe the Shader Graph nodes instead.
 Only show engine code you are confident is correct; a short correct snippet beats a long
 doubtful one.

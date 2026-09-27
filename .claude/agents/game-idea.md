@@ -24,7 +24,7 @@ hard the game is to build. `engine` is `agnostic`.
 | `hook` | The pitch: two sentences that make someone want to play |
 | `concept` | The core loop (what the player does every 10 seconds, every minute, every session) with a loop diagram in SVG. Then the rules, the goal, and what makes it different |
 | `demo` | A playable prototype of the **core mechanic only**. State the controls |
-| `code` | The heart of the mechanic, 20 to 40 lines |
+| `code` | The heart of the mechanic in Lua, 20 to 40 lines, as the reader would write it in LÖVE |
 | `pitfalls` | Design risks: where this idea could stop being fun, and how to test for it early |
 | `in-the-wild` | Design territory: what kinds of games explored nearby ideas, and how this differs. Name real games only when you are sure, and never claim a game has a feature unless you know it does |
 | `exercise` | The first playtest: what to build in one sitting and the one question to answer |

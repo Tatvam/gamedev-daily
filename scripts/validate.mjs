@@ -173,6 +173,62 @@ function runInBrowser(file, errors, warnings) {
   }
 }
 
+// Finds a Lua tool to parse example code with. Returns null when the machine has none.
+let luaTool;
+function findLua() {
+  if (luaTool !== undefined) return luaTool;
+  luaTool = null;
+  const options = [
+    ['luac', 'luac'], ['luac5.4', 'luac'], ['luac5.3', 'luac'], ['luac5.1', 'luac'],
+    ['luajit', 'luajit'],
+    ['lua', 'lua'], ['lua5.4', 'lua'], ['lua5.3', 'lua'], ['lua5.1', 'lua']
+  ];
+  for (const [name, kind] of options) {
+    const found = spawnSync('which', [name], { encoding: 'utf8' });
+    if (found.status === 0 && found.stdout.trim()) {
+      luaTool = { bin: found.stdout.trim(), kind };
+      break;
+    }
+  }
+  return luaTool;
+}
+
+function checkLua(html, errors, notes) {
+  const blocks = [];
+  const pattern = /<pre\b[^>]*\bdata-lang="Lua[^"]*"[^>]*>([\s\S]*?)<\/pre>/gi;
+  let match;
+  while ((match = pattern.exec(html))) blocks.push(decode(match[1].replace(/<[^>]+>/g, '')));
+  if (blocks.length === 0) return;
+
+  const tool = findLua();
+  if (!tool) {
+    notes.push('Lua not syntax-checked (no Lua on this machine)');
+    return;
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gdd-lua-'));
+  try {
+    blocks.forEach((code, i) => {
+      const target = path.join(tmp, 'block-' + (i + 1) + '.lua');
+      fs.writeFileSync(target, code);
+      let result;
+      if (tool.kind === 'luac') result = spawnSync(tool.bin, ['-p', target], { encoding: 'utf8' });
+      else if (tool.kind === 'luajit') result = spawnSync(tool.bin, ['-bl', target], { encoding: 'utf8' });
+      else {
+        result = spawnSync(tool.bin, ['-e',
+          'local f, e = loadfile(arg[1]) if not f then io.stderr:write(e) os.exit(1) end', target],
+        { encoding: 'utf8' });
+      }
+      if (result.status !== 0) {
+        const message = (result.stderr || 'syntax error').split('\n')[0].replace(target, 'Lua block ' + (i + 1));
+        errors.push('Lua does not parse: ' + message.trim());
+      }
+    });
+    notes.push('Lua syntax checked');
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+}
+
 function checkManifest(file, topic, meta, errors, warnings) {
   const manifestPath = path.join(path.dirname(file), 'index.json');
   if (!fs.existsSync(manifestPath)) {
@@ -378,6 +434,26 @@ function checkPage(file) {
     if (!id) errors.push('every <canvas> needs an id');
     else if (!inlineCode.includes(id)) errors.push('canvas #' + id + ' is never used by the script');
   }
+
+  // Example code is Lua, never JavaScript.
+  const allLangs = [];
+  const anyLang = /<pre\b[^>]*\bdata-lang="([^"]+)"/gi;
+  let anyMatch;
+  while ((anyMatch = anyLang.exec(html))) allLangs.push(anyMatch[1].trim());
+  if (allLangs.some((l) => /^(javascript|js|typescript|ts)\b/i.test(l))) {
+    errors.push('a code block is labelled JavaScript; example code must be Lua (CLAUDE.md rule 10)');
+  }
+  const codeSection = (/<section\b[^>]*\bdata-section="code"[^>]*>([\s\S]*?)<\/section>/i.exec(html) || [])[1] || '';
+  const codeLangs = [];
+  const codeLang = /<pre\b[^>]*\bdata-lang="([^"]+)"/gi;
+  let codeMatch;
+  while ((codeMatch = codeLang.exec(codeSection))) codeLangs.push(codeMatch[1].trim());
+  if (!codeLangs.some((l) => /^lua\b/i.test(l))) {
+    errors.push('the code section needs a <pre data-lang="Lua"> block inside <div class="code-tabs">');
+  } else if (!/^lua\b/i.test(codeLangs[0])) {
+    warnings.push('the Lua block should be the first tab in the code section');
+  }
+  checkLua(html, errors, notes);
 
   // Prose.
   const words = proseWords(html);

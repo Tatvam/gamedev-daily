@@ -36,7 +36,7 @@ Programmers who can move a sprite but whose games feel floaty, jittery or broken
 
 ## Code section
 
-Plain JavaScript that matches the demo. Then a short note, or tabs, on how Godot and Unity
+Lua that matches the demo. Then a short note, or tabs, on how Godot and Unity
 expose the same idea (for example `_physics_process` and `FixedUpdate`, `move_and_slide`,
 `Rigidbody2D`, collision layers). Only name engine APIs you are certain exist.
 

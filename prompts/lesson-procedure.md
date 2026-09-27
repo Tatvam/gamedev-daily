@@ -31,7 +31,7 @@ Decide, in this order:
 2. **The demo.** What does the reader drag, slide or toggle, and what do they *see change* that
    makes the idea click? The demo is the heart of the lesson. Design it first.
 3. **The diagram.** One inline SVG that shows the structure of the idea.
-4. **The code.** The smallest real implementation, 10 to 40 lines.
+4. **The code.** The smallest real implementation, 10 to 40 lines, in Lua.
 
 ## 4. Write the page
 
@@ -42,7 +42,7 @@ Copy `templates/lesson.html` and fill it in. Keep every `data-section` block, in
 | `hook` | Two or three sentences. A concrete problem the reader has seen in a game |
 | `concept` | The explanation, with at least one inline SVG diagram. Build up in small steps |
 | `demo` | The interactive demo, with a sentence telling the reader what to try and what to notice |
-| `code` | Minimal implementation. Use code tabs when showing more than one language |
+| `code` | Minimal implementation in Lua. Use code tabs to add other languages after it |
 | `pitfalls` | Common mistakes and performance notes |
 | `in-the-wild` | Where real games or engines use this. Only what you are sure of |
 | `exercise` | A 15 minute task the reader can do in their own project |
@@ -63,6 +63,24 @@ Length: 700 to 1400 words of prose, not counting code.
 - Demos must be deterministic enough to explain: if you use randomness, seed it.
 - No external images, fonts or libraries. No sound unless the reader presses a button.
 - Test your maths with small numbers. A demo that shows the wrong thing is worse than no demo.
+
+### Code rules
+
+- The example language is **Lua**. Put it in `<div class="code-tabs">` as the first block,
+  `<pre data-lang="Lua">`, even when it is the only language. Other tabs (`GDScript`,
+  `C# (Unity)`, `GLSL`) come after it. Never add a JavaScript tab.
+- Snippets inside the explanation are Lua too.
+- Write Lua that runs in LÖVE (LuaJIT, Lua 5.1 syntax). That means: `x = x + 1` (there is no
+  `+=`), `~=` for not equal, `and` / `or` / `not`, `--` for comments, `local` for every
+  variable, tables start at index 1, no `continue`, no `//` integer division, and blocks end
+  with `end`. Use `love.update(dt)` and `love.draw()` when the example needs a game loop.
+- The Lua must do the same thing as the demo, with the same names and the same numbers, so the
+  reader can match what they see to what they read.
+- Nothing runs the Lua for you unless the validator says it checked it. Read it line by line
+  as the Lua interpreter would: every `if`, `for`, `while` and `function` has its `end`, and
+  every name is defined before it is used.
+- Only call LÖVE functions you are certain exist. When unsure, write the logic in plain Lua
+  and leave the drawing call as a clearly named function of your own.
 
 ### Diagram rules
 

@@ -53,7 +53,13 @@ The reference lesson that sets the quality bar is
    git commands that change state.
 9. **Accessible and responsive.** Pages work at 360px wide, in light and dark themes, with
    keyboard and touch. Demos respect reduced-motion and never autoplay sound.
-10. **Writing style.** Plain, direct English. Short paragraphs. Define a term the first time it
+10. **Code examples are in Lua.** The code a reader learns from and copies (the `code` section
+    and any snippet in the text) is written in Lua, in a style that runs in LÖVE: use
+    `love.update(dt)` and `love.draw()` when a game loop is needed. Add GDScript and Unity C#
+    tabs when the lesson is about those engines, and GLSL for shaders. Never present JavaScript
+    as an example language. The demo's own `<script>` is still JavaScript because it has to run
+    in the browser; that is plumbing, not the lesson, and it is not shown to the reader.
+11. **Writing style.** Plain, direct English. Short paragraphs. Define a term the first time it
     appears. No emojis. No filler introductions.
 
 ## Commands

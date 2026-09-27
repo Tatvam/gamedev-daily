@@ -38,7 +38,7 @@ and nothing more. `level` is usually `beginner`, `engine` is `agnostic`.
 
 ## Code section
 
-Plain JavaScript, written as small functions the reader can paste. Mention the built-in
+Lua, written as small functions the reader can paste. Mention the built-in
 equivalent in Godot and Unity in one line when it exists and you are certain of its name (for
 example `Vector2.dot` / `Vector2.Dot`).
 

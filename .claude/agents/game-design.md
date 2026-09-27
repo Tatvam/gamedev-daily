@@ -39,7 +39,7 @@ hold attention. `level` is usually `beginner` or `intermediate`, `engine` is `ag
 
 ## Code section
 
-Plain JavaScript that matches the demo, short enough to port to any engine in ten minutes.
+Lua that matches the demo, short enough to port to any engine in ten minutes.
 
 ## Accuracy
 

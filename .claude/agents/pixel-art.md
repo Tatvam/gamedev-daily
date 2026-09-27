@@ -39,8 +39,8 @@ good. Engine-agnostic: `level` is usually `beginner`, `engine` is `agnostic`.
 ## Code section
 
 Show how the idea carries into a game: for example nearest-neighbour scaling settings, palette
-swap by index, or snapping a camera to whole pixels. Plain JavaScript first; add GDScript and
-Unity C# tabs only when the engine setting is the point.
+swap by index, or snapping a camera to whole pixels. Lua first, written for LÖVE; add GDScript
+and Unity C# tabs only when the engine setting is the point.
 
 ## Accuracy
 
