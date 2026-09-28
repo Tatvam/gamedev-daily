@@ -5,7 +5,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 1: Foundations and shaping functions
 
 - [x] **What a shader is** — How a fragment shader is a small program that runs once for every pixel and returns a colour. Demo: a live shader paints the canvas from pixel coordinates while sliders for red, green and blue change its output. (published 2026-09-27, what-a-shader-is)
-- [ ] **The rendering pipeline** — How vertices become triangles, then fragments, then pixels, and where vertex and fragment shaders fit in GLSL, Godot and Unity. Demo: step through the stages of drawing one triangle with sliders that move its vertices and a toggle that shows the rasterised fragments.
+- [x] **The rendering pipeline** — How vertices become triangles, then fragments, then pixels, and where vertex and fragment shaders fit in GLSL, Godot and Unity. Demo: step through the stages of drawing one triangle with sliders that move its vertices and a toggle that shows the rasterised fragments. (published 2026-09-28, rendering-pipeline)
 - [ ] **UV coordinates** — How normalised coordinates from 0 to 1 let a shader work at any resolution. Demo: view UV as colour with toggles to centre the origin and correct the aspect ratio.
 - [ ] **Colour as vectors** — How colours are vectors that can be added, multiplied and swizzled. Demo: pick two colours and an operation to see the result, with sliders for each channel.
 - [ ] **Step and smoothstep** — How thresholds create hard and soft edges. Demo: sliders for the edge position and softness draw the function as a graph and as a gradient.

@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space Invaders: the march that speeds up as you shoot · Game Dev Daily</title>
+<meta name="description" content="Space Invaders moves one invader per screen refresh, so the fewer are left, the faster the whole rack marches. Rebuild the schedule and see why.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-09-28">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Space Invaders: the march that speeds up as you shoot</h1>
+  <p class="lede">Space Invaders moves one invader per screen refresh, so the fewer are left, the faster the whole rack marches. Rebuild the schedule and see why.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Taito's Space Invaders (1978) the rack of 55 invaders starts as a slow, heavy shuffle. Shoot them down and the survivors march faster and faster, until the last one races across the screen and is hard to hit.</p>
+  <p>Nobody wrote a line that says "speed up when there are fewer enemies". The speed-up comes from how the game schedules its drawing, and designer Tomohiro Nishikado kept it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: one slow processor, one bitmap screen</h2>
+  <p>The cabinet runs on an Intel 8080 processor at about 2 MHz. The picture is a <dfn>bitmap</dfn>: one bit per pixel, 256 by 224 pixels, about 7 KB of memory that the video hardware reads out to the monitor. To move an invader, the processor must copy its shape into that memory byte by byte.</p>
+  <p>The hardware sends two <dfn>interrupts</dfn> per screen refresh, signals that make the processor drop what it is doing and run a fixed routine: one near the middle of the screen, one at the bottom. At 60 refreshes per second, they are the game's heartbeat.</p>
+
+  <h2>The trick: one invader per refresh</h2>
+  <p>The game does not move the rack as a whole. It keeps a single <dfn>reference invader</dfn>, the bottom-left position of the rack, and works out every other invader from it: 16 pixels right per column, 16 pixels up per row. The disassembled program then works like this:</p>
+  <ol>
+    <li>At the end of each refresh, it draws <strong>one</strong> invader at its place relative to the reference.</li>
+    <li>At the middle of the next refresh, a <dfn>cursor</dfn> steps to the next invader that is still alive, left to right along a row, then up to the next row. Dead invaders are skipped in the same pass, so they cost no refreshes.</li>
+    <li>When the cursor runs off the end of the rack, the reference invader moves 2 pixels sideways (or drops 8 pixels and turns round at an edge) and the cursor starts again at the bottom.</li>
+  </ol>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 220" role="img" aria-label="A small rack of 4 columns and 3 rows. The bottom-left cell is the reference invader, number 1. Cells are numbered 1 to 4 along the bottom row, 5 to 8 in the middle and 9 to 12 on top, which is the order the cursor visits them. Each column adds 16 pixels in x and each row takes away 16 pixels in y.">
+      <text class="d-text" x="160" y="20" text-anchor="middle">Draw order, from the reference</text>
+      <rect class="d-box" x="60" y="30" width="50" height="50"/>
+      <rect class="d-box" x="110" y="30" width="50" height="50"/>
+      <rect class="d-box" x="160" y="30" width="50" height="50"/>
+      <rect class="d-box" x="210" y="30" width="50" height="50"/>
+      <rect class="d-box" x="60" y="80" width="50" height="50"/>
+      <rect class="d-box" x="110" y="80" width="50" height="50"/>
+      <rect class="d-box" x="160" y="80" width="50" height="50"/>
+      <rect class="d-box" x="210" y="80" width="50" height="50"/>
+      <rect class="d-accent-soft" x="60" y="130" width="50" height="50"/>
+      <rect class="d-box" x="110" y="130" width="50" height="50"/>
+      <rect class="d-box" x="160" y="130" width="50" height="50"/>
+      <rect class="d-box" x="210" y="130" width="50" height="50"/>
+      <text class="d-mono" x="85" y="60" text-anchor="middle">9</text>
+      <text class="d-mono" x="135" y="60" text-anchor="middle">10</text>
+      <text class="d-mono" x="185" y="60" text-anchor="middle">11</text>
+      <text class="d-mono" x="235" y="60" text-anchor="middle">12</text>
+      <text class="d-mono" x="85" y="110" text-anchor="middle">5</text>
+      <text class="d-mono" x="135" y="110" text-anchor="middle">6</text>
+      <text class="d-mono" x="185" y="110" text-anchor="middle">7</text>
+      <text class="d-mono" x="235" y="110" text-anchor="middle">8</text>
+      <text class="d-label" x="85" y="152" text-anchor="middle">1</text>
+      <text class="d-label" x="85" y="170" text-anchor="middle">ref</text>
+      <text class="d-mono" x="135" y="160" text-anchor="middle">2</text>
+      <text class="d-mono" x="185" y="160" text-anchor="middle">3</text>
+      <text class="d-mono" x="235" y="160" text-anchor="middle">4</text>
+      <text class="d-muted" x="272" y="100">up a row:</text>
+      <text class="d-muted" x="272" y="118">y − 16</text>
+      <text class="d-muted" x="160" y="204" text-anchor="middle">next column: x + 16</text>
+    </svg>
+    <figcaption>A cut-down rack; the real one is 11 by 5. The reference keeps moving even after the invader in that corner is shot.</figcaption>
+  </figure>
+
+  <p>Now count. With all 55 alive, one full pass takes 55 refreshes, so the rack takes one 2-pixel step a little less than once per second. With 10 alive, a pass takes 10 refreshes: six steps a second. With one alive, the pass is a single refresh and the invader steps 60 times a second. Same code, same frame rate, 55 times the speed.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Two timelines of screen refreshes. With 55 invaders alive, twelve refreshes each draw invaders 1 to 11 and the rack only moves after refresh 55. With 3 alive, the refreshes draw A, B, C, A, B, C and the rack takes a step after every third refresh.">
+      <text class="d-text" x="20" y="24">Each box is one screen refresh (1/60 s). One invader is redrawn per box.</text>
+
+      <text class="d-text" x="20" y="72">55 alive</text>
+      <rect class="d-box" x="120" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="160" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="200" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="240" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="280" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="320" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="360" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="400" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="440" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="480" y="50" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="520" y="50" width="34" height="34" rx="3"/>
+      <text class="d-mono" x="137" y="72" text-anchor="middle">1</text>
+      <text class="d-mono" x="177" y="72" text-anchor="middle">2</text>
+      <text class="d-mono" x="217" y="72" text-anchor="middle">3</text>
+      <text class="d-mono" x="257" y="72" text-anchor="middle">4</text>
+      <text class="d-mono" x="297" y="72" text-anchor="middle">5</text>
+      <text class="d-mono" x="337" y="72" text-anchor="middle">6</text>
+      <text class="d-mono" x="377" y="72" text-anchor="middle">7</text>
+      <text class="d-mono" x="417" y="72" text-anchor="middle">8</text>
+      <text class="d-mono" x="457" y="72" text-anchor="middle">9</text>
+      <text class="d-mono" x="497" y="72" text-anchor="middle">10</text>
+      <text class="d-mono" x="537" y="72" text-anchor="middle">11</text>
+      <text class="d-muted" x="580" y="72" text-anchor="middle">…</text>
+      <text class="d-muted" x="120" y="108">the rack moves only after refresh 55: about 1 step per second</text>
+
+      <text class="d-text" x="20" y="162">3 alive</text>
+      <rect class="d-box" x="120" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="160" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="200" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="240" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="280" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="320" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="360" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="400" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="440" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="480" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="520" y="140" width="34" height="34" rx="3"/>
+      <rect class="d-box" x="560" y="140" width="34" height="34" rx="3"/>
+      <text class="d-mono" x="137" y="162" text-anchor="middle">A</text>
+      <text class="d-mono" x="177" y="162" text-anchor="middle">B</text>
+      <text class="d-mono" x="217" y="162" text-anchor="middle">C</text>
+      <text class="d-mono" x="257" y="162" text-anchor="middle">A</text>
+      <text class="d-mono" x="297" y="162" text-anchor="middle">B</text>
+      <text class="d-mono" x="337" y="162" text-anchor="middle">C</text>
+      <text class="d-mono" x="377" y="162" text-anchor="middle">A</text>
+      <text class="d-mono" x="417" y="162" text-anchor="middle">B</text>
+      <text class="d-mono" x="457" y="162" text-anchor="middle">C</text>
+      <text class="d-mono" x="497" y="162" text-anchor="middle">A</text>
+      <text class="d-mono" x="537" y="162" text-anchor="middle">B</text>
+      <text class="d-mono" x="577" y="162" text-anchor="middle">C</text>
+      <path class="d-accent" d="M237 134 V180 M357 134 V180 M477 134 V180 M597 134 V180"/>
+      <text class="d-label" x="237" y="128" text-anchor="middle">step</text>
+      <text class="d-label" x="357" y="128" text-anchor="middle">step</text>
+      <text class="d-label" x="477" y="128" text-anchor="middle">step</text>
+      <text class="d-label" x="597" y="128" text-anchor="middle">step</text>
+      <text class="d-muted" x="120" y="198">the rack steps after every third refresh: 20 steps per second</text>
+
+      <text class="d-muted" x="20" y="236">Dead invaders are skipped inside the same refresh, so they cost no time at all.</text>
+    </svg>
+    <figcaption>The frame rate never changes. What changes is how many refreshes it takes to visit every living invader once.</figcaption>
+  </figure>
+
+  <h3>Fact and legend</h3>
+  <p>The story is often retold as "the processor ran faster when it had less to draw", as if the frame rate climbed. The commented disassembly is more precise: the game is locked to the 60 Hz interrupts, and the pace comes from the one-invader-per-refresh schedule. The code does not say <em>why</em> it was written this way. A likely reason is that redrawing all 55 in one refresh, plus the player, shots and shields, was too much for the processor, but that is an inference, not a documented fact.</p>
+  <p>That Nishikado noticed the speed-up during development and kept it as the difficulty curve is widely reported from his interviews.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Give the work a fixed budget per frame instead of a fixed amount per frame, and anything that shrinks the work speeds up the result.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The same schedule: one invader redrawn per refresh, dead ones skipped. Click or tap invaders to shoot them, or use the buttons. In slow motion with <strong>Show the cursor</strong> on, watch the rack move one invader at a time. Then switch on <strong>Fixed speed</strong>, where dead slots still cost a refresh, and compare the last ten.</p>
+
+  <figure class="demo wide" data-demo="invaders">
+    <canvas id="invaders"></canvas>
+    <figcaption>The graph plots march steps per second against invaders left; the dot is now. At the ground, the demo sends the rack back to the top.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same schedule in LÖVE, with the demo's numbers: an 11 by 5 rack spaced 16 pixels apart, steps of 2, drops of 8, a 224-pixel field. <code>tick</code> runs once per 1/60 of a second, however fast your machine draws.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local COLS, ROWS, SPACING = 11, 5, 16
+local COUNT = COLS * ROWS              <span class="c">-- 55 invaders</span>
+local STEP, DROP, FIELD_W = 2, 8, 224
+local SCALE, TICK = 3, 1 / 60          <span class="c">-- one tick = one screen refresh</span>
+local FIXED = false                    <span class="c">-- true: dead slots still cost a tick</span>
+
+local alive, drawnX, drawnY = {}, {}, {}
+local refX, refY, dir = 24, 96, 1      <span class="c">-- reference invader: bottom left</span>
+local cursor, living, acc = 0, COUNT, 0
+
+local function place(i)                <span class="c">-- move ONE invader to its rack position</span>
+  drawnX[i] = refX + ((i - 1) % COLS) * SPACING
+  drawnY[i] = refY - math.floor((i - 1) / COLS) * SPACING
+end
+
+local function hitsEdge()
+  for i = 1, COUNT do
+    if alive[i] and ((dir == 1 and drawnX[i] + SPACING &gt; FIELD_W - 4)
+                  or (dir == -1 and drawnX[i] &lt; 4)) then return true end
+  end
+  return false
+end
+
+local function moveReference()
+  if hitsEdge() then
+    dir = -dir
+    refY = refY + DROP
+  else
+    local step = STEP
+    if living == 1 and dir == 1 then step = 3 end  <span class="c">-- the original's last-invader quirk</span>
+    refX = refX + dir * step
+  end
+end
+
+local function nextSlot()
+  cursor = cursor + 1
+  if cursor &gt; COUNT then cursor = 1; moveReference() end
+end
+
+local function tick()
+  if living == 0 then return end
+  nextSlot()
+<span class="k">  if not FIXED then
+    while not alive[cursor] do nextSlot() end      -- dead invaders cost nothing
+  end</span>
+  if alive[cursor] then place(cursor) end
+end
+
+for i = 1, COUNT do alive[i] = true; place(i) end
+
+function love.update(dt)
+  acc = acc + dt
+  while acc &gt;= TICK do acc = acc - TICK; tick() end
+end
+
+function love.mousepressed(x, y)
+  for i = 1, COUNT do
+    local ix, iy = drawnX[i] * SCALE, drawnY[i] * SCALE
+    if alive[i] and x &gt;= ix and x &lt; ix + SPACING * SCALE and y &gt;= iy and y &lt; iy + SPACING * SCALE then
+      alive[i] = false
+      living = living - 1
+      break
+    end
+  end
+end
+
+function love.draw()
+  for i = 1, COUNT do
+    if alive[i] then
+      love.graphics.rectangle("fill", (drawnX[i] + 2) * SCALE, (drawnY[i] + 4) * SCALE, 12 * SCALE, 8 * SCALE)
+    end
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole trick. Set <code>FIXED = true</code> and the rack keeps one pace to the end.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Hidden coupling.</strong> Any schedule that does a fixed number of things per frame ties the rate of each thing to how many there are. Space Invaders turned that into a feature. In your game it may be a bug: enemies that react faster when their friends die, by accident.</li>
+    <li><strong>The ripple is real.</strong> Invaders move one at a time, so the rack briefly sits half in its old place and half in its new one. Collision code must use where an invader <em>is drawn</em>, not where the rack says it should be.</li>
+    <li><strong>A curve you did not design.</strong> Steps per second are 60 divided by the invaders left: almost flat for most of the wave, then a sudden climb. For a gentler ramp, drive speed from the count on purpose.</li>
+    <li><strong>This is a rebuild, not an emulator.</strong> The real game also pauses the march while an invader explodes, and its edge test reads screen memory directly.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In the original game, according to the commented disassembly:</p>
+  <ul>
+    <li>The rack draws one invader per refresh, from the bottom-left reference, row by row upwards.</li>
+    <li>A lone last invader steps 3 pixels moving right but 2 moving left, which makes its timing harder to read.</li>
+    <li>The rack turns round when anything appears in a line of screen memory at the edge of the playfield.</li>
+  </ul>
+
+  <h3>The lesson for today</h3>
+  <p>Games with hundreds of agents often update only some of them each frame, taking turns, so expensive work such as path searches never blows the frame budget. This <dfn>time slicing</dfn> is the Space Invaders schedule, with the same side effect: with fewer agents, each is updated more often.</p>
+  <p>If you do not want that side effect, give each agent the real time since its own last update, so its speed does not depend on how often its turn comes:</p>
+<pre><code>local BUDGET, turn = 4, 0   <span class="c">-- agents updated per frame</span>
+
+local function updateSome(agents, now)
+  for n = 1, math.min(BUDGET, #agents) do
+    turn = turn % #agents + 1
+    local a = agents[turn]
+    a:update(now - a.lastTime)   <span class="c">-- elapsed time, not "one step"</span>
+    a.lastTime = now
+  end
+end</code></pre>
+  <p>Phones that throttle when hot and servers with many players make the old question matter again: is your game's speed set by the clock, or by how much work there is?</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua above in LÖVE. Stop the rack at the bottom: when a living invader is drawn below y = 208, print "invaded" and stop calling <code>tick</code>. Then add a key that flips <code>FIXED</code> while the game runs. You are done when you can feel the difference in how the last ten invaders move.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Space Invaders runs on an Intel 8080 with a one-bit bitmap screen, and redraws just one invader per screen refresh.</li>
+    <li>Every invader is placed relative to one reference position, which only moves after each living invader has been redrawn once.</li>
+    <li>Fewer invaders means shorter passes, so the rack speeds up from about 1 step per second to 60, with no change in frame rate.</li>
+    <li>Fixed work budgets per frame (time slicing) still couple speed to count today. Use elapsed time when you do not want that.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next in this series is Asteroids, which did not draw with pixels at all but steered the monitor's beam along each line of a shape.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Partly verified. The mechanism (one invader per refresh, the reference invader, skipped dead invaders, the last invader's 3-pixel step, the two interrupts) was checked against the commented disassembly linked below. The other works could not be opened while writing, so they are not linked: the processor, clock speed and Nishikado keeping the effect come from search summaries of them. Check those before relying on a detail.</p>
+  <ul>
+    <li>Justin-Credible, <a href="https://github.com/Justin-Credible/space-invaders-emulator"><cite>space-invaders-emulator</cite></a> (GitHub). Its <code>roms/annotations.txt</code> holds the Computer Archeology comments on the whole program; see <code>CursorNextAlien</code>, <code>MoveRefAlien</code> and <code>RackBump</code>.</li>
+    <li>Computer Archeology, <cite>Space Invaders Code</cite> (computerarcheology.com). The original commented disassembly and hardware notes.</li>
+    <li>Wikipedia, <cite>Space Invaders</cite>. Development history and the speed-up, with references to interviews with Nishikado.</li>
+    <li>GamesBeat, <cite>How Tomohiro Nishikado created Space Invaders 46 years ago</cite>. An interview with the designer.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 11, ROWS = 5, COUNT = COLS * ROWS;
+  var SPACING = 16, STEP = 2, DROP = 8;
+  var FIELD_W = 224, FIELD_H = 216, GROUND = 208;
+  var START_X = 24, START_Y = 96;
+  var REFRESH = 60;               // refreshes per second on the real machine
+  var CHART_H = 170;
+  var SEED = 7;
+
+  var alive = [], drawnX = [], drawnY = [], drawnFrame = [];
+  var refX, refY, dir, cursor, living, anim, rng;
+  var drawnThisPass = 0, lastDrawn = -1, note = '';
+  var explosions = [];
+  var acc = 0;
+  var handle = null;
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="invaders"]');
+  var speed = ui.select({ label: 'Speed', value: 'full',
+    options: [
+      { value: 'full', label: 'Full: 60 refreshes per second' },
+      { value: 'slow', label: 'Slow motion: 8 per second' },
+      { value: 'crawl', label: 'Crawl: 2 per second' },
+      { value: 'stopped', label: 'Stopped (use Step)' }
+    ] });
+  var fixed = ui.toggle({ label: 'Fixed speed: dead slots still cost a refresh', value: false, onChange: refresh });
+  var quirk = ui.toggle({ label: 'Last invader steps 3 px to the right (as in the original)', value: true });
+  var showCursor = ui.toggle({ label: 'Show the cursor', value: false, onChange: redraw });
+  ui.button({ label: 'Shoot one', onClick: function () { shootRandom(1); } });
+  ui.button({ label: 'Shoot ten', onClick: function () { shootRandom(10); } });
+  ui.button({ label: 'Step one refresh', onClick: function () { speed.set('stopped'); tick(); redraw(); } });
+  ui.button({ label: 'Reset rack', onClick: function () { reset(); redraw(); } });
+  var aliveOut = ui.readout({ label: 'Invaders alive' });
+  var paceOut = ui.readout({ label: 'March' });
+
+  var RATES = { full: 60, slow: 8, crawl: 2, stopped: 0 };
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  // ---- the schedule ----
+  function place(i) {
+    drawnX[i] = refX + (i % COLS) * SPACING;
+    drawnY[i] = refY - Math.floor(i / COLS) * SPACING;
+    drawnFrame[i] = anim;
+  }
+
+  function hitsEdge() {
+    for (var i = 0; i < COUNT; i++) {
+      if (!alive[i]) continue;
+      if (dir === 1 && drawnX[i] + SPACING > FIELD_W - 4) return true;
+      if (dir === -1 && drawnX[i] < 4) return true;
+    }
+    return false;
+  }
+
+  function moveReference() {
+    anim = 1 - anim;
+    drawnThisPass = 0;
+    if (hitsEdge()) {
+      dir = -dir;
+      refY += DROP;
+      if (refY + SPACING > GROUND) {
+        refY = START_Y;
+        note = 'The rack reached the ground and was sent back to the top.';
+      }
+    } else {
+      var step = STEP;
+      if (quirk.value && living === 1 && dir === 1) step = 3;
+      refX += dir * step;
+    }
+  }
+
+  function nextSlot() {
+    cursor++;
+    if (cursor >= COUNT) { cursor = 0; moveReference(); }
+  }
+
+  function tick() {
+    for (var e = explosions.length - 1; e >= 0; e--) {
+      explosions[e].life--;
+      if (explosions[e].life <= 0) explosions.splice(e, 1);
+    }
+    if (living === 0) return;
+    nextSlot();
+    if (!fixed.value) {
+      while (!alive[cursor]) nextSlot();   // living > 0, so this ends
+    }
+    if (alive[cursor]) {
+      place(cursor);
+      drawnThisPass++;
+    }
+    lastDrawn = cursor;
+  }
+
+  function kill(i) {
+    if (!alive[i]) return;
+    alive[i] = false;
+    living--;
+    explosions.push({ x: drawnX[i], y: drawnY[i], life: 12 });
+    refresh();
+  }
+
+  function shootRandom(n) {
+    for (var k = 0; k < n && living > 0; k++) {
+      var pick = Math.floor(rng() * living);
+      for (var i = 0; i < COUNT; i++) {
+        if (!alive[i]) continue;
+        if (pick === 0) { kill(i); break; }
+        pick--;
+      }
+    }
+    redraw();
+  }
+
+  function reset() {
+    refX = START_X; refY = START_Y; dir = 1; cursor = -1; living = COUNT; anim = 0;
+    rng = DemoKit.rng(SEED);
+    drawnThisPass = 0; lastDrawn = -1; note = ''; explosions = []; acc = 0;
+    for (var i = 0; i < COUNT; i++) { alive[i] = true; place(i); }
+    refresh();
+  }
+
+  function refreshesPerStep() {
+    return fixed.value ? COUNT : living;
+  }
+
+  function refresh() {
+    aliveOut.set(living + ' of ' + COUNT);
+    if (living === 0) {
+      paceOut.set('rack cleared');
+    } else {
+      var per = refreshesPerStep();
+      var steps = REFRESH / per;
+      paceOut.set('1 step every ' + per + ' refresh' + (per === 1 ? '' : 'es') +
+        ' = ' + (steps >= 10 ? steps.toFixed(0) : steps.toFixed(1)) + ' steps/s at full speed');
+    }
+    redraw();
+  }
+
+  // ---- layout and drawing ----
+  function layout(s) {
+    var scale = Math.min((s.width - 24) / FIELD_W, (s.height - CHART_H - 20) / FIELD_H);
+    scale = Math.max(scale, 0.5);
+    return {
+      scale: scale,
+      x: Math.round((s.width - FIELD_W * scale) / 2),
+      y: 8,
+      w: FIELD_W * scale,
+      h: FIELD_H * scale
+    };
+  }
+
+  function rowColour(row, c) {
+    if (row <= 1) return c.topic;
+    if (row <= 3) return c.good;
+    return c.warn;
+  }
+
+  // Original abstract shapes, one per row band, in a 16 by 16 cell.
+  function drawInvader(ctx, row, frame, colour, bg) {
+    ctx.fillStyle = colour;
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    if (row >= 4) {
+      ctx.moveTo(8, 3); ctx.lineTo(13, 8); ctx.lineTo(8, 12); ctx.lineTo(3, 8); ctx.closePath();
+      ctx.fill();
+    } else if (row >= 2) {
+      ctx.rect(4, 4, 8, 7);
+      ctx.fill();
+      ctx.fillStyle = bg;
+      ctx.fillRect(5.5, 6, 1.8, 1.8);
+      ctx.fillRect(8.7, 6, 1.8, 1.8);
+    } else {
+      ctx.arc(8, 7, 3, Math.PI, 0);
+      ctx.rect(2.5, 7, 11, 3.5);
+      ctx.fill();
+    }
+    // Legs: two animation frames, swapped each time the reference moves.
+    ctx.beginPath();
+    if (frame === 0) {
+      ctx.moveTo(5, 11); ctx.lineTo(3, 14);
+      ctx.moveTo(11, 11); ctx.lineTo(13, 14);
+    } else {
+      ctx.moveTo(5, 11); ctx.lineTo(6.5, 14);
+      ctx.moveTo(11, 11); ctx.lineTo(9.5, 14);
+    }
+    ctx.stroke();
+  }
+
+  function drawField(ctx, s, c, L) {
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(L.x, L.y, L.w, L.h);
+
+    ctx.save();
+    ctx.translate(L.x, L.y);
+    ctx.scale(L.scale, L.scale);
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1 / L.scale;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND); ctx.lineTo(FIELD_W, GROUND);
+    ctx.stroke();
+
+    if (showCursor.value) {
+      ctx.setLineDash([2, 2]);
+      ctx.strokeStyle = c.ink2;
+      ctx.strokeRect(refX + 0.5, refY + 0.5, SPACING - 1, SPACING - 1);
+      ctx.setLineDash([]);
+    }
+
+    for (var i = 0; i < COUNT; i++) {
+      if (!alive[i]) continue;
+      var row = Math.floor(i / COLS);
+      ctx.save();
+      ctx.translate(drawnX[i], drawnY[i]);
+      drawInvader(ctx, row, drawnFrame[i], rowColour(row, c), c.surface2);
+      ctx.restore();
+    }
+
+    for (var e = 0; e < explosions.length; e++) {
+      var ex = explosions[e];
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (var a = 0; a < 8; a++) {
+        var ang = a * Math.PI / 4;
+        ctx.moveTo(ex.x + 8 + Math.cos(ang) * 2, ex.y + 8 + Math.sin(ang) * 2);
+        ctx.lineTo(ex.x + 8 + Math.cos(ang) * 6, ex.y + 8 + Math.sin(ang) * 6);
+      }
+      ctx.stroke();
+    }
+
+    if (showCursor.value && lastDrawn >= 0) {
+      ctx.strokeStyle = alive[lastDrawn] ? c.ink : c.ink3;
+      ctx.lineWidth = 2 / L.scale;
+      ctx.strokeRect(drawnX[lastDrawn] - 0.5, drawnY[lastDrawn] - 0.5, SPACING + 1, SPACING + 1);
+    }
+    ctx.restore();
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    var line1;
+    if (living === 0) line1 = 'Rack cleared. Press Reset rack.';
+    else if (fixed.value) line1 = 'Slot ' + (cursor + 1) + ' of ' + COUNT + ' this pass (dead slots count)';
+    else line1 = 'Redrawn this pass: ' + drawnThisPass + ' of ' + living + ' alive';
+    ctx.fillText(line1, L.x + 6, L.y + 15);
+    if (showCursor.value) ctx.fillText('dashed box: reference position', L.x + 6, L.y + 31);
+    if (note) {
+      ctx.fillText(note, L.x + 6, L.y + L.h - 6);
+    }
+  }
+
+  function drawChart(ctx, s, c, top) {
+    var left = 34;
+    var right = s.width - 14;
+    var plotTop = top + 22;
+    var plotBottom = s.height - 52;
+    var w = right - left;
+    var h = plotBottom - plotTop;
+    if (h < 20 || w < 60) return;
+
+    function xFor(n) { return left + (COUNT - n) / (COUNT - 1) * w; }
+    function yFor(v) { return plotBottom - v / REFRESH * h; }
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'left';
+    ctx.fillText('March steps per second (full speed) vs invaders left', 12, top + 10);
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, plotTop); ctx.lineTo(left, plotBottom); ctx.lineTo(right, plotBottom);
+    ctx.stroke();
+
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    ctx.fillText('60', left - 5, plotTop + 9);
+    ctx.fillText('0', left - 5, plotBottom);
+    ctx.textAlign = 'left';
+    ctx.fillText('55 left', left, plotBottom + 15);
+    ctx.textAlign = 'right';
+    ctx.fillText('1 left', right, plotBottom + 15);
+
+    // Fixed speed: always one step per 55 refreshes.
+    ctx.strokeStyle = c.ink3;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(xFor(COUNT), yFor(REFRESH / COUNT));
+    ctx.lineTo(xFor(1), yFor(REFRESH / COUNT));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Skipping dead invaders: one step per n refreshes.
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var n = COUNT; n >= 1; n--) {
+      var px = xFor(n), py = yFor(REFRESH / n);
+      if (n === COUNT) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.topic;
+    ctx.fillText('skip dead: 60 ÷ alive', left + 8, plotTop + 12);
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('dashed, fixed speed: 60 ÷ 55', left + 8, plotTop + 28);
+
+    if (living > 0) {
+      var v = REFRESH / refreshesPerStep();
+      ctx.fillStyle = fixed.value ? c.ink : c.topic;
+      ctx.beginPath();
+      ctx.arc(xFor(living), yFor(v), 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#invaders', {
+    height: 520,
+    label: 'A rack of 55 abstract invaders that moves one invader per simulated screen refresh. Click an invader to remove it. Below, a graph of march speed against the number of invaders left.',
+    onDown: function (p, s) {
+      var L = layout(s);
+      var lx = (p.x - L.x) / L.scale;
+      var ly = (p.y - L.y) / L.scale;
+      for (var i = 0; i < COUNT; i++) {
+        if (alive[i] && lx >= drawnX[i] && lx < drawnX[i] + SPACING && ly >= drawnY[i] && ly < drawnY[i] + SPACING) {
+          kill(i);
+          break;
+        }
+      }
+    },
+    update: function (dt) {
+      var rate = RATES[speed.value] || 0;
+      if (rate === 0) { acc = 0; return; }
+      acc += dt * rate;
+      var n = 0;
+      while (acc >= 1 && n < 10) { acc -= 1; tick(); n++; }
+      if (acc > 1) acc = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      drawField(ctx, s, c, L);
+      drawChart(ctx, s, c, L.y + L.h + 12);
+    }
+  });
+})();
+</script>
+</body>
+</html>

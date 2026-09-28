@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The rendering pipeline: from three vertices to pixels · Game Dev Daily</title>
+<meta name="description" content="Follow one triangle through the GPU: the vertex shader places its corners, the rasteriser finds the covered pixels, and the fragment shader colours each one.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-09-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The rendering pipeline: from three vertices to pixels</h1>
+  <p class="lede">Follow one triangle through the GPU: the vertex shader places its corners, the rasteriser finds the covered pixels, and the fragment shader colours each one.</p>
+</header>
+
+<section data-section="hook">
+  <p>Rotate a sprite by a few degrees and its clean edges turn into little stairs. Move one corner of a textured mesh and the whole texture stretches with it. Neither happens in your fragment shader. Both happen in the steps <em>before</em> it, where the GPU decides which pixels your shader runs on and what it is told about each one.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One triangle, six steps</h2>
+  <p>Last lesson's sentence still holds: <strong>a fragment shader is a small function that runs once per pixel and returns a colour.</strong> This lesson asks: which pixels?</p>
+  <p>Everything a GPU draws is made of triangles: a sprite is two, a 3D character thousands. Their corners are <dfn>vertices</dfn>, and each carries data: a position, often a colour and a texture coordinate. The route from vertices to finished pixels is the <dfn>rendering pipeline</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Six boxes connected by arrows in a snake shape. Top row, left to right: vertex data, vertex shader, primitive assembly. Bottom row, right to left: rasteriser, fragment shader, output merger. The vertex shader and fragment shader boxes are highlighted as the programmable stages.">
+      <rect class="d-box" x="20" y="40" width="160" height="70" rx="8"/>
+      <text class="d-text" x="100" y="66" text-anchor="middle">Vertex data</text>
+      <text class="d-muted" x="100" y="85" text-anchor="middle">position, colour, uv</text>
+      <text class="d-muted" x="100" y="100" text-anchor="middle">for each corner</text>
+
+      <rect class="d-accent-soft" x="240" y="40" width="160" height="70" rx="8"/>
+      <text class="d-text" x="320" y="66" text-anchor="middle">Vertex shader</text>
+      <text class="d-muted" x="320" y="85" text-anchor="middle">runs once per vertex</text>
+      <text class="d-muted" x="320" y="100" text-anchor="middle">returns a position</text>
+
+      <rect class="d-box" x="460" y="40" width="160" height="70" rx="8"/>
+      <text class="d-text" x="540" y="66" text-anchor="middle">Primitive assembly</text>
+      <text class="d-muted" x="540" y="85" text-anchor="middle">joins 3 vertices</text>
+      <text class="d-muted" x="540" y="100" text-anchor="middle">into a triangle</text>
+
+      <rect class="d-box" x="460" y="170" width="160" height="70" rx="8"/>
+      <text class="d-text" x="540" y="196" text-anchor="middle">Rasteriser</text>
+      <text class="d-muted" x="540" y="215" text-anchor="middle">finds covered pixels,</text>
+      <text class="d-muted" x="540" y="230" text-anchor="middle">interpolates the rest</text>
+
+      <rect class="d-accent-soft" x="240" y="170" width="160" height="70" rx="8"/>
+      <text class="d-text" x="320" y="196" text-anchor="middle">Fragment shader</text>
+      <text class="d-muted" x="320" y="215" text-anchor="middle">runs once per fragment</text>
+      <text class="d-muted" x="320" y="230" text-anchor="middle">returns a colour</text>
+
+      <rect class="d-box" x="20" y="170" width="160" height="70" rx="8"/>
+      <text class="d-text" x="100" y="196" text-anchor="middle">Output merger</text>
+      <text class="d-muted" x="100" y="215" text-anchor="middle">depth test, blending,</text>
+      <text class="d-muted" x="100" y="230" text-anchor="middle">writes to the screen</text>
+
+      <path class="d-stroke" d="M180 75 H230"/>
+      <path class="d-accent-fill" d="M238 75 L228 70 L228 80 Z"/>
+      <path class="d-stroke" d="M400 75 H450"/>
+      <path class="d-accent-fill" d="M458 75 L448 70 L448 80 Z"/>
+      <path class="d-stroke" d="M540 110 V160"/>
+      <path class="d-accent-fill" d="M540 168 L535 158 L545 158 Z"/>
+      <path class="d-stroke" d="M460 205 H410"/>
+      <path class="d-accent-fill" d="M402 205 L412 200 L412 210 Z"/>
+      <path class="d-stroke" d="M240 205 H190"/>
+      <path class="d-accent-fill" d="M182 205 L192 200 L192 210 Z"/>
+
+      <rect class="d-accent-soft" x="20" y="268" width="18" height="14" rx="3"/>
+      <text class="d-muted" x="46" y="280">programmable: you write this code</text>
+      <rect class="d-box" x="300" y="268" width="18" height="14" rx="3"/>
+      <text class="d-muted" x="326" y="280">fixed: the GPU does it, you set options</text>
+    </svg>
+    <figcaption>The path of one draw call. You write the two highlighted stages; the others are built into the hardware and only have options.</figcaption>
+  </figure>
+
+  <h3>1. The vertex shader: once per corner</h3>
+  <p>The <dfn>vertex shader</dfn> is the fragment shader's sibling: a small function that runs once per vertex and returns a position. It moves each corner from the object's own coordinates to where it should appear on screen. Rotating, following the camera and swaying grass happen here.</p>
+  <p>In GLSL it writes <code>gl_Position</code>, a position in <dfn>clip space</dfn>. The GPU divides x, y and z by the fourth component, w, giving <dfn>normalised device coordinates</dfn>: in WebGL, x and y run from -1 to 1 across the viewport with y up. Engines hide this: LÖVE lets you work in pixels from the top-left and applies a matrix for you, and Unity and Godot provide helpers.</p>
+  <p>The vertex shader can also pass extra values down the pipeline, such as a colour or a UV. These are <dfn>varyings</dfn>, because they vary across the triangle.</p>
+
+  <h3>2. Primitive assembly: three dots become a shape</h3>
+  <p>The GPU groups the vertices into triangles. In 3D, triangles facing away from the camera can be thrown out here: <dfn>back-face culling</dfn>.</p>
+
+  <h3>3. Rasterisation: which pixels are inside?</h3>
+  <p>A triangle has sharp edges; a screen is a grid of squares. The <dfn>rasteriser</dfn> bridges them with a blunt rule: <strong>a pixel belongs to the triangle if the pixel's centre is inside it.</strong> Each pixel that passes becomes a <dfn>fragment</dfn>, and only fragments get a call to your fragment shader.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 220" role="img" aria-label="An eight by five grid of pixels with a triangle over it. The thirteen pixels whose centre dots lie inside the triangle are shaded; pixels the triangle only partly covers, whose centres are outside, are left empty.">
+      <rect class="d-accent-soft" x="130" y="50" width="40" height="40"/>
+      <rect class="d-accent-soft" x="170" y="50" width="40" height="40"/>
+      <rect class="d-accent-soft" x="90" y="90" width="40" height="40"/>
+      <rect class="d-accent-soft" x="130" y="90" width="40" height="40"/>
+      <rect class="d-accent-soft" x="170" y="90" width="40" height="40"/>
+      <rect class="d-accent-soft" x="210" y="90" width="40" height="40"/>
+      <rect class="d-accent-soft" x="50" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="90" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="130" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="170" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="210" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="250" y="130" width="40" height="40"/>
+      <rect class="d-accent-soft" x="290" y="130" width="40" height="40"/>
+      <path class="d-thin" d="M10 10 H330 M10 50 H330 M10 90 H330 M10 130 H330 M10 170 H330 M10 210 H330"/>
+      <path class="d-thin" d="M10 10 V210 M50 10 V210 M90 10 V210 M130 10 V210 M170 10 V210 M210 10 V210 M250 10 V210 M290 10 V210 M330 10 V210"/>
+      <path class="d-stroke" d="M30 195 L318 150 L160 22 Z"/>
+      <g>
+        <circle class="d-thin" cx="30" cy="30" r="3"/><circle class="d-thin" cx="70" cy="30" r="3"/><circle class="d-thin" cx="110" cy="30" r="3"/><circle class="d-thin" cx="150" cy="30" r="3"/><circle class="d-thin" cx="190" cy="30" r="3"/><circle class="d-thin" cx="230" cy="30" r="3"/><circle class="d-thin" cx="270" cy="30" r="3"/><circle class="d-thin" cx="310" cy="30" r="3"/>
+        <circle class="d-thin" cx="30" cy="70" r="3"/><circle class="d-thin" cx="70" cy="70" r="3"/><circle class="d-thin" cx="110" cy="70" r="3"/><circle class="d-accent-fill" cx="150" cy="70" r="3"/><circle class="d-accent-fill" cx="190" cy="70" r="3"/><circle class="d-thin" cx="230" cy="70" r="3"/><circle class="d-thin" cx="270" cy="70" r="3"/><circle class="d-thin" cx="310" cy="70" r="3"/>
+        <circle class="d-thin" cx="30" cy="110" r="3"/><circle class="d-thin" cx="70" cy="110" r="3"/><circle class="d-accent-fill" cx="110" cy="110" r="3"/><circle class="d-accent-fill" cx="150" cy="110" r="3"/><circle class="d-accent-fill" cx="190" cy="110" r="3"/><circle class="d-accent-fill" cx="230" cy="110" r="3"/><circle class="d-thin" cx="270" cy="110" r="3"/><circle class="d-thin" cx="310" cy="110" r="3"/>
+        <circle class="d-thin" cx="30" cy="150" r="3"/><circle class="d-accent-fill" cx="70" cy="150" r="3"/><circle class="d-accent-fill" cx="110" cy="150" r="3"/><circle class="d-accent-fill" cx="150" cy="150" r="3"/><circle class="d-accent-fill" cx="190" cy="150" r="3"/><circle class="d-accent-fill" cx="230" cy="150" r="3"/><circle class="d-accent-fill" cx="270" cy="150" r="3"/><circle class="d-accent-fill" cx="310" cy="150" r="3"/>
+        <circle class="d-thin" cx="30" cy="190" r="3"/><circle class="d-thin" cx="70" cy="190" r="3"/><circle class="d-thin" cx="110" cy="190" r="3"/><circle class="d-thin" cx="150" cy="190" r="3"/><circle class="d-thin" cx="190" cy="190" r="3"/><circle class="d-thin" cx="230" cy="190" r="3"/><circle class="d-thin" cx="270" cy="190" r="3"/><circle class="d-thin" cx="310" cy="190" r="3"/>
+      </g>
+    </svg>
+    <figcaption>Only the centre dot counts. Several pixels near the edges are partly covered, but their centres are outside, so they get nothing. This is where the stairs on a rotated sprite come from.</figcaption>
+  </figure>
+
+  <p>The test uses an <dfn>edge function</dfn>: <code>(b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)</code> is positive on one side of the edge from a to b and negative on the other. A point is inside when it is on the inner side of all three edges.</p>
+
+  <h3>4. Interpolation: blending the corner values</h3>
+  <p>The three edge values, divided by the triangle's total, give <dfn>barycentric weights</dfn>: how close the pixel is to each corner. Inside the triangle they are never negative, and they always add up to 1. At corner A the weights are (1, 0, 0). At the centre of the triangle they are a third each.</p>
+  <p>Every varying reaches the fragment shader as a weighted blend of its three corner values. If A is red, B green and C blue, a pixel at the centre receives (0.33, 0.33, 0.33), a dark grey. This is why a texture stretches when you move a corner: the UVs are blended between wherever the corners are.</p>
+
+  <h3>5 and 6. The fragment shader, then the merger</h3>
+  <p>Your fragment shader runs once per fragment with the interpolated varyings as input and returns a colour. The <dfn>output merger</dfn> decides how it lands: the depth test can reject it if something nearer was drawn, and blending can mix it with what is on screen.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>The vertex shader runs 3 times for a triangle. The fragment shader runs once for every pixel it covers, which can be tens of thousands. Work that gives the same answer across the triangle belongs in the vertex shader or on the CPU.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>This triangle is rasterised by hand inside a fragment shader, with big pixels so you can see each decision. Set Stage to 1 and step forward to 5. Drag the coloured corners, or pick a vertex and use the sliders; on the focused canvas, arrow keys move the chosen corner and 1, 2 and 3 choose it.</p>
+  <p>At stage 3, drag a corner slowly: a big pixel switches on only when the edge passes its centre dot. Then change Rotation: the vertex shader moves just 3 points, yet every fragment is recomputed. Lower Pixel size and watch the fragment count climb while the vertex count stays at 3.</p>
+
+  <figure class="demo" data-demo="pipeline">
+    <canvas id="pipeline"></canvas>
+    <figcaption>Each big square stands for one screen pixel. The readouts compare the calls: always 3 for the vertex shader, one fragment shader call per square whose centre is inside.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE a vertex shader is a function called <code>position</code>. It receives the vertex position in pixels (top-left origin, y down) and returns it multiplied by <code>transform_projection</code>, which converts it to clip space. The mesh is the demo's default triangle in an 800 by 600 window, with the same corner colours and UVs; the pixel stage is the demo's stage 5.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local angle = 0   <span class="c">-- degrees, the Rotation slider</span>
+local shader, mesh
+
+local vertexcode = [[
+uniform float u_angle;    // radians
+uniform vec2 u_centre;    // rotate around this point, in pixels
+
+vec4 position(mat4 transform_projection, vec4 vertex_position)
+{
+<span class="k">    vec2 p = vertex_position.xy - u_centre;</span>
+    float c = cos(u_angle);
+    float s = sin(u_angle);
+<span class="k">    p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);</span>
+    return transform_projection * vec4(p + u_centre, 0.0, 1.0);
+}
+]]
+
+local pixelcode = [[
+uniform float u_checks;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    // color and texture_coords arrive already interpolated
+    vec2 cell = floor(texture_coords * u_checks);
+    float checker = mod(cell.x + cell.y, 2.0);
+<span class="k">    return vec4(color.rgb * (0.6 + 0.4 * checker), 1.0);</span>
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode, vertexcode)
+  <span class="c">-- x, y, u, v, r, g, b, a for each corner</span>
+  mesh = love.graphics.newMesh({
+    { 160, 480, 0, 0, 1, 0, 0, 1 },   <span class="c">-- A, red</span>
+    { 640, 420, 1, 0, 0, 1, 0, 1 },   <span class="c">-- B, green</span>
+    { 360, 90, 0, 1, 0, 0, 1, 1 },    <span class="c">-- C, blue</span>
+  }, "triangles", "static")
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  shader:send("u_angle", -math.rad(angle))   <span class="c">-- minus: y points down in LÖVE</span>
+  shader:send("u_centre", { w / 2, h / 2 })
+  shader:send("u_checks", 4.0)
+  love.graphics.setShader(shader)
+<span class="k">  love.graphics.draw(mesh)   <span class="c">-- 3 vertex calls, one fragment call per covered pixel</span></span>
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_a;        // vertex shader output for A, in pixels from the bottom-left
+uniform vec2 u_b;
+uniform vec2 u_c;
+uniform float u_cell;    // size of one big demo pixel, in real pixels
+uniform float u_stage;
+uniform float u_grid;
+uniform float u_sel;
+uniform float u_dpr;
+uniform vec3 u_bg;
+uniform vec3 u_ink;
+uniform vec3 u_topic;
+
+// Edge function: positive on one side of the line from a to b, negative on the other.
+float edge(vec2 a, vec2 b, vec2 p) {
+  return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+}
+
+float segDist(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a;
+  vec2 ba = b - a;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.0001), 0.0, 1.0);
+  return length(pa - ba * h);
+}
+
+vec3 vertexDot(vec3 col, vec2 q, vec2 v, vec3 fill, float r, float px) {
+  float d = length(q - v);
+  col = mix(col, u_ink, 1.0 - smoothstep(r + px, r + 2.0 * px, d));
+  return mix(col, fill, 1.0 - smoothstep(r - px, r, d));
+}
+
+void main() {
+  float k = 1.0 / u_resolution.y;   // work in small numbers: 1.0 = canvas height
+  vec2 frag = gl_FragCoord.xy;
+  vec2 a = u_a * k;
+  vec2 b = u_b * k;
+  vec2 c = u_c * k;
+
+  // Rasteriser: which big pixel is this, and is its centre inside all three edges?
+<span class="k">  vec2 centre = (floor(frag / u_cell) + 0.5) * u_cell;</span>
+  vec2 p = centre * k;
+  float area = edge(a, b, c);
+  float solid = step(0.0001, abs(area));
+  float safeArea = mix(1.0, area, solid);
+  float wA = edge(b, c, p) / safeArea;
+  float wB = edge(c, a, p) / safeArea;
+  float wC = edge(a, b, p) / safeArea;
+<span class="k">  float inside = step(0.0, wA) * step(0.0, wB) * step(0.0, wC) * solid;</span>
+
+  // Interpolation: one value per corner, blended by the weights.
+<span class="k">  vec3 vcol = wA * vec3(1.0, 0.0, 0.0) + wB * vec3(0.0, 1.0, 0.0) + wC * vec3(0.0, 0.0, 1.0);</span>
+  vec2 uv = wA * vec2(0.0, 0.0) + wB * vec2(1.0, 0.0) + wC * vec2(0.0, 1.0);
+
+  // Each stage adds one line.
+  vec3 col = u_bg;
+  if (u_stage &gt; 2.5) col = mix(col, u_topic, 0.35 * inside);
+  if (u_stage &gt; 3.5) col = mix(col, vcol, inside);
+  vec2 check = floor(uv * 4.0);
+<span class="k">  if (u_stage &gt; 4.5) col = mix(col, vcol * (0.6 + 0.4 * mod(check.x + check.y, 2.0)), inside);</span>
+
+  // Demo only: grid lines and a dot at each big pixel centre.
+  float gridOn = u_grid * step(2.5, u_stage) * step(5.0 * u_dpr, u_cell);
+  vec2 f = frag - floor(frag / u_cell) * u_cell;
+  float gridLine = 1.0 - step(u_dpr, min(f.x, f.y));
+  col = mix(col, u_ink, 0.18 * gridLine * gridOn);
+  float centreDot = 1.0 - step(1.6 * u_dpr, length(frag - centre));
+  col = mix(col, u_ink, centreDot * gridOn * mix(0.3, 0.9, inside));
+
+  // Stage 2: the true edges of the triangle, drawn thin on top.
+  vec2 q = frag * k;
+  float d = min(segDist(q, a, b), min(segDist(q, b, c), segDist(q, c, a))) / k;
+  col = mix(col, u_ink, (1.0 - smoothstep(0.5 * u_dpr, 1.5 * u_dpr, d)) * step(1.5, u_stage));
+
+  // Stage 1: the three positions the vertex shader returned.
+  float px = u_dpr * k;
+  float r = 6.0 * px;
+  col = vertexDot(col, q, a, vec3(1.0, 0.0, 0.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel))), px);
+  col = vertexDot(col, q, b, vec3(0.0, 1.0, 0.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel - 1.0))), px);
+  col = vertexDot(col, q, c, vec3(0.0, 0.0, 1.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel - 2.0))), px);
+
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+// A ColorRect is a quad: 4 vertices, 2 triangles.
+shader_type canvas_item;
+
+uniform float angle = 0.0;        // radians
+uniform vec2 pivot = vec2(0.0);   // in the rect's own pixels, e.g. its size / 2
+uniform float checks = 4.0;
+
+void vertex() {
+    // Once per vertex. VERTEX is in local pixels, 0,0 at the top-left, y down.
+    vec2 p = VERTEX - pivot;
+    float c = cos(angle);
+    float s = sin(angle);
+<span class="k">    VERTEX = vec2(p.x * c - p.y * s, p.x * s + p.y * c) + pivot;</span>
+}
+
+void fragment() {
+    // Once per covered pixel. UV has been interpolated from the corners.
+    vec2 cell = floor(UV * checks);
+    float checker = mod(cell.x + cell.y, 2.0);
+    vec3 col = vec3(UV.x, UV.y, 0.5);
+<span class="k">    COLOR = vec4(col * (0.6 + 0.4 * checker), 1.0);</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/PipelineSpin"
+{
+    Properties
+    {
+        _Angle ("Angle (radians)", Float) = 0
+        _Checks ("Checks", Float) = 4
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float _Angle, _Checks;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;   // a varying
+            };
+
+            v2f vert (appdata_base v)   // once per vertex
+            {
+                v2f o;
+                float c = cos(_Angle);
+                float s = sin(_Angle);
+                float3 p = v.vertex.xyz;   // object space; the Quad is centred on 0,0
+<span class="k">                p.xy = float2(p.x * c - p.y * s, p.x * s + p.y * c);</span>
+                o.pos = UnityObjectToClipPos(p);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target   // once per covered pixel
+            {
+                float2 cell = floor(i.uv * _Checks);
+                float checker = fmod(cell.x + cell.y, 2.0);
+                float3 col = float3(i.uv.x, i.uv.y, 0.5);
+<span class="k">                return fixed4(col * (0.6 + 0.4 * checker), 1);</span>
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The engine versions draw a quad (two triangles), so the colour comes from the UV instead of vertex colours. Godot's canvas <code>VERTEX</code> has y down, like LÖVE, so a positive angle turns clockwise on screen; in the demo and Unity's object space y is up, so it turns anticlockwise. For URP, use Shader Graph: in the Vertex context, feed a Position node (Object space) through Rotate About Axis (axis 0, 0, 1) into the Position block, and build the checker from the UV node with Multiply, Floor and Modulo.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Thin triangles that flicker.</strong> A triangle thinner than a pixel can miss every centre in one frame and hit some in the next. In the demo, drag a corner almost onto the opposite edge and watch the fragment count drop.</li>
+    <li><strong>Interpolated directions get shorter.</strong> Blending two unit-length directions gives a shorter one. A normal passed as a varying must be normalised again in the fragment shader before lighting uses it.</li>
+    <li><strong>A triangle that vanishes when its corners are reversed.</strong> Back-face culling tells front from back by whether the corners run clockwise or anticlockwise on screen. A hand-built mesh with its corners listed the wrong way round can be culled as a back face.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Count the calls. A full-screen quad has 4 vertices and about 2 million fragments at 1080p, and overlapping objects each get their own fragments for the same pixel. On phones the fragment side is usually the bottleneck, so moving a calculation from per-pixel to per-vertex is a cheap win, as long as the value changes linearly across the triangle.</p>
+  <p>The other extreme costs too. GPUs shade fragments in blocks of 2 by 2 pixels, so a triangle covering one pixel still pays for a whole block. Dense meshes far from the camera waste work this way.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every sprite in LÖVE, Godot or Unity reaches the GPU as triangles, usually a quad of two. Unity's sprite import settings have a Mesh Type option: Tight builds a mesh that follows the sprite's outline, so transparent corners are not rasterised; Full Rect uses a plain quad.</p>
+  <p>Vertex shaders are the usual place for cheap motion the CPU never sees: foliage swaying, flags rippling, water bobbing. Moving a few hundred vertices costs far less than recomputing thousands of pixels.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua version in LÖVE. Then:</p>
+  <ol>
+    <li>Make the triangle spin: add a time counter in <code>love.update(dt)</code> and send it as <code>u_angle</code>. The checker turns with the triangle, because the UVs travel with the corners.</li>
+    <li>Change the first vertex's colour to white (<code>1, 1, 1, 1</code>) and predict the colour at the centre before you look. Hint: add a third of each corner colour.</li>
+  </ol>
+  <p>You are done when you can say, for each step, which stage the change happened in.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The vertex shader runs once per vertex and returns a position; the fragment shader runs once per covered pixel and returns a colour.</li>
+    <li>The rasteriser keeps a pixel when its centre is inside all three edges of the triangle. That rule causes jagged edges and vanishing thin triangles.</li>
+    <li>Varyings are blended between the corners with barycentric weights that add up to 1.</li>
+    <li>Fragment calls vastly outnumber vertex calls, so per-pixel work is what to watch, especially on phones.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look closely at the most useful varying of all, UV coordinates, and how they let one shader work on any size of screen or sprite.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Juan Pineda, <cite>A Parallel Algorithm for Polygon Rasterization</cite> (SIGGRAPH 1988). The edge function test used in the demo.</li>
+    <li>Fabian Giesen, <cite>A trip through the Graphics Pipeline 2011</cite>. A blog series on what the hardware does at each stage.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>love.graphics.newMesh</cite>.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
+    '',
+    'uniform vec2 u_resolution;',
+    'uniform vec2 u_a;        // vertex shader output for A, in pixels from the bottom-left',
+    'uniform vec2 u_b;',
+    'uniform vec2 u_c;',
+    'uniform float u_cell;    // size of one big demo pixel, in real pixels',
+    'uniform float u_stage;',
+    'uniform float u_grid;',
+    'uniform float u_sel;',
+    'uniform float u_dpr;',
+    'uniform vec3 u_bg;',
+    'uniform vec3 u_ink;',
+    'uniform vec3 u_topic;',
+    '',
+    '// Edge function: positive on one side of the line from a to b, negative on the other.',
+    'float edge(vec2 a, vec2 b, vec2 p) {',
+    '  return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);',
+    '}',
+    '',
+    'float segDist(vec2 p, vec2 a, vec2 b) {',
+    '  vec2 pa = p - a;',
+    '  vec2 ba = b - a;',
+    '  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.0001), 0.0, 1.0);',
+    '  return length(pa - ba * h);',
+    '}',
+    '',
+    'vec3 vertexDot(vec3 col, vec2 q, vec2 v, vec3 fill, float r, float px) {',
+    '  float d = length(q - v);',
+    '  col = mix(col, u_ink, 1.0 - smoothstep(r + px, r + 2.0 * px, d));',
+    '  return mix(col, fill, 1.0 - smoothstep(r - px, r, d));',
+    '}',
+    '',
+    'void main() {',
+    '  float k = 1.0 / u_resolution.y;   // work in small numbers: 1.0 = canvas height',
+    '  vec2 frag = gl_FragCoord.xy;',
+    '  vec2 a = u_a * k;',
+    '  vec2 b = u_b * k;',
+    '  vec2 c = u_c * k;',
+    '',
+    '  // Rasteriser: which big pixel is this, and is its centre inside all three edges?',
+    '  vec2 centre = (floor(frag / u_cell) + 0.5) * u_cell;',
+    '  vec2 p = centre * k;',
+    '  float area = edge(a, b, c);',
+    '  float solid = step(0.0001, abs(area));',
+    '  float safeArea = mix(1.0, area, solid);',
+    '  float wA = edge(b, c, p) / safeArea;',
+    '  float wB = edge(c, a, p) / safeArea;',
+    '  float wC = edge(a, b, p) / safeArea;',
+    '  float inside = step(0.0, wA) * step(0.0, wB) * step(0.0, wC) * solid;',
+    '',
+    '  // Interpolation: one value per corner, blended by the weights.',
+    '  vec3 vcol = wA * vec3(1.0, 0.0, 0.0) + wB * vec3(0.0, 1.0, 0.0) + wC * vec3(0.0, 0.0, 1.0);',
+    '  vec2 uv = wA * vec2(0.0, 0.0) + wB * vec2(1.0, 0.0) + wC * vec2(0.0, 1.0);',
+    '',
+    '  // Each stage adds one line.',
+    '  vec3 col = u_bg;',
+    '  if (u_stage > 2.5) col = mix(col, u_topic, 0.35 * inside);',
+    '  if (u_stage > 3.5) col = mix(col, vcol, inside);',
+    '  vec2 check = floor(uv * 4.0);',
+    '  if (u_stage > 4.5) col = mix(col, vcol * (0.6 + 0.4 * mod(check.x + check.y, 2.0)), inside);',
+    '',
+    '  // Demo only: grid lines and a dot at each big pixel centre.',
+    '  float gridOn = u_grid * step(2.5, u_stage) * step(5.0 * u_dpr, u_cell);',
+    '  vec2 f = frag - floor(frag / u_cell) * u_cell;',
+    '  float gridLine = 1.0 - step(u_dpr, min(f.x, f.y));',
+    '  col = mix(col, u_ink, 0.18 * gridLine * gridOn);',
+    '  float centreDot = 1.0 - step(1.6 * u_dpr, length(frag - centre));',
+    '  col = mix(col, u_ink, centreDot * gridOn * mix(0.3, 0.9, inside));',
+    '',
+    '  // Stage 2: the true edges of the triangle, drawn thin on top.',
+    '  vec2 q = frag * k;',
+    '  float d = min(segDist(q, a, b), min(segDist(q, b, c), segDist(q, c, a))) / k;',
+    '  col = mix(col, u_ink, (1.0 - smoothstep(0.5 * u_dpr, 1.5 * u_dpr, d)) * step(1.5, u_stage));',
+    '',
+    '  // Stage 1: the three positions the vertex shader returned.',
+    '  float px = u_dpr * k;',
+    '  float r = 6.0 * px;',
+    '  col = vertexDot(col, q, a, vec3(1.0, 0.0, 0.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel))), px);',
+    '  col = vertexDot(col, q, b, vec3(0.0, 1.0, 0.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel - 1.0))), px);',
+    '  col = vertexDot(col, q, c, vec3(0.0, 0.0, 1.0), r + 3.0 * px * (1.0 - step(0.5, abs(u_sel - 2.0))), px);',
+    '',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  // Input vertices, as fractions of the canvas with y measured from the bottom.
+  var verts = [{ x: 0.20, y: 0.20 }, { x: 0.80, y: 0.30 }, { x: 0.45, y: 0.85 }];
+  var selected = 0;
+  var dragging = -1;
+  var handle = null;
+  var canvasEl = document.getElementById('pipeline');
+
+  // Theme colours as 0..1 RGB triples for the shader.
+  var probe = document.createElement('canvas');
+  probe.width = 1;
+  probe.height = 1;
+  var probeCtx = probe.getContext('2d');
+  function toRGB(css, fallback) {
+    probeCtx.clearRect(0, 0, 1, 1);
+    probeCtx.fillStyle = fallback;
+    probeCtx.fillStyle = css;
+    probeCtx.fillRect(0, 0, 1, 1);
+    var d = probeCtx.getImageData(0, 0, 1, 1).data;
+    return [d[0] / 255, d[1] / 255, d[2] / 255];
+  }
+  var theme;
+  function readTheme() {
+    var c = DemoKit.colors(canvasEl);
+    theme = {
+      bg: toRGB(c.surface, '#ffffff'),
+      ink: toRGB(c.ink, '#1d1b18'),
+      topic: toRGB(c.topic, '#c4431c')
+    };
+  }
+  readTheme();
+
+  var ui = DemoKit.controls('[data-demo="pipeline"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '1', label: '1. Vertex shader output' },
+      { value: '2', label: '2. Primitive assembly (edges)' },
+      { value: '3', label: '3. Rasterisation (covered pixels)' },
+      { value: '4', label: '4. Interpolated vertex colours' },
+      { value: '5', label: '5. Fragment shader output' }
+    ],
+    value: '5',
+    onChange: changed
+  });
+  var which = ui.select({
+    label: 'Vertex',
+    options: [
+      { value: '0', label: 'A (red)' },
+      { value: '1', label: 'B (green)' },
+      { value: '2', label: 'C (blue)' }
+    ],
+    value: '0',
+    onChange: function (v) { select(Number(v)); }
+  });
+  var xs = ui.slider({ label: 'Vertex x (input)', min: 0, max: 1, step: 0.01, value: verts[0].x,
+    onInput: function (v) { verts[selected].x = v; changed(); } });
+  var ys = ui.slider({ label: 'Vertex y (input)', min: 0, max: 1, step: 0.01, value: verts[0].y,
+    onInput: function (v) { verts[selected].y = v; changed(); } });
+  var rot = ui.slider({ label: 'Rotation (vertex shader)', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: changed });
+  var cellSize = ui.slider({ label: 'Pixel size', min: 1, max: 40, step: 1, value: 16, unit: ' px',
+    onInput: changed });
+  var grid = ui.toggle({ label: 'Show pixel grid and centres', value: true, onChange: changed });
+  var vsOut = ui.readout({ label: 'Vertex shader calls' });
+  var fsOut = ui.readout({ label: 'Fragment shader calls' });
+  var pxOut = ui.readout({ label: 'Triangle area (real pixels)' });
+
+  function select(i) {
+    selected = i;
+    which.set(String(i));
+    xs.set(verts[i].x);
+    ys.set(verts[i].y);
+    changed();
+  }
+
+  function size(s) {
+    return { w: Math.max(1, Math.round(s.width * s.dpr)), h: Math.max(1, Math.round(s.height * s.dpr)) };
+  }
+
+  // The vertex shader, run on the CPU so the page can count and drag: input fraction in,
+  // position in device pixels out (y up, like gl_FragCoord), rotated around the canvas centre.
+  function vertexShader(v, s) {
+    var z = size(s);
+    var cx = z.w / 2;
+    var cy = z.h / 2;
+    var ang = rot.value * Math.PI / 180;
+    var c = Math.cos(ang);
+    var sn = Math.sin(ang);
+    var dx = v.x * z.w - cx;
+    var dy = v.y * z.h - cy;
+    return [cx + dx * c - dy * sn, cy + dx * sn + dy * c];
+  }
+
+  function edge(a, b, p) {
+    return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  }
+
+  // The same coverage test as the shader, counted over every big pixel.
+  function count(s) {
+    var z = size(s);
+    var a = vertexShader(verts[0], s);
+    var b = vertexShader(verts[1], s);
+    var c = vertexShader(verts[2], s);
+    var area = edge(a, b, c);
+    var realPixels = Math.abs(area) / 2;
+    if (Math.abs(area) / (z.h * z.h) < 0.0001) return { n: 0, real: realPixels };
+    var cell = cellSize.value * s.dpr;
+    var cols = Math.ceil(z.w / cell);
+    var rows = Math.ceil(z.h / cell);
+    var n = 0;
+    for (var j = 0; j < rows; j++) {
+      for (var i = 0; i < cols; i++) {
+        var p = [(i + 0.5) * cell, (j + 0.5) * cell];
+        if (edge(b, c, p) / area >= 0 && edge(c, a, p) / area >= 0 && edge(a, b, p) / area >= 0) n += 1;
+      }
+    }
+    return { n: n, real: realPixels };
+  }
+
+  function updateReadouts() {
+    if (!handle) return;
+    var r = count(handle.state);
+    vsOut.set('3');
+    fsOut.set(String(r.n));
+    pxOut.set(String(Math.round(r.real)));
+  }
+
+  function changed() {
+    updateReadouts();
+    if (handle) handle.redraw();
+  }
+
+  function toDevice(p, s) {
+    return [p.x * s.dpr, (s.height - p.y) * s.dpr];
+  }
+
+  function pick(p, s) {
+    var t = toDevice(p, s);
+    var best = -1;
+    var bestDist = 28 * s.dpr;
+    for (var i = 0; i < 3; i++) {
+      var o = vertexShader(verts[i], s);
+      var d = Math.hypot(o[0] - t[0], o[1] - t[1]);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    return best;
+  }
+
+  // Undo the rotation so the dragged corner lands under the pointer.
+  function dragTo(p, s) {
+    var z = size(s);
+    var t = toDevice(p, s);
+    var cx = z.w / 2;
+    var cy = z.h / 2;
+    var ang = rot.value * Math.PI / 180;
+    var c = Math.cos(ang);
+    var sn = Math.sin(ang);
+    var dx = t[0] - cx;
+    var dy = t[1] - cy;
+    var ix = cx + dx * c + dy * sn;
+    var iy = cy - dx * sn + dy * c;
+    verts[selected].x = Math.round(DemoKit.clamp(ix / z.w, 0, 1) * 100) / 100;
+    verts[selected].y = Math.round(DemoKit.clamp(iy / z.h, 0, 1) * 100) / 100;
+    xs.set(verts[selected].x);
+    ys.set(verts[selected].y);
+    updateReadouts();
+  }
+
+  handle = DemoKit.shader('#pipeline', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    keys: true,
+    label: 'A triangle rasterised with large pixels. Each stage of the rendering pipeline can be shown: the three vertex positions, the edges, the covered pixels, the interpolated colours and the final fragment shader output. Arrow keys move the chosen vertex; 1, 2 and 3 choose it.',
+    uniforms: {
+      u_a: function (s) { return vertexShader(verts[0], s); },
+      u_b: function (s) { return vertexShader(verts[1], s); },
+      u_c: function (s) { return vertexShader(verts[2], s); },
+      u_cell: function (s) { return cellSize.value * s.dpr; },
+      u_stage: function () { return Number(stage.value); },
+      u_grid: function () { return grid.value ? 1 : 0; },
+      u_sel: function () { return selected; },
+      u_dpr: function (s) { return s.dpr; },
+      u_bg: function () { return theme.bg; },
+      u_ink: function () { return theme.ink; },
+      u_topic: function () { return theme.topic; }
+    },
+    onDown: function (p, s) {
+      dragging = pick(p, s);
+      if (dragging >= 0) select(dragging);
+    },
+    onMove: function (p, s) {
+      if (p.down && dragging >= 0) dragTo(p, s);
+    },
+    onUp: function () { dragging = -1; },
+    onResize: function () { updateReadouts(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === '1' || key === '2' || key === '3') { select(Number(key) - 1); return; }
+      var v = verts[selected];
+      var stepSize = 0.01;
+      if (key === 'arrowleft') v.x = Math.max(0, Math.round((v.x - stepSize) * 100) / 100);
+      if (key === 'arrowright') v.x = Math.min(1, Math.round((v.x + stepSize) * 100) / 100);
+      if (key === 'arrowup') v.y = Math.min(1, Math.round((v.y + stepSize) * 100) / 100);
+      if (key === 'arrowdown') v.y = Math.max(0, Math.round((v.y - stepSize) * 100) / 100);
+      xs.set(v.x);
+      ys.set(v.y);
+      updateReadouts();
+    }
+  });
+
+  document.addEventListener('gdd:theme', function () {
+    readTheme();
+    if (handle) handle.redraw();
+  });
+
+  updateReadouts();
+})();
+</script>
+</body>
+</html>

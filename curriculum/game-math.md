@@ -5,7 +5,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 1: Vectors
 
 - [x] **Coordinates, axes, and units** — How screen space with y pointing down differs from world space and why choosing units such as pixels or metres matters. Demo: move the mouse over a grid to read screen and world coordinates with a toggle for y-up and a slider for pixels per unit. (published 2026-09-27, coordinates-axes-units)
-- [ ] **Vectors as positions and directions** — How one pair of numbers can mean a place or a movement and how to tell the two apart. Demo: drag two points to see the vector between them drawn as an arrow with its components.
+- [x] **Vectors as positions and directions** — How one pair of numbers can mean a place or a movement and how to tell the two apart. Demo: drag two points to see the vector between them drawn as an arrow with its components. (published 2026-09-28, vectors-positions-directions)
 - [ ] **Adding and subtracting vectors** — How tip-to-tail addition combines movements and how subtraction gives the vector from one point to another. Demo: drag two arrows and watch their sum and difference update.
 - [ ] **Length, distance, and scaling** — How the Pythagorean theorem gives the length of a vector and how multiplying by a number changes it. Demo: drag a vector and a scale slider to read its length, with a range circle that tests distance using squared values.
 - [ ] **Normalising a vector** — How dividing by length gives a pure direction and fixes faster diagonal movement. Demo: move a character with the keyboard and toggle normalisation while a speed readout shows the difference.

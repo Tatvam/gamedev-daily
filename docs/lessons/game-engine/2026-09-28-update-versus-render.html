@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update versus render: two clocks in one loop · Game Dev Daily</title>
+<meta name="description" content="Why engines keep simulation and drawing apart, what happens when they run at different rates, and how Godot and Unity give each its own clock.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-09-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Update versus render: two clocks in one loop</h1>
+  <p class="lede">Why engines keep simulation and drawing apart, what happens when they run at different rates, and how Godot and Unity give each its own clock.</p>
+</header>
+
+<section data-section="hook">
+  <p>A physics object in your game moves perfectly, yet on screen it shivers slightly, even at a steady 60 frames per second.</p>
+  <p>Nothing is wrong with the physics. The game is updating the world at one rate and drawing it at another, and the screen shows exactly what that mismatch produces.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two jobs, two owners</h2>
+  <p>Yesterday's lesson split a frame into input, update and render. The two big jobs have different owners and different needs.</p>
+  <ul>
+    <li><strong>Update</strong> owns the <dfn>world state</dfn>: positions, velocities, health, timers. It is the game's rules.</li>
+    <li><strong>Render</strong> owns nothing in the world. It reads the latest world state and turns it into pixels. How often it can run depends on the player's hardware and monitor.</li>
+  </ul>
+  <p>Because render only reads, it does not care how many updates happened since it last looked, and update does not care whether anyone is watching. That one-way relationship lets the two run at different rates. The world is always correct; the only question is which moments of it the player sees.</p>
+
+  <h3>Two clocks</h3>
+  <p>Picture two clocks ticking side by side. The <dfn>update rate</dfn> is how many times per second the world advances. The <dfn>render rate</dfn>, usually called the frame rate, is how many images per second reach the screen. Each time a frame is drawn, it shows the most recent update that has finished. There are three possible relationships.</p>
+  <ol>
+    <li><strong>Equal rates.</strong> Every frame shows exactly one new update. Motion is smooth.</li>
+    <li><strong>Render faster than update.</strong> Some frames have no new update to show, so they repeat the previous image. A <dfn>repeated frame</dfn> is wasted drawing work: the GPU drew a picture the player has already seen.</li>
+    <li><strong>Update faster than render.</strong> Some updates finish and are overwritten before any frame shows them. They still count for the rules, but the player never sees them.</li>
+  </ol>
+  <p>The catch comes when one rate is not a whole multiple of the other. Then the number of new updates per frame keeps changing, and so does the distance an object appears to move.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 320" role="img" aria-label="Two timelines of 100 milliseconds. Top: 40 updates per second against 60 frames per second, where frames 2 and 5 repeat the previous update. Bottom: 90 updates per second against 60 frames per second, where updates 3, 6 and 9 are never drawn and frames alternate between advancing one and two updates.">
+      <text class="d-label" x="20" y="22">A. Update 40 per second, render 60 per second</text>
+      <text class="d-muted" x="20" y="58">updates</text>
+      <text class="d-muted" x="20" y="118">frames</text>
+      <path class="d-thin" d="M120 54 H600"/>
+      <path class="d-thin" d="M120 114 H600"/>
+      <g>
+        <path class="d-stroke" d="M120 108 L120 60"/>
+        <path class="d-stroke" d="M200 108 L120 60"/>
+        <path class="d-stroke" d="M280 108 L240 60"/>
+        <path class="d-stroke" d="M360 108 L360 60"/>
+        <path class="d-stroke" d="M440 108 L360 60"/>
+        <path class="d-stroke" d="M520 108 L480 60"/>
+        <path class="d-stroke" d="M600 108 L600 60"/>
+      </g>
+      <g>
+        <circle class="d-accent-fill" cx="120" cy="54" r="6"/>
+        <circle class="d-accent-fill" cx="240" cy="54" r="6"/>
+        <circle class="d-accent-fill" cx="360" cy="54" r="6"/>
+        <circle class="d-accent-fill" cx="480" cy="54" r="6"/>
+        <circle class="d-accent-fill" cx="600" cy="54" r="6"/>
+      </g>
+      <g>
+        <rect class="d-accent-fill" x="114" y="108" width="12" height="12"/>
+        <rect class="d-bad" x="194" y="108" width="12" height="12"/>
+        <rect class="d-accent-fill" x="274" y="108" width="12" height="12"/>
+        <rect class="d-accent-fill" x="354" y="108" width="12" height="12"/>
+        <rect class="d-bad" x="434" y="108" width="12" height="12"/>
+        <rect class="d-accent-fill" x="514" y="108" width="12" height="12"/>
+        <rect class="d-accent-fill" x="594" y="108" width="12" height="12"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="200" y="140">repeat</text>
+        <text class="d-text" x="440" y="140">repeat</text>
+      </g>
+
+      <text class="d-label" x="20" y="182">B. Update 90 per second, render 60 per second</text>
+      <text class="d-muted" x="20" y="218">updates</text>
+      <text class="d-muted" x="20" y="278">frames</text>
+      <path class="d-thin" d="M120 214 H600"/>
+      <path class="d-thin" d="M120 274 H600"/>
+      <g>
+        <path class="d-stroke" d="M120 268 L120 220"/>
+        <path class="d-stroke" d="M200 268 L173 220"/>
+        <path class="d-stroke" d="M280 268 L280 220"/>
+        <path class="d-stroke" d="M360 268 L333 220"/>
+        <path class="d-stroke" d="M440 268 L440 220"/>
+        <path class="d-stroke" d="M520 268 L493 220"/>
+        <path class="d-stroke" d="M600 268 L600 220"/>
+      </g>
+      <g>
+        <circle class="d-accent-fill" cx="120" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="173" cy="214" r="6"/>
+        <circle class="d-dash" cx="227" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="280" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="333" cy="214" r="6"/>
+        <circle class="d-dash" cx="387" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="440" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="493" cy="214" r="6"/>
+        <circle class="d-dash" cx="547" cy="214" r="6"/>
+        <circle class="d-accent-fill" cx="600" cy="214" r="6"/>
+      </g>
+      <g>
+        <rect class="d-accent-fill" x="114" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="194" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="274" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="354" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="434" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="514" y="268" width="12" height="12"/>
+        <rect class="d-accent-fill" x="594" y="268" width="12" height="12"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="200" y="300">+1</text>
+        <text class="d-text" x="280" y="300">+2</text>
+        <text class="d-text" x="360" y="300">+1</text>
+        <text class="d-text" x="440" y="300">+2</text>
+        <text class="d-text" x="520" y="300">+1</text>
+        <text class="d-text" x="600" y="300">+2</text>
+      </g>
+      <text class="d-muted" x="547" y="196" text-anchor="middle">never drawn</text>
+    </svg>
+    <figcaption>Each frame (square) shows the latest finished update (circle). In A, two frames have nothing new and repeat. In B, the dashed updates are never drawn, and frames alternate between moving one update and two. Both patterns make a steadily moving object look uneven.</figcaption>
+  </figure>
+
+  <p>That unevenness has a name: <dfn>judder</dfn>. The object moves at a constant speed in the world, but on screen it hops by 0, 1, 1, 0, 1 steps, or by 1, 2, 1, 2. Your eye notices the rhythm even though every frame is correct.</p>
+
+  <h3>Why engines separate them anyway</h3>
+  <p>Tying the two together would avoid judder, but it would make the frame rate part of the game rules. Separating the clocks buys three things:</p>
+  <ul>
+    <li>The rules run at a rate you choose, whatever the monitor does.</li>
+    <li>When rendering falls behind, the game drops frames instead of slowing down or changing behaviour.</li>
+    <li>Update can run with no render at all. A dedicated server for a multiplayer game does exactly that.</li>
+  </ul>
+  <p>The price is the judder above. The usual cure is to draw a blend of the last two updates instead of the latest one, which gets its own lesson in this track.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>If it changes the outcome of the game, it belongs on the update clock. If it only changes what the player sees, it belongs on the render clock. Render reads, update writes.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A tiny model of an engine with two clocks. The update clock moves a square at 200 units per second; the render clock takes a picture of wherever the last update left it.</p>
+  <p>Start at 40 updates and 60 frames, the same as diagram A, and watch the frames row for red repeats. Then try 60 and 60, then 20 and 60, then 90 and 60. Set playback to slow motion to see each frame, or press <strong>Step one frame</strong>.</p>
+
+  <figure class="demo wide" data-demo="two-clocks">
+    <canvas id="two-clocks"></canvas>
+    <figcaption>Top: the screen, with the last eight drawn positions marked below the track. Even spacing means smooth motion; uneven spacing is judder. Bottom: the last quarter second of both clocks. Filled circles are updates that were drawn, hollow circles were never drawn. Filled squares are frames with something new, red hollow squares repeat the previous frame.</figcaption>
+  </figure>
+  <p>The model leaves out real costs, input and blending. Your browser can only show as many frames as your display refreshes, so use slow motion to be sure you see every one.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE calls <code>love.update</code> and <code>love.draw</code> once per frame, so both run at the render rate, which with vsync on is your monitor's refresh rate. To give update its own clock, keep a running total of time that has not been simulated yet and run as many fixed updates as it pays for. This small loop is called an <dfn>accumulator</dfn>. It is shown here only to separate the clocks; the fixed timestep lesson later in this track adds the safety cap and the blending it still lacks.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local UPDATE_RATE = 40          <span class="c">-- updates per second</span>
+local STEP = 1 / UPDATE_RATE
+local SPEED = 200               <span class="c">-- world units per second</span>
+local WORLD = 400               <span class="c">-- the track is 0..400 wide</span>
+
+local square = { x = 0 }
+local unsimulated = 0           <span class="c">-- time that has passed but not been updated</span>
+local updates, frames = 0, 0
+
+local function updateWorld(step)   <span class="c">-- writes the world, draws nothing</span>
+  square.x = (square.x + SPEED * step) % WORLD
+  updates = updates + 1
+end
+
+function love.update(dt)        <span class="c">-- called once per frame</span>
+  unsimulated = unsimulated + dt
+<span class="k">  while unsimulated &gt;= STEP do     <span class="c">-- zero, one or several updates</span>
+    updateWorld(STEP)
+    unsimulated = unsimulated - STEP
+  end</span>
+end
+
+function love.draw()            <span class="c">-- reads the world, changes nothing in it</span>
+  frames = frames + 1
+  love.graphics.rectangle("fill", square.x, 100, 22, 22)
+  love.graphics.print("updates " .. updates .. "  frames " .. frames, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D with a Sprite2D child, then run the scene.</span>
+extends Node2D
+
+const SPEED := 200.0
+const WORLD := 400.0
+var updates := 0
+var frames := 0
+
+func _ready() -&gt; void:
+    Engine.physics_ticks_per_second = 40   <span class="c"># the update clock (default 60)</span>
+    Engine.max_fps = 60                    <span class="c"># cap on the render clock, 0 = no cap</span>
+
+<span class="c"># Called 40 times per second of game time, whatever the frame rate.</span>
+func _physics_process(delta: float) -&gt; void:
+<span class="k">    position.x = fmod(position.x + SPEED * delta, WORLD)</span>
+    updates += 1
+
+<span class="c"># Called once per drawn frame. Godot renders after it returns.</span>
+func _process(_delta: float) -&gt; void:
+    frames += 1
+    if frames % 60 == 0:
+        print("updates ", updates, "  frames ", frames)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS. Put on a GameObject with a SpriteRenderer.</span>
+using UnityEngine;
+
+public class TwoClocks : MonoBehaviour
+{
+    <span class="c">// 2 units per second is 200 pixels at the default 100 pixels per unit.</span>
+    const float Speed = 2f;
+    const float World = 4f;
+    int updates, frames;
+
+    void Awake()
+    {
+        Time.fixedDeltaTime = 1f / 40f;    <span class="c">// the update clock (default 0.02 s, 50 per second)</span>
+        QualitySettings.vSyncCount = 0;    <span class="c">// otherwise vsync decides the frame rate</span>
+        Application.targetFrameRate = 60;  <span class="c">// the render clock</span>
+    }
+
+    <span class="c">// Called 40 times per second of game time, whatever the frame rate.</span>
+    void FixedUpdate()
+    {
+        Vector3 p = transform.position;
+<span class="k">        p.x = Mathf.Repeat(p.x + Speed * Time.fixedDeltaTime, World);</span>
+        transform.position = p;
+        updates++;
+    }
+
+    <span class="c">// Called once per drawn frame. Unity renders after Update and LateUpdate.</span>
+    void Update()
+    {
+        frames++;
+        if (frames % 60 == 0) Debug.Log($"updates {updates}  frames {frames}");
+    }
+}</code></pre>
+  </div>
+  <p>All three move the square only on the update clock and count frames on the render clock. Run any of them and the square judders: 40 updates over 60 frames, like diagram A. In Godot and Unity the fixed clock normally drives physics; here it stands in for "the rules". The per-frame callbacks, <code>_process</code> and <code>Update</code>, are update code running on the render clock, which is why they need the frame's duration. That is the next lesson.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Game rules in drawing code.</strong> A cooldown counted down in <code>love.draw</code>, Godot's <code>_draw</code> or Unity's <code>OnGUI</code> runs at a rate you do not control. Godot's <code>_draw</code> does not even run every frame.</li>
+    <li><strong>Counting frames as time.</strong> "Wait 60 frames" is one second at 60 frames per second and under half a second at 144. Count updates or seconds.</li>
+    <li><strong>Moving the same object on both clocks.</strong> If physics moves a body in the fixed step and a script also sets its position every frame, the object jitters. Give each piece of data one owner.</li>
+    <li><strong>Performance.</strong> Repeated frames cost GPU time for nothing new, and undrawn updates still cost CPU time. Raise the update rate only when the rules need the precision.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines ship with separate clocks. Godot runs <code>_physics_process</code> at 60 ticks per second by default and <code>_process</code> once per drawn frame. Unity runs <code>FixedUpdate</code> every 0.02 seconds by default, 50 per second, and <code>Update</code> once per drawn frame.</p>
+  <p>Unity's default is a live example of the uneven case: 50 updates on a 60 Hz monitor means some frames show no new physics state. That is why Unity's Rigidbody has an interpolation setting, and why Godot 4.3 and later offer physics interpolation in the project settings.</p>
+  <p>Dedicated multiplayer servers take this to its limit: an update clock and no render at all.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the GDScript or C# version in a fresh project. Before you look, predict how many updates and frames the log shows after 10 seconds. Repeat with update rates of 20 and 90.</p>
+  <p>Next, move the one line that changes the position from the fixed callback into <code>_process</code> or <code>Update</code>, and make it use a constant step of one fortieth of a second instead of the frame's duration (in GDScript replace <code>delta</code> with <code>1.0 / 40</code>; the C# line already uses <code>Time.fixedDeltaTime</code>). The judder disappears, but now the speed depends on the frame rate: set the frame cap to 30 and watch it slow down. You are done when you can explain in one sentence why each version looks the way it does.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Update owns the world state. Render only reads it and draws the most recent update.</li>
+    <li>Because render only reads, the two can run at different rates without changing the game's outcome.</li>
+    <li>Render faster than update gives repeated frames. Update faster than render gives updates nobody sees.</li>
+    <li>When one rate is not a whole multiple of the other, the distance moved per frame varies and motion judders.</li>
+    <li>Godot and Unity each give you both clocks: <code>_physics_process</code> and <code>FixedUpdate</code> for the rules, <code>_process</code> and <code>Update</code> once per drawn frame.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at code that runs on the render clock, and how multiplying by delta time keeps its speed the same at any frame rate.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Game Loop". Covers decoupling the update rate from the render rate.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (2004). The accumulator and interpolation in detail.</li>
+    <li>Godot documentation, <cite>Idle and Physics Processing</cite>.</li>
+    <li>Unity Manual, <cite>Order of execution for event functions</cite>, and the scripting reference for <cite>Application.targetFrameRate</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPEED = 200;          // world units per second
+  var WORLD = 400;          // the track is 0..400 wide
+  var WINDOW = 0.25;        // seconds of timeline shown at once
+  var TRAIL = 8;            // how many drawn positions to mark
+  var SQ = 22;              // square size in pixels
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var simTime = 0;          // seconds of game time since the last reset
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="two-clocks"]');
+  var updRate = ui.slider({ label: 'Update rate', min: 10, max: 120, step: 5, value: 40, unit: ' per second',
+    onInput: changed });
+  var renRate = ui.slider({ label: 'Render rate', min: 10, max: 60, step: 5, value: 60, unit: ' per second',
+    onInput: changed });
+  var speed = ui.select({ label: 'Playback', value: '1',
+    options: [{ value: '1', label: 'real time' }, { value: '0.25', label: 'slow motion (1/4)' },
+              { value: '0.1', label: 'very slow (1/10)' }] });
+  ui.button({ label: 'Step one frame', onClick: stepFrame });
+  ui.button({ label: 'Reset', onClick: function () { simTime = 0; refresh(); } });
+  var patternOut = ui.readout({ label: 'Pattern' });
+  var perSecond = ui.readout({ label: 'Each second' });
+
+  function U() { return updRate.value; }
+  function R() { return renRate.value; }
+
+  // The latest frame that has been drawn by now.
+  function lastFrame() { return Math.floor(simTime * R() + 1e-9); }
+
+  // Which update frame j shows: the latest update at or before the frame's time.
+  // j * U and R are whole numbers, so this division is exact when it should be.
+  function shownBy(j) { return Math.floor(j * U() / R()); }
+
+  // Where the square is after update k.
+  function positionAfter(k) { return (k * SPEED / U()) % WORLD; }
+
+  function pattern() {
+    var u = U(), r = R();
+    if (u === r) return 'smooth: every frame shows exactly one new update';
+    if (u > r && u % r === 0) return 'even: each frame advances ' + (u / r) + ' updates';
+    if (u > r) return 'uneven: frames advance ' + Math.floor(u / r) + ' or ' + Math.ceil(u / r) + ' updates (judder)';
+    if (r % u === 0) return 'even but choppy: each update is shown for ' + (r / u) + ' frames';
+    return 'uneven: each update is shown for ' + Math.floor(r / u) + ' or ' + Math.ceil(r / u) + ' frames (judder)';
+  }
+
+  function refresh() {
+    var u = U(), r = R();
+    patternOut.set(pattern());
+    perSecond.set(u + ' updates, ' + r + ' frames, ' + Math.max(0, r - u) + ' repeated frames, ' +
+      Math.max(0, u - r) + ' updates never drawn');
+    if (handle) handle.redraw();
+  }
+
+  function changed() {
+    simTime = 0;
+    refresh();
+  }
+
+  function stepFrame() {
+    if (handle) handle.pause();
+    simTime = (lastFrame() + 1) / R() + 1e-7;
+    refresh();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var W = s.width;
+    var pad = 14;
+    var u = U(), r = R();
+    var j = lastFrame();
+    var k = shownBy(j);
+    var prevK = j > 0 ? shownBy(j - 1) : k;
+    var trackL = pad;
+    var trackW = W - pad * 2 - SQ;
+
+    function trackX(x) { return trackL + (x / WORLD) * trackW; }
+
+    // ---- The screen: what the latest frame shows. ----
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Screen: frame ' + j + ' shows update ' + k, pad, 22);
+    ctx.font = '12px ' + FONT;
+    var moved = j === 0 ? 'first frame' : (k === prevK ? 'nothing new, repeated' :
+      'moved ' + ((k - prevK) * SPEED / u).toFixed(1) + ' units (' + (k - prevK) + ' update' + (k - prevK === 1 ? '' : 's') + ')');
+    ctx.fillStyle = (j > 0 && k === prevK) ? c.bad : c.ink2;
+    ctx.fillText(moved, pad, 40);
+
+    var trackY = 84;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    line(ctx, trackL, trackY + SQ / 2 + 0.5, trackL + trackW + SQ, trackY + SQ / 2 + 0.5);
+
+    // Trail: where the last few frames drew the square.
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('last ' + TRAIL + ' frames', pad, trackY + SQ + 36);
+    for (var t = TRAIL - 1; t >= 0; t--) {
+      var jj = j - t;
+      if (jj < 0) continue;
+      var tx = trackX(positionAfter(shownBy(jj))) + SQ / 2;
+      ctx.strokeStyle = t === 0 ? c.topic : c.ink3;
+      ctx.lineWidth = t === 0 ? 2 : 1.5;
+      line(ctx, tx, trackY + SQ + 6, tx, trackY + SQ + 18);
+    }
+
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(Math.round(trackX(positionAfter(k))), trackY, SQ, SQ);
+
+    // ---- The two clocks over the current quarter second. ----
+    var w0 = Math.floor(simTime / WINDOW + 1e-9) * WINDOW;
+    var tl = pad + 6;
+    var tw = W - pad * 2 - 12;
+    function timeX(time) { return tl + ((time - w0) / WINDOW) * tw; }
+    var updY = 188;
+    var frmY = 248;
+
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Updates (' + u + ' per second)', pad, updY - 16);
+    ctx.fillText('Frames (' + r + ' per second)', pad, frmY + 30);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    ctx.fillText('game time ' + simTime.toFixed(3) + ' s', W - pad, updY - 16);
+    ctx.textAlign = 'left';
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    line(ctx, tl, updY + 0.5, tl + tw, updY + 0.5);
+    line(ctx, tl, frmY + 0.5, tl + tw, frmY + 0.5);
+
+    // "Now" marker.
+    var nowX = timeX(simTime);
+    ctx.strokeStyle = c.ink3;
+    ctx.setLineDash([3, 4]);
+    line(ctx, nowX, updY - 8, nowX, frmY + 10);
+    ctx.setLineDash([]);
+
+    var end = Math.min(simTime, w0 + WINDOW);
+
+    // Frames first, with a line up to the update each one shows.
+    var jStart = Math.ceil(w0 * r - 1e-9);
+    var jEnd = Math.floor(end * r + 1e-9);
+    var fj, fx, fk, repeat;
+    for (fj = jStart; fj <= jEnd; fj++) {
+      fx = timeX(fj / r);
+      fk = shownBy(fj);
+      var ux = Math.max(tl, timeX(fk / u));
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      line(ctx, fx, frmY - 6, ux, updY + 6);
+    }
+    for (fj = jStart; fj <= jEnd; fj++) {
+      fx = timeX(fj / r);
+      fk = shownBy(fj);
+      repeat = fj > 0 && shownBy(fj - 1) === fk;
+      if (repeat) {
+        ctx.fillStyle = c.bg;
+        ctx.fillRect(fx - 5, frmY - 5, 10, 10);
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx - 5, frmY - 5, 10, 10);
+      } else {
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(fx - 5, frmY - 5, 10, 10);
+      }
+    }
+
+    // Updates: drawn, never drawn, or not decided yet.
+    var kStart = Math.ceil(w0 * u - 1e-9);
+    var kEnd = Math.floor(end * u + 1e-9);
+    for (var uk = kStart; uk <= kEnd; uk++) {
+      var x = timeX(uk / u);
+      var firstFrame = Math.ceil(uk * r / u - 1e-9);   // first frame at or after this update
+      ctx.beginPath();
+      ctx.arc(x, updY, 4.5, 0, Math.PI * 2);
+      if (firstFrame > j) {
+        ctx.fillStyle = c.ink3;
+        ctx.fill();
+      } else if (shownBy(firstFrame) === uk) {
+        ctx.fillStyle = c.topic;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = c.bg;
+        ctx.fill();
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  handle = DemoKit.canvas('#two-clocks', {
+    height: 300,
+    label: 'A square moving along a track, drawn at the render rate while its position changes at the update rate, with a timeline of both clocks below.',
+    update: function (dt) {
+      simTime += dt * Number(speed.value);
+    },
+    draw: draw
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>
