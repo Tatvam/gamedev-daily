@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UV coordinates: one shader for every screen size · Game Dev Daily</title>
+<meta name="description" content="Three lines turn pixel positions into UVs: divide by the resolution, move the origin to the centre, and fix the aspect ratio so circles stay round.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>UV coordinates: one shader for every screen size</h1>
+  <p class="lede">Three lines turn pixel positions into UVs: divide by the resolution, move the origin to the centre, and fix the aspect ratio so circles stay round.</p>
+</header>
+
+<section data-section="hook">
+  <p>You write a shader that draws a glowing circle in the middle of the screen. On your monitor it looks right. On a phone it is a squashed oval, on a 4K screen it is a dot in the corner, and when the player resizes the window it slides off the edge.</p>
+  <p>The circle was measured in the wrong unit.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Pixels are the wrong unit</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. What goes in is the pixel's position, <code>gl_FragCoord.xy</code>, in pixels from the bottom-left corner in WebGL. A rule like "inside if closer than 200 pixels to (400, 300)" means something different on every screen.</p>
+  <p>The fix is to stop measuring in pixels and measure in fractions of the screen instead. Coordinates measured that way are called <dfn>UV coordinates</dfn>, or UVs. By convention the letters u and v are used because x, y and z already name positions in the world. Meshes use the same name for the coordinates that pick which part of a texture to show.</p>
+
+  <h3>Three lines, three steps</h3>
+  <p><strong>1. Divide by the resolution.</strong> <code>vec2 uv = gl_FragCoord.xy / u_resolution;</code> Now the left edge is 0.0 and the right edge is 1.0, and the same for bottom and top, on any screen. A shader written in these units works at any resolution.</p>
+  <p><strong>2. Move the origin to the centre.</strong> <code>uv = uv - 0.5;</code> Now the range is -0.5 to 0.5 and (0, 0) is the middle of the screen. Distance from the middle is now just <code>length(uv)</code>.</p>
+  <p><strong>3. Correct the aspect ratio.</strong> After step 1 a horizontal unit is the screen's width and a vertical unit is its height. On a 16:9 screen one step in x covers 1.78 times as many pixels as one step in y, so a circle of radius 0.3 comes out as a wide oval. The <dfn>aspect ratio</dfn> is width divided by height. Multiply x by it, <code>uv.x = uv.x * u_resolution.x / u_resolution.y;</code>, and one unit now covers the same number of pixels in both directions. On a 16:9 screen y still runs from -0.5 to 0.5, and x runs from about -0.89 to 0.89.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Three copies of the same wide screen. The first is labelled in pixels from 0,0 to 640,360. The second is divided by the resolution, labelled 0,0 to 1,1, and a circle of radius 0.3 drawn at the origin appears as a stretched quarter oval in the bottom-left corner. The third is centred and aspect corrected, labelled from minus 0.89, minus 0.5 to 0.89, 0.5, and the same circle is round and in the middle.">
+      <g text-anchor="middle">
+        <text class="d-text" x="108" y="18">1. Pixels</text>
+        <text class="d-text" x="320" y="18">2. Divide by size</text>
+        <text class="d-text" x="532" y="18">3. Centre + aspect</text>
+      </g>
+
+      <rect class="d-box" x="20" y="44" width="176" height="99"/>
+      <circle class="d-accent-soft" cx="47.5" cy="115.5" r="16.5"/>
+      <text class="d-mono" x="196" y="36" text-anchor="end">(640, 360)</text>
+      <text class="d-mono" x="20" y="160">(0, 0)</text>
+
+      <rect class="d-box" x="232" y="44" width="176" height="99"/>
+      <path class="d-accent-soft" d="M232 143 V113.3 A52.8 29.7 0 0 1 284.8 143 Z"/>
+      <text class="d-mono" x="408" y="36" text-anchor="end">(1, 1)</text>
+      <text class="d-mono" x="232" y="160">(0, 0)</text>
+
+      <rect class="d-box" x="444" y="44" width="176" height="99"/>
+      <circle class="d-accent-soft" cx="532" cy="93.5" r="29.7"/>
+      <circle class="d-accent-fill" cx="532" cy="93.5" r="2.5"/>
+      <text class="d-mono" x="532" y="112" text-anchor="middle">0, 0</text>
+      <text class="d-mono" x="620" y="36" text-anchor="end">(0.89, 0.5)</text>
+      <text class="d-mono" x="444" y="160">(-0.89, -0.5)</text>
+
+      <path class="d-accent" d="M200 93.5 H222"/>
+      <path class="d-accent-fill" d="M229 93.5 L221 89 L221 98 Z"/>
+      <path class="d-accent" d="M412 93.5 H434"/>
+      <path class="d-accent-fill" d="M441 93.5 L433 89 L433 98 Z"/>
+
+      <g text-anchor="middle">
+        <text class="d-muted" x="108" y="188">a 60 px circle: its size</text>
+        <text class="d-muted" x="108" y="204">depends on the screen</text>
+        <text class="d-muted" x="320" y="188">radius 0.3 at (0, 0):</text>
+        <text class="d-muted" x="320" y="204">in the corner, stretched</text>
+        <text class="d-muted" x="532" y="188">radius 0.3 at (0, 0):</text>
+        <text class="d-muted" x="532" y="204">centred and round</text>
+      </g>
+    </svg>
+    <figcaption>The same 640 by 360 screen measured three ways. Only the coordinates change between the panels; the circle test, "is the distance from (0, 0) less than the radius?", is identical in panels 2 and 3.</figcaption>
+  </figure>
+
+  <p>Steps 1 to 3 are often written as one line, which you will see in many shared shaders. It gives exactly the same numbers:</p>
+<pre><code>vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;</code></pre>
+
+  <h3>Which corner is zero, and which way is up</h3>
+  <p>This is where ported shaders go upside down. Each system picks its own origin:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Value</th><th>(0, 0) is</th><th>y grows</th></tr></thead>
+    <tbody>
+      <tr><td>WebGL <code>gl_FragCoord</code></td><td>bottom-left</td><td>up</td></tr>
+      <tr><td>LÖVE <code>screen_coords</code></td><td>top-left</td><td>down</td></tr>
+      <tr><td>Godot canvas_item <code>UV</code></td><td>top-left</td><td>down</td></tr>
+      <tr><td>Unity mesh UVs on the built-in Quad</td><td>bottom-left</td><td>up</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>When the origin is at the top, add <code>uv.y = 1.0 - uv.y;</code> right after step 1 and everything else in this lesson works unchanged.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Decide which axis is "1 unit" and say so in a comment. Dividing by the height, as here, means a radius of 0.3 is always 30% of the screen height, however wide the screen is.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both fixes start switched off: the circle is a stretched quarter oval in the corner. Switch on <em>Centre the origin</em>, then <em>Correct the aspect ratio</em>, and watch the grid cells (0.1 uv each) become squares. Then shrink the pretend screen with the width and height sliders: with both fixes on, the circle stays round and keeps the same share of the screen height.</p>
+  <p>The Stage menu shows the values the shader works with. Click or tap the canvas, or focus it and use the arrow keys, to probe one pixel. On stage 1 with centring on, the bottom-left quarter is black: uv is negative there, and negative colours display as zero. The numbers are right; the screen just cannot show them.</p>
+
+  <figure class="demo" data-demo="uv-coords">
+    <canvas id="uv-coords"></canvas>
+    <figcaption>Every pixel runs the same three lines. The readout repeats the arithmetic for the probed pixel: its position in pixels goes in, its uv is worked out, and one colour comes out.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version draws the final stage of the demo across the whole LÖVE window. LÖVE's <code>screen_coords</code> are in pixels from the top-left, so the shader flips y after dividing. A centred circle looks the same either way, but anything above or below the centre would otherwise land on the wrong side.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local radius = 0.3   <span class="c">-- in screen heights, like the Radius slider</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_radius;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+<span class="k">    vec2 uv = screen_coords / u_resolution;            // 1. 0 to 1 at any size</span>
+    uv.y = 1.0 - uv.y;                                  // LÖVE counts y from the top
+<span class="k">    uv = uv - 0.5;                                      // 2. origin in the middle</span>
+<span class="k">    uv.x = uv.x * u_resolution.x / u_resolution.y;      // 3. square units</span>
+
+    float d = length(uv);
+    float mask = 1.0 - step(u_radius, d);
+    vec3 col = mix(vec3(0.10, 0.12, 0.20), vec3(1.0, 0.55, 0.15), mask);
+    return vec4(col, 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.draw()
+  local w, h = love.graphics.getPixelDimensions()   <span class="c">-- screen_coords are in pixels</span>
+  shader:send("u_resolution", { w, h })
+  shader:send("u_radius", radius)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_stage;
+uniform float u_centre;
+uniform float u_aspect;
+uniform float u_radius;
+uniform float u_grid;
+uniform vec2 u_view;
+uniform vec2 u_probe;
+uniform float u_dpr;
+
+void main() {
+  // Demo only: a pretend screen of any size in the middle of the canvas.
+  vec2 size = floor(u_resolution * u_view);
+  vec2 corner = floor((u_resolution - size) * 0.5);
+  vec2 p = gl_FragCoord.xy - corner;   // pixels from the screen's bottom-left
+
+  // What goes in: a pixel position. Three lines turn it into UVs.
+<span class="k">  vec2 uv = p / size;                                  // 1. 0 to 1 at any size</span>
+<span class="k">  if (u_centre &gt; 0.5) uv = uv - 0.5;                   // 2. origin in the middle</span>
+<span class="k">  if (u_aspect &gt; 0.5) uv.x = uv.x * size.x / size.y;   // 3. square units</span>
+
+  // What comes out: one colour. The Stage menu picks which value to show.
+  float d = length(uv);
+  float mask = 1.0 - step(u_radius, d);
+  vec3 col = vec3(uv, 0.0);
+  if (u_stage &gt; 1.5) col = vec3(d);
+  if (u_stage &gt; 2.5) col = vec3(mask);
+  if (u_stage &gt; 3.5) col = mix(vec3(0.10, 0.12, 0.20), vec3(1.0, 0.55, 0.15), mask);
+
+  // Demo only: grid lines every 0.1 uv units, with the axes stronger.
+  vec2 perPx = 1.0 / size;
+  if (u_aspect &gt; 0.5) perPx.x = perPx.x * size.x / size.y;
+  vec2 halfW = perPx * 0.75 * u_dpr;
+  vec2 toLine = abs(fract(uv * 10.0 + 0.5) - 0.5) / 10.0;
+  float lines = max(1.0 - step(halfW.x, toLine.x), 1.0 - step(halfW.y, toLine.y));
+  float axes = max(1.0 - step(halfW.x * 2.0, abs(uv.x)), 1.0 - step(halfW.y * 2.0, abs(uv.y)));
+  float lum = dot(clamp(col, 0.0, 1.0), vec3(0.299, 0.587, 0.114));
+  vec3 ink = vec3(1.0 - step(0.5, lum));
+  col = mix(col, ink, u_grid * max(lines * 0.35, axes * 0.85));
+
+  // Demo only: hatching outside the pretend screen, and the probe ring.
+  vec2 inside = step(vec2(0.0), p) * step(p, size);
+  float hatch = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / (12.0 * u_dpr)));
+  col = mix(vec3(0.42 + 0.08 * hatch), col, inside.x * inside.y);
+  float r = length(gl_FragCoord.xy - u_probe);
+  col = mix(col, vec3(0.0), 1.0 - step(1.5 * u_dpr, abs(r - 9.0 * u_dpr)));
+  col = mix(col, vec3(1.0), 1.0 - step(1.0 * u_dpr, abs(r - 7.0 * u_dpr)));
+
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float u_radius : hint_range(0.05, 0.5) = 0.3;
+// The rect's size in pixels. From GDScript:
+// material.set_shader_parameter("rect_size", size)
+uniform vec2 rect_size = vec2(640.0, 360.0);
+
+void fragment() {
+<span class="k">    vec2 uv = UV;                                   // 1. already 0 to 1 across the rect</span>
+    uv.y = 1.0 - uv.y;                              // Godot's UV starts at the top-left
+<span class="k">    uv = uv - 0.5;                                  // 2. origin in the middle</span>
+<span class="k">    uv.x = uv.x * rect_size.x / rect_size.y;        // 3. square units</span>
+
+    float mask = 1.0 - step(u_radius, length(uv));
+    COLOR = vec4(mix(vec3(0.10, 0.12, 0.20), vec3(1.0, 0.55, 0.15), mask), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/UVCircle"
+{
+    Properties
+    {
+        _Radius ("Radius", Range(0.05, 0.5)) = 0.3
+        _Aspect ("Aspect (quad width / height)", Float) = 1.7778
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float _Radius, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;   // 0 to 1 across the Quad, 0,0 at the bottom-left
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+<span class="k">                float2 uv = i.uv - 0.5;          // 2. origin in the middle</span>
+<span class="k">                uv.x *= _Aspect;                 // 3. square units</span>
+                float mask = 1.0 - step(_Radius, length(uv));
+                return fixed4(lerp(float3(0.10, 0.12, 0.20), float3(1.0, 0.55, 0.15), mask), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The engine versions start from the mesh's UVs, already 0 to 1 across the rectangle, so step 1 is done. They still need the aspect ratio from outside, because a UV of 1 means "the far edge" at any size. In URP, the same idea in an Unlit Shader Graph is: UV node, Subtract 0.5, Multiply by a Vector2 of (aspect, 1), Length, then Step against a Radius property, and use the result as the T input of a Lerp between two colours going into Base Color.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Correcting the wrong axis for portrait screens.</strong> Dividing by the height keeps y from -0.5 to 0.5. On a phone held upright the width is smaller than the height, so x only reaches about ±0.28 and a circle of radius 0.3 is cut off at the sides. Divide by <code>min(u_resolution.x, u_resolution.y)</code> instead if the shape must always fit.</li>
+    <li><strong>Assuming a sprite's UVs run from 0 to 1.</strong> When a sprite comes from a texture atlas, its UVs cover only its own small rectangle of the atlas. Centring by subtracting 0.5 then puts the centre somewhere else entirely.</li>
+    <li><strong>Forgetting the flip when porting.</strong> Check the origin table above before blaming your maths. An effect that is mirrored top to bottom almost always comes from a missing or extra <code>1.0 - uv.y</code>.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The three lines are a divide, a subtract and a multiply per pixel: next to nothing, even on a phone. To skip the divide, send <code>1.0 / u_resolution</code> from the CPU and multiply instead.</p>
+  <p>On phones, watch precision. Pixel coordinates reach several thousand, and <code>mediump</code> floats on many mobile GPUs keep only about three significant digits. The <code>#ifdef</code> at the top of the demo's shader asks for high precision where the device supports it. Precision gets its own lesson later.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Engines hand shaders UVs from the mesh: <code>UV</code> in Godot, <code>TEXCOORD0</code> in Unity. Effects on rectangles, such as a cooldown sweep over an ability icon or the fill of a health bar, are written in those 0 to 1 units so they work at any size.</p>
+  <p>On Shadertoy, where every shader covers the whole canvas, the one-line form above is one of the most common first lines you will read.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua version in LÖVE with a resizable window (add <code>function love.conf(t) t.window.resizable = true end</code> to <code>conf.lua</code>). Then:</p>
+  <ol>
+    <li>Delete step 3, resize the window to be very wide, and watch the circle stretch. Put it back.</li>
+    <li>Make the window taller than it is wide and watch the circle get cut off at the sides. Change step 3 so it divides by the smaller of the two sides.</li>
+    <li>Add a second, smaller circle at uv (0.0, 0.3), using <code>length(uv - vec2(0.0, 0.3))</code>. Check that it is above the first one, not below.</li>
+  </ol>
+  <p>You are done when both circles stay round, stay inside the window and keep their places at any window shape.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>UVs measure position as a fraction of the screen or rectangle, so a shader written in them works at any resolution.</li>
+    <li>Subtracting 0.5 puts the origin in the middle, where distance from the centre is just <code>length(uv)</code>.</li>
+    <li>Multiplying x by width over height makes one unit the same number of pixels both ways, so circles stay round.</li>
+    <li>WebGL and Unity mesh UVs start at the bottom-left; LÖVE's screen coordinates and Godot's canvas UV start at the top-left.</li>
+    <li>When something looks wrong, show uv as colour. Seeing the numbers is the fastest debugger a shader has.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Now that the inputs are in tidy units, the next lesson looks at the output: colours as vectors that can be added, multiplied and swizzled.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Uniforms" and "Shapes". Normalising by the resolution, and shapes from distance.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>. Defines <code>gl_FragCoord</code> and the precision qualifiers.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>. Describes the <code>effect</code> function and its <code>screen_coords</code> argument.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite>. Lists the <code>UV</code> built-in for 2D shaders.</li>
+    <li>Unity Manual, <cite>Writing shaders for the Built-in Render Pipeline</cite> and the Shader Graph documentation for the URP route.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
+    '',
+    'uniform vec2 u_resolution;',
+    'uniform float u_stage;',
+    'uniform float u_centre;',
+    'uniform float u_aspect;',
+    'uniform float u_radius;',
+    'uniform float u_grid;',
+    'uniform vec2 u_view;',
+    'uniform vec2 u_probe;',
+    'uniform float u_dpr;',
+    '',
+    'void main() {',
+    '  // Demo only: a pretend screen of any size in the middle of the canvas.',
+    '  vec2 size = floor(u_resolution * u_view);',
+    '  vec2 corner = floor((u_resolution - size) * 0.5);',
+    '  vec2 p = gl_FragCoord.xy - corner;   // pixels from the screen\'s bottom-left',
+    '',
+    '  // What goes in: a pixel position. Three lines turn it into UVs.',
+    '  vec2 uv = p / size;                                  // 1. 0 to 1 at any size',
+    '  if (u_centre > 0.5) uv = uv - 0.5;                   // 2. origin in the middle',
+    '  if (u_aspect > 0.5) uv.x = uv.x * size.x / size.y;   // 3. square units',
+    '',
+    '  // What comes out: one colour. The Stage menu picks which value to show.',
+    '  float d = length(uv);',
+    '  float mask = 1.0 - step(u_radius, d);',
+    '  vec3 col = vec3(uv, 0.0);',
+    '  if (u_stage > 1.5) col = vec3(d);',
+    '  if (u_stage > 2.5) col = vec3(mask);',
+    '  if (u_stage > 3.5) col = mix(vec3(0.10, 0.12, 0.20), vec3(1.0, 0.55, 0.15), mask);',
+    '',
+    '  // Demo only: grid lines every 0.1 uv units, with the axes stronger.',
+    '  vec2 perPx = 1.0 / size;',
+    '  if (u_aspect > 0.5) perPx.x = perPx.x * size.x / size.y;',
+    '  vec2 halfW = perPx * 0.75 * u_dpr;',
+    '  vec2 toLine = abs(fract(uv * 10.0 + 0.5) - 0.5) / 10.0;',
+    '  float lines = max(1.0 - step(halfW.x, toLine.x), 1.0 - step(halfW.y, toLine.y));',
+    '  float axes = max(1.0 - step(halfW.x * 2.0, abs(uv.x)), 1.0 - step(halfW.y * 2.0, abs(uv.y)));',
+    '  float lum = dot(clamp(col, 0.0, 1.0), vec3(0.299, 0.587, 0.114));',
+    '  vec3 ink = vec3(1.0 - step(0.5, lum));',
+    '  col = mix(col, ink, u_grid * max(lines * 0.35, axes * 0.85));',
+    '',
+    '  // Demo only: hatching outside the pretend screen, and the probe ring.',
+    '  vec2 inside = step(vec2(0.0), p) * step(p, size);',
+    '  float hatch = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / (12.0 * u_dpr)));',
+    '  col = mix(vec3(0.42 + 0.08 * hatch), col, inside.x * inside.y);',
+    '  float r = length(gl_FragCoord.xy - u_probe);',
+    '  col = mix(col, vec3(0.0), 1.0 - step(1.5 * u_dpr, abs(r - 9.0 * u_dpr)));',
+    '  col = mix(col, vec3(1.0), 1.0 - step(1.0 * u_dpr, abs(r - 7.0 * u_dpr)));',
+    '',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  // The probe is stored as a fraction of the canvas (0..1, y measured from the bottom),
+  // so it stays on the same spot when the canvas is resized.
+  var probe = { fx: 0.62, fy: 0.62 };
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="uv-coords"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '1', label: '1. uv as colour (red = x, green = y)' },
+      { value: '2', label: '2. Distance from (0, 0)' },
+      { value: '3', label: '3. Mask: inside the radius' },
+      { value: '4', label: '4. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var centre = ui.toggle({ label: 'Centre the origin (line 2)', value: false,
+    onChange: function (v) { send('u_centre', v ? 1 : 0); } });
+  var aspect = ui.toggle({ label: 'Correct the aspect ratio (line 3)', value: false,
+    onChange: function (v) { send('u_aspect', v ? 1 : 0); } });
+  var grid = ui.toggle({ label: 'Show grid (every 0.1 uv)', value: true,
+    onChange: function (v) { send('u_grid', v ? 1 : 0); } });
+  var radius = ui.slider({ label: 'Radius (u_radius)', min: 0.05, max: 0.5, step: 0.01, value: 0.3,
+    onInput: function (v) { send('u_radius', v); } });
+  var viewW = ui.slider({ label: 'Screen width', min: 30, max: 100, step: 5, value: 100, unit: '% of canvas',
+    onInput: sendView });
+  var viewH = ui.slider({ label: 'Screen height', min: 30, max: 100, step: 5, value: 100, unit: '% of canvas',
+    onInput: sendView });
+  var screenOut = ui.readout({ label: 'Screen' });
+  var pixelOut = ui.readout({ label: 'In: pixel p' });
+  var uvOut = ui.readout({ label: 'uv' });
+  var colOut = ui.readout({ label: 'Out: colour' });
+
+  function f2(v) { return v.toFixed(2); }
+  function clamp01(v) { return Math.min(Math.max(v, 0), 1); }
+
+  function viewValue() { return [viewW.value / 100, viewH.value / 100]; }
+  function sendView() { send('u_view', viewValue()); }
+
+  // Canvas size in device pixels, the same numbers the shader gets as u_resolution.
+  function canvasPixels(s) {
+    return { w: Math.max(1, Math.round(s.width * s.dpr)), h: Math.max(1, Math.round(s.height * s.dpr)) };
+  }
+
+  function probePixel(s) {
+    var c = canvasPixels(s);
+    return {
+      x: Math.min(Math.floor(probe.fx * c.w), c.w - 1) + 0.5,
+      y: Math.min(Math.floor(probe.fy * c.h), c.h - 1) + 0.5
+    };
+  }
+
+  // The same arithmetic as the shader, done on the CPU for one pixel.
+  function shade(s) {
+    var c = canvasPixels(s);
+    var sw = Math.max(1, Math.floor(c.w * viewW.value / 100));
+    var sh = Math.max(1, Math.floor(c.h * viewH.value / 100));
+    var cx = Math.floor((c.w - sw) * 0.5);
+    var cy = Math.floor((c.h - sh) * 0.5);
+    var pp = probePixel(s);
+    var px = pp.x - cx;
+    var py = pp.y - cy;
+    var u = px / sw;
+    var v = py / sh;
+    if (centre.value) { u = u - 0.5; v = v - 0.5; }
+    if (aspect.value) u = u * sw / sh;
+    var d = Math.sqrt(u * u + v * v);
+    var mask = d >= radius.value ? 0 : 1;
+    var n = Number(stage.value);
+    var col = [u, v, 0];
+    if (n > 1.5) col = [d, d, d];
+    if (n > 2.5) col = [mask, mask, mask];
+    if (n > 3.5) {
+      col = [0.10 + 0.90 * mask, 0.12 + 0.43 * mask, 0.20 - 0.05 * mask];
+    }
+    return {
+      sw: sw, sh: sh, px: px, py: py, u: u, v: v,
+      inside: px >= 0 && py >= 0 && px <= sw && py <= sh,
+      col: col.map(clamp01)
+    };
+  }
+
+  function updateReadout() {
+    if (!handle) return;
+    var r = shade(handle.state);
+    screenOut.set(r.sw + ' × ' + r.sh + ' px, aspect ' + (r.sw / r.sh).toFixed(2));
+    if (!r.inside) {
+      pixelOut.set('outside the screen');
+      uvOut.set('-');
+      colOut.set('-');
+      return;
+    }
+    pixelOut.set('(' + r.px.toFixed(1) + ', ' + r.py.toFixed(1) + ')');
+    uvOut.set('(' + f2(r.u) + ', ' + f2(r.v) + ')');
+    colOut.set('(' + f2(r.col[0]) + ', ' + f2(r.col[1]) + ', ' + f2(r.col[2]) + ')');
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function moveProbeTo(p, s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    probe.fx = DemoKit.clamp(p.x / s.width, 0, 0.999);
+    probe.fy = DemoKit.clamp((s.height - p.y) / s.height, 0, 0.999);
+    if (handle) handle.redraw();
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#uv-coords', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader that converts each pixel position to UV coordinates and draws a circle. Toggles centre the origin and correct the aspect ratio; sliders resize a pretend screen. A ring marks the probed pixel; arrow keys move it.',
+    uniforms: {
+      u_stage: 4,
+      u_centre: 0,
+      u_aspect: 0,
+      u_grid: 1,
+      u_radius: 0.3,
+      u_view: [1, 1],
+      u_dpr: function (s) { return s.dpr; },
+      u_probe: function (s) { var p = probePixel(s); return [p.x, p.y]; }
+    },
+    onDown: function (p, s) { moveProbeTo(p, s); },
+    onMove: function (p, s) { if (p.down) moveProbeTo(p, s); },
+    onResize: function () { updateReadout(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var stepSize = 0.02;
+      if (key === 'arrowleft') probe.fx = Math.max(0, probe.fx - stepSize);
+      if (key === 'arrowright') probe.fx = Math.min(0.999, probe.fx + stepSize);
+      if (key === 'arrowup') probe.fy = Math.min(0.999, probe.fy + stepSize);
+      if (key === 'arrowdown') probe.fy = Math.max(0, probe.fy - stepSize);
+      if (handle) handle.redraw();
+      updateReadout();
+    }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

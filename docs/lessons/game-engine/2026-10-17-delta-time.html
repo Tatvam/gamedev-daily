@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delta time in Godot and Unity · Game Dev Daily</title>
+<meta name="description" content="Why speeds written per frame change with the frame rate, and how the delta of _process in Godot and Time.deltaTime in Unity make them per second.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Delta time in Godot and Unity</h1>
+  <p class="lede">Why speeds written per frame change with the frame rate, and how the delta of <code>_process</code> in Godot and <code>Time.deltaTime</code> in Unity make them per second.</p>
+</header>
+
+<section data-section="hook">
+  <p>You tune your character's walk speed on a 60 Hz monitor and it feels right. A tester with a 144 Hz monitor says the character races around the level, and someone on an old laptop says it crawls. The code is the same on all three machines.</p>
+  <p>The speed was written as "pixels per frame", so every machine runs the game at its own speed. This lesson turns it back into "pixels per second".</p>
+</section>
+
+<section data-section="concept">
+  <h2>A frame is not a unit of time</h2>
+  <p>A <dfn>frame</dfn> is one pass of the game loop: read input, update, draw. The previous two lessons showed that frames are not a fixed length. How long one takes depends on the monitor, the graphics card, what else the computer is doing, and what is on screen right now.</p>
+  <p>So this line has a hidden assumption:</p>
+<pre><code>x = x + 4   -- 4 pixels every frame</code></pre>
+  <p>At 60 frames per second it moves 240 pixels per second. At 30 it moves 120, and at 144 it moves 576. The number 4 is a speed in <em>pixels per frame</em>, and a frame is a different length on every machine.</p>
+
+  <h3>Measure the frame and multiply</h3>
+  <p><dfn>Delta time</dfn>, usually written <code>dt</code> or <code>delta</code>, is the number of seconds since the previous frame. If you write speeds in pixels per second and multiply by delta, the units work out to pixels, and the length of the frame is part of the sum:</p>
+<pre><code>x = x + 240 * dt   -- pixels per second times seconds = pixels</code></pre>
+  <p>Short frames give small steps and long frames give big ones. Over one second they always add up to 240 pixels.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 236" role="img" aria-label="Two timelines covering one tenth of a second. At 60 frames per second there are six frames; at 30 there are three. Adding 4 pixels per frame gives 24 pixels at 60 but only 12 at 30. Adding 240 times delta gives 24 pixels in both cases.">
+      <text class="d-muted" x="130" y="22">0 s</text>
+      <text class="d-muted" x="520" y="22" text-anchor="end">0.1 s</text>
+      <text class="d-muted" x="580" y="22" text-anchor="middle">total</text>
+
+      <text class="d-text" x="12" y="62">60 fps</text>
+      <g>
+        <rect class="d-box" x="130" y="40" width="65" height="34" rx="4"/>
+        <rect class="d-box" x="195" y="40" width="65" height="34" rx="4"/>
+        <rect class="d-box" x="260" y="40" width="65" height="34" rx="4"/>
+        <rect class="d-box" x="325" y="40" width="65" height="34" rx="4"/>
+        <rect class="d-box" x="390" y="40" width="65" height="34" rx="4"/>
+        <rect class="d-box" x="455" y="40" width="65" height="34" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="162" y="62">16.7ms</text>
+        <text class="d-mono" x="227" y="62">16.7ms</text>
+        <text class="d-mono" x="292" y="62">16.7ms</text>
+        <text class="d-mono" x="357" y="62">16.7ms</text>
+        <text class="d-mono" x="422" y="62">16.7ms</text>
+        <text class="d-mono" x="487" y="62">16.7ms</text>
+      </g>
+      <text class="d-muted" x="12" y="96">per frame</text>
+      <text class="d-muted" x="12" y="118">with delta</text>
+      <g text-anchor="middle">
+        <text class="d-text" x="162" y="96">+4</text><text class="d-text" x="227" y="96">+4</text>
+        <text class="d-text" x="292" y="96">+4</text><text class="d-text" x="357" y="96">+4</text>
+        <text class="d-text" x="422" y="96">+4</text><text class="d-text" x="487" y="96">+4</text>
+        <text class="d-label" x="162" y="118">+4</text><text class="d-label" x="227" y="118">+4</text>
+        <text class="d-label" x="292" y="118">+4</text><text class="d-label" x="357" y="118">+4</text>
+        <text class="d-label" x="422" y="118">+4</text><text class="d-label" x="487" y="118">+4</text>
+        <text class="d-text" x="580" y="96">24 px</text>
+        <text class="d-label" x="580" y="118">24 px</text>
+      </g>
+
+      <path class="d-thin" d="M12 136 H628"/>
+
+      <text class="d-text" x="12" y="172">30 fps</text>
+      <g>
+        <rect class="d-box" x="130" y="150" width="130" height="34" rx="4"/>
+        <rect class="d-box" x="260" y="150" width="130" height="34" rx="4"/>
+        <rect class="d-box" x="390" y="150" width="130" height="34" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="195" y="172">33.3ms</text>
+        <text class="d-mono" x="325" y="172">33.3ms</text>
+        <text class="d-mono" x="455" y="172">33.3ms</text>
+      </g>
+      <text class="d-muted" x="12" y="206">per frame</text>
+      <text class="d-muted" x="12" y="228">with delta</text>
+      <g text-anchor="middle">
+        <text class="d-text" x="195" y="206">+4</text><text class="d-text" x="325" y="206">+4</text>
+        <text class="d-text" x="455" y="206">+4</text>
+        <text class="d-label" x="195" y="228">+8</text><text class="d-label" x="325" y="228">+8</text>
+        <text class="d-label" x="455" y="228">+8</text>
+        <text class="d-text d-bad-fill" x="580" y="206">12 px</text>
+        <text class="d-label" x="580" y="228">24 px</text>
+      </g>
+    </svg>
+    <figcaption>The same tenth of a second at two frame rates. Counting frames moves half as far at 30 fps. Multiplying by delta takes bigger steps when there are fewer frames, so the total is the same.</figcaption>
+  </figure>
+
+  <h3>Who measures it, and when</h3>
+  <p>You never measure delta yourself in Godot or Unity. The engine owns the clock, and your scripts only read it. Each frame happens in this order:</p>
+  <ol>
+    <li>The engine reads the system clock and subtracts the time it read at the start of the previous frame.</li>
+    <li>It may adjust that number: Unity limits how large a single frame's delta can be, and both engines multiply it by a <dfn>time scale</dfn>, a global speed factor where 1 is normal and 0.5 is slow motion.</li>
+    <li>It stores the result, then calls every script's per-frame function. Every script in that frame sees the same value.</li>
+  </ol>
+  <p>In <strong>Godot 4</strong> the value arrives as the <code>delta</code> argument of <code>_process(delta)</code>, in seconds. You can also ask any node for it with <code>get_process_delta_time()</code>. The time scale is <code>Engine.time_scale</code>.</p>
+  <p>In <strong>Unity</strong> there is no argument. <code>Update()</code> reads the static property <code>Time.deltaTime</code>, also in seconds. The time scale is <code>Time.timeScale</code>, and <code>Time.unscaledDeltaTime</code> gives the raw value for things that must ignore slow motion, such as a pause menu.</p>
+  <p>Both engines also have a fixed-rate callback, <code>_physics_process(delta)</code> in Godot and <code>FixedUpdate()</code> in Unity. There the delta is the fixed step, the same every call. Unity's <code>Time.deltaTime</code> also returns the fixed step when you read it inside <code>FixedUpdate</code>, so the same line works in both places.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Anything you change a little every frame is a rate. Write it per second and multiply by delta. Then check the units: a change in position should come out in pixels or metres, never in pixels per frame.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Two squares race 480 pixels in a tiny model of an engine that runs at the frame rate you pick. The top one adds 4 pixels every frame. The bottom one adds 240 pixels per second times delta. At 60 frames per second they tie at 2.00 seconds.</p>
+  <p>Drag the frame rate to 30, then to 144, and watch the top square's time change while the bottom one stays at 2.00. Then try the time scale, switch on hitches, and switch the cap off.</p>
+
+  <figure class="demo" data-demo="delta-race">
+    <canvas id="delta-race"></canvas>
+    <figcaption>The ticks under each track mark where the square was at the end of each recent frame. Counting frames gives evenly spaced ticks whatever the frame rate, so the speed changes. With delta, ticks spread out when frames are long, so the speed stays put. The bars at the bottom are recent frame times; the dashed line is one sixtieth of a second. If animation is off, press Play or Step one frame.</figcaption>
+  </figure>
+  <p>The model leaves out the real cost of drawing, vsync and the engine's own clamping. Each pretend frame simply lasts exactly as long as the slider says, apart from hitches.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE passes the frame's duration to <code>love.update(dt)</code>. The two squares below use the same names and numbers as the demo, including its 0.1 second cap and its time scale.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local TRACK = 480        <span class="c">-- distance to the finish line, in pixels</span>
+local PER_FRAME = 4      <span class="c">-- top square: pixels per frame</span>
+local SPEED = 240        <span class="c">-- bottom square: pixels per second</span>
+local MAX_DT = 0.1       <span class="c">-- longest frame we are willing to simulate</span>
+local timeScale = 1      <span class="c">-- 0.5 is slow motion, 2 is double speed</span>
+
+local frameSquare = { x = 0 }
+local deltaSquare = { x = 0 }
+
+function love.update(dt)
+  <span class="c">-- dt is the number of seconds since the previous frame</span>
+  local step = math.min(dt, MAX_DT) * timeScale
+
+  <span class="c">-- Per frame: the speed depends on the frame rate.</span>
+  frameSquare.x = math.min(frameSquare.x + PER_FRAME, TRACK)
+
+  <span class="c">-- Per second: pixels per second times seconds.</span>
+<span class="k">  deltaSquare.x = math.min(deltaSquare.x + SPEED * step, TRACK)</span>
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", frameSquare.x, 60, 18, 18)
+  love.graphics.rectangle("fill", deltaSquare.x, 140, 18, 18)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D in a new scene and run it.</span>
+extends Node2D
+
+const TRACK := 480.0
+const PER_FRAME := 4.0
+const SPEED := 240.0
+
+var frame_x := 0.0
+var delta_x := 0.0
+
+func _ready() -&gt; void:
+    Engine.max_fps = 30   <span class="c"># try 30, 60 and 0 (no cap) and compare</span>
+
+<span class="c"># delta: seconds since the previous frame, already multiplied by Engine.time_scale</span>
+func _process(delta: float) -&gt; void:
+    frame_x = minf(frame_x + PER_FRAME, TRACK)
+<span class="k">    delta_x = minf(delta_x + SPEED * delta, TRACK)</span>
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_rect(Rect2(frame_x, 60, 18, 18), Color.WHITE)
+    draw_rect(Rect2(delta_x, 140, 18, 18), Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS. Put on an empty GameObject in a new scene and press Play.</span>
+using UnityEngine;
+
+public class DeltaRace : MonoBehaviour
+{
+    <span class="c">// Unity measures in units, not pixels: 2.4 units per second here.</span>
+    const float StartX = -2.4f, Track = 4.8f;
+    const float PerFrame = 0.04f, Speed = 2.4f;
+
+    Transform frameSquare, deltaSquare;
+
+    void Start()
+    {
+        QualitySettings.vSyncCount = 0;    <span class="c">// otherwise vsync decides the frame rate</span>
+        Application.targetFrameRate = 30;  <span class="c">// try 30, 60 and 144 and compare</span>
+        frameSquare = MakeCube(1f);
+        deltaSquare = MakeCube(-1f);
+    }
+
+    <span class="c">// Time.deltaTime: seconds since the previous frame, scaled by Time.timeScale</span>
+    void Update()
+    {
+        Move(frameSquare, PerFrame);
+<span class="k">        Move(deltaSquare, Speed * Time.deltaTime);</span>
+    }
+
+    static void Move(Transform t, float amount)
+    {
+        Vector3 p = t.position;
+        p.x = Mathf.Min(p.x + amount, StartX + Track);
+        t.position = p;
+    }
+
+    static Transform MakeCube(float y)
+    {
+        Transform t = GameObject.CreatePrimitive(PrimitiveType.Cube).transform;
+        t.position = new Vector3(StartX, y, 0f);
+        t.localScale = Vector3.one * 0.3f;
+        return t;
+    }
+}</code></pre>
+  </div>
+  <p>In each version, change the frame rate setting and run again. The top square's arrival time follows the frame rate; the bottom one arrives after two seconds every time. The Godot and Unity versions leave the cap to the engine, which is why they have no <code>MAX_DT</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Multiplying twice.</strong> Some engine features already apply delta for you. In Godot 4, <code>CharacterBody2D.velocity</code> is in pixels per second and <code>move_and_slide()</code> uses the frame's delta itself. In Unity, a <code>Rigidbody</code>'s velocity is in units per second and the physics step applies it. Multiplying those by delta makes movement tiny and frame-rate dependent again.</li>
+    <li><strong>Multiplying amounts that are not rates.</strong> Mouse movement reports how far the mouse moved since last time. That is already a distance, so scaling it by delta makes camera sensitivity change with the frame rate. The same goes for one-off changes such as "jump: set vertical speed to 600".</li>
+    <li><strong>Timers counted in frames.</strong> <code>cooldown = cooldown - 1</code> lasts twice as long at 30 fps. Store seconds and subtract <code>dt</code>.</li>
+    <li><strong>Smoothing with a fixed blend.</strong> <code>x = x + (target - x) * 0.1</code> every frame closes 10 percent of the gap per frame, so it settles faster at high frame rates. Use a blend that depends on delta, for example <code>1 - math.exp(-6.3 * dt)</code> in place of <code>0.1</code>, which closes about 10 percent of the gap per frame at 60 fps and the same share per second at any rate.</li>
+    <li><strong>Huge frames.</strong> Loading, a breakpoint or dragging the window can produce a frame of half a second or more, and the object jumps that far in one step, possibly through a wall. Cap delta, as the Lua does. Unity caps it for you through Maximum Allowed Timestep in the Time settings, one third of a second by default, which is still large for fast objects.</li>
+    <li><strong>Acceleration still drifts.</strong> Delta time makes constant speeds exact. Anything that accelerates, such as a jump under gravity, still lands in slightly different places at different frame rates. That needs a fixed step, the subject of the next lesson.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every per-frame callback in both engines is built around this value. Godot hands <code>delta</code> to <code>_process</code>, and Unity exposes <code>Time.deltaTime</code> to <code>Update</code>, <code>LateUpdate</code> and coroutines. Godot's own nodes, such as <code>AnimationPlayer</code> and <code>Tween</code>, advance by the same delta, which is why changing the time scale slows them down together with your scripts.</p>
+  <p>The time scale is the usual tool for whole-game slow motion and for pausing in Unity: setting <code>Time.timeScale</code> to 0 stops everything that uses scaled time, while menus that read <code>Time.unscaledDeltaTime</code> keep working. That only works if every moving thing multiplies by delta. Code that counts frames ignores the time scale entirely, as the demo shows.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In one of your projects, cap the frame rate low: <code>Engine.max_fps = 20</code> in Godot, or <code>QualitySettings.vSyncCount = 0</code> and <code>Application.targetFrameRate = 20</code> in Unity. In LÖVE, add <code>love.timer.sleep(0.04)</code> at the end of <code>love.update</code> to fake a slow machine.</p>
+  <p>Time three things with a stopwatch at 20 fps and again uncapped: crossing the screen, a weapon cooldown, and how long the camera takes to catch up after a sudden move. Fix every number that changes, using the pitfalls above. You are done when all three times match at both frame rates.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A frame is not a fixed amount of time, so a speed written per frame changes from machine to machine.</li>
+    <li>Delta time is the seconds since the previous frame. Speed per second times delta gives distance, at any frame rate.</li>
+    <li>The engine measures delta once per frame, scales it, and gives every script the same value: <code>delta</code> in Godot's <code>_process</code>, <code>Time.deltaTime</code> in Unity's <code>Update</code>.</li>
+    <li>Only multiply rates. Distances, one-off changes and values the engine already scales must not be multiplied again.</li>
+    <li>Cap delta for long frames, and use a fixed step for anything that accelerates.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson builds the fixed timestep with an accumulator, so that jumps and other acceleration come out the same at every frame rate.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Idle and Physics Processing</cite>. Explains <code>_process</code>, <code>_physics_process</code> and their delta arguments.</li>
+    <li>Unity Scripting Reference, <cite>Time.deltaTime</cite> and <cite>Time.timeScale</cite>. The official description of both values and how they interact.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Game Loop". Covers variable time steps and why they are not the end of the story.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var TRACK = 480;       // pixels to the finish line
+  var PER_FRAME = 4;     // top square: pixels per frame
+  var SPEED = 240;       // bottom square: pixels per second
+  var MAX_DT = 0.1;      // cap on delta, in seconds
+  var HITCH = 0.25;      // length of a hitch frame, in seconds
+  var SQ = 18;           // square size on screen
+  var HISTORY = 60;      // frame time bars to keep
+  var TRAIL = 14;        // ticks to keep per square
+  var REST = 1.0;        // seconds to wait after both finish
+
+  var ui = DemoKit.controls('[data-demo="delta-race"]');
+  var rate = ui.slider({ label: 'Frame rate', min: 10, max: 144, step: 1, value: 60, unit: ' fps',
+    onInput: function (v) { frameLength = 1 / v; } });
+  var scale = ui.slider({ label: 'Time scale', min: 0.25, max: 2, step: 0.25, value: 1,
+    format: function (v) { return v.toFixed(2) + 'x'; } });
+  var hitches = ui.toggle({ label: 'Random hitches (0.25 s frames)', value: false });
+  var cap = ui.toggle({ label: 'Cap delta at 0.1 s', value: true });
+  var lastFrame = ui.readout({ label: 'Last frame' });
+  ui.button({ label: 'Step one frame', onClick: function () {
+    handle.pause();
+    nextFrame();
+    handle.redraw();
+  } });
+  ui.button({ label: 'Restart race', onClick: function () {
+    resetRace();
+    clock = 0;
+    frameLength = 1 / rate.value;
+    handle.redraw();
+  } });
+
+  var frameSquare, deltaSquare, raceTime, waitAfter;
+  var clock = 0;
+  var hitchIn = 1.2;
+  var random = DemoKit.rng(11);
+  var frameLength = 1 / 60;
+  var lastRaw = 1 / 60;
+  var lastDt = 1 / 60;
+  var frameTimes = [];
+
+  function makeSquare() { return { x: 0, done: null, trail: [] }; }
+
+  function resetRace() {
+    frameSquare = makeSquare();
+    deltaSquare = makeSquare();
+    raceTime = 0;
+    waitAfter = 0;
+  }
+  resetRace();
+
+  function move(sq, amount) {
+    if (sq.done !== null) return;
+    sq.x = Math.min(sq.x + amount, TRACK);
+    sq.trail.push(sq.x);
+    if (sq.trail.length > TRAIL) sq.trail.shift();
+    if (sq.x >= TRACK - 1e-6) sq.done = raceTime;
+  }
+
+  // One pretend engine frame that lasted frameTime real seconds.
+  function gameFrame(frameTime) {
+    var dt = cap.value ? Math.min(frameTime, MAX_DT) : frameTime;
+    dt = dt * scale.value;
+    lastRaw = frameTime;
+    lastDt = dt;
+    frameTimes.push(frameTime);
+    if (frameTimes.length > HISTORY) frameTimes.shift();
+
+    if (frameSquare.done !== null && deltaSquare.done !== null) {
+      waitAfter += frameTime;
+      if (waitAfter >= REST) resetRace();
+      return;
+    }
+    raceTime += frameTime;
+    move(frameSquare, PER_FRAME);
+    move(deltaSquare, SPEED * dt);
+  }
+
+  function nextFrameLength() {
+    var base = 1 / rate.value;
+    if (hitches.value) {
+      hitchIn -= base;
+      if (hitchIn <= 0) {
+        hitchIn = 0.8 + random() * 1.2;
+        return HITCH;
+      }
+    }
+    return base;
+  }
+
+  function nextFrame() {
+    gameFrame(frameLength);
+    frameLength = nextFrameLength();
+  }
+
+  function status(sq) {
+    if (sq.done !== null) {
+      return 'finished in ' + sq.done.toFixed(2) + ' s, average ' + Math.round(TRACK / sq.done) + ' px/s';
+    }
+    if (raceTime <= 0) return 'ready';
+    return 'running ' + raceTime.toFixed(2) + ' s, average ' + Math.round(sq.x / raceTime) + ' px/s';
+  }
+
+  function drawLane(ctx, c, top, left, right, title, sq) {
+    var scaleX = (right - left - SQ) / TRACK;
+    var trackY = top + 66;
+
+    ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText(title, left, top + 14);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = sq.done !== null ? c.ink : c.ink2;
+    ctx.fillText(status(sq), left, top + 32);
+
+    // Track and finish line.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, trackY + 0.5);
+    ctx.lineTo(right, trackY + 0.5);
+    ctx.stroke();
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(right, top + 40);
+    ctx.lineTo(right, trackY + 10);
+    ctx.stroke();
+
+    // Ticks at the square's front edge after each recent frame.
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 1.5;
+    for (var i = 0; i < sq.trail.length; i++) {
+      var tx = left + sq.trail[i] * scaleX + SQ;
+      ctx.globalAlpha = 0.25 + 0.75 * (i + 1) / sq.trail.length;
+      ctx.beginPath();
+      ctx.moveTo(tx, trackY + 3);
+      ctx.lineTo(tx, trackY + 10);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(Math.round(left + sq.x * scaleX), trackY - SQ - 2, SQ, SQ);
+  }
+
+  function drawFrameTimes(ctx, c, left, right, top, bottom) {
+    var h = bottom - top;
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'left';
+    ctx.fillText('Frame times (bar top = 0.1 s)', left, top - 6);
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(left, top, right - left, h);
+
+    var w = (right - left) / HISTORY;
+    var start = HISTORY - frameTimes.length;
+    for (var i = 0; i < frameTimes.length; i++) {
+      var t = frameTimes[i];
+      var bh = Math.min(t / 0.1, 1) * h;
+      ctx.fillStyle = t > MAX_DT ? c.bad : c.topic;
+      ctx.fillRect(left + (start + i) * w + 0.5, bottom - bh, Math.max(w - 1, 1), bh);
+    }
+
+    var y = Math.round(bottom - (1 / 60) / 0.1 * h) + 0.5;
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  var handle = DemoKit.canvas('#delta-race', {
+    height: 270,
+    label: 'Two squares race to a finish line. The top one moves 4 pixels per frame, the bottom one 240 pixels per second times delta. Below them, a bar chart of recent frame times.',
+    update: function (dt) {
+      clock += dt;
+      var guard = 0;
+      while (clock >= frameLength && guard < 40) {
+        clock -= frameLength;
+        nextFrame();
+        guard += 1;
+      }
+      if (guard === 40) clock = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 16;
+      var right = s.width - 16;
+      drawLane(ctx, c, 4, left, right, 'Per frame: x = x + 4', frameSquare);
+      drawLane(ctx, c, 94, left, right, 'With delta: x = x + 240 * dt', deltaSquare);
+      drawFrameTimes(ctx, c, left, Math.max(left + 60, s.width - 100), 202, 250);
+      lastFrame.set((lastRaw * 1000).toFixed(1) + ' ms, dt used ' + (lastDt * 1000).toFixed(1) + ' ms');
+    }
+  });
+})();
+</script>
+</body>
+</html>

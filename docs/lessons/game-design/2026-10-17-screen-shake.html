@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen shake that sells the hit · Game Dev Daily</title>
+<meta name="description" content="How a short, decaying camera shake sells impact, and how strength, decay, smooth noise and direction keep it from becoming tiring.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Screen shake that sells the hit</h1>
+  <p class="lede">How a short, decaying camera shake sells impact, and how strength, decay, smooth noise and direction keep it from becoming tiring.</p>
+</header>
+
+<section data-section="hook">
+  <p>A rocket hits a wall, a sprite swaps to an explosion, and nothing else happens. It looks correct and feels like nothing. Add a few pixels of camera jolt and the same explosion suddenly has weight. Add too much and, ten minutes later, the player has a headache and cannot see what hit them.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A shake is a small offset that dies away</h2>
+  <p><dfn>Screen shake</dfn> moves the whole drawn image by a small offset for a fraction of a second after something big happens. The world does not move. Only the camera's drawing position does, and only for a moment.</p>
+  <p>The player reads it as a real jolt: something hit hard enough to move the viewer. That is why it suits explosions and heavy landings, and feels wrong for small, frequent events.</p>
+
+  <h3>Trauma: one number that drives everything</h3>
+  <p>A clean way to organise shake is a single value called <dfn>trauma</dfn>, between 0 and 1. The name and the approach come from Squirrel Eiserloh's GDC 2016 talk on camera maths. It works in three rules:</p>
+  <ol>
+    <li><strong>Impacts add trauma.</strong> A small hit might add 0.3, a big blast 0.7. Trauma is capped at 1, so ten explosions at once cannot shake the screen off the monitor.</li>
+    <li><strong>Trauma drains at a steady rate.</strong> If full trauma takes 0.4 seconds to drain, the shake from any hit is over within 0.4 seconds.</li>
+    <li><strong>Shake strength comes from trauma squared.</strong> The offset each frame is <code>MAX_OFFSET * trauma * trauma</code>. Squaring (cubing is another common choice) keeps small hits subtle and makes big ones fall away quickly, instead of every hit ending in a long, low buzz.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A graph of trauma over time. A small hit raises trauma to 0.3, and it drains in a straight line. Later a blast raises it to 0.7, and a second blast soon after pushes it to the cap of 1, after which it drains to zero in 0.4 seconds. A second curve, trauma squared, sits below the trauma line and falls away much faster near zero.">
+      <path class="d-stroke" d="M80 30 V190 H610"/>
+      <text class="d-label" x="72" y="44" text-anchor="end">1</text>
+      <text class="d-label" x="72" y="194" text-anchor="end">0</text>
+      <text class="d-muted" x="610" y="214" text-anchor="end">time</text>
+      <path class="d-thin" d="M122 26 V34 M332 26 V34 M395 26 V34"/>
+      <text class="d-text" x="122" y="20" text-anchor="middle">+0.3</text>
+      <text class="d-text" x="332" y="20" text-anchor="middle">+0.7</text>
+      <text class="d-text" x="395" y="20" text-anchor="middle">+0.7</text>
+      <path class="d-accent" fill="none" d="M80 190 H122 V145 L172.4 190 H332 V85 L395 141.25 V40 L563 190 H600"/>
+      <path class="d-stroke" fill="none" d="M80 190 H122 V176.5 Q147.2 190 172.4 190 H332 V116.5 Q363.5 155.9 395 174.2 V40 Q479 190 563 190 H600"/>
+      <text class="d-label" x="410" y="38">capped at 1</text>
+      <path class="d-accent" d="M190 64 H216"/>
+      <text class="d-text" x="224" y="68">trauma</text>
+      <path class="d-stroke" d="M190 88 H216"/>
+      <text class="d-text" x="224" y="92">shake (trauma squared)</text>
+      <path class="d-thin" d="M395 198 V204 H563 V198"/>
+      <text class="d-label" x="479" y="220" text-anchor="middle">0.4 s from full to zero</text>
+    </svg>
+    <figcaption>Hits add to trauma; time drains it. The shake actually applied is trauma squared, so a 0.3 hit produces only 0.09 of the maximum offset, while a capped blast produces all of it and then drops off fast.</figcaption>
+  </figure>
+
+  <h3>Which way to move the camera</h3>
+  <p>Knowing <em>how much</em> to shake each frame, you still have to pick a direction. Three common choices:</p>
+  <ul>
+    <li><strong>Random every frame.</strong> A new random offset each frame. Simple, but harsh and jittery, and it changes speed with the frame rate: at 144 frames per second it buzzes more than twice as fast as at 60.</li>
+    <li><strong>Smooth noise.</strong> Read the offset from a smooth noise function, a function that returns random-looking values that change gradually, sampled at the current time. The camera wobbles instead of teleporting, and the wobble speed is set in hertz, not frames.</li>
+    <li><strong>Directional.</strong> Push the camera back and forth along the direction of the hit, like a recoil. It tells the player where the force came from, which a random shake cannot.</li>
+  </ul>
+  <p>Many games also add a small rotation, a degree or two at full trauma. In 3D games rotation-only shake is often preferred, because moving a 3D camera can push it through a nearby wall.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>Maximum offset: about 1 to 2 percent of the screen width, so 3 to 6 pixels on a 320 pixel wide pixel-art screen, or 15 to 30 pixels at 1920. Decay: 0.2 to 0.5 seconds for hits, up to about a second for a rare huge event. Rotation, if any: 1 to 3 degrees. These are numbers to begin tuning from, not rules.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Fire a few shots with shake off, then switch it on and fire again. Try a blast. Then hold fire and watch the trauma line pin against the cap instead of climbing forever. Finally, switch between the three shake types and watch the small circle at the bottom left, which traces the camera's recent offsets.</p>
+
+  <figure class="demo" data-demo="shake">
+    <canvas id="shake"></canvas>
+    <figcaption>Controls: click the canvas, then press Space to fire (hold to keep firing) and B for a blast. On a phone, tap or hold the canvas to fire, or use the Fire and Blast buttons. The strip below the scene never shakes: the coloured line is trauma, the grey line is the shake applied, and ticks mark hits. Shake starts mild and the strength slider goes to zero.</figcaption>
+  </figure>
+
+  <p>With squaring on, a single shot barely moves the camera while the blast lands hard. Turn squaring off and every shot buzzes. Directional mode draws a straight line in the trace circle: the camera recoils along the line of fire.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's shake in LÖVE, with the same names and default numbers. Call <code>addTrauma</code> wherever an impact happens. The shake is applied only while drawing, inside <code>push</code> and <code>pop</code>, so the heads-up display is drawn after it and stays still.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local MAX_OFFSET = 8     <span class="c">-- pixels at full trauma</span>
+local DECAY_TIME = 0.4   <span class="c">-- seconds for full trauma to drain to zero</span>
+local NOISE_FREQ = 15    <span class="c">-- wobble speed of smooth shake, per second</span>
+local DIR_FREQ = 12      <span class="c">-- swings per second of directional shake</span>
+local mode = "noise"     <span class="c">-- "noise", "random" or "directional"</span>
+
+local trauma, time, hitTime = 0, 0, 0
+local dirX, dirY = 1, 0
+local shakeX, shakeY = 0, 0
+
+<span class="c">-- Call on impact: 0.3 for a shot, 0.7 for a blast.</span>
+function addTrauma(amount, dx, dy)
+<span class="k">  trauma = math.min(trauma + amount, 1)</span>
+  hitTime, dirX, dirY = time, dx or 1, dy or 0
+end
+
+function love.update(dt)
+  time = time + dt
+<span class="k">  trauma = math.max(trauma - dt / DECAY_TIME, 0)
+  local amount = MAX_OFFSET * trauma * trauma</span>
+  if mode == "noise" then
+    shakeX = amount * (love.math.noise(time * NOISE_FREQ, 0.5) * 2 - 1)
+    shakeY = amount * (love.math.noise(time * NOISE_FREQ, 9.5) * 2 - 1)
+  elseif mode == "random" then
+    shakeX = amount * (love.math.random() * 2 - 1)
+    shakeY = amount * (love.math.random() * 2 - 1)
+  else
+    local swing = math.sin((time - hitTime) * DIR_FREQ * 2 * math.pi)
+    shakeX, shakeY = dirX * amount * swing, dirY * amount * swing
+  end
+end
+
+function love.draw()
+  love.graphics.push()
+  love.graphics.translate(math.floor(shakeX + 0.5), math.floor(shakeY + 0.5))
+  drawWorld()   <span class="c">-- your game world: shaken</span>
+  love.graphics.pop()
+  drawHud()     <span class="c">-- score, health, menus: never shaken</span>
+end</code></pre>
+  </div>
+  <p><code>love.math.noise</code> returns smooth noise between 0 and 1, so <code>* 2 - 1</code> centres it on zero. Sampling it at two different second coordinates gives two unrelated wobbles for x and y. The demo uses its own small noise function with the same behaviour. Rounding the offset to whole pixels keeps pixel art crisp.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Moving the real camera.</strong> If the shake changes the camera position that gameplay reads, aiming, culling and mouse-to-world conversion all wobble with it. Keep the shake as a separate offset added only at draw time.</li>
+    <li><strong>Shaking the interface.</strong> A shaking health bar or menu is hard to read at exactly the moment the player needs it. Draw the heads-up display after the shake is removed.</li>
+    <li><strong>No cap.</strong> If every hit adds to an unlimited value, a big fight shakes harder and longer than anything you designed. Cap trauma.</li>
+    <li><strong>Shaking for everything.</strong> If the player's own pistol shakes the screen as hard as a boss explosion, neither means anything and the player tires fast. Save the big numbers for rare, important events.</li>
+    <li><strong>Random offsets tied to the frame rate.</strong> A new random value each frame shakes faster on faster screens. Smooth noise sampled by time behaves the same at any frame rate.</li>
+    <li><strong>No option to turn it off.</strong> Shake can cause discomfort or motion sickness. Offer a strength setting that goes to zero; it costs one multiplier.</li>
+  </ul>
+  <div class="callout warn">
+    <p class="callout-title">When not to use screen shake</p>
+    <p>Puzzle games, strategy games and anything where the player reads text or fine detail during the action tend to suffer from it. Long-range precision aiming fights it directly. In virtual reality, moving the view without the player's own head moving is commonly advised against because it causes sickness. And in any game, if players keep missing what happened during a shake, it is too strong or too long.</p>
+  </div>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Jan Willem Nijman of Vlambeer, the studio behind <cite>Nuclear Throne</cite> and <cite>Luftrausers</cite>, gave a well-known talk called "The art of screenshake", in which he applies a long series of small feel tricks to a simple shooter, screen shake among them, to show how much each one changes how it plays.</p>
+  <p><cite>Celeste</cite> has a screen shake setting. According to the game's own changelog, a later update added a 50 percent shake option and made it the default: a public example of a team turning its shake down after release.</p>
+  <p>The trauma approach has spread well beyond one talk. The Bevy engine's examples, for instance, include a 2D screen shake built on it.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add <code>trauma</code>, <code>addTrauma</code> and the draw-time offset from the code above to your own game. Hook it to exactly two events: one small (0.2 to 0.3) and one big (0.6 to 0.8). Add a key that toggles shake so you can compare.</p>
+  <p>Play for five minutes with it on. You are done when the big event clearly feels heavier with shake than without, the small event is barely noticeable on its own, and you never lose track of the player character during a shake.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Screen shake is a short, decaying draw offset that tells the player something hit hard.</li>
+    <li>Drive it with one capped trauma value: impacts add, time drains, and shake is trauma squared.</li>
+    <li>Smooth noise feels better than random jumps and behaves the same at any frame rate. Directional shake also says where the force came from.</li>
+    <li>Never shake the interface or the gameplay camera, and always let players turn shake down to zero.</li>
+    <li>Reserve strong shake for rare, important events, and skip it where the player must read fine detail.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Shake moves the camera on impact; the next lesson stops time instead, with hit stop and freeze frames that make a strike feel heavy.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Squirrel Eiserloh, <cite>Math for Game Programmers: Juicing Your Cameras With Math</cite>, GDC 2016 talk. The source of the trauma model and the case for noise-based shake.</li>
+    <li>Jan Willem Nijman, <cite>The art of screenshake</cite>, conference talk (Vlambeer). Builds up a shooter's game feel one effect at a time.</li>
+    <li>Martin Jonasson and Petri Purho, <cite>Juice it or lose it</cite>, conference talk. An earlier, widely shared demonstration of how layered feedback effects change the same game.</li>
+    <li>Maddy Makes Games, <cite>Celeste v1.4.0.0 changelog</cite>, devlog on itch.io. Notes the added 50 percent screen shake setting.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FIRE_TRAUMA = 0.3;   // trauma added by a shot
+  var BLAST_TRAUMA = 0.7;  // trauma added by a blast
+  var NOISE_FREQ = 15;     // smooth shake wobble speed
+  var DIR_FREQ = 12;       // directional shake swings per second
+  var SHOT_SPEED = 1200;   // pixels per second
+  var FIRE_EVERY = 0.12;   // seconds between shots while holding
+  var HISTORY = 3;         // seconds shown on the graph
+  var HUD = 84;            // height of the unshaken strip at the bottom
+  var TRACE_MAX = 24;      // offset that reaches the edge of the trace circle (slider maximum)
+
+  var prefersReduced = !!(window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // Small 1D value noise: seeded random values at whole numbers, smoothly blended between.
+  var table = [];
+  var seed = DemoKit.rng(21);
+  for (var n = 0; n < 256; n++) table.push(seed() * 2 - 1);
+  function noise(x) {
+    var i = Math.floor(x);
+    var f = x - i;
+    var a = table[((i % 256) + 256) % 256];
+    var b = table[(((i + 1) % 256) + 256) % 256];
+    var u = f * f * (3 - 2 * f);
+    return a + (b - a) * u;
+  }
+
+  var ui = DemoKit.controls('[data-demo="shake"]');
+  var enabled = ui.toggle({ label: 'Screen shake', value: true });
+  var mode = ui.select({
+    label: 'Shake type',
+    options: [
+      { value: 'noise', label: 'Smooth noise' },
+      { value: 'random', label: 'Random every frame' },
+      { value: 'directional', label: 'Directional (recoil)' }
+    ],
+    value: 'noise'
+  });
+  var strength = ui.slider({ label: 'Strength (max offset)', min: 0, max: 24, step: 1,
+    value: prefersReduced ? 3 : 8, unit: ' px' });
+  var decay = ui.slider({ label: 'Decay time', min: 0.1, max: 1.5, step: 0.05, value: 0.4, unit: ' s' });
+  var squared = ui.toggle({ label: 'Square the trauma', value: true });
+  ui.button({ label: 'Fire (+0.3)', onClick: function () { fire(false); } });
+  ui.button({ label: 'Blast (+0.7)', onClick: function () { fire(true); } });
+  var now = ui.readout({ label: 'Right now' });
+
+  var trauma, time, hitTime, ox, oy, shots, rings, samples, hits, trace, cooldown, random, crateKick;
+
+  function reset() {
+    trauma = 0;
+    time = 0;
+    hitTime = 0;
+    ox = 0;
+    oy = 0;
+    shots = [];
+    rings = [];
+    samples = [];
+    hits = [];
+    trace = [];
+    cooldown = 0;
+    crateKick = 0;
+    random = DemoKit.rng(5);
+  }
+  reset();
+
+  function fire(big) {
+    shots.push({ x: 0, big: big });
+  }
+
+  function impact(big, x, y) {
+    trauma = Math.min(trauma + (big ? BLAST_TRAUMA : FIRE_TRAUMA), 1);
+    hitTime = time;
+    hits.push(time);
+    crateKick = big ? 1 : 0.5;
+    rings.push({ x: x, y: y, age: 0, life: big ? 0.5 : 0.3, size: big ? 60 : 26 });
+  }
+
+  function layout(s) {
+    var worldH = s.height - HUD;
+    var ground = worldH - 28;
+    var turretX = 34;
+    var crateX = Math.max(turretX + 120, s.width * 0.74);
+    return { worldH: worldH, ground: ground, turretX: turretX, crateX: crateX, muzzleY: ground - 22 };
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  DemoKit.canvas('#shake', {
+    height: 320,
+    keys: true,
+    label: 'A small cannon on the left fires at a crate on the right. Each hit adds trauma, which shakes the scene by an amount you control. Below the scene, an unshaken graph shows trauma and shake over the last three seconds.',
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space') { fire(false); cooldown = FIRE_EVERY; }
+      if (key === 'b') fire(true);
+    },
+    onDown: function () {
+      fire(false);
+      cooldown = FIRE_EVERY;
+    },
+    update: function (dt, s) {
+      var L = layout(s);
+      time += dt;
+
+      // Holding fire keeps shooting.
+      cooldown -= dt;
+      if ((s.keys.has('space') || s.pointer.down) && cooldown <= 0) {
+        fire(false);
+        cooldown = FIRE_EVERY;
+      }
+
+      // Move shots; a shot that reaches the crate is an impact.
+      var muzzleX = L.turretX + 26;
+      var hitX = L.crateX - 18;
+      for (var i = shots.length - 1; i >= 0; i--) {
+        shots[i].x += SHOT_SPEED * dt;
+        if (muzzleX + shots[i].x >= hitX) {
+          impact(shots[i].big, hitX, L.muzzleY);
+          shots.splice(i, 1);
+        }
+      }
+      for (var j = rings.length - 1; j >= 0; j--) {
+        rings[j].age += dt;
+        if (rings[j].age >= rings[j].life) rings.splice(j, 1);
+      }
+      crateKick = Math.max(0, crateKick - dt * 5);
+
+      // Trauma drains; shake is trauma or trauma squared.
+      trauma = Math.max(trauma - dt / decay.value, 0);
+      var shake = squared.value ? trauma * trauma : trauma;
+      var amount = enabled.value ? strength.value * shake : 0;
+
+      if (mode.value === 'noise') {
+        ox = amount * noise(time * NOISE_FREQ);
+        oy = amount * noise(time * NOISE_FREQ + 97.5);
+      } else if (mode.value === 'random') {
+        ox = amount * (random() * 2 - 1);
+        oy = amount * (random() * 2 - 1);
+      } else {
+        // The shot travels to the right, so the recoil swings along x.
+        ox = amount * Math.sin((time - hitTime) * DIR_FREQ * 2 * Math.PI);
+        oy = 0;
+      }
+
+      samples.push({ t: time, trauma: trauma, shake: shake });
+      while (samples.length && samples[0].t < time - HISTORY) samples.shift();
+      while (hits.length && hits[0] < time - HISTORY) hits.shift();
+      trace.push({ x: ox, y: oy });
+      if (trace.length > 14) trace.shift();
+
+      now.set('trauma ' + trauma.toFixed(2) + ', shake ' + shake.toFixed(2) +
+        ', offset ' + Math.round(Math.sqrt(ox * ox + oy * oy)) + ' px');
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      var w = s.width;
+
+      // ---- The world, drawn with the shake offset ----
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, L.worldH);
+      ctx.clip();
+      ctx.translate(Math.round(ox), Math.round(oy));
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(-40, -40, w + 80, L.worldH + 80);
+
+      // Background pillars so the motion of the whole scene is visible.
+      ctx.fillStyle = c.line;
+      for (var p = 0; p < 8; p++) {
+        var px = 60 + p * 90;
+        if (px > w + 40) break;
+        var ph = 40 + ((p * 37) % 60);
+        ctx.fillRect(px, L.ground - ph, 22, ph);
+      }
+
+      // Ground.
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(-40, L.ground, w + 80, L.worldH - L.ground + 40);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      line(ctx, -40, L.ground, w + 40, L.ground);
+
+      // Turret.
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(L.turretX - 14, L.ground - 16, 28, 16);
+      ctx.fillRect(L.turretX, L.muzzleY - 4, 26, 8);
+
+      // Crate, nudged right when hit.
+      var kick = crateKick * 5;
+      ctx.fillStyle = c.warn;
+      ctx.fillRect(L.crateX - 18 + kick, L.ground - 36, 36, 36);
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(L.crateX - 18 + kick, L.ground - 36, 36, 36);
+      line(ctx, L.crateX - 18 + kick, L.ground - 36, L.crateX + 18 + kick, L.ground);
+
+      // Shots.
+      ctx.fillStyle = c.topic;
+      for (var i = 0; i < shots.length; i++) {
+        var r = shots[i].big ? 6 : 3.5;
+        ctx.beginPath();
+        ctx.arc(L.turretX + 26 + shots[i].x, L.muzzleY, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Impact rings: an outline that grows and fades. No full-screen flash.
+      ctx.strokeStyle = c.bad;
+      for (var j = 0; j < rings.length; j++) {
+        var g = rings[j].age / rings[j].life;
+        ctx.globalAlpha = 1 - g;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(rings[j].x, rings[j].y, 6 + g * rings[j].size, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+
+      // ---- The unshaken strip: status, offset trace and graph ----
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'left';
+      var label = enabled.value ? 'Shake on' : 'Shake off';
+      ctx.fillText(label, 10, 20);
+
+      var top = L.worldH;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, top, w, HUD);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, 0, top + 0.5, w, top + 0.5);
+
+      // Offset trace: where the camera has been over the last few frames.
+      var cx = 34;
+      var cy = top + HUD / 2;
+      var R = 26;
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.stroke();
+      line(ctx, cx - 4, cy, cx + 4, cy);
+      line(ctx, cx, cy - 4, cx, cy + 4);
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var k = 0; k < trace.length; k++) {
+        var tx = cx + DemoKit.clamp(trace[k].x / TRACE_MAX, -1, 1) * R;
+        var ty = cy + DemoKit.clamp(trace[k].y / TRACE_MAX, -1, 1) * R;
+        if (k === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+      }
+      ctx.stroke();
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(cx + DemoKit.clamp(ox / TRACE_MAX, -1, 1) * R, cy + DemoKit.clamp(oy / TRACE_MAX, -1, 1) * R, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Graph of trauma and shake. Kept clear of the Pause button at bottom right.
+      var gx0 = 72;
+      var gx1 = Math.max(gx0 + 60, w - 92);
+      var gy0 = top + 24;
+      var gy1 = top + HUD - 10;
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.topic;
+      ctx.fillText('trauma', gx0, top + 16);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('shake', gx0 + 52, top + 16);
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, gx0, gy1 + 0.5, gx1, gy1 + 0.5);
+      line(ctx, gx0, gy0 + 0.5, gx1, gy0 + 0.5);
+
+      function gxOf(t) { return gx1 - (time - t) / HISTORY * (gx1 - gx0); }
+      function gyOf(v) { return gy1 - v * (gy1 - gy0); }
+
+      ctx.strokeStyle = c.ink3;
+      for (var h = 0; h < hits.length; h++) {
+        var hx = gxOf(hits[h]);
+        line(ctx, hx, gy0 - 4, hx, gy0 + 3);
+      }
+
+      function plot(key, colour) {
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.75;
+        ctx.beginPath();
+        for (var q = 0; q < samples.length; q++) {
+          var x = gxOf(samples[q].t);
+          var y = gyOf(samples[q][key]);
+          if (q === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      plot('shake', c.ink3);
+      plot('trauma', c.topic);
+    }
+  });
+})();
+</script>
+</body>
+</html>

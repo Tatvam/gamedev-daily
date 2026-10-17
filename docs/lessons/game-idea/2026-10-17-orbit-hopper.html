@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit Hopper: let go at the right moment · Game Dev Daily</title>
+<meta name="description" content="A one-button space climber where you orbit a shrinking planet and press to fly off along the tangent, with a playable prototype and the orbit code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Orbit Hopper: let go at the right moment</h1>
+  <p class="lede">A one-button space climber where you orbit a shrinking planet and press to fly off along the tangent, with a playable prototype and the orbit code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your little ship circles a planet on its own, and the planet is shrinking under you. One press lets go of its gravity and sends you flying in a straight line into the dark. Get the timing right and the next planet catches you. Get it wrong and you drift off into space.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: circle, aim, let go, get caught</h2>
+  <p>The player never steers. The ship circles the planet by itself, and the only input is the moment you let go. That makes it a <dfn>timing aim</dfn>: the direction you fly in is decided by where you are on the circle when you press, so aiming and timing are the same action.</p>
+  <ul>
+    <li><strong>Orbiting:</strong> the ship moves around the planet's <dfn>capture ring</dfn>, the dashed circle where its gravity holds you, at a constant speed.</li>
+    <li><strong>Press:</strong> the ship leaves along the <dfn>tangent</dfn>, the straight line that touches the circle at the ship's position. It keeps the speed it had.</li>
+    <li><strong>Flying:</strong> nothing pulls the ship until it crosses another planet's capture ring. Then that planet catches it, and the ship starts circling it, clockwise or anticlockwise depending on which side it came in from.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: circle the planet while watching the aim line, press to let go along the tangent, get caught by the next planet's ring, and back to circling. Beside it, two longer loops: every minute the planets get smaller and further apart, and every session the player tries to climb higher than before.">
+      <defs>
+        <marker id="oh-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="100" y="16" width="200" height="54" rx="8"/>
+      <text class="d-text" x="200" y="39" text-anchor="middle">Circle and aim</text>
+      <text class="d-muted" x="200" y="57" text-anchor="middle">watch the tangent line</text>
+
+      <rect class="d-accent-soft" x="220" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="315" y="183" text-anchor="middle">Press to let go</text>
+      <text class="d-muted" x="315" y="201" text-anchor="middle">fly in a straight line</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="170" height="54" rx="8"/>
+      <text class="d-text" x="95" y="183" text-anchor="middle">Get caught</text>
+      <text class="d-muted" x="95" y="201" text-anchor="middle">a new ring holds you</text>
+
+      <path class="d-accent" d="M262 72 L300 156" marker-end="url(#oh-arrow)"/>
+      <path class="d-accent" d="M218 187 L184 187" marker-end="url(#oh-arrow)"/>
+      <path class="d-accent" d="M100 156 L140 74" marker-end="url(#oh-arrow)"/>
+      <text class="d-label" x="200" y="128" text-anchor="middle">every few seconds</text>
+
+      <path class="d-dash" d="M430 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">planets get smaller</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">and further apart</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">climb higher than</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">your best height</text>
+    </svg>
+    <figcaption>The short loop is one hop. The minute loop is the climb getting harder. The session loop is a best height.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 275" role="img" aria-label="A ship on the capture ring of a lower planet leaves along the tangent in a straight line and crosses the capture ring of an upper planet, which catches it. A second dashed line, from a press made earlier on the ring, points too steeply upward and misses.">
+      <circle class="d-fill" cx="170" cy="190" r="26"/>
+      <circle class="d-stroke d-dash" cx="170" cy="190" r="54"/>
+      <circle class="d-fill" cx="450" cy="70" r="20"/>
+      <circle class="d-stroke d-dash" cx="450" cy="70" r="46"/>
+
+      <path class="d-good" d="M151.5 139.3 L412 44.6"/>
+      <circle class="d-accent-fill" cx="151.5" cy="139.3" r="6"/>
+      <circle class="d-accent-fill" cx="412" cy="44.6" r="5"/>
+      <text class="d-text" x="262" y="134">Press here:</text>
+      <text class="d-muted" x="262" y="154">the tangent line</text>
+      <text class="d-muted" x="262" y="174">crosses the next ring</text>
+
+      <path class="d-bad d-dash" d="M128.6 155.3 L238 25"/>
+      <text class="d-text" x="250" y="26">Press earlier:</text>
+      <text class="d-muted" x="250" y="46">the line misses</text>
+
+      <text class="d-label" x="512" y="146">capture ring</text>
+      <path class="d-thin d-stroke" d="M508 136 L480 110"/>
+      <text class="d-muted" x="170" y="266" text-anchor="middle">shrinking planet</text>
+    </svg>
+    <figcaption>Where you are on the ring when you press decides where you go. Every point on the ring points somewhere different, so every target can be reached if you wait for the right moment.</figcaption>
+  </figure>
+  <p>The planet you are circling shrinks at a steady rate. As it shrinks, its capture ring shrinks with it, so your circle gets tighter. Your speed stays the same, so a tighter circle means more laps per second, and the moment you need to hit gets shorter. When the planet gets too small it breaks up and throws you off along whatever tangent you happen to be on. Waiting is never safe for long.</p>
+  <p>Three things end the run: drifting for more than 2.6 seconds without being caught, leaving the side of the play field, or falling below the bottom of the screen. The score is the highest point you reached.</p>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the slingshot: the feeling of letting go at exactly the right instant and sailing across the gap. The constraint is that you cannot correct anything after the press. Every hop is a single decision, made with full information, and the result is visible within a second.</p>
+  <p>The shrinking planet is what turns a calm puzzle into an action game. Without it the best plan is to wait for a perfect line every time. With it, the player has to weigh a safe-looking shot now against a better one a lap later on a faster, tighter circle.</p>
+  <p>The hardest part to build is the level generator. Planets must be placed so that the next one is always reachable from the current ring within the drift time, and so that two capture rings never overlap. The prototype keeps the planets in rows at least 115 units apart, with rings at most 50 units in radius, which guarantees both.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the canvas to focus it. The ship circles the bottom planet and waits. Press <kbd>Space</kbd>, <kbd>Up</kbd> or <kbd>W</kbd>, or tap the canvas, when the dashed aim line points through the next ring. Nothing shrinks until your first press.</p>
+
+  <figure class="demo" data-demo="orbit">
+    <canvas id="orbit"></canvas>
+    <figcaption>Controls: press <kbd>Space</kbd>, <kbd>Up</kbd>, <kbd>W</kbd>, click or tap the canvas to let go. The dashed line from the ship shows where it will fly. Notice how a planet turns orange as it gets small, and how your laps speed up as its ring tightens. The bar at the top is your drift time.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the whole mechanic in LÖVE: circle the current planet, let go along the tangent, and get caught by the first ring you cross. The numbers are the ones the prototype uses. Positions are in world units, y points down, and angles are in radians.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED, GAP, SHRINK, MINR = 120, 26, 2.2, 7  <span class="c">-- speed, ring gap, shrink rate, smallest planet</span>
+local planets = { { x = 150, y = 0, r = 22 } }       <span class="c">-- add more { x, y, r } above this one</span>
+local ship = { x = 150, y = -48, vx = 0, vy = 0, a = -math.pi / 2, dir = 1 }
+ship.planet = planets[1]
+
+local function release()
+<span class="k">  ship.vx = -math.sin(ship.a) * SPEED * ship.dir  -- along the tangent</span>
+<span class="k">  ship.vy =  math.cos(ship.a) * SPEED * ship.dir</span>
+  ship.planet = nil
+end
+
+function love.keypressed(key)
+  if key == "space" and ship.planet then release() end
+end
+
+function love.update(dt)
+  local p = ship.planet
+  if p then
+    p.r = p.r - SHRINK * dt                          <span class="c">-- the planet shrinks under you</span>
+    if p.r &lt; MINR then p.gone = true; release() return end
+    local ring = p.r + GAP
+<span class="k">    ship.a = ship.a + ship.dir * SPEED / ring * dt   -- same speed, tighter circle</span>
+    ship.x = p.x + math.cos(ship.a) * ring
+    ship.y = p.y + math.sin(ship.a) * ring
+  else
+    ship.x = ship.x + ship.vx * dt
+    ship.y = ship.y + ship.vy * dt
+    for _, q in ipairs(planets) do
+      local dx, dy = ship.x - q.x, ship.y - q.y
+      local ring = q.r + GAP
+      if not q.gone and dx * dx + dy * dy &lt; ring * ring then
+        ship.planet, ship.a = q, math.atan2(dy, dx)  <span class="c">-- caught</span>
+        ship.dir = (dx * ship.vy - dy * ship.vx &gt;= 0) and 1 or -1
+        break
+      end
+    end
+  end
+end</code></pre>
+  </div>
+  <p>The sign of <code>dx * vy - dy * vx</code>, a 2D cross product, tells you which side of the planet the ship came in on, so the orbit carries on in the direction the ship was already moving. A freshly released ship cannot be caught again by its own planet: it starts exactly on the ring and a tangent line only moves away from the centre. Left out for space: generating planets as you climb, the camera, the drift timer, and the three ways to lose.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Unreadable aim.</strong> Without the dashed aim line, players tend to press when the ship <em>faces</em> the target, which is a quarter turn too late on a circle. Test with and without the line. If players miss without it, keep it, or shorten it as the game goes on so that reading the circle becomes the skill.</li>
+    <li><strong>Waiting is always right.</strong> If planets shrink too slowly, the best play is to circle until the perfect line comes round, and the game turns into a slow wait. Put <code>SHRINK</code> on a key and try 1.5, 2.2 and 3.5 with three people. You want them to feel they could have waited one more lap, but chose not to.</li>
+    <li><strong>Unfair spawns.</strong> One unreachable planet ends a good run through no fault of the player. Run a bot that releases at every possible angle and checks that at least one hits the next ring. If any layout fails, change the generator, not the player's skill.</li>
+    <li><strong>Overlapping rings.</strong> If two capture rings overlap, the ship gets passed between planets without a press, and the player loses the feeling of control. Keep a minimum spacing between planet centres larger than the sum of their largest rings.</li>
+    <li><strong>A twitchy fast orbit.</strong> On a small planet the ship laps quickly, and the right moment can be shorter than a frame or two. Read the press on the frame it happens, not on the next update, and test on a slow machine.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Orbit Hopper sits in the territory of one-button timing games, where the whole game is choosing the instant to act. Circling one point and jumping off toward another is a common idea in small mobile and web games, and swinging games, where you let go of a rope to fly to the next anchor, are close neighbours: in both, a circular motion turns timing into direction.</p>
+  <p>It also borrows from orbital mechanics games such as Kerbal Space Program (Squad, 2015), where getting into and out of orbit is the core skill. Orbit Hopper is much simpler: there is no real gravity between planets, only a ring that catches you, so the player can predict every flight from a straight line.</p>
+  <p>What this idea adds is the shrinking planet, which gives every hop its own clock and makes waiting a cost. I do not know of a published game built on exactly this rule, but I have not searched thoroughly, so check before calling it new.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build what the Lua above does: circles for planets, dashed circles for the rings, a triangle for the ship, and a dashed aim line along the tangent. Place five planets by hand in a zigzag going up the screen. Skip shrinking, the camera and scoring.</p>
+  <p>Hand it to someone and say only "get to the top". The one question to answer: <strong>after a miss, does the player know why they missed?</strong> If they say "I pressed too late" without being told, the aim reads well and you can add shrinking next. If they blame the game, fix the aim line before anything else.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype above with a gentle difficulty curve (planets get smaller and further apart with height), a soft click on every catch, a trail behind the ship, and a saved best height.</li>
+    <li><strong>One-month version:</strong> planets with personalities: some spin you faster, some reverse your direction, some drift sideways, and a few rare large ones that shrink slowly and act as rest stops. Add a daily seed so everyone climbs the same sky.</li>
+    <li><strong>Cut first:</strong> real gravity between planets. It looks clever, but bent flight paths break the straight-line aim, which is what makes the game readable.</li>
+    <li>The hardest part is a generator that never builds an unreachable sky. Test it with a bot before tuning anything else.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let a second press while flying spend a little fuel to slow the ship down, so that one well-timed press can be saved by a second, at the cost of a resource you need later.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On how a single input and its instant response can carry a whole game.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite>. Its lenses on skill, chance and meaningful choice fit a game where every hop is one decision.</li>
+    <li>Raph Koster, <cite>A Theory of Fun for Game Design</cite> (2004). On fun as learning a pattern, which here is learning to read where a circle points.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPEED = 120;        // ship speed, units per second, in orbit and in flight
+  var GAP = 26;           // capture ring radius = planet radius + GAP
+  var SHRINK = 2.2;       // planet radius lost per second while you orbit it
+  var MINR = 7;           // below this radius the planet breaks up
+  var FLIGHT_MAX = 2.6;   // seconds of drifting before you are lost
+  var WW = 300, VH = 400; // play field width, visible height, in world units
+  var ROW = 115;          // minimum vertical gap between planets
+  var SEED = 11;
+  var TAU = Math.PI * 2;
+
+  var mode, planets, ship, camY, topY, minY, random, overTime, reason, trail, pops;
+  var best = 0;
+
+  var starRandom = DemoKit.rng(3);
+  var stars = [];
+  for (var si = 0; si < 45; si++) stars.push({ x: starRandom() * WW, y: starRandom() * VH, s: starRandom() });
+
+  function heightOf(y) { return Math.max(0, Math.round((-48 - y) / 10)); }
+
+  function generate() {
+    while (topY > camY - 260) {
+      topY -= ROW + random() * 25;
+      planets.push({ x: 70 + random() * 160, y: topY, r: 14 + random() * 10 });
+    }
+  }
+
+  function reset() {
+    mode = 'ready';
+    random = DemoKit.rng(SEED);
+    planets = [{ x: 150, y: 0, r: 22 }];
+    topY = 0;
+    camY = -VH + 110;
+    ship = { x: 150, y: -48, vx: 0, vy: 0, a: -Math.PI / 2, dir: 1, planet: planets[0], flight: 0 };
+    minY = ship.y;
+    overTime = 0;
+    reason = '';
+    trail = [];
+    pops = [];
+    generate();
+  }
+
+  function place() {
+    var p = ship.planet;
+    var ring = p.r + GAP;
+    ship.x = p.x + Math.cos(ship.a) * ring;
+    ship.y = p.y + Math.sin(ship.a) * ring;
+  }
+
+  function release() {
+    ship.vx = -Math.sin(ship.a) * SPEED * ship.dir;
+    ship.vy = Math.cos(ship.a) * SPEED * ship.dir;
+    ship.planet = null;
+    ship.flight = 0;
+  }
+
+  function lose(why) {
+    mode = 'over';
+    reason = why;
+    overTime = 0;
+    best = Math.max(best, heightOf(minY));
+  }
+
+  function press() {
+    if (mode === 'ready') { mode = 'run'; release(); }
+    else if (mode === 'run' && ship.planet) release();
+    else if (mode === 'over' && overTime > 0.6) reset();
+  }
+
+  function update(dt) {
+    for (var i = pops.length - 1; i >= 0; i--) {
+      pops[i].t += dt;
+      if (pops[i].t > 0.8) pops.splice(i, 1);
+    }
+    if (mode === 'over') { overTime += dt; return; }
+
+    var p = ship.planet;
+    if (p) {
+      if (mode === 'run') {
+        p.r -= SHRINK * dt;
+        if (p.r < MINR) {
+          pops.push({ x: p.x, y: p.y, t: 0 });
+          planets.splice(planets.indexOf(p), 1);
+          release();
+          p = null;
+        }
+      }
+      if (p) {
+        ship.a += ship.dir * SPEED / (p.r + GAP) * dt;
+        place();
+      }
+    }
+    if (!p) {
+      ship.x += ship.vx * dt;
+      ship.y += ship.vy * dt;
+      ship.flight += dt;
+      for (var k = 0; k < planets.length; k++) {
+        var q = planets[k];
+        var dx = ship.x - q.x, dy = ship.y - q.y, ring = q.r + GAP;
+        if (dx * dx + dy * dy < ring * ring) {
+          ship.planet = q;
+          ship.a = Math.atan2(dy, dx);
+          ship.dir = (dx * ship.vy - dy * ship.vx >= 0) ? 1 : -1;
+          place();
+          break;
+        }
+      }
+      if (!ship.planet) {
+        if (ship.x < 0 || ship.x > WW) { lose('Drifted off the edge'); return; }
+        if (ship.y > camY + VH + 10) { lose('Fell behind'); return; }
+        if (ship.flight > FLIGHT_MAX) { lose('Lost in deep space'); return; }
+      }
+    }
+
+    minY = Math.min(minY, ship.y);
+    trail.push({ x: ship.x, y: ship.y });
+    if (trail.length > 36) trail.shift();
+
+    var focus = ship.planet ? ship.planet.y : ship.y;
+    var target = focus - VH * 0.6;
+    if (target < camY) camY += (target - camY) * Math.min(1, dt * 3);
+    generate();
+    for (var j = planets.length - 1; j >= 0; j--) {
+      if (planets[j] !== ship.planet && planets[j].y > camY + VH + 150) planets.splice(j, 1);
+    }
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var W = s.width, H = s.height;
+    var k = Math.min(W / WW, H / VH);
+    var ox = (W - WW * k) / 2, oy = (H - VH * k) / 2;
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(k, k);
+    ctx.beginPath();
+    ctx.rect(0, 0, WW, VH);
+    ctx.clip();
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(0, 0, WW, VH);
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(0, 0, WW, VH);
+
+    // Stars scroll at half speed for depth.
+    ctx.fillStyle = c.ink3;
+    for (var i = 0; i < stars.length; i++) {
+      var st = stars[i];
+      var sy = ((st.y - camY * 0.5) % VH + VH) % VH;
+      ctx.globalAlpha = 0.3 + st.s * 0.5;
+      ctx.fillRect(st.x, sy, 1.5, 1.5);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.translate(0, -camY);
+
+    // Planets and their capture rings.
+    for (var j = 0; j < planets.length; j++) {
+      var p = planets[j];
+      var mine = p === ship.planet;
+      ctx.strokeStyle = mine ? c.topic : c.ink3;
+      ctx.lineWidth = mine ? 1.6 : 1;
+      ctx.setLineDash(mine ? [] : [4, 5]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + GAP, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = p.r < 12 ? c.warn : c.ink2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, TAU);
+      ctx.fill();
+    }
+
+    // Broken planets.
+    for (var b = 0; b < pops.length; b++) {
+      var pp = pops[b];
+      ctx.globalAlpha = Math.max(0, 1 - pp.t / 0.8);
+      ctx.fillStyle = c.warn;
+      for (var n = 0; n < 6; n++) {
+        var ang = n * TAU / 6;
+        ctx.fillRect(pp.x + Math.cos(ang) * pp.t * 40 - 2, pp.y + Math.sin(ang) * pp.t * 40 - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Trail.
+    if (trail.length > 1) {
+      ctx.strokeStyle = c.topic;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(trail[0].x, trail[0].y);
+      for (var t = 1; t < trail.length; t++) ctx.lineTo(trail[t].x, trail[t].y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Direction of travel, and the aim line while orbiting.
+    var fx, fy;
+    if (ship.planet) {
+      fx = -Math.sin(ship.a) * ship.dir;
+      fy = Math.cos(ship.a) * ship.dir;
+      if (mode !== 'over') {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(ship.x + fx * 10, ship.y + fy * 10);
+        ctx.lineTo(ship.x + fx * 110, ship.y + fy * 110);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else {
+      fx = ship.vx / SPEED;
+      fy = ship.vy / SPEED;
+    }
+    ctx.fillStyle = mode === 'over' ? c.bad : c.ink;
+    ctx.beginPath();
+    ctx.moveTo(ship.x + fx * 8, ship.y + fy * 8);
+    ctx.lineTo(ship.x - fx * 6 - fy * 5, ship.y - fy * 6 + fx * 5);
+    ctx.lineTo(ship.x - fx * 6 + fy * 5, ship.y - fy * 6 - fx * 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Heads-up display, in screen pixels.
+    ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Height ' + heightOf(minY) + ' m', ox + 12, oy + 22);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Best ' + best + ' m', ox + WW * k - 12, oy + 22);
+
+    if (mode === 'run' && !ship.planet) {
+      var bw = Math.min(120, WW * k * 0.3);
+      var left = Math.max(0, 1 - ship.flight / FLIGHT_MAX);
+      ctx.fillStyle = c.line;
+      ctx.fillRect(W / 2 - bw / 2, oy + 32, bw, 5);
+      ctx.fillStyle = left < 0.35 ? c.bad : c.topic;
+      ctx.fillRect(W / 2 - bw / 2, oy + 32, bw * left, 5);
+    }
+
+    if (mode !== 'run') {
+      var boxW = Math.min(280, W - 20);
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(W / 2 - boxW / 2, oy + 34, boxW, 58);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink;
+      ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", sans-serif';
+      var line1 = mode === 'ready' ? 'Let go when the line crosses a ring' : reason + ': ' + heightOf(minY) + ' m';
+      var line2 = mode === 'ready' ? 'Space, Up, W, or tap' : (overTime > 0.6 ? 'Press again to fly' : '');
+      ctx.fillText(line1, W / 2, oy + 57);
+      ctx.font = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(line2, W / 2, oy + 78);
+    }
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="orbit"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); } });
+
+  DemoKit.canvas('#orbit', {
+    height: 420,
+    keys: true,
+    drag: true,
+    label: 'Orbit Hopper prototype. A ship circles a planet. Press Space, Up, W, or tap the canvas to let go and fly along the dashed aim line. Crossing another planet\'s ring catches the ship. Planets shrink while you circle them. Climb as high as you can.',
+    update: update,
+    draw: draw,
+    onDown: function () { press(); },
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'arrowup' || key === 'w')) press();
+    }
+  });
+})();
+</script>
+</body>
+</html>

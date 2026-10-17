@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asteroids: drawing with a vector beam · Game Dev Daily</title>
+<meta name="description" content="Asteroids has no pixels to fill: the screen is a list of beam moves that a small chip traces about 60 times a second. Rebuild the beam and see why.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Asteroids: drawing with a vector beam</h1>
+  <p class="lede">Asteroids has no pixels to fill: the screen is a list of beam moves that a small chip traces about 60 times a second. Rebuild the beam and see why.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Atari's Asteroids (1979) the ship and the rocks are thin, bright lines on black, with no staircase steps on the diagonals. That is because the game does not draw into pixels at all: its monitor steers the electron beam along each line of each shape, and the game's job is to hand it a list of where to go.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: memory for a picture</h2>
+  <p>A normal television picture is a <dfn>raster</dfn>: the beam sweeps every row of the screen, and memory called a <dfn>frame buffer</dfn> must say what each dot looks like, lit or not.</p>
+  <p>According to the MAME emulator's description of the hardware, the Asteroids board has a 6502 processor at about 1.5 MHz (a 12.096 MHz crystal divided by 8), 1 KB of working memory, 2 KB of <em>vector RAM</em>, 2 KB of <em>vector ROM</em> and 6 KB of program ROM. Its drawing space is 1024 by 1024 units, of which the game uses a 1024 by 768 area.</p>
+  <p>A frame buffer for 1024 by 768 dots at 1 bit per dot is 98,304 bytes, 48 times the vector RAM. That comparison is mine, not a documented reason for the design, but it shows why storing <em>lines</em> instead of <em>dots</em> pays.</p>
+
+  <h2>The trick: the picture is a program</h2>
+  <p>An <dfn>X-Y monitor</dfn> (or vector monitor) has no fixed scan pattern. Two inputs set where the beam points, a third sets its brightness. Between it and the processor sits Atari's <dfn>Digital Vector Generator</dfn> (DVG), a circuit that executes a <dfn>display list</dfn>: a short program of drawing commands in vector RAM and ROM. The community disassembly names them:</p>
+  <ul>
+    <li><strong>CUR</strong> puts the beam at a position and sets a scale.</li>
+    <li><strong>VEC</strong> and the shorter <strong>SVEC</strong> move the beam by a relative amount at a brightness from 0 to 15. Brightness 0 moves it switched off.</li>
+    <li><strong>JSR</strong> and <strong>RTS</strong> call a stored shape and return, up to four deep. <strong>JMP</strong> jumps. <strong>HALT</strong> ends the list.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: a 12 by 9 grid where a triangle outline is made of filled squares, labelled raster, every dot stored. Right: a five-line command list, CUR, three VEC lines and HALT, next to the same triangle drawn as three smooth lines with a dashed beam-off jump from a starting point.">
+      <text class="d-text" x="150" y="28" text-anchor="middle">Raster: store every dot</text>
+      <path class="d-stroke d-thin" d="M30 50 H270 M30 70 H270 M30 90 H270 M30 110 H270 M30 130 H270 M30 150 H270 M30 170 H270 M30 190 H270 M30 210 H270 M30 230 H270 M30 50 V230 M50 50 V230 M70 50 V230 M90 50 V230 M110 50 V230 M130 50 V230 M150 50 V230 M170 50 V230 M190 50 V230 M210 50 V230 M230 50 V230 M250 50 V230 M270 50 V230"/>
+      <g class="d-accent-fill">
+        <rect x="130" y="70" width="20" height="20"/><rect x="150" y="70" width="20" height="20"/>
+        <rect x="110" y="90" width="20" height="20"/><rect x="170" y="90" width="20" height="20"/>
+        <rect x="110" y="110" width="20" height="20"/><rect x="170" y="110" width="20" height="20"/>
+        <rect x="90" y="130" width="20" height="20"/><rect x="190" y="130" width="20" height="20"/>
+        <rect x="90" y="150" width="20" height="20"/><rect x="190" y="150" width="20" height="20"/>
+        <rect x="70" y="170" width="20" height="20"/><rect x="210" y="170" width="20" height="20"/>
+        <rect x="70" y="190" width="160" height="20"/>
+      </g>
+      <text class="d-muted" x="150" y="252" text-anchor="middle">every dot has a bit, lit or not</text>
+      <text class="d-muted" x="150" y="270" text-anchor="middle">1024 × 768 × 1 bit = 98,304 bytes</text>
+
+      <text class="d-text" x="480" y="28" text-anchor="middle">Vector: store the beam's moves</text>
+      <text class="d-mono" x="340" y="56">1 CUR  jump, beam off</text>
+      <text class="d-mono" x="340" y="74">2 VEC  line, bright 7</text>
+      <text class="d-mono" x="340" y="92">3 VEC  line, bright 7</text>
+      <text class="d-mono" x="340" y="110">4 VEC  line, bright 7</text>
+      <text class="d-mono" x="340" y="128">5 HALT stop</text>
+      <circle class="d-fill" cx="350" cy="232" r="4"/>
+      <path class="d-stroke d-dash" d="M350 232 L420 232"/>
+      <path class="d-accent" d="M420 232 L470 150 L520 232 Z"/>
+      <text class="d-label" x="385" y="222" text-anchor="middle">1</text>
+      <text class="d-label" x="432" y="186" text-anchor="middle">2</text>
+      <text class="d-label" x="510" y="186" text-anchor="middle">3</text>
+      <text class="d-label" x="470" y="252" text-anchor="middle">4</text>
+      <text class="d-muted" x="480" y="270" text-anchor="middle">only the lines: a few bytes per shape</text>
+    </svg>
+    <figcaption>The same triangle two ways. The raster pays for every empty square and has steps on its diagonals. The vector version is five commands.</figcaption>
+  </figure>
+
+  <h3>How the beam draws a straight line</h3>
+  <p>The DVG keeps the beam's position in an X counter and a Y counter, and steps both using chips called <dfn>rate multipliers</dfn> that spread the steps evenly, so both counters arrive together: a straight line at any angle. Lines running off the edge are cut off by the hardware.</p>
+
+  <h3>One rock, three sizes</h3>
+  <p>Shapes live in vector ROM as subroutines. The disassembly shows four rock outlines of about a dozen short vectors each, and the game draws all three rock sizes from them by changing only the scale before the call. A broken rock costs no new artwork, only a smaller number.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 200" role="img" aria-label="One lumpy rock outline drawn three times: full size, half size and quarter size.">
+      <text class="d-text" x="180" y="24" text-anchor="middle">One stored outline, three scales</text>
+      <path class="d-accent" d="M70 60 L95 70 L110 90 L100 115 L105 130 L80 140 L55 130 L35 135 L30 105 L45 85 L40 70 Z"/>
+      <path class="d-accent" d="M195 80 L207.5 85 L215 95 L210 107.5 L212.5 115 L200 120 L187.5 115 L177.5 117.5 L175 102.5 L182.5 92.5 L180 85 Z"/>
+      <path class="d-accent" d="M290 90 L296.25 92.5 L300 97.5 L297.5 103.75 L298.75 107.5 L292.5 110 L286.25 107.5 L281.25 108.75 L280 101.25 L283.75 96.25 L282.5 92.5 Z"/>
+      <text class="d-text" x="70" y="168" text-anchor="middle">big</text>
+      <text class="d-text" x="195" y="168" text-anchor="middle">medium</text>
+      <text class="d-text" x="290" y="168" text-anchor="middle">small</text>
+      <text class="d-muted" x="70" y="188" text-anchor="middle">× 1</text>
+      <text class="d-muted" x="195" y="188" text-anchor="middle">× 1/2</text>
+      <text class="d-muted" x="290" y="188" text-anchor="middle">× 1/4</text>
+    </svg>
+    <figcaption>An original outline, not the game's. In the real game, the scale settings 9, 8 and 7 give full, half and quarter size.</figcaption>
+  </figure>
+
+  <h3>Two lists: one being drawn, one being written</h3>
+  <p>The glow fades unless the beam keeps redrawing, so the list runs every frame. The processor builds the next list in one half of vector RAM while the DVG traces the other. A jump command at the start of RAM points at the half to draw; once the DVG reports it reached HALT, the game flips that jump. This is <dfn>double buffering</dfn>, applied to commands instead of an image. The disassembly's comments put the rate at 62.5 frames per second.</p>
+
+  <h3>Fact and legend</h3>
+  <p>The hardware facts above come from MAME's source and the commented disassembly. MAME runs Lunar Lander (1979) on the same driver and DVG, and the generator is usually said to have come to Asteroids from that game. The game is usually credited to Lyle Rains and Ed Logg; I could not check a primary source for that while writing.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Store what to draw, not what the screen looks like, and the cost follows the number of lines instead of the number of dots.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A rebuilt beam traces a display list of original shapes. At the low starting speed, watch it crawl from shape to shape, with dashed lines for unlit moves. Raise the speed until the picture holds still, then add rocks and watch one pass take longer. Switch <strong>Display</strong> to see the same scene as a raster grid.</p>
+
+  <figure class="demo wide" data-demo="vector-beam">
+    <canvas id="vector-beam"></canvas>
+    <figcaption>Each speed step doubles the beam's speed. When the glow fades faster than the beam returns, the picture flickers.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's shapes and numbers in LÖVE; <code>BEAM_SPEED</code> is step 7 on the slider. <code>buildList</code> writes this frame's commands and <code>love.draw</code> walks them like the beam, timing each move. CUR jumps are instant, as in the DVG. The real DVG gives each line a time set by its scale rather than its length, so treat the milliseconds as illustrative.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Shapes as relative beam moves {dx, dy, brightness}. Brightness 0 = beam off.</span>
+local ROCK = { {0, 40, 0}, {25, -10, 7}, {15, -20, 7}, {-10, -25, 7}, {5, -15, 7}, {-25, -10, 7},
+               {-25, 10, 7}, {-20, -5, 7}, {-5, 30, 7}, {15, 20, 7}, {-5, 15, 7}, {30, 10, 7} }
+local SHIP = { {0, 24, 0}, {-14, -40, 12}, {14, 8, 12}, {14, -8, 12}, {-14, 40, 12} }
+local SCALES = { 2, 1, 0.5 }            <span class="c">-- big, medium, small: one outline</span>
+local W, H, BEAM_SPEED = 1024, 768, 16000  <span class="c">-- units; units per second</span>
+local rocks = { { x = 200, y = 560, vx = 40, vy = -25, size = 1 },
+                { x = 760, y = 200, vx = -30, vy = 35, size = 2 },
+                { x = 600, y = 640, vx = 55, vy = 20, size = 3 } }
+
+local function addShape(list, x, y, shape, scale)
+  list[#list + 1] = { op = "cur", x = x, y = y }   <span class="c">-- jump with the beam off</span>
+  for _, v in ipairs(shape) do
+    list[#list + 1] = { op = "vec", dx = v[1] * scale, dy = v[2] * scale, b = v[3] }
+  end
+end
+
+local function buildList()               <span class="c">-- the end of the table plays the part of HALT</span>
+  local list = {}
+  addShape(list, W / 2, H / 2, SHIP, 1)
+  for _, r in ipairs(rocks) do addShape(list, r.x, r.y, ROCK, SCALES[r.size]) end
+  return list
+end
+
+function love.update(dt)
+  for _, r in ipairs(rocks) do r.x, r.y = (r.x + r.vx * dt) % W, (r.y + r.vy * dt) % H end
+end
+
+function love.draw()                      <span class="c">-- walk the list like the beam, timing every move</span>
+  local x, y, time = 0, 0, 0
+  for _, c in ipairs(buildList()) do
+    if c.op == "cur" then x, y = c.x, c.y else
+<span class="k">      if c.b &gt; 0 then                     -- 0.75 fits 1024 x 768 in 800 x 600; y points up
+        love.graphics.setColor(1, 1, 1, 0.35 + 0.65 * c.b / 15)
+        love.graphics.line(x * 0.75, (H - y) * 0.75, (x + c.dx) * 0.75, (H - y - c.dy) * 0.75)
+      end
+      time = time + math.sqrt(c.dx * c.dx + c.dy * c.dy) / BEAM_SPEED
+      x, y = x + c.dx, y + c.dy</span>
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.print(string.format("one pass: %.1f ms", time * 1000), 10, 10)
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole display: a line exists only while the beam moves along it. LÖVE draws to a raster window, so this shows the list's logic, not a real beam.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Every line costs time, every frame.</strong> A raster frame takes the same time however busy the scene; a vector pass grows with the lines, so a full screen flickers more than an empty one.</li>
+    <li><strong>Unlit moves are not free.</strong> Brightness-0 moves still travel, so order shapes to avoid zigzagging across the screen.</li>
+    <li><strong>Outlines only.</strong> Filling a shape takes many lines, so vector games mostly stay with outlines and dots.</li>
+    <li><strong>Emulation loses the glow.</strong> On a raster screen a vector game becomes thin pixel lines; the monitor's glow has to be faked with shaders.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>From the MAME source and the Asteroids disassembly:</p>
+  <ul>
+    <li>Asteroids keeps its four rock outlines, the ship, the saucer and the letters as stored shapes in 2 KB of vector ROM, and builds each frame's list in 2 KB of double-buffered vector RAM.</li>
+    <li>Battlezone, Tempest and Star Wars run on Atari's later Analog Vector Generator in MAME.</li>
+  </ul>
+
+  <h3>The lesson for today</h3>
+  <p>A modern renderer works the same way at a larger scale. Each frame the game records a <dfn>command buffer</dfn>, a list of draw calls, which the graphics card executes while the game records the next. Drawing one stored mesh many times with different transforms, <dfn>instancing</dfn>, is the rock outline at three scales. Fonts and SVG icons store outlines, not dots, so they stay sharp and small. And on a phone or in a browser, a budget of draw commands often bites before the pixel count does.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua above in LÖVE. Add bullets: each is a CUR to its position plus one very short VEC at brightness 15, so it shows as a bright dot. Fire one upward from the ship whenever space is pressed (<code>love.keypressed</code>), and print the number of commands next to the pass time. You are done when ten bullets on screen make both numbers rise.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Asteroids steers the beam along each line, so it needs no frame buffer and has no jagged diagonals.</li>
+    <li>The picture is a display list of commands that the Digital Vector Generator traces about 60 times a second.</li>
+    <li>Shapes are stored once and reused at different scales, and the next list is built while the current one is drawn.</li>
+    <li>Vector cost grows with the number of lines, as draw-call budgets do today.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next in this series is Pac-Man's level 256, where one byte that counts levels overflows and draws garbage over half the maze.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Partly verified. The board, memory map, DVG behaviour and Lunar Lander link were checked in MAME's source; the commands, rock outlines, scales, double-buffered vector RAM and frame rate in the Mikstas disassembly. General references could not be opened, so the designer credit is unverified here. Unlinked works were not opened.</p>
+  <ul>
+    <li>MAME developers, <a href="https://raw.githubusercontent.com/mamedev/mame/master/src/mame/atari/asteroid.cpp"><cite>asteroid.cpp</cite></a>, the MAME driver for Asteroids, Asteroids Deluxe and Lunar Lander (memory map, clocks, vector RAM and ROM).</li>
+    <li>Mathis Rosenhauer and others, <a href="https://raw.githubusercontent.com/mamedev/mame/master/src/devices/video/avgdvg.cpp"><cite>avgdvg.cpp</cite></a>, MAME's emulation of Atari's Digital and Analog Vector Generators.</li>
+    <li>Nick Mikstas, building on work by Lonnie Howell and Mark McDougall, <a href="https://github.com/nmikstas/asteroids-disassembly"><cite>asteroids-disassembly</cite></a> (GitHub). See <code>asteroids_vector_rom.asm</code> for the command format and rock outlines, and the main loop and NMI routine in <code>asteroids_program_rom.asm</code>.</li>
+    <li>Computer Archeology, <cite>Asteroids</cite> pages on the DVG and vector ROM (computerarcheology.com).</li>
+    <li>Jed Margolin, <cite>The Secret Life of Vector Generators</cite>. A hardware engineer's account of Atari's vector generators.</li>
+    <li>Philip Pemberton, <cite>The Hitch-Hacker's Guide to the Atari Digital Vector Generator</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 1024, H = 768;
+  var FRAME_MS = 1000 / 60;
+  var MAX_ROCKS = 24;
+  var MAX_PIECES = 7000;
+  var BUCKETS = 12;
+
+  // Original shapes as relative beam moves [dx, dy, brightness]. Brightness 0 = beam off.
+  var ROCK = [[0, 40, 0], [25, -10, 7], [15, -20, 7], [-10, -25, 7], [5, -15, 7], [-25, -10, 7],
+              [-25, 10, 7], [-20, -5, 7], [-5, 30, 7], [15, 20, 7], [-5, 15, 7], [30, 10, 7]];
+  var SHIP = [[0, 24, 0], [-14, -40, 12], [14, 8, 12], [14, -8, 12], [-14, 40, 12]];
+  var SCALES = [2, 1, 0.5];
+
+  // ---- rocks: the first three match the Lua listing, the rest come from a seeded generator ----
+  var rocks = [
+    { x: 200, y: 560, vx: 40, vy: -25, size: 0 },
+    { x: 760, y: 200, vx: -30, vy: 35, size: 1 },
+    { x: 600, y: 640, vx: 55, vy: 20, size: 2 }
+  ];
+  (function () {
+    var rng = DemoKit.rng(11);
+    for (var i = rocks.length; i < MAX_ROCKS; i++) {
+      var sx = rng() < 0.5 ? -1 : 1, sy = rng() < 0.5 ? -1 : 1;
+      rocks.push({
+        x: rng() * W, y: rng() * H,
+        vx: sx * (20 + rng() * 40), vy: sy * (20 + rng() * 40),
+        size: i % 3
+      });
+    }
+  })();
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="vector-beam"]');
+  var display = ui.select({ label: 'Display', value: 'vector',
+    options: [
+      { value: 'vector', label: 'Vector beam' },
+      { value: 'raster', label: 'Raster grid' }
+    ] });
+  var speedLevel = ui.slider({ label: 'Beam speed (each step doubles it)', min: 1, max: 12, step: 1, value: 4 });
+  var glow = ui.slider({ label: 'Phosphor glow', min: 10, max: 400, step: 10, value: 80, unit: ' ms' });
+  var rockCount = ui.slider({ label: 'Rocks', min: 1, max: MAX_ROCKS, step: 1, value: 6,
+    onInput: function () { startPass(); } });
+  var rasterCols = ui.slider({ label: 'Raster columns (raster view)', min: 16, max: 256, step: 16, value: 64 });
+  var showBeam = ui.toggle({ label: 'Show the beam and its unlit moves', value: true });
+  var listOut = ui.readout({ label: 'Display list (DVG-style encoding)' });
+  var passOut = ui.readout({ label: 'One beam pass' });
+  var fbOut = ui.readout({ label: 'Frame buffer instead' });
+
+  function beamSpeed() { return 250 * Math.pow(2, speedLevel.value - 1); } // units per second
+
+  // ---- display list ----
+  function buildSegments() {
+    var segs = [];
+    var bx = 0, by = 0;
+    function addShape(x, y, shape, scale) {
+      segs.push({ x1: bx, y1: by, x2: x, y2: y, b: 0, len: 0, jump: true });
+      bx = x; by = y;
+      for (var i = 0; i < shape.length; i++) {
+        var dx = shape[i][0] * scale, dy = shape[i][1] * scale;
+        segs.push({ x1: bx, y1: by, x2: bx + dx, y2: by + dy, b: shape[i][2],
+                    len: Math.sqrt(dx * dx + dy * dy), jump: false });
+        bx += dx; by += dy;
+      }
+    }
+    addShape(W / 2, H / 2, SHIP, 1);
+    for (var r = 0; r < rockCount.value; r++) {
+      addShape(rocks[r].x, rocks[r].y, ROCK, SCALES[rocks[r].size]);
+    }
+    return segs;
+  }
+
+  function pathLength(segs) {
+    var total = 0;
+    for (var i = 0; i < segs.length; i++) total += segs[i].len;
+    return total;
+  }
+
+  // ---- beam state ----
+  var segs = [], segI = 0, segPos = 0, beamX = 0, beamY = 0, passLen = 1;
+  var pieces = [];
+  var now = 0;
+
+  function startPass() {
+    segs = buildSegments();
+    passLen = pathLength(segs);
+    segI = 0; segPos = 0;
+  }
+  startPass();
+
+  function moveRocks(dt) {
+    for (var i = 0; i < rocks.length; i++) {
+      var r = rocks[i];
+      r.x = ((r.x + r.vx * dt) % W + W) % W;
+      r.y = ((r.y + r.vy * dt) % H + H) % H;
+    }
+  }
+
+  function traceBeam(dt) {
+    var speed = beamSpeed();
+    var budget = speed * dt;
+    var guard = 0;
+    while (budget > 0 && guard < 50000) {
+      guard++;
+      if (segI >= segs.length) {          // HALT: the next frame's list is ready
+        startPass();
+        if (passLen <= 0) break;
+        continue;
+      }
+      var g = segs[segI];
+      if (g.len === 0) {                  // CUR: instant jump
+        beamX = g.x2; beamY = g.y2;
+        segI++; segPos = 0;
+        continue;
+      }
+      var take = Math.min(g.len - segPos, budget);
+      var t0 = segPos / g.len, t1 = (segPos + take) / g.len;
+      budget -= take;
+      if (g.b > 0) {
+        pieces.push({
+          x1: g.x1 + (g.x2 - g.x1) * t0, y1: g.y1 + (g.y2 - g.y1) * t0,
+          x2: g.x1 + (g.x2 - g.x1) * t1, y2: g.y1 + (g.y2 - g.y1) * t1,
+          b: g.b, t: now - budget / speed
+        });
+      }
+      segPos += take;
+      beamX = g.x1 + (g.x2 - g.x1) * t1;
+      beamY = g.y1 + (g.y2 - g.y1) * t1;
+      if (segPos >= g.len - 1e-9) { segI++; segPos = 0; }
+    }
+    var tau = glow.value / 1000;
+    var cut = 0;
+    while (cut < pieces.length && now - pieces[cut].t > 4 * tau) cut++;
+    if (pieces.length - cut > MAX_PIECES) cut = pieces.length - MAX_PIECES;
+    if (cut > 0) pieces.splice(0, cut);
+  }
+
+  // ---- readouts (only touch the DOM when the text changes) ----
+  var last = { list: '', pass: '', fb: '' };
+  function setReadouts() {
+    var objects = rockCount.value + 1;
+    var bytes = objects * 6 + 2;
+    var listText = bytes + ' bytes: ' + objects + ' positions (4 bytes) and shape calls (2 bytes), plus HALT';
+    var ms = passLen / beamSpeed() * 1000;
+    var msText = ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms.toFixed(ms < 10 ? 1 : 0) + ' ms';
+    var passText = msText + (ms > FRAME_MS ? ', longer than one 60 Hz frame' : ', fits in one 60 Hz frame');
+    var cols = rasterCols.value, rows = Math.round(cols * 0.75);
+    var fbText = cols + ' × ' + rows + ' at 1 bit = ' + (cols * rows / 8).toLocaleString('en-US') +
+      ' bytes (1024 × 768 = 98,304)';
+    if (listText !== last.list) { listOut.set(listText); last.list = listText; }
+    if (passText !== last.pass) { passOut.set(passText); last.pass = passText; }
+    if (fbText !== last.fb) { fbOut.set(fbText); last.fb = fbText; }
+  }
+
+  // ---- drawing ----
+  function view(s) {
+    var sc = Math.min(s.width / W, s.height / H);
+    return { sc: sc, ox: (s.width - W * sc) / 2, oy: (s.height - H * sc) / 2 };
+  }
+
+  function drawVector(ctx, s, c, v) {
+    var tau = glow.value / 1000;
+    var paths = [];
+    for (var k = 0; k <= BUCKETS; k++) paths.push([]);
+    for (var i = 0; i < pieces.length; i++) {
+      var p = pieces[i];
+      var a = (0.35 + 0.65 * p.b / 15) * Math.exp(-Math.max(0, now - p.t) / tau);
+      var bucket = Math.ceil(a * BUCKETS);
+      if (bucket <= 0) continue;
+      paths[Math.min(bucket, BUCKETS)].push(p);
+    }
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = Math.max(1.2, 2.2 * v.sc);
+    ctx.lineCap = 'round';
+    for (var b = 1; b <= BUCKETS; b++) {
+      var list = paths[b];
+      if (!list.length) continue;
+      ctx.globalAlpha = b / BUCKETS;
+      ctx.beginPath();
+      for (var j = 0; j < list.length; j++) {
+        var q = list[j];
+        ctx.moveTo(v.ox + q.x1 * v.sc, v.oy + (H - q.y1) * v.sc);
+        ctx.lineTo(v.ox + q.x2 * v.sc, v.oy + (H - q.y2) * v.sc);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    if (showBeam.value) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      for (var m = 0; m < segs.length; m++) {
+        var g = segs[m];
+        if (g.b > 0) continue;
+        ctx.moveTo(v.ox + g.x1 * v.sc, v.oy + (H - g.y1) * v.sc);
+        ctx.lineTo(v.ox + g.x2 * v.sc, v.oy + (H - g.y2) * v.sc);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      var bx = v.ox + beamX * v.sc, by = v.oy + (H - beamY) * v.sc;
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(bx, by, 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    var cmd = Math.min(segI + 1, segs.length);
+    ctx.fillText('Beam at command ' + cmd + ' of ' + segs.length + ' (plus HALT)', v.ox + 8, v.oy + 16);
+  }
+
+  function drawRaster(ctx, s, c, v) {
+    var cols = rasterCols.value, rows = Math.round(cols * 0.75);
+    var cw = W / cols, ch = H / rows;
+    var grid = new Uint8Array(cols * rows);
+    var list = buildSegments();
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i];
+      if (g.b <= 0) continue;
+      var n = Math.ceil(g.len / Math.min(cw, ch) * 2) + 1;
+      for (var k = 0; k <= n; k++) {
+        var t = k / n;
+        var x = g.x1 + (g.x2 - g.x1) * t, y = g.y1 + (g.y2 - g.y1) * t;
+        if (x < 0 || x >= W || y < 0 || y >= H) continue;
+        var cx = Math.floor(x / cw), cy = Math.floor((H - y) / ch);
+        if (cx >= 0 && cx < cols && cy >= 0 && cy < rows) grid[cy * cols + cx] = 1;
+      }
+    }
+    var pw = cw * v.sc, ph = ch * v.sc;
+    ctx.fillStyle = c.topic;
+    for (var r = 0; r < rows; r++) {
+      for (var q = 0; q < cols; q++) {
+        if (grid[r * cols + q]) ctx.fillRect(v.ox + q * pw, v.oy + r * ph, pw + 0.5, ph + 0.5);
+      }
+    }
+    if (pw >= 6) {
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var gx = 0; gx <= cols; gx++) {
+        ctx.moveTo(v.ox + gx * pw, v.oy); ctx.lineTo(v.ox + gx * pw, v.oy + H * v.sc);
+      }
+      for (var gy = 0; gy <= rows; gy++) {
+        ctx.moveTo(v.ox, v.oy + gy * ph); ctx.lineTo(v.ox + W * v.sc, v.oy + gy * ph);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Raster: ' + cols + ' × ' + rows + ' cells, every one stored', v.ox + 8, v.oy + 16);
+  }
+
+  DemoKit.canvas('#vector-beam', {
+    aspect: 4 / 3,
+    minHeight: 240,
+    maxHeight: 520,
+    label: 'A simulated vector beam traces the outlines of a ship and drifting rocks, leaving a fading glow. A Display menu switches to a raster grid of the same scene.',
+    update: function (dt, s) {
+      now = s.time;
+      moveRocks(dt);
+      if (display.value === 'vector') traceBeam(dt);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var v = view(s);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(v.ox, v.oy, W * v.sc, H * v.sc);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(v.ox, v.oy, W * v.sc, H * v.sc);
+      ctx.clip();
+      if (display.value === 'vector') drawVector(ctx, s, c, v);
+      else drawRaster(ctx, s, c, v);
+      ctx.restore();
+      setReadouts();
+    }
+  });
+})();
+</script>
+</body>
+</html>
