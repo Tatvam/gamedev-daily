@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semi-implicit Euler integration · Game Dev Daily</title>
+<meta name="description" content="Why updating velocity before position keeps orbits, springs and swings stable, for exactly the same cost as explicit Euler.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Semi-implicit Euler integration</h1>
+  <p class="lede">Why updating velocity before position keeps orbits, springs and swings stable, for exactly the same cost as explicit Euler.</p>
+</header>
+
+<section data-section="hook">
+  <p>In the last lesson a moon on a perfect circular orbit spiralled away from its planet, pushed by nothing but the order of two lines of code. At 60 steps per second it had gained half the energy it needed to escape after ten orbits.</p>
+  <p>Swap those two lines and the same moon, at the same step size, stays on its circle for as long as you care to watch.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Turn first, then move</h2>
+  <p>Explicit Euler moved the body with the velocity it had at the <em>start</em> of the step, then updated the velocity. <dfn>Semi-implicit Euler</dfn> does the same two things in the other order:</p>
+<pre><code>velocity = velocity + acceleration * dt</code></pre>
+  <p>In words: first let the forces change the velocity, using the acceleration at the start of the step.</p>
+<pre><code>position = position + velocity * dt</code></pre>
+  <p>In words: then move with the velocity you have <em>just updated</em>, the one from the end of the step.</p>
+  <p>It is "semi" implicit because only half of the update looks ahead: the position uses the new velocity, but the acceleration still comes from the old position. You will also see it called <dfn>symplectic Euler</dfn> or the Euler-Cromer method. Same idea, three names.</p>
+  <p>The cost is identical: one force calculation and four multiply-adds per body in 2D. Only the order changes.</p>
+
+  <h2>Why the order matters</h2>
+  <p>On a curve, explicit Euler steps along the old velocity, which points along the tangent, so it lands outside the circle. Its speed also grows, because the gravity nudge arrives at a right angle. Both errors push the energy up.</p>
+  <p>Semi-implicit Euler bends the velocity toward the planet <em>before</em> moving. The step now cuts slightly inside the circle. The speed still grows by the same tiny amount, but the moon is also a little closer to the planet, deeper in the gravity well. The extra speed adds energy and the lower position removes almost exactly the same amount.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: explicit Euler steps along the old velocity, at a right angle to the radius, and lands outside the orbit circle. Right: semi-implicit Euler first nudges the velocity toward the planet, then steps along the bent velocity and lands slightly inside the circle, moving faster.">
+      <text class="d-text" x="20" y="24">Explicit: move, then turn</text>
+      <path class="d-dash" d="M70 90 A120 120 0 0 1 190 210"/>
+      <circle class="d-fill" cx="70" cy="210" r="14"/>
+      <text class="d-muted" x="70" y="242" text-anchor="middle">planet</text>
+      <path class="d-thin" d="M70 196 V90"/>
+      <path class="d-thin" d="M70 102 H82 V90"/>
+      <path class="d-bad" d="M70 90 H136"/>
+      <path class="d-bad" d="M130 84 L138 90 L130 96"/>
+      <text class="d-label" x="106" y="76" text-anchor="middle">old velocity × dt</text>
+      <circle class="d-accent-fill" cx="70" cy="90" r="5"/>
+      <circle class="d-bad-fill" cx="142" cy="90" r="5"/>
+      <text class="d-muted" x="152" y="94">lands outside</text>
+      <text class="d-muted" x="152" y="110">the circle</text>
+      <text class="d-text" x="112" y="252">distance 140 &gt; 120</text>
+      <text class="d-text" x="112" y="270">energy goes up</text>
+
+      <path class="d-thin" d="M322 16 V266"/>
+
+      <text class="d-text" x="340" y="24">Semi-implicit: turn, then move</text>
+      <path class="d-dash" d="M390 90 A120 120 0 0 1 510 210"/>
+      <circle class="d-fill" cx="390" cy="210" r="14"/>
+      <path class="d-thin" d="M390 196 V90"/>
+      <path class="d-dash" d="M390 90 H462"/>
+      <text class="d-muted" x="426" y="76" text-anchor="middle">old velocity × dt</text>
+      <path class="d-accent" d="M462 90 V124"/>
+      <path class="d-accent-fill" d="M462 133 L456 121 L468 121 Z"/>
+      <text class="d-label" x="472" y="112">nudge from gravity</text>
+      <path class="d-good" d="M390 90 L456 129"/>
+      <circle class="d-accent-fill" cx="390" cy="90" r="5"/>
+      <circle class="d-good-fill" cx="462" cy="133" r="5"/>
+      <text class="d-text" x="420" y="252">distance 105 &lt; 120,</text>
+      <text class="d-text" x="420" y="270">but faster: errors cancel</text>
+    </svg>
+    <figcaption>The same step drawn with a huge time step so the difference is visible. Explicit Euler lands outside the circle. Semi-implicit Euler bends the velocity first, lands inside, and moves faster, so its gain in speed is paid for by its loss in height.</figcaption>
+  </figure>
+
+  <h3>One step by hand</h3>
+  <p>The demo's numbers again: <code>GM</code> = 1,000,000 px³/s², the moon 100 px right of the planet, moving 100 px/s straight down the screen, one step of 1/60 s. The pull at 100 px is 1,000,000 / 100² = 100 px/s², toward the planet.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th class="num">Explicit Euler</th><th class="num">Semi-implicit Euler</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>New velocity (px/s)</td><td class="num">(−1.667, 100)</td><td class="num">(−1.667, 100)</td></tr>
+      <tr><td>New position (px)</td><td class="num">(100, 1.667)</td><td class="num">(99.972, 1.667)</td></tr>
+      <tr><td>Distance from planet</td><td class="num">100.0139</td><td class="num">99.9861</td></tr>
+      <tr><td>Speed</td><td class="num">100.0139</td><td class="num">100.0139</td></tr>
+      <tr><td>Energy (start −5000)</td><td class="num">−4997.2</td><td class="num">−5000.0</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The velocity update is the same in both. The only difference is the x position: semi-implicit Euler moved by the <em>new</em> x velocity, −1.667 × 1/60 = −0.028 px, so it ends 0.0139 px inside the circle instead of 0.0139 px outside. Energy, as before, is <code>E = ½ · speed² − GM / r</code>. The speed part rose by about 1.39. The height part fell by about GM / r² × 0.0139 = 100 × 0.0139 = 1.39. They cancel.</p>
+
+  <h3>Wobble instead of drift</h3>
+  <p>Semi-implicit Euler is not more accurate per step. Its position is still off by about the same amount; the orbit becomes a slightly squashed circle. What changes is that the error <em>does not pile up</em>. Here is the worst energy error over ten orbits, starting 100 px out:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Steps per second</th><th class="num">Explicit: gained after 10 orbits</th><th class="num">Semi-implicit: worst wobble</th><th class="num">Semi-implicit distance</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>10</td><td class="num">73%</td><td class="num">1.0%</td><td class="num">95.5 to 105.5 px</td></tr>
+      <tr><td>30</td><td class="num">58%</td><td class="num">0.11%</td><td class="num">98.4 to 101.7 px</td></tr>
+      <tr><td>60</td><td class="num">49%</td><td class="num">0.03%</td><td class="num">99.2 to 100.8 px</td></tr>
+      <tr><td>240</td><td class="num">27%</td><td class="num">0.002%</td><td class="num">99.8 to 100.2 px</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The semi-implicit energy rises a little and falls back every orbit. After a hundred orbits at 60 steps per second the worst error is still 0.03%. Explicit Euler would have long since left the screen.</p>
+
+  <div class="callout">
+    <p class="callout-title">Feel beats realism</p>
+    <p>A game rarely needs the exact position of a moon. It needs the moon to keep orbiting, the spring to keep bouncing at the same height, the rope to stop swinging instead of whipping harder. Semi-implicit Euler gives up nothing in cost to get that, which is why it is the default in most game physics code.</p>
+  </div>
+
+  <h3>The same swap on a spring and a jump</h3>
+  <p>A spring that swings once per second, started 100 px from rest and stepped at 60 per second, swings out to about 2,570 px after ten seconds with explicit Euler. With semi-implicit Euler it is still swinging to about 100 px.</p>
+  <p>The jump from the timestep lesson (launch 600 px/s, gravity 1800 px/s²) peaks at 95 px instead of the designed 100 px: 5 px low, where explicit Euler was 5 px high. For straight-line motion under constant gravity, neither order is exact; they are wrong by the same amount in opposite directions. The 5 px is fixed for a given step, so you can tune around it.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both moons start on the same circle and use the same step size. The left one uses explicit Euler, the right one semi-implicit Euler. Watch the left spiral out while the right one stays on its dashed circle, and compare the two lines on the energy graph.</p>
+  <p>Now drag <strong>Steps per second</strong> down to 5. The right orbit turns into a visible wobbling ellipse, but it stays bounded. Drag in either picture to launch both moons from a new point, closer to the planet for a harder test.</p>
+
+  <figure class="demo wide" data-demo="semi-implicit-orbit">
+    <canvas id="semi-implicit-orbit"></canvas>
+    <figcaption>With debug drawing on, dots mark the last 40 steps, the green arrow is the velocity and the orange arrow is the pull toward the planet. On the right, each step leaves along a velocity that has already been bent toward the planet.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The right-hand moon as a LÖVE program, with the demo's constants. Compare the highlighted function with <code>explicitEuler</code> from the previous lesson: the same four lines, in a different order.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GM = 1000000          <span class="c">-- planet strength, px^3/s^2</span>
+local STEP = 1 / 60         <span class="c">-- fixed step, seconds</span>
+local CX, CY = 400, 300     <span class="c">-- planet position on screen</span>
+local moon = { x = 100, y = 0, vx = 0, vy = 100 }   <span class="c">-- relative to the planet</span>
+local accumulator = 0
+
+local function gravity(x, y)
+  local r = math.sqrt(x * x + y * y)
+  local pull = GM / (r * r)              <span class="c">-- px/s^2, toward the planet</span>
+  return -x / r * pull, -y / r * pull
+end
+
+local function energy(b)
+  local r = math.sqrt(b.x * b.x + b.y * b.y)
+  return 0.5 * (b.vx * b.vx + b.vy * b.vy) - GM / r
+end
+
+<span class="k">local function semiImplicitEuler(b, dt)
+  local ax, ay = gravity(b.x, b.y)       <span class="c">-- acceleration at the start of the step</span>
+  b.vx = b.vx + ax * dt                  <span class="c">-- change the velocity FIRST</span>
+  b.vy = b.vy + ay * dt
+  b.x = b.x + b.vx * dt                  <span class="c">-- then move with the NEW velocity</span>
+  b.y = b.y + b.vy * dt
+end</span>
+
+local startEnergy = energy(moon)         <span class="c">-- -5000</span>
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    semiImplicitEuler(moon, STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.circle("fill", CX, CY, 16)
+  love.graphics.circle("fill", CX + moon.x, CY + moon.y, 5)
+  local gained = (energy(moon) - startEnergy) / -startEnergy * 100
+  love.graphics.print(string.format("energy gained: %.3f%%", gained), 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4, hand-written movement on a Node2D.</span>
+extends Node2D
+
+const GM := 1000000.0
+var planet := Vector2(400, 300)
+var velocity := Vector2(0, 100)
+
+func _physics_process(delta: float) -&gt; void:
+    var offset := position - planet
+    var accel := -offset.normalized() * GM / offset.length_squared()
+<span class="k">    velocity += accel * delta      <span class="c"># velocity first</span>
+    position += velocity * delta   <span class="c"># then position, with the new velocity</span></span>
+
+<span class="c"># The usual CharacterBody2D pattern is already in this order:</span>
+<span class="c">#   velocity.y += gravity * delta</span>
+<span class="c">#   move_and_slide()   # moves using the velocity you just changed</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity, hand-written movement in FixedUpdate.</span>
+public float gm = 1000000f;
+public Vector2 planet = Vector2.zero;
+Vector2 velocity = new Vector2(0f, 100f);
+
+void FixedUpdate()
+{
+    float dt = Time.fixedDeltaTime;
+    Vector2 offset = (Vector2)transform.position - planet;
+    Vector2 accel = -offset.normalized * gm / offset.sqrMagnitude;
+<span class="k">    velocity += accel * dt;                           <span class="c">// velocity first</span>
+    transform.position += (Vector3)(velocity * dt);   <span class="c">// then position</span></span>
+}
+
+<span class="c">// A Rigidbody2D does this for you: add forces with AddForce</span>
+<span class="c">// and the physics engine integrates them.</span></code></pre>
+  </div>
+  <p>Unity works in metres, so a real scene would use a much smaller <code>gm</code>. In both engines, a body driven by the physics engine is integrated for you; the order only becomes your job when you write the movement yourself.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Computing the force after moving.</strong> The acceleration must come from the position at the start of the step. If you move first and then sample the force, you have quietly written a different method.</li>
+    <li><strong>Mixing orders in one game.</strong> If the player uses one order and enemies use the other, the same jump numbers give peaks 10 px apart at 60 steps per second. Write the step in one function and call it everywhere.</li>
+    <li><strong>Expecting it to be stable at any step.</strong> Bounded energy holds only while the step is small next to the fastest motion. A spring stepped with semi-implicit Euler stays stable only while its angular frequency times the step is below 2, about three steps per swing. Very stiff springs still explode.</li>
+    <li><strong>Forces that depend on velocity.</strong> Drag and damping read the velocity. Use the velocity from the start of the step when computing them, before you overwrite it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D updates every body's velocity from its forces first and then moves it with the new velocity; its author, Erin Catto, describes this as symplectic Euler. Unity's 2D physics is built on Box2D.</p>
+  <p>Hand-written character code usually lands on this order by habit: add gravity to the velocity, then move. Godot's <code>CharacterBody2D</code> pattern of changing <code>velocity</code> and then calling <code>move_and_slide()</code> is the same order.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a weight on a spring to your project: a body pulled toward a fixed anchor with acceleration <code>-k * offset</code>, with no damping. Use <code>k = 40</code> (in 1/s²) and start it 100 px from the anchor. Step it at a fixed 60 steps per second, and print the largest distance from the anchor every five seconds.</p>
+  <p>You are done when the explicit Euler order prints numbers that grow every time and the semi-implicit order prints a number that stays near 100 px.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Semi-implicit Euler updates velocity first, then moves with the new velocity. Same cost as explicit Euler.</li>
+    <li>Its per-step error is about the same size, but on orbits and springs the energy wobbles around the right value instead of climbing.</li>
+    <li>For a jump it lands as far below the designed peak as explicit Euler lands above it.</li>
+    <li>It is stable only while the step is small compared with the fastest motion. Stiff springs still need small steps.</li>
+    <li>Pick one order, put it in one function, and use it for every body.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson stores the previous position instead of the velocity, which gives Verlet integration: just as stable, and much easier to push around with constraints.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Integration Basics</cite> (Gaffer On Games). Compares Euler variants and higher-order integrators for games.</li>
+    <li>Ernst Hairer, Christian Lubich and Gerhard Wanner, <cite>Geometric Numerical Integration</cite> (Springer). The mathematics of why symplectic methods keep energy bounded. Advanced.</li>
+    <li>Erin Catto, Box2D documentation and GDC talks on rigid body simulation. Describes the velocity-first integration Box2D uses.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GM = 1000000;      // planet strength, px^3/s^2
+  var VIEW = 200;        // world distance from the planet to the edge of each panel, px
+  var GRAPH_H = 150;     // height of the energy graph strip, CSS pixels
+  var STEP_DOTS = 40;
+  var SAMPLE_EVERY = 0.2;
+  var MIN_R = 50, MAX_R = 180;
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function gravity(x, y) {
+    var r = Math.sqrt(x * x + y * y);
+    var pull = GM / (r * r);
+    return { x: -x / r * pull, y: -y / r * pull };
+  }
+
+  function energy(b) {
+    var r = Math.sqrt(b.x * b.x + b.y * b.y);
+    return 0.5 * (b.vx * b.vx + b.vy * b.vy) - GM / r;
+  }
+
+  // Move with the old velocity, then turn.
+  function explicitEuler(b, dt) {
+    var a = gravity(b.x, b.y);
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.vx += a.x * dt;
+    b.vy += a.y * dt;
+  }
+
+  // Turn first, then move with the new velocity. The method this lesson teaches.
+  function semiImplicitEuler(b, dt) {
+    var a = gravity(b.x, b.y);
+    b.vx += a.x * dt;
+    b.vy += a.y * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+  }
+
+  var sims = [
+    { title: 'Explicit Euler', integrate: explicitEuler, colorKey: 'bad' },
+    { title: 'Semi-implicit Euler', integrate: semiImplicitEuler, colorKey: 'topic' }
+  ];
+  var r0 = 100, theta0 = 0, omega0 = 1, simTime = 0, accumulator = 0, lastSample = 0;
+  var dragging = false;
+
+  function launch(r, theta) {
+    var v = Math.sqrt(GM / r);
+    var c = Math.cos(theta), s = Math.sin(theta);
+    r0 = r;
+    theta0 = theta;
+    omega0 = v / r;
+    simTime = 0;
+    accumulator = 0;
+    lastSample = 0;
+    for (var i = 0; i < sims.length; i++) {
+      var m = sims[i];
+      m.b = { x: r * c, y: r * s, vx: -s * v, vy: c * v };
+      m.E0 = energy(m.b);
+      m.trail = [{ x: m.b.x, y: m.b.y }];
+      m.steps = [];
+      m.samples = [{ t: 0, g: 0 }];
+      m.escaped = false;
+      m.rmin = r;
+      m.rmax = r;
+    }
+  }
+
+  function gain(m) {
+    return (energy(m.b) - m.E0) / -m.E0 * 100;
+  }
+
+  function stepSim(m, dt) {
+    if (m.escaped) return;
+    m.integrate(m.b, dt);
+    var b = m.b;
+    m.steps.push({ x: b.x, y: b.y });
+    if (m.steps.length > STEP_DOTS) m.steps.shift();
+    var last = m.trail[m.trail.length - 1];
+    var dx = b.x - last.x, dy = b.y - last.y;
+    if (dx * dx + dy * dy > 2.25) {
+      m.trail.push({ x: b.x, y: b.y });
+      if (m.trail.length > 3000) m.trail.shift();
+    }
+    var r = Math.sqrt(b.x * b.x + b.y * b.y);
+    if (r < m.rmin) m.rmin = r;
+    if (r > m.rmax) m.rmax = r;
+    if (r > VIEW || r < 10) {
+      m.escaped = true;
+      m.samples.push({ t: simTime + dt, g: gain(m) });
+    }
+  }
+
+  function stepAll(dt) {
+    for (var i = 0; i < sims.length; i++) stepSim(sims[i], dt);
+    simTime += dt;
+    if (simTime - lastSample >= SAMPLE_EVERY) {
+      lastSample = simTime;
+      for (var j = 0; j < sims.length; j++) {
+        var m = sims[j];
+        if (m.escaped) continue;
+        m.samples.push({ t: simTime, g: gain(m) });
+        if (m.samples.length > 2000) {
+          // Keep long runs cheap to draw: drop every other sample.
+          m.samples = m.samples.filter(function (p, k) { return k % 2 === 0; });
+        }
+      }
+    }
+  }
+
+  var ui = DemoKit.controls('[data-demo="semi-implicit-orbit"]');
+  var rate = ui.slider({ label: 'Steps per second', min: 5, max: 240, step: 1, value: 60 });
+  var speed = ui.slider({ label: 'Time speed', min: 1, max: 8, step: 1, value: 1, unit: '×' });
+  var start = ui.slider({ label: 'Start distance', min: MIN_R, max: MAX_R, step: 1, value: 100, unit: ' px',
+    onInput: function (v) { launch(v, 0); redraw(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { redraw(); } });
+  var gainOut = ui.readout({ label: 'Energy gained' });
+  var distOut = ui.readout({ label: 'Semi-implicit distance range' });
+  ui.button({ label: 'Reset', onClick: function () { launch(start.value, 0); redraw(); } });
+
+  launch(100, 0);
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  function layout(s) {
+    var oh = Math.max(180, s.height - GRAPH_H);
+    var pw = s.width / 2;
+    var top = 30;
+    var scale = Math.max(0.05, Math.min(pw - 14, oh - top - 10) / (2 * VIEW));
+    return { oh: oh, pw: pw, top: top, cy: top + (oh - top) / 2, scale: scale };
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 2) return;
+    var ux = dx / len, uy = dy / len;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * 6, y2 - uy * 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 9 - uy * 4.5, y2 - uy * 9 + ux * 4.5);
+    ctx.lineTo(x2 - ux * 9 + uy * 4.5, y2 - uy * 9 - ux * 4.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPanel(ctx, c, L, index) {
+    var m = sims[index];
+    var col = c[m.colorKey];
+    var left = index * L.pw;
+    var cx = left + L.pw / 2, cy = L.cy, sc = L.scale;
+    function sx(x) { return cx + x * sc; }
+    function sy(y) { return cy + y * sc; }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, 0, L.pw, L.oh);
+    ctx.clip();
+
+    // Exact orbit.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r0 * sc, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Trail.
+    ctx.strokeStyle = col;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var i = 0; i < m.trail.length; i++) {
+      if (i === 0) ctx.moveTo(sx(m.trail[i].x), sy(m.trail[i].y));
+      else ctx.lineTo(sx(m.trail[i].x), sy(m.trail[i].y));
+    }
+    ctx.lineTo(sx(m.b.x), sy(m.b.y));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Planet.
+    ctx.fillStyle = c.ink2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(5, 14 * sc), 0, Math.PI * 2);
+    ctx.fill();
+
+    // Where an exact orbit would be now.
+    var th = theta0 + omega0 * simTime;
+    var gx = sx(r0 * Math.cos(th)), gy = sy(r0 * Math.sin(th));
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(gx, gy, 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    var mx = sx(m.b.x), my = sy(m.b.y);
+
+    if (debug.value) {
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var k = 0; k < m.steps.length; k++) {
+        if (k === 0) ctx.moveTo(sx(m.steps[k].x), sy(m.steps[k].y));
+        else ctx.lineTo(sx(m.steps[k].x), sy(m.steps[k].y));
+      }
+      ctx.stroke();
+      for (var j = 0; j < m.steps.length; j++) {
+        ctx.beginPath();
+        ctx.arc(sx(m.steps[j].x), sy(m.steps[j].y), 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (!m.escaped) {
+        var a = gravity(m.b.x, m.b.y);
+        arrow(ctx, mx, my, mx + m.b.vx * 0.5 * sc, my + m.b.vy * 0.5 * sc, c.good);
+        arrow(ctx, mx, my, mx + a.x * 0.5 * sc, my + a.y * 0.5 * sc, c.warn);
+      }
+    }
+
+    // The moon.
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(mx, my, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Title and status.
+    ctx.textAlign = 'left';
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.fillText(m.title, left + 10, 20);
+    ctx.font = FONT;
+    ctx.textAlign = 'center';
+    if (m.escaped) {
+      ctx.fillStyle = c.bad;
+      ctx.fillText('left the screen', cx, L.oh - 8);
+    } else if (dragging) {
+      ctx.fillStyle = c.ink;
+      ctx.fillText('release to launch', cx, L.oh - 8);
+    }
+  }
+
+  function drawGraph(ctx, s, c, L) {
+    var x0 = 44, x1 = s.width - 14;
+    var top = L.oh + 30, bottom = s.height - 44;
+    var tMax = Math.max(20, Math.ceil(simTime / 10) * 10);
+    function gx(t) { return x0 + (x1 - x0) * t / tMax; }
+    function gy(g) { return bottom - (bottom - top) * DemoKit.clamp(g, -5, 105) / 100; }
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, L.oh + 0.5);
+    ctx.lineTo(s.width, L.oh + 0.5);
+    ctx.stroke();
+
+    ctx.font = FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Energy gained', 12, L.oh + 18);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('step ' + (1000 / rate.value).toFixed(1) + ' ms, ' + simTime.toFixed(1) + ' s', x1, L.oh + 18);
+
+    var levels = [0, 50, 100];
+    for (var i = 0; i < levels.length; i++) {
+      var y = gy(levels[i]);
+      ctx.strokeStyle = c.line;
+      ctx.setLineDash(levels[i] === 100 ? [4, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText(levels[i] + '%', x0 - 6, y + 4);
+    }
+    ctx.setLineDash([]);
+
+    for (var n = 0; n < sims.length; n++) {
+      var m = sims[n];
+      ctx.strokeStyle = c[m.colorKey];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var k = 0; k < m.samples.length; k++) {
+        var p = m.samples[k];
+        if (k === 0) ctx.moveTo(gx(p.t), gy(p.g));
+        else ctx.lineTo(gx(p.t), gy(p.g));
+      }
+      if (!m.escaped) ctx.lineTo(gx(simTime), gy(gain(m)));
+      ctx.stroke();
+    }
+
+    // Legend, bottom left (the bottom right corner holds the Pause button).
+    var ly = bottom + 20;
+    var lx = x0;
+    ctx.textAlign = 'left';
+    for (var q = 0; q < sims.length; q++) {
+      ctx.fillStyle = c[sims[q].colorKey];
+      ctx.fillRect(lx, ly - 8, 14, 3);
+      ctx.fillStyle = c.ink2;
+      var label = q === 0 ? 'explicit' : 'semi-implicit';
+      ctx.fillText(label, lx + 18, ly - 3);
+      lx += 18 + ctx.measureText(label).width + 14;
+    }
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('0 to ' + tMax + ' s', lx, ly - 3);
+  }
+
+  function placeAt(p, s) {
+    var L = layout(s);
+    var index = p.x < L.pw ? 0 : 1;
+    var cx = index * L.pw + L.pw / 2;
+    var dx = (p.x - cx) / L.scale, dy = (p.y - L.cy) / L.scale;
+    var r = Math.sqrt(dx * dx + dy * dy);
+    var theta = r > 0.001 ? Math.atan2(dy, dx) : 0;
+    launch(DemoKit.clamp(r, MIN_R, MAX_R), theta);
+  }
+
+  handle = DemoKit.canvas('#semi-implicit-orbit', {
+    height: 500,
+    drag: true,
+    label: 'Two moons launched on the same circular orbit with the same step size. The left, stepped with explicit Euler, spirals outward. The right, stepped with semi-implicit Euler, stays on its circle. A graph below shows the energy of the left one climbing while the right one stays flat.',
+    update: function (dt) {
+      if (dragging) return;
+      if (sims[0].escaped && sims[1].escaped) return;
+      var STEP = 1 / rate.value;
+      accumulator += dt * speed.value;
+      var guard = 0;
+      while (accumulator >= STEP - 1e-9 && guard < 2000) {
+        stepAll(STEP);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard >= 2000 || accumulator < 0) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      drawPanel(ctx, c, L, 0);
+      drawPanel(ctx, c, L, 1);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(L.pw) + 0.5, 0);
+      ctx.lineTo(Math.round(L.pw) + 0.5, L.oh);
+      ctx.stroke();
+      drawGraph(ctx, s, c, L);
+      gainOut.set('explicit ' + gain(sims[0]).toFixed(1) + '%, semi-implicit ' + gain(sims[1]).toFixed(3) + '%');
+      distOut.set(sims[1].rmin.toFixed(1) + ' to ' + sims[1].rmax.toFixed(1) + ' px (start ' + r0.toFixed(0) + ')');
+    },
+    onDown: function (p, s) {
+      if (p.y < layout(s).oh) {
+        dragging = true;
+        placeAt(p, s);
+      }
+    },
+    onMove: function (p, s) {
+      if (dragging && p.down) placeAt(p, s);
+    },
+    onUp: function (p, s) {
+      if (dragging) {
+        dragging = false;
+        placeAt(p, s);
+        start.set(Math.round(r0));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

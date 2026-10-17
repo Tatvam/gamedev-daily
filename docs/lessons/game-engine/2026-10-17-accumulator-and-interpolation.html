@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The fixed timestep accumulator and interpolation · Game Dev Daily</title>
+<meta name="description" content="How an engine turns uneven frames into equal physics steps with an accumulator, and how interpolating with the leftover time removes stutter.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The fixed timestep accumulator and interpolation</h1>
+  <p class="lede">How an engine turns uneven frames into equal physics steps with an accumulator, and how interpolating with the leftover time removes stutter.</p>
+</header>
+
+<section data-section="hook">
+  <p>You move a platform in <code>_physics_process</code> or <code>FixedUpdate</code>, exactly as the manual says. On a 144 Hz monitor it twitches: it glides for a few frames, then seems to stand still for one. The physics is correct. What you see is the gap between the physics clock and the screen clock, and the engine has a number that tells you how wide that gap is.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two clocks, one bucket of time</h2>
+  <p>Delta time fixes constant speeds, but anything that accelerates or collides still depends on the step size. So both engines run physics with a <dfn>fixed timestep</dfn>: every physics step simulates exactly the same amount of time. Godot calls the fixed step 60 times per second by default, Unity 50 times.</p>
+  <p>Frames, however, still arrive whenever the monitor and the graphics card allow. The engine has to turn uneven frames into equal steps. It does that with an <dfn>accumulator</dfn>: one number holding real time that has passed but has not been simulated yet. Think of it as a bucket. Each frame pours its duration in, and each physics step scoops exactly one step out.</p>
+
+  <h3>What happens, in what order</h3>
+  <ol>
+    <li>The engine measures how long the last frame took and adds it to the accumulator.</li>
+    <li>While the accumulator holds at least one step, it runs a physics step and subtracts one step. In Godot a step calls every <code>_physics_process(delta)</code>, then moves the physics bodies. In Unity it calls every <code>FixedUpdate()</code>, then runs the physics simulation.</li>
+    <li>It calls the per-frame callbacks once: <code>_process(delta)</code> in Godot, <code>Update()</code> and <code>LateUpdate()</code> in Unity.</li>
+    <li>It draws the frame. Whatever is left in the accumulator waits for the next frame.</li>
+  </ol>
+  <p>The engine owns the accumulator and decides how many steps run. You own the state your callbacks change. Since a frame may run zero, one or several steps, per-frame code must never assume a step just happened.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 286" role="img" aria-label="One tenth of a second at 60 frames per second with 50 physics steps per second. Six frames and five steps. The first frame runs no step and the others run one each. Bars below show the time left in the accumulator after each frame: 16.7, 13.3, 10, 6.7, 3.3 and 0 milliseconds, giving alpha values from 0.83 down to 0.">
+      <text class="d-muted" x="12" y="20">0 ms</text>
+      <text class="d-muted" x="590" y="20" text-anchor="end">100 ms</text>
+
+      <text class="d-text" x="12" y="52">Frames</text>
+      <g>
+        <rect class="d-box" x="110" y="32" width="80" height="32" rx="4"/>
+        <rect class="d-box" x="190" y="32" width="80" height="32" rx="4"/>
+        <rect class="d-box" x="270" y="32" width="80" height="32" rx="4"/>
+        <rect class="d-box" x="350" y="32" width="80" height="32" rx="4"/>
+        <rect class="d-box" x="430" y="32" width="80" height="32" rx="4"/>
+        <rect class="d-box" x="510" y="32" width="80" height="32" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="150" y="52">16.7</text>
+        <text class="d-mono" x="230" y="52">16.7</text>
+        <text class="d-mono" x="310" y="52">16.7</text>
+        <text class="d-mono" x="390" y="52">16.7</text>
+        <text class="d-mono" x="470" y="52">16.7</text>
+        <text class="d-mono" x="550" y="52">16.7</text>
+      </g>
+
+      <text class="d-text" x="12" y="90">Steps run</text>
+      <g text-anchor="middle">
+        <text class="d-label" x="150" y="90">0</text>
+        <text class="d-label" x="230" y="90">1</text>
+        <text class="d-label" x="310" y="90">1</text>
+        <text class="d-label" x="390" y="90">1</text>
+        <text class="d-label" x="470" y="90">1</text>
+        <text class="d-label" x="550" y="90">1</text>
+      </g>
+
+      <text class="d-text" x="12" y="124">Physics</text>
+      <text class="d-muted" x="12" y="140">20 ms each</text>
+      <g>
+        <rect class="d-accent-soft" x="110" y="110" width="96" height="32" rx="4"/>
+        <rect class="d-accent-soft" x="206" y="110" width="96" height="32" rx="4"/>
+        <rect class="d-accent-soft" x="302" y="110" width="96" height="32" rx="4"/>
+        <rect class="d-accent-soft" x="398" y="110" width="96" height="32" rx="4"/>
+        <rect class="d-accent-soft" x="494" y="110" width="96" height="32" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="158" y="131">step 1</text>
+        <text class="d-mono" x="254" y="131">step 2</text>
+        <text class="d-mono" x="350" y="131">step 3</text>
+        <text class="d-mono" x="446" y="131">step 4</text>
+        <text class="d-mono" x="542" y="131">step 5</text>
+      </g>
+
+      <text class="d-text" x="12" y="190">Left over</text>
+      <text class="d-muted" x="12" y="206">after the frame</text>
+      <path class="d-dash" d="M110 168 H600"/>
+      <text class="d-muted" x="604" y="172">1 step</text>
+      <path class="d-thin" d="M110 228 H600"/>
+      <g>
+        <rect class="d-accent-fill" x="136" y="178" width="28" height="50"/>
+        <rect class="d-accent-fill" x="216" y="188" width="28" height="40"/>
+        <rect class="d-accent-fill" x="296" y="198" width="28" height="30"/>
+        <rect class="d-accent-fill" x="376" y="208" width="28" height="20"/>
+        <rect class="d-accent-fill" x="456" y="218" width="28" height="10"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="150" y="248">16.7</text>
+        <text class="d-mono" x="230" y="248">13.3</text>
+        <text class="d-mono" x="310" y="248">10.0</text>
+        <text class="d-mono" x="390" y="248">6.7</text>
+        <text class="d-mono" x="470" y="248">3.3</text>
+        <text class="d-mono" x="550" y="248">0</text>
+      </g>
+      <text class="d-text" x="12" y="274">alpha</text>
+      <g text-anchor="middle">
+        <text class="d-label" x="150" y="274">0.83</text>
+        <text class="d-label" x="230" y="274">0.67</text>
+        <text class="d-label" x="310" y="274">0.50</text>
+        <text class="d-label" x="390" y="274">0.33</text>
+        <text class="d-label" x="470" y="274">0.17</text>
+        <text class="d-label" x="550" y="274">0</text>
+      </g>
+    </svg>
+    <figcaption>A 60 Hz monitor meets Unity's default physics rate. Five steps fit into six frames, so one frame in six runs no step at all. The bars show what stays in the accumulator after each frame, and alpha is that leftover divided by one step.</figcaption>
+  </figure>
+
+  <h3>The leftover is the stutter</h3>
+  <p>The first frame in the diagram runs no step, so the screen shows the same picture twice, while the other frames each move a full step. That pause, once every six frames, is the twitch from the opening.</p>
+  <p>The leftover tells you exactly how far the drawn moment is past the last step. Divided by the step size it becomes the <dfn>interpolation fraction</dfn>, usually called <code>alpha</code>, a number from 0 up to almost 1. If you keep the state from before the last step, you can draw a blend between the two:</p>
+<pre><code>local alpha = accumulator / STEP
+local x = previous.x + (ball.x - previous.x) * alpha</code></pre>
+  <p>This is <dfn>interpolation</dfn>. Every drawn frame now lands at the right point in time, so motion is even. The price is that you always draw up to one step in the past: about 17 ms at 60 steps per second, 50 ms at 20.</p>
+
+  <h3>When the bucket overflows</h3>
+  <p>A half second frame puts 30 steps in the bucket at 60 per second. If running them takes longer than the time they cover, the next frame is longer still, and the game locks up: the <dfn>spiral of death</dfn>. Engines cap it in one of two ways, and both let the game briefly fall behind real time instead.</p>
+  <ul>
+    <li><strong>Cap the time.</strong> Unity limits how much time a single frame may add, through Maximum Allowed Timestep in the Time settings (<code>Time.maximumDeltaTime</code>, one third of a second by default).</li>
+    <li><strong>Cap the steps.</strong> Godot 4 limits how many physics steps one frame may run, through a maximum steps per frame setting in the Physics section of the project settings. It is 8 by default as far as we know; check the value in your version.</li>
+  </ul>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th>Godot 4</th><th>Unity 6 / 2022 LTS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Fixed callback</td><td><code>_physics_process(delta)</code></td><td><code>FixedUpdate()</code></td></tr>
+      <tr><td>Default rate</td><td>60 per second</td><td>50 per second (0.02 s)</td></tr>
+      <tr><td>Change it</td><td><code>Engine.physics_ticks_per_second</code></td><td><code>Time.fixedDeltaTime</code></td></tr>
+      <tr><td>Alpha</td><td><code>Engine.get_physics_interpolation_fraction()</code></td><td>Work it out: <code>(Time.time - Time.fixedTime) / Time.fixedDeltaTime</code></td></tr>
+      <tr><td>Built-in interpolation</td><td>Physics Interpolation project setting, added in 4.3</td><td><code>Interpolate</code> on a Rigidbody or Rigidbody2D</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A tiny engine model runs physics at 20 steps per second while frames arrive every 17 ms. The middle bar is the accumulator: pale is what the frame poured in, solid is what the steps left behind.</p>
+  <p>The ticks under the floor mark where the ball was drawn in the last 24 frames. Without interpolation they bunch up, because the ball sits still two frames out of three. Switch on interpolation and they spread out evenly. Then set the speed to 0.05x to watch the bucket one frame at a time, drag the frame time past 50 ms, and press Hitch to see the cap of 8 steps throw time away.</p>
+
+  <figure class="demo wide" data-demo="accumulator">
+    <canvas id="accumulator"></canvas>
+    <figcaption>Hollow circles are the previous (dashed) and current physics states; with interpolation the ball is drawn between them at alpha. In the history, each column is one frame and the squares under it count its steps. If animation is off, use Step one frame.</figcaption>
+  </figure>
+  <p>The model leaves out the cost of a step, vsync and the engines' own timing corrections, and your browser shows at most one pretend frame per screen refresh.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE gives you the frame time in <code>love.update(dt)</code> and nothing else, so the Lua builds the whole loop with the demo's names and numbers. Press I to toggle interpolation. The Godot and Unity versions only write the step and the blend, because the engine already owns the accumulator.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 20      <span class="c">-- seconds per physics step</span>
+local MAX_STEPS = 8      <span class="c">-- most steps one frame may run</span>
+local GRAVITY = 900      <span class="c">-- pixels per second squared</span>
+local BOUNCE = 420       <span class="c">-- upward speed after touching the floor</span>
+local WIDTH, FLOOR, RADIUS = 400, 140, 10
+
+local ball = { x = 40, y = 40, vx = 240, vy = 0 }
+local previous = { x = ball.x, y = ball.y }
+local accumulator = 0
+local interpolate = true
+
+local function physicsStep(b, dt)
+  b.vy = b.vy + GRAVITY * dt
+  b.x = b.x + b.vx * dt
+  b.y = b.y + b.vy * dt
+  if b.y &gt; FLOOR - RADIUS then b.y = FLOOR - RADIUS; b.vy = -BOUNCE end
+  if b.x &lt; RADIUS then b.x = RADIUS; b.vx = math.abs(b.vx) end
+  if b.x &gt; WIDTH - RADIUS then b.x = WIDTH - RADIUS; b.vx = -math.abs(b.vx) end
+end
+
+function love.update(dt)
+<span class="k">  accumulator = accumulator + dt
+  local steps = 0
+  while accumulator &gt;= STEP and steps &lt; MAX_STEPS do
+    previous.x, previous.y = ball.x, ball.y
+    physicsStep(ball, STEP)
+    accumulator = accumulator - STEP
+    steps = steps + 1
+  end</span>
+  <span class="c">-- Hit the cap: throw away whole steps we could not afford.</span>
+  if accumulator &gt;= STEP then accumulator = accumulator % STEP end
+end
+
+function love.draw()
+<span class="k">  local alpha = accumulator / STEP</span>
+  local x, y = ball.x, ball.y
+  if interpolate then
+    x = previous.x + (ball.x - previous.x) * alpha
+    y = previous.y + (ball.y - previous.y) * alpha
+  end
+  love.graphics.circle("fill", x, y, RADIUS)
+end
+
+function love.keypressed(key)
+  if key == "i" then interpolate = not interpolate end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D in a new scene and run it.</span>
+<span class="c"># Untick "Interpolate" in the Inspector to compare.</span>
+extends Node2D
+
+const GRAVITY := 900.0
+const BOUNCE := 420.0
+const WIDTH := 400.0
+const FLOOR := 140.0
+const RADIUS := 10.0
+
+@export var interpolate := true
+var ball_pos := Vector2(40, 40)
+var ball_vel := Vector2(240, 0)
+var previous: Vector2
+
+func _ready() -&gt; void:
+    previous = ball_pos
+    Engine.physics_ticks_per_second = 20   <span class="c"># default 60; low to exaggerate</span>
+
+<span class="c"># Called by the engine's accumulator, 0 or more times per frame.</span>
+func _physics_process(delta: float) -&gt; void:
+    previous = ball_pos
+    ball_vel.y += GRAVITY * delta
+    ball_pos += ball_vel * delta
+    if ball_pos.y &gt; FLOOR - RADIUS:
+        ball_pos.y = FLOOR - RADIUS
+        ball_vel.y = -BOUNCE
+    if ball_pos.x &lt; RADIUS:
+        ball_pos.x = RADIUS
+        ball_vel.x = absf(ball_vel.x)
+    if ball_pos.x &gt; WIDTH - RADIUS:
+        ball_pos.x = WIDTH - RADIUS
+        ball_vel.x = -absf(ball_vel.x)
+
+<span class="c"># Called once per drawn frame.</span>
+func _process(_delta: float) -&gt; void:
+    queue_redraw()
+
+func _draw() -&gt; void:
+    var p := ball_pos
+    if interpolate:
+<span class="k">        p = previous.lerp(ball_pos, Engine.get_physics_interpolation_fraction())</span>
+    draw_circle(p, RADIUS, Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS. Put on an empty GameObject in a new scene and press Play.</span>
+<span class="c">// Untick "Interpolate" in the Inspector to compare.</span>
+using UnityEngine;
+
+public class AccumulatorBall : MonoBehaviour
+{
+    <span class="c">// Unity works in units, so the demo's pixels are divided by 100.</span>
+    const float Gravity = 9f, Bounce = 4.2f;
+    const float Width = 4f, Radius = 0.1f;
+
+    public bool interpolate = true;
+    Vector2 pos = new Vector2(0.4f, 1f), vel = new Vector2(2.4f, 0f), previous;
+    Transform view;
+
+    void Start()
+    {
+        Time.fixedDeltaTime = 1f / 20f;   <span class="c">// default 0.02; low to exaggerate</span>
+        previous = pos;
+        view = GameObject.CreatePrimitive(PrimitiveType.Sphere).transform;
+        view.localScale = Vector3.one * Radius * 2f;
+    }
+
+    <span class="c">// Called by the engine's accumulator, 0 or more times per frame.</span>
+    void FixedUpdate()
+    {
+        previous = pos;
+        vel.y -= Gravity * Time.fixedDeltaTime;
+        pos += vel * Time.fixedDeltaTime;
+        if (pos.y &lt; Radius) { pos.y = Radius; vel.y = Bounce; }
+        if (pos.x &lt; Radius) { pos.x = Radius; vel.x = Mathf.Abs(vel.x); }
+        if (pos.x &gt; Width - Radius) { pos.x = Width - Radius; vel.x = -Mathf.Abs(vel.x); }
+    }
+
+    <span class="c">// Called once per drawn frame.</span>
+    void Update()
+    {
+<span class="k">        float alpha = (Time.time - Time.fixedTime) / Time.fixedDeltaTime;</span>
+        view.position = interpolate ? Vector2.Lerp(previous, pos, alpha) : pos;
+    }
+}</code></pre>
+  </div>
+  <p>Unity's y axis points up, so its floor is at 0 and gravity subtracts. For real physics bodies you would not write the blend at all: tick Interpolate on the Rigidbody in Unity, or enable Physics Interpolation in Godot 4.3 or later. Godot added it for 2D in 4.3; check the documentation for 3D support in your version.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Moving bodies in the per-frame callback.</strong> Setting a physics body's position in <code>_process</code> or <code>Update</code> fights the step. The physics engine only sees the change on the next step, and built-in interpolation blends towards a value you overwrite. Move bodies in the fixed callback.</li>
+    <li><strong>Interpolating a teleport.</strong> Respawning a player blends them across the map for one frame. Set the previous state equal to the new state when you teleport. Godot's built-in interpolation has a node method for this, <code>reset_physics_interpolation()</code>.</li>
+    <li><strong>Reading one-frame input in the step.</strong> At 144 frames per second most frames run no step, so a "just pressed" check in the fixed callback is often missed. Read input per frame, store it, and let the next step use it.</li>
+    <li><strong>Raising the step rate to hide stutter.</strong> 120 steps per second makes the twitch smaller but doubles the physics cost, and still does not match every monitor. Interpolation fixes the cause; a higher rate only reduces its latency.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every game built on Godot or Unity runs this accumulator, whether its developers know it or not, because it is how the engines call <code>_physics_process</code> and <code>FixedUpdate</code>. Unity's Rigidbody interpolation exists for exactly the stutter in the demo, and Godot 4.3 brought the same idea into the engine for 2D with its physics interpolation setting.</p>
+  <p>Networked games lean on the same fixed steps when every player must simulate in identical increments.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take an object in your project that moves in the fixed callback, such as a moving platform. Set the physics rate to 20 per second and watch it twitch. Add a <code>previous</code> position, update it at the start of each step, and draw the object at the blended position using the engine's alpha. You are done when the platform moves smoothly at 20 steps per second, and you can explain why it is now drawn slightly behind its physics position.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The engine owns an accumulator: each frame adds its duration, each fixed step removes exactly one step.</li>
+    <li>A frame can run zero, one or several steps, so per-frame code must not assume a step just happened.</li>
+    <li>The leftover divided by the step is alpha. Drawing a blend of the last two states at alpha removes stutter, at the cost of up to one step of latency.</li>
+    <li>Engines stop the spiral of death by capping time per frame (Unity) or steps per frame (Godot).</li>
+    <li>For physics bodies, prefer the built-in interpolation: Rigidbody Interpolate in Unity, Physics Interpolation in Godot 4.3 and later.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson looks at frame pacing and vsync: why frames that arrive evenly feel smoother than a higher but uneven frame rate.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games, 2004). The accumulator and the alpha blend, step by step.</li>
+    <li>Godot Engine documentation, <cite>Physics interpolation</cite> and <cite>Idle and Physics Processing</cite>. How Godot 4 schedules <code>_physics_process</code> and interpolates bodies.</li>
+    <li>Unity Manual, <cite>Time and frame rate management</cite>, and the Scripting Reference pages for <cite>Time.fixedDeltaTime</cite> and <cite>Rigidbody.interpolation</cite>.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Game Loop".</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same names and numbers as the Lua.
+  var MAX_STEPS = 8;
+  var GRAVITY = 900;
+  var BOUNCE = 420;
+  var WIDTH = 400, FLOOR = 140, RADIUS = 10;
+  var HITCH = 0.5;        // seconds, length of the frame the Hitch button makes
+  var TRAIL = 24;         // drawn positions to remember
+  var HISTORY = 40;       // frames to show in the history strip
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var STEP = 1 / 20;
+  var ball, previous, accumulator, alpha, trail, history, last;
+  var clock = 0, frameLength = 0.017, hitchPending = false;
+  var random = DemoKit.rng(5);
+
+  function reset() {
+    ball = { x: 40, y: 40, vx: 240, vy: 0 };
+    previous = { x: ball.x, y: ball.y };
+    accumulator = 0;
+    alpha = 0;
+    trail = [];
+    history = [];
+    last = { frame: 0, before: 0, after: 0, steps: 0, dropped: 0 };
+  }
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="accumulator"]');
+  var frameMs = ui.slider({ label: 'Frame time', min: 4, max: 120, step: 1, value: 17,
+    format: function (v) { return v + ' ms (' + Math.round(1000 / v) + ' fps)'; },
+    onInput: function () { frameLength = nextFrameLength(); } });
+  var rate = ui.select({ label: 'Physics rate', value: '20', options: [
+    { value: '60', label: '60 per second (Godot default)' },
+    { value: '50', label: '50 per second (Unity default)' },
+    { value: '20', label: '20 per second (exaggerated)' }
+  ], onChange: function (v) {
+    STEP = 1 / Number(v);
+    if (accumulator >= STEP) accumulator = accumulator % STEP;
+    alpha = accumulator / STEP;
+    handle.redraw();
+  } });
+  var smooth = ui.toggle({ label: 'Interpolate drawing', value: false,
+    onChange: function () { handle.redraw(); } });
+  var uneven = ui.toggle({ label: 'Uneven frames', value: false });
+  var speed = ui.select({ label: 'Speed', value: '1', options: [
+    { value: '1', label: '1x' }, { value: '0.25', label: '0.25x' }, { value: '0.05', label: '0.05x' }
+  ] });
+  var readout = ui.readout({ label: 'Last frame' });
+  ui.button({ label: 'Step one frame', onClick: function () {
+    handle.pause();
+    nextFrame();
+    handle.redraw();
+  } });
+  ui.button({ label: 'Hitch (one 0.5 s frame)', onClick: function () { hitchPending = true; frameLength = HITCH; } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); clock = 0; frameLength = nextFrameLength(); handle.redraw(); } });
+
+  function physicsStep(b, dt) {
+    b.vy = b.vy + GRAVITY * dt;
+    b.x = b.x + b.vx * dt;
+    b.y = b.y + b.vy * dt;
+    if (b.y > FLOOR - RADIUS) { b.y = FLOOR - RADIUS; b.vy = -BOUNCE; }
+    if (b.x < RADIUS) { b.x = RADIUS; b.vx = Math.abs(b.vx); }
+    if (b.x > WIDTH - RADIUS) { b.x = WIDTH - RADIUS; b.vx = -Math.abs(b.vx); }
+  }
+
+  function drawnPosition() {
+    if (!smooth.value) return { x: ball.x, y: ball.y };
+    return {
+      x: previous.x + (ball.x - previous.x) * alpha,
+      y: previous.y + (ball.y - previous.y) * alpha
+    };
+  }
+
+  // One pretend engine frame that lasted frameTime seconds: the love.update of the Lua.
+  function gameFrame(frameTime) {
+    accumulator += frameTime;
+    var before = accumulator;
+    var steps = 0;
+    while (accumulator >= STEP - 1e-9 && steps < MAX_STEPS) {
+      previous.x = ball.x;
+      previous.y = ball.y;
+      physicsStep(ball, STEP);
+      accumulator -= STEP;
+      steps += 1;
+    }
+    if (accumulator < 0) accumulator = 0;
+    var dropped = 0;
+    if (accumulator >= STEP) {
+      var kept = accumulator % STEP;
+      dropped = accumulator - kept;
+      accumulator = kept;
+    }
+    alpha = accumulator / STEP;
+
+    last = { frame: frameTime, before: before, after: accumulator, steps: steps, dropped: dropped };
+    history.push(last);
+    if (history.length > HISTORY) history.shift();
+    trail.push(drawnPosition().x);
+    if (trail.length > TRAIL) trail.shift();
+
+    var text = Math.round(frameTime * 1000) + ' ms in, ' + steps + (steps === 1 ? ' step' : ' steps') +
+      ' out, alpha ' + alpha.toFixed(2);
+    if (dropped > 0) text += ', ' + Math.round(dropped * 1000) + ' ms dropped';
+    readout.set(text);
+  }
+
+  function nextFrameLength() {
+    if (hitchPending) return HITCH;
+    var base = frameMs.value / 1000;
+    if (uneven.value) base = base * (0.5 + random());
+    return base;
+  }
+
+  function nextFrame() {
+    var length = frameLength;
+    if (hitchPending) { length = HITCH; hitchPending = false; }
+    gameFrame(length);
+    frameLength = nextFrameLength();
+  }
+
+  function circle(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawScene(ctx, c, w) {
+    var pad = 12;
+    var k = Math.min((w - pad * 2) / WIDTH, 1.25);
+    var left = Math.round((w - WIDTH * k) / 2);
+    var top = 30;
+    function X(x) { return left + x * k; }
+    function Y(y) { return top + y * k; }
+
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Scene', pad, 18);
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    ctx.fillText(smooth.value ? 'drawn at alpha ' + alpha.toFixed(2) : 'drawn at current step', w - pad, 18);
+
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    line(ctx, X(0), Y(FLOOR), X(WIDTH), Y(FLOOR));
+    ctx.strokeStyle = c.line;
+    line(ctx, X(0), Y(0), X(0), Y(FLOOR));
+    line(ctx, X(WIDTH), Y(0), X(WIDTH), Y(FLOOR));
+
+    // Ticks: where the ball was drawn in recent frames.
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 1;
+    for (var i = 0; i < trail.length; i++) {
+      ctx.globalAlpha = 0.3 + 0.7 * (i + 1) / trail.length;
+      var tx = Math.round(X(trail[i])) + 0.5;
+      line(ctx, tx, Y(FLOOR) + 4, tx, Y(FLOOR) + 14);
+    }
+    ctx.globalAlpha = 1;
+
+    // Physics states.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([3, 3]);
+    circle(ctx, X(previous.x), Y(previous.y), RADIUS * k);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = c.ink2;
+    circle(ctx, X(ball.x), Y(ball.y), RADIUS * k);
+    ctx.stroke();
+
+    var p = drawnPosition();
+    ctx.fillStyle = c.topic;
+    circle(ctx, X(p.x), Y(p.y), RADIUS * k * 0.8);
+    ctx.fill();
+
+    return Y(FLOOR) + 20;
+  }
+
+  function drawBucket(ctx, c, w, top) {
+    var pad = 12;
+    var range = Math.max(3 * STEP, frameMs.value / 1000 * (uneven.value ? 1.5 : 1) + STEP);
+    var x0 = pad, x1 = w - pad, barY = top + 26, barH = 18;
+    function X(t) { return x0 + Math.min(t / range, 1) * (x1 - x0); }
+
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Accumulator', pad, top + 14);
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    ctx.fillText('cells are one step (' + (STEP * 1000).toFixed(1) + ' ms)', w - pad, top + 14);
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(x0, barY, x1 - x0, barH);
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(x0, barY, X(last.before) - x0, barH);
+    ctx.globalAlpha = 1;
+    ctx.fillRect(x0, barY, X(last.after) - x0, barH);
+    if (last.before > range) {
+      ctx.fillStyle = c.bad;
+      ctx.textAlign = 'right';
+      ctx.fillText('overflow', x1 - 2, barY + 13);
+    }
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    for (var t = STEP; t < range - 1e-9; t += STEP) {
+      var gx = Math.round(X(t)) + 0.5;
+      line(ctx, gx, barY, gx, barY + barH);
+    }
+    ctx.strokeRect(x0 + 0.5, barY + 0.5, x1 - x0 - 1, barH - 1);
+    return barY + barH + 14;
+  }
+
+  function drawHistory(ctx, c, w, top, bottom) {
+    var pad = 12;
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Last ' + HISTORY + ' frames', pad, top + 14);
+
+    var squares = 8 * 4;
+    var axis = bottom - squares - 6;
+    var gTop = top + 26;
+    var colW = (w - pad * 2) / HISTORY;
+    var range = Math.max(3 * STEP, frameMs.value / 1000 * (uneven.value ? 1.5 : 1) + STEP);
+    function H(t) { return Math.min(t / range, 1) * (axis - gTop); }
+
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i];
+      var x = pad + (HISTORY - history.length + i) * colW;
+      var bw = Math.max(1, colW - 2);
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(x + 1, axis - H(h.before), bw, H(h.before));
+      ctx.globalAlpha = 1;
+      ctx.fillRect(x + 1, axis - H(h.after), bw, H(h.after));
+      ctx.fillStyle = h.dropped > 0 ? c.bad : c.ink2;
+      var size = Math.max(1, Math.min(3, colW - 3));
+      for (var s = 0; s < h.steps; s++) {
+        ctx.fillRect(x + 1 + (bw - size) / 2, axis + 4 + s * 4, size, 3);
+      }
+    }
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    var oneStep = Math.round(axis - H(STEP)) + 0.5;
+    line(ctx, pad, oneStep, w - pad, oneStep);
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.ink3;
+    ctx.font = FONT;
+    ctx.textAlign = 'right';
+    ctx.fillText('1 step', w - pad, oneStep - 4);
+    ctx.strokeStyle = c.ink2;
+    line(ctx, pad, axis + 0.5, w - pad, axis + 0.5);
+  }
+
+  var handle = DemoKit.canvas('#accumulator', {
+    height: 470,
+    label: 'A ball bouncing in a box, driven by a fixed timestep. Below it, a bar shows the accumulator filling with each frame and draining by one step per physics step, and a history strip shows the last 40 frames.',
+    update: function (dt) {
+      clock += dt * Number(speed.value);
+      var guard = 0;
+      while (clock >= frameLength && guard < 40) {
+        clock -= frameLength;
+        nextFrame();
+        guard += 1;
+      }
+      if (guard === 40) clock = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width;
+      var y = drawScene(ctx, c, w);
+      y = drawBucket(ctx, c, w, y);
+      drawHistory(ctx, c, w, y, s.height - 48);
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('pale: after adding the frame', 12, s.height - 26);
+      ctx.fillText('solid: left after the steps', 12, s.height - 10);
+    }
+  });
+})();
+</script>
+</body>
+</html>

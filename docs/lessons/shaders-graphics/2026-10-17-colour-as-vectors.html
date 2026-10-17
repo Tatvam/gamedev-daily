@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour as vectors: add, multiply and swizzle · Game Dev Daily</title>
+<meta name="description" content="A colour in a shader is a vec3 of red, green and blue. Add it to brighten, multiply it to tint, and swizzle it to reorder the channels.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Colour as vectors: add, multiply and swizzle</h1>
+  <p class="lede">A colour in a shader is a vec3 of red, green and blue. Add it to brighten, multiply it to tint, and swizzle it to reorder the channels.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your enemy sprite should look red when it is poisoned and blue when it is frozen. You call <code>setColor</code> with red, and the white parts of the sprite turn red, but the black outline stays black. You try adding red instead, and the whole sprite washes out to pink.</p>
+  <p>Both are correct: two kinds of vector maths. See a colour as three numbers and you can predict which one you want.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A colour is three numbers</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. That colour is not a special type. It is a <code>vec3</code>, a list of three floats, or a <code>vec4</code> with a fourth number for alpha. In GLSL the three numbers are red, green and blue, each from 0.0 (none) to 1.0 (full). Orange is <code>vec3(0.9, 0.4, 0.1)</code>.</p>
+  <p>So the maths you use for positions works on colours too. Each operator works <dfn>component-wise</dfn>: it does the same thing to red, to green and to blue separately, and the channels never mix.</p>
+
+  <h3>Four operations</h3>
+  <p><strong>Add:</strong> <code>a + b</code> adds each channel. Adding colour is adding light, so the result is brighter. Red plus green gives yellow.</p>
+  <p><strong>Multiply by a colour:</strong> <code>a * b</code> multiplies each channel. Since every value is at most 1.0, the result can only get darker or stay the same. Think of <code>b</code> as a coloured filter: white lets everything through, black blocks everything. This is a <dfn>tint</dfn>, and it is why the black outline in the hook stayed black: 0 times anything is 0.</p>
+  <p><strong>Multiply by a number:</strong> <code>a * 1.5</code> scales all three channels by the same amount. The hue stays, the brightness changes.</p>
+  <p><strong>Swizzle:</strong> a <dfn>swizzle</dfn> reads the components of a vector in any order you write after the dot. <code>a.bgr</code> is a new vec3 with blue first and red last, so orange becomes blue. <code>a.rrr</code> repeats red three times, which shows the red channel as grey.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Left: colour A, 0.9, 0.4, 0.1, times colour B, 0.5, 0.8, 1.0, equals 0.45, 0.32, 0.10, with each channel multiplied on its own row. Right: the swizzle c dot b g r takes 0.9, 0.4, 0.1 and returns 0.1, 0.4, 0.9, with arrows crossing from blue to the new red and from red to the new blue.">
+      <g text-anchor="middle">
+        <text class="d-text" x="55" y="40">A</text>
+        <text class="d-text" x="155" y="40">B</text>
+        <text class="d-text" x="260" y="40">A * B</text>
+      </g>
+      <g>
+        <rect class="d-box" x="20" y="54" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="20" y="94" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="20" y="134" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="120" y="54" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="120" y="94" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="120" y="134" width="70" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="220" y="54" width="80" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="220" y="94" width="80" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="220" y="134" width="80" height="30" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="55" y="73">r 0.90</text>
+        <text class="d-mono" x="55" y="113">g 0.40</text>
+        <text class="d-mono" x="55" y="153">b 0.10</text>
+        <text class="d-mono" x="155" y="73">r 0.50</text>
+        <text class="d-mono" x="155" y="113">g 0.80</text>
+        <text class="d-mono" x="155" y="153">b 1.00</text>
+        <text class="d-mono" x="260" y="73">r 0.45</text>
+        <text class="d-mono" x="260" y="113">g 0.32</text>
+        <text class="d-mono" x="260" y="153">b 0.10</text>
+        <text class="d-label" x="105" y="73">×</text>
+        <text class="d-label" x="105" y="113">×</text>
+        <text class="d-label" x="105" y="153">×</text>
+        <text class="d-label" x="205" y="73">=</text>
+        <text class="d-label" x="205" y="113">=</text>
+        <text class="d-label" x="205" y="153">=</text>
+      </g>
+      <rect x="35" y="176" width="40" height="16" rx="3" style="fill: rgb(230, 102, 26)"/>
+      <rect x="135" y="176" width="40" height="16" rx="3" style="fill: rgb(128, 204, 255)"/>
+      <rect x="240" y="176" width="40" height="16" rx="3" style="fill: rgb(115, 82, 26)"/>
+      <text class="d-muted" x="160" y="212" text-anchor="middle">each row is multiplied on its own</text>
+
+      <path class="d-dash" d="M326 30 V200"/>
+
+      <text class="d-text" x="356" y="40">Swizzle: c.bgr</text>
+      <g>
+        <rect class="d-box" x="356" y="54" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="436" y="54" width="70" height="30" rx="4"/>
+        <rect class="d-box" x="516" y="54" width="70" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="356" y="144" width="70" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="436" y="144" width="70" height="30" rx="4"/>
+        <rect class="d-accent-soft" x="516" y="144" width="70" height="30" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="391" y="73">r 0.90</text>
+        <text class="d-mono" x="471" y="73">g 0.40</text>
+        <text class="d-mono" x="551" y="73">b 0.10</text>
+        <text class="d-mono" x="391" y="163">r 0.10</text>
+        <text class="d-mono" x="471" y="163">g 0.40</text>
+        <text class="d-mono" x="551" y="163">b 0.90</text>
+      </g>
+      <path class="d-accent" d="M551 86 L398 136"/>
+      <path class="d-accent-fill" d="M391 139 L401 131 L403 139 Z"/>
+      <path class="d-accent" d="M471 86 V134"/>
+      <path class="d-accent-fill" d="M471 142 L466 133 L476 133 Z"/>
+      <path class="d-accent" d="M391 86 L544 136"/>
+      <path class="d-accent-fill" d="M551 139 L539 139 L541 131 Z"/>
+      <rect x="600" y="61" width="24" height="16" rx="3" style="fill: rgb(230, 102, 26)"/>
+      <rect x="600" y="151" width="24" height="16" rx="3" style="fill: rgb(26, 102, 230)"/>
+      <text class="d-muted" x="471" y="200" text-anchor="middle">same numbers, new order</text>
+    </svg>
+    <figcaption>Left: multiplying two colours multiplies red by red, green by green and blue by blue. Right: a swizzle copies the numbers into a new order, so orange becomes blue.</figcaption>
+  </figure>
+
+  <h3>Swizzle rules</h3>
+  <p>The names <code>.rgba</code> and <code>.xyzw</code> are two spellings of the same four slots: <code>c.r</code> is <code>c.x</code>. You can use either set, but not both in one swizzle, so <code>c.rgz</code> does not compile. You can repeat a letter when reading (<code>c.rrr</code>) but not when writing: <code>c.rg = vec2(1.0, 0.0);</code> is fine, <code>c.rr = ...</code> is an error.</p>
+  <p><code>vec3(0.5)</code> fills all three channels with 0.5, a mid grey, and <code>vec4(c, 1.0)</code> adds an opaque alpha to a vec3.</p>
+
+  <h3>One more: brightness with a dot product</h3>
+  <p>To turn a colour into grey you need one number that says how bright it looks. Our eyes are most sensitive to green and least to blue, so the channels get different weights: <code>dot(c, vec3(0.299, 0.587, 0.114))</code>. The dot product multiplies each channel by its weight and adds the results. These weights come from Rec. 601. Wrap the result in <code>vec3(...)</code> to get a grey colour.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Multiply to tint, because it keeps the shading: dark stays dark. Add to glow, because it brightens everything, including black.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is colour A, the middle is colour B, and the right is what the shader returns. Under each swatch, three bars show the red, green and blue numbers; the white line across them is 1.0. With <em>A * B</em>, drag B's sliders down: the result only gets darker. Switch to <em>A + B</em>: all three channels pass the line, the part above 1.0 is hatched, and the swatch shows plain white.</p>
+  <p>Then use the <em>Show</em> menu to view one channel at a time as grey, and notice that changing one channel never moves the others.</p>
+
+  <figure class="demo" data-demo="colour-vectors">
+    <div class="demo-stage">
+      <canvas id="colour-vectors"></canvas>
+      <span class="demo-label">A</span>
+      <span class="demo-label" style="left: 36%">B</span>
+      <span class="demo-label" style="left: 69%">Result</span>
+    </div>
+    <figcaption>Every pixel of the right swatch runs the same <code>combine(a, b)</code> call. The Result readout is the exact vec3 the shader computed; On screen is what is left after the display clamps each channel to 0 to 1.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version draws A and B with <code>setColor</code> and the result with the demo's <code>combine</code> function. Keys 1 to 6 pick the operation, in the order of the demo's menu.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values.</span>
+local a = { 0.90, 0.40, 0.10 }   <span class="c">-- orange</span>
+local b = { 0.50, 0.80, 1.00 }   <span class="c">-- light blue</span>
+local k = 1.5
+local op = 2   <span class="c">-- 0 add, 1 subtract, 2 multiply, 3 scale, 4 swizzle, 5 grey</span>
+local shader
+
+local pixelcode = [[
+uniform vec3 u_a;
+uniform vec3 u_b;
+uniform float u_k;
+uniform float u_op;
+
+vec3 combine(vec3 a, vec3 b)
+{
+<span class="k">    vec3 c = a + b;                                              // 0. add</span>
+<span class="k">    if (u_op &gt; 0.5) c = a - b;                                   // 1. subtract</span>
+<span class="k">    if (u_op &gt; 1.5) c = a * b;                                   // 2. multiply</span>
+<span class="k">    if (u_op &gt; 2.5) c = a * u_k;                                 // 3. scale</span>
+<span class="k">    if (u_op &gt; 3.5) c = a.bgr;                                   // 4. swizzle</span>
+<span class="k">    if (u_op &gt; 4.5) c = vec3(dot(a, vec3(0.299, 0.587, 0.114))); // 5. grey</span>
+    return c;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    return vec4(combine(u_a, u_b), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  local n = tonumber(key)   <span class="c">-- nil for keys that are not digits</span>
+  if n and n &gt;= 1 and n &lt;= 6 then
+    op = n - 1
+  end
+end
+
+function love.draw()
+  love.graphics.setColor(a)
+  love.graphics.rectangle("fill", 20, 20, 120, 120)
+  love.graphics.setColor(b)
+  love.graphics.rectangle("fill", 160, 20, 120, 120)
+
+  love.graphics.setColor(1, 1, 1)
+  shader:send("u_a", a)
+  shader:send("u_b", b)
+  shader:send("u_k", k)
+  shader:send("u_op", op)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 300, 20, 120, 120)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_dpr;
+uniform vec3 u_a;
+uniform vec3 u_b;
+uniform float u_k;
+uniform float u_op;
+uniform float u_channel;
+
+// The lesson: every operation works on all three channels at once.
+vec3 combine(vec3 a, vec3 b) {
+<span class="k">  vec3 c = a + b;                                              // 0. add</span>
+<span class="k">  if (u_op &gt; 0.5) c = a - b;                                   // 1. subtract</span>
+<span class="k">  if (u_op &gt; 1.5) c = a * b;                                   // 2. multiply</span>
+<span class="k">  if (u_op &gt; 2.5) c = a * u_k;                                 // 3. scale</span>
+<span class="k">  if (u_op &gt; 3.5) c = a.bgr;                                   // 4. swizzle</span>
+<span class="k">  if (u_op &gt; 4.5) c = vec3(dot(a, vec3(0.299, 0.587, 0.114))); // 5. grey</span>
+  return c;
+}
+
+// The Show menu: one channel as grey, using a swizzle.
+vec3 pickChannel(vec3 c) {
+  if (u_channel &gt; 2.5) return c.bbb;
+  if (u_channel &gt; 1.5) return c.ggg;
+  if (u_channel &gt; 0.5) return c.rrr;
+  return c;
+}
+
+// Demo only: 1.0 inside the rectangle lo..hi, 0.0 outside.
+float box(vec2 p, vec2 lo, vec2 hi) {
+  vec2 s = step(lo, p) * step(p, hi);
+  return s.x * s.y;
+}
+
+// Demo only: one panel is a swatch on top and three channel bars below.
+// q.x runs 0 to 1 across the panel, q.y 0 to 1 up the canvas.
+vec3 panel(vec3 col, vec2 q, vec2 e, vec3 c, float dim) {
+  vec2 lo = vec2(0.0, 0.42);
+  vec2 hi = vec2(1.0, 0.84);
+  col = mix(col, vec3(0.55), box(q, lo - e, hi + e));
+  col = mix(col, clamp(pickChannel(c), 0.0, 1.0), box(q, lo, hi));
+
+  float base = 0.06;
+  float hgt = 0.28;
+  float one = base + 0.5 * hgt;   // the height of the value 1.0
+  float hatch = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / (6.0 * u_dpr)));
+  for (int i = 0; i &lt; 3; i++) {
+    float x0 = 0.06 + float(i) * 0.32;
+    float v = c.r;
+    vec3 hue = vec3(0.92, 0.30, 0.26);
+    if (i == 1) { v = c.g; hue = vec3(0.30, 0.78, 0.36); }
+    if (i == 2) { v = c.b; hue = vec3(0.34, 0.52, 0.98); }
+    float active = 1.0;
+    if (u_channel &gt; 0.5 &amp;&amp; abs(u_channel - float(i + 1)) &gt; 0.5) active = 0.3;
+    float top = base + clamp(v, 0.0, 2.0) * 0.5 * hgt;
+    col = mix(col, vec3(0.24), box(q, vec2(x0, base), vec2(x0 + 0.24, base + hgt)));
+    vec3 bar = mix(hue, hue * 0.45, hatch * step(one, q.y));
+    bar = mix(vec3(0.24), bar, active);
+    col = mix(col, bar, box(q, vec2(x0, base), vec2(x0 + 0.24, top)));
+  }
+  col = mix(col, vec3(0.92), box(q, vec2(0.0, one - e.y * 0.5), vec2(1.0, one + e.y * 0.5)));
+  float inPanel = box(q, vec2(-e.x, 0.0), vec2(1.0 + e.x, 1.0));
+  return mix(col, vec3(0.16, 0.17, 0.19), 0.7 * dim * inPanel);
+}
+
+void main() {
+  vec2 p = gl_FragCoord.xy / u_resolution;
+  vec3 col = vec3(0.16, 0.17, 0.19);
+  float w = 0.28;
+  float gap = 0.05;
+  vec2 e = vec2(1.5 * u_dpr / (w * u_resolution.x), 1.5 * u_dpr / u_resolution.y);
+  vec3 result = combine(u_a, u_b);
+  for (int i = 0; i &lt; 3; i++) {
+    float x0 = 0.03 + float(i) * (w + gap);
+    vec2 q = vec2((p.x - x0) / w, p.y);
+    vec3 c = u_a;
+    float dim = 0.0;
+    if (i == 1) { c = u_b; dim = step(2.5, u_op); }   // B is unused from "scale" on
+    if (i == 2) c = result;
+    col = panel(col, q, e, c, dim);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec3 color_a = vec3(0.90, 0.40, 0.10);
+uniform vec3 color_b = vec3(0.50, 0.80, 1.00);
+uniform float k = 1.5;
+uniform float op = 2.0;
+
+vec3 combine(vec3 a, vec3 b) {
+<span class="k">    vec3 c = a + b;</span>
+<span class="k">    if (op &gt; 0.5) c = a - b;</span>
+<span class="k">    if (op &gt; 1.5) c = a * b;</span>
+<span class="k">    if (op &gt; 2.5) c = a * k;</span>
+<span class="k">    if (op &gt; 3.5) c = a.bgr;</span>
+<span class="k">    if (op &gt; 4.5) c = vec3(dot(a, vec3(0.299, 0.587, 0.114)));</span>
+    return c;
+}
+
+void fragment() {
+    COLOR = vec4(combine(color_a, color_b), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/ColourMaths"
+{
+    Properties
+    {
+        _ColorA ("Colour A", Color) = (0.9, 0.4, 0.1, 1)
+        _ColorB ("Colour B", Color) = (0.5, 0.8, 1.0, 1)
+        _K ("k", Range(0, 2)) = 1.5
+        _Op ("Operation (0 to 5)", Float) = 2
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float4 _ColorA, _ColorB;
+            float _K, _Op;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                return o;
+            }
+
+            float3 combine (float3 a, float3 b)
+            {
+<span class="k">                float3 c = a + b;</span>
+<span class="k">                if (_Op &gt; 0.5) c = a - b;</span>
+<span class="k">                if (_Op &gt; 1.5) c = a * b;</span>
+<span class="k">                if (_Op &gt; 2.5) c = a * _K;</span>
+<span class="k">                if (_Op &gt; 3.5) c = a.bgr;</span>
+                if (_Op &gt; 4.5)
+                {
+                    float g = dot(a, float3(0.299, 0.587, 0.114));
+                    c = float3(g, g, g);
+                }
+                return c;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                return fixed4(combine(_ColorA.rgb, _ColorB.rgb), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL uses <code>float3</code> where GLSL says <code>vec3</code>, but the operators and swizzles are the same. In URP Shader Graph the same nodes exist: Add, Subtract, Multiply, Swizzle (with a mask such as <code>bgr</code>) and Dot Product, all of which work per channel on Vector3 inputs.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Integer literals.</strong> In GLSL ES 1.0, <code>c * 2</code> does not compile, because 2 is an int and there is no automatic conversion. Write <code>c * 2.0</code>. Constructors are the exception: <code>vec3(1, 0, 0)</code> converts its arguments, but writing <code>1.0</code> everywhere is a habit that never fails.</li>
+    <li><strong>Expecting <code>*</code> to be a dot product.</strong> For two vectors, <code>*</code> multiplies component by component and returns a vector. Use <code>dot()</code> when you want one number. (For matrices, <code>*</code> is a true matrix product, which later lessons use.)</li>
+    <li><strong>Clamping too early.</strong> Inside the shader a channel can be 1.7 or -0.3, and the maths still works. The value is only cut to 0 to 1 when it is written to a normal 8-bit screen.</li>
+    <li><strong>Different numbers in the engine.</strong> The demo writes its numbers straight to the screen, where the browser treats them as sRGB. In a Unity project set to the Linear colour space, Unity converts Color properties to linear before the shader sees them, so <code>_ColorA.r</code> is not the 0.9 you typed. In Godot 4, adding the <code>source_color</code> hint to a uniform gives a colour picker, and in 3D shaders the value is converted to linear. The gamma lesson in Track 5 covers this.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>All of this is cheap. A vec3 add or multiply is three float operations; many modern GPUs, mobile ones included, do them one number at a time. A swizzle usually costs nothing at all, because the compiler just reads the registers in a different order. <code>dot</code> on a vec3 is three multiplies and two adds.</p>
+  <p>On phones, colours are a good place for <code>mediump</code>. Values from 0 to 1 need about 8 bits of precision for display, and <code>mediump</code> guarantees at least 10.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The tint in the hook is a colour multiply in every engine here. LÖVE's default shader returns <code>Texel(tex, texture_coords) * color</code>, where <code>color</code> is whatever you passed to <code>love.graphics.setColor</code>. Godot's <code>modulate</code> property on a CanvasItem and Unity's <code>SpriteRenderer.color</code> do the same: they multiply the sprite's colour. That is why one white sprite can become many team colours, but never brighter than its texture.</p>
+  <p>Additive blending, used for fire, sparks and magic particles, is colour addition between the particle and what is already on screen. Overlapping sparks get brighter and turn towards white.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a "flashback" shader for a sprite in LÖVE:</p>
+  <ol>
+    <li>In <code>effect</code>, read the sprite's colour with <code>vec4 t = Texel(tex, texture_coords);</code>.</li>
+    <li>Turn it grey with the dot product from this lesson.</li>
+    <li>Multiply the grey by a warm tint uniform, for example <code>vec3(1.0, 0.85, 0.6)</code>, and return it with the sprite's own alpha: <code>vec4(grey * u_tint, t.a)</code>.</li>
+    <li>Add a key that switches the shader on and off.</li>
+  </ol>
+  <p>You are done when the sprite turns sepia, its dark outline stays dark, and its transparent areas stay transparent.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A colour is a vec3 (or vec4) of floats, normally 0 to 1, and vector operators work on it channel by channel.</li>
+    <li>Adding brightens, like adding light. Multiplying by a colour tints, like a filter: it keeps dark areas dark.</li>
+    <li>Swizzles such as <code>.bgr</code> and <code>.rrr</code> reorder or repeat channels, and usually cost nothing.</li>
+    <li>Values above 1.0 or below 0.0 are fine inside a shader; the screen clamps them only at the end.</li>
+    <li>Engines may convert colour properties to linear space before your shader sees them, so check which numbers you are actually getting.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson turns numbers into edges: <code>step</code> and <code>smoothstep</code> for hard and soft thresholds.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Colors". Colours as vectors and swizzling.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>. Defines vector constructors, component-wise operators, swizzle rules and precision qualifiers.</li>
+    <li>ITU-R, <cite>Recommendation BT.601</cite>. The source of the 0.299, 0.587, 0.114 luma weights.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>love.graphics.setColor</cite>.</li>
+    <li>Godot documentation, <cite>Shading language</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity Manual, <cite>Linear or gamma workflow</cite> and <cite>Writing shaders for the Built-in Render Pipeline</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    'precision mediump float;',
+    '',
+    'uniform vec2 u_resolution;',
+    'uniform float u_dpr;',
+    'uniform vec3 u_a;',
+    'uniform vec3 u_b;',
+    'uniform float u_k;',
+    'uniform float u_op;',
+    'uniform float u_channel;',
+    '',
+    '// The lesson: every operation works on all three channels at once.',
+    'vec3 combine(vec3 a, vec3 b) {',
+    '  vec3 c = a + b;                                              // 0. add',
+    '  if (u_op > 0.5) c = a - b;                                   // 1. subtract',
+    '  if (u_op > 1.5) c = a * b;                                   // 2. multiply',
+    '  if (u_op > 2.5) c = a * u_k;                                 // 3. scale',
+    '  if (u_op > 3.5) c = a.bgr;                                   // 4. swizzle',
+    '  if (u_op > 4.5) c = vec3(dot(a, vec3(0.299, 0.587, 0.114))); // 5. grey',
+    '  return c;',
+    '}',
+    '',
+    '// The Show menu: one channel as grey, using a swizzle.',
+    'vec3 pickChannel(vec3 c) {',
+    '  if (u_channel > 2.5) return c.bbb;',
+    '  if (u_channel > 1.5) return c.ggg;',
+    '  if (u_channel > 0.5) return c.rrr;',
+    '  return c;',
+    '}',
+    '',
+    '// Demo only: 1.0 inside the rectangle lo..hi, 0.0 outside.',
+    'float box(vec2 p, vec2 lo, vec2 hi) {',
+    '  vec2 s = step(lo, p) * step(p, hi);',
+    '  return s.x * s.y;',
+    '}',
+    '',
+    '// Demo only: one panel is a swatch on top and three channel bars below.',
+    '// q.x runs 0 to 1 across the panel, q.y 0 to 1 up the canvas.',
+    'vec3 panel(vec3 col, vec2 q, vec2 e, vec3 c, float dim) {',
+    '  vec2 lo = vec2(0.0, 0.42);',
+    '  vec2 hi = vec2(1.0, 0.84);',
+    '  col = mix(col, vec3(0.55), box(q, lo - e, hi + e));',
+    '  col = mix(col, clamp(pickChannel(c), 0.0, 1.0), box(q, lo, hi));',
+    '',
+    '  float base = 0.06;',
+    '  float hgt = 0.28;',
+    '  float one = base + 0.5 * hgt;   // the height of the value 1.0',
+    '  float hatch = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / (6.0 * u_dpr)));',
+    '  for (int i = 0; i < 3; i++) {',
+    '    float x0 = 0.06 + float(i) * 0.32;',
+    '    float v = c.r;',
+    '    vec3 hue = vec3(0.92, 0.30, 0.26);',
+    '    if (i == 1) { v = c.g; hue = vec3(0.30, 0.78, 0.36); }',
+    '    if (i == 2) { v = c.b; hue = vec3(0.34, 0.52, 0.98); }',
+    '    float active = 1.0;',
+    '    if (u_channel > 0.5 && abs(u_channel - float(i + 1)) > 0.5) active = 0.3;',
+    '    float top = base + clamp(v, 0.0, 2.0) * 0.5 * hgt;',
+    '    col = mix(col, vec3(0.24), box(q, vec2(x0, base), vec2(x0 + 0.24, base + hgt)));',
+    '    vec3 bar = mix(hue, hue * 0.45, hatch * step(one, q.y));',
+    '    bar = mix(vec3(0.24), bar, active);',
+    '    col = mix(col, bar, box(q, vec2(x0, base), vec2(x0 + 0.24, top)));',
+    '  }',
+    '  col = mix(col, vec3(0.92), box(q, vec2(0.0, one - e.y * 0.5), vec2(1.0, one + e.y * 0.5)));',
+    '  float inPanel = box(q, vec2(-e.x, 0.0), vec2(1.0 + e.x, 1.0));',
+    '  return mix(col, vec3(0.16, 0.17, 0.19), 0.7 * dim * inPanel);',
+    '}',
+    '',
+    'void main() {',
+    '  vec2 p = gl_FragCoord.xy / u_resolution;',
+    '  vec3 col = vec3(0.16, 0.17, 0.19);',
+    '  float w = 0.28;',
+    '  float gap = 0.05;',
+    '  vec2 e = vec2(1.5 * u_dpr / (w * u_resolution.x), 1.5 * u_dpr / u_resolution.y);',
+    '  vec3 result = combine(u_a, u_b);',
+    '  for (int i = 0; i < 3; i++) {',
+    '    float x0 = 0.03 + float(i) * (w + gap);',
+    '    vec2 q = vec2((p.x - x0) / w, p.y);',
+    '    vec3 c = u_a;',
+    '    float dim = 0.0;',
+    '    if (i == 1) { c = u_b; dim = step(2.5, u_op); }   // B is unused from "scale" on',
+    '    if (i == 2) c = result;',
+    '    col = panel(col, q, e, c, dim);',
+    '  }',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  var FORMULAS = ['A + B', 'A - B', 'A * B', 'A * k', 'A.bgr', 'vec3(dot(A, w))'];
+
+  var handle = null;
+  var ui = DemoKit.controls('[data-demo="colour-vectors"]');
+
+  var op = ui.select({
+    label: 'Operation',
+    options: [
+      { value: '0', label: 'A + B (add)' },
+      { value: '1', label: 'A - B (subtract)' },
+      { value: '2', label: 'A * B (multiply, tint)' },
+      { value: '3', label: 'A * k (scale by a number)' },
+      { value: '4', label: 'A.bgr (swizzle)' },
+      { value: '5', label: 'Grey: vec3(dot(A, w))' }
+    ],
+    value: '2',
+    onChange: function (v) { send('u_op', Number(v)); }
+  });
+  var show = ui.select({
+    label: 'Show',
+    options: [
+      { value: '0', label: 'All channels (c)' },
+      { value: '1', label: 'Red only (c.rrr)' },
+      { value: '2', label: 'Green only (c.ggg)' },
+      { value: '3', label: 'Blue only (c.bbb)' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_channel', Number(v)); }
+  });
+
+  function channel(label, value, name) {
+    return ui.slider({ label: label, min: 0, max: 1, step: 0.01, value: value,
+      onInput: function () { send(name, null); } });
+  }
+  var ar = channel('A red', 0.90, 'u_a');
+  var ag = channel('A green', 0.40, 'u_a');
+  var ab = channel('A blue', 0.10, 'u_a');
+  var br = channel('B red', 0.50, 'u_b');
+  var bg = channel('B green', 0.80, 'u_b');
+  var bb = channel('B blue', 1.00, 'u_b');
+  var k = ui.slider({ label: 'k (for A * k)', min: 0, max: 2, step: 0.05, value: 1.5,
+    onInput: function (v) { send('u_k', v); } });
+
+  var formulaOut = ui.readout({ label: 'Formula' });
+  var aOut = ui.readout({ label: 'A' });
+  var bOut = ui.readout({ label: 'B' });
+  var resultOut = ui.readout({ label: 'Result' });
+  var screenOut = ui.readout({ label: 'On screen' });
+
+  function colA() { return [ar.value, ag.value, ab.value]; }
+  function colB() { return [br.value, bg.value, bb.value]; }
+
+  // The same maths as combine() in the shader, for the readouts.
+  function combine(a, b) {
+    var n = Number(op.value);
+    var c = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    if (n > 0.5) c = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    if (n > 1.5) c = [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
+    if (n > 2.5) c = [a[0] * k.value, a[1] * k.value, a[2] * k.value];
+    if (n > 3.5) c = [a[2], a[1], a[0]];
+    if (n > 4.5) {
+      var g = a[0] * 0.299 + a[1] * 0.587 + a[2] * 0.114;
+      c = [g, g, g];
+    }
+    return c;
+  }
+
+  function fmt(c) {
+    return '(' + c.map(function (v) {
+      var s = v.toFixed(2);
+      return s === '-0.00' ? '0.00' : s;
+    }).join(', ') + ')';
+  }
+
+  function updateReadout() {
+    var a = colA();
+    var b = colB();
+    var r = combine(a, b);
+    var n = Number(op.value);
+    formulaOut.set(FORMULAS[n] + (n === 3 ? ', k = ' + k.value.toFixed(2) : '') +
+      (n === 5 ? ', w = (0.299, 0.587, 0.114)' : ''));
+    aOut.set(fmt(a));
+    bOut.set(n > 2.5 ? fmt(b) + ' (not used)' : fmt(b));
+    resultOut.set(fmt(r));
+    screenOut.set(fmt(r.map(function (v) { return DemoKit.clamp(v, 0, 1); })));
+  }
+
+  function send(name, value) {
+    if (handle) {
+      if (name === 'u_a') value = colA();
+      if (name === 'u_b') value = colB();
+      handle.set(name, value);
+    }
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#colour-vectors', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 360,
+    label: 'A live fragment shader with three panels: colour A, colour B and the result of an operation on them. Under each colour swatch, bars show its red, green and blue values, with a line at 1.0.',
+    uniforms: {
+      u_dpr: function (s) { return s.dpr; },
+      u_a: colA(),
+      u_b: colB(),
+      u_k: 1.5,
+      u_op: 2,
+      u_channel: 0
+    }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

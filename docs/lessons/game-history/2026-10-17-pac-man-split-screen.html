@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pac-Man's level 256: one byte too small · Game Dev Daily</title>
+<meta name="description" content="Why Pac-Man's level 256 is a garbled half maze: a one-byte level count wraps to zero and the fruit loop writes 256 times over the screen.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pac-Man's level 256: one byte too small</h1>
+  <p class="lede">Why Pac-Man's level 256 is a garbled half maze: a one-byte level count wraps to zero and the fruit loop writes 256 times over the screen.</p>
+</header>
+
+<section data-section="hook">
+  <p>Pac-Man has no last level. Clear 255 mazes and the next one appears with its right half buried under letters, numbers and broken symbols. You can't eat enough dots to finish it.</p>
+  <p>No one designed that ending. It comes from one addition in the routine that draws the fruit in the corner, and you can still write the same bug today.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: a counter that holds 0 to 255</h2>
+  <p>The Pac-Man arcade board runs on a Z80, an 8-bit processor. Its basic unit of data is the <dfn>byte</dfn>: eight bits, which can hold whole numbers from 0 to 255 and nothing else. When a sum needs a ninth bit, the processor keeps the low eight bits and drops the rest. This is called <dfn>wrap-around</dfn> (or <dfn>overflow</dfn>): 255 + 1 gives 0, and 0 − 1 gives 255, like a car odometer rolling past its last digit.</p>
+  <p>The game keeps the level number in one byte and counts from 0, so the first level is stored as 0 and level 256 is stored as 255. Storing it is fine. Doing arithmetic with it is not.</p>
+
+  <h2>The trick that failed: drawing the fruit counter</h2>
+  <p>At the bottom right of the screen sits the <dfn>fruit counter</dfn>, a row of bonus fruit icons. At the start of each level a short routine redraws it. Simplified:</p>
+  <ol>
+    <li>Load the level byte and add 1, to get the number of fruit to show.</li>
+    <li>If that number is 8 or more, show the seven most recent fruit.</li>
+    <li>Otherwise, loop: draw one fruit from the fruit table, step one tile along in screen memory, subtract 1 from the count, and go round again until the count reaches zero.</li>
+  </ol>
+  <p>For level 1 the count is 1: draw one fruit, drop to 0, stop. Every normal level is fine.</p>
+  <p>On level 256 the level byte is 255. Adding 1 gives 256, which needs nine bits, so the byte becomes 0. Zero is less than 8, so the loop runs. It draws first and checks afterwards: one fruit, then 0 − 1 gives 255, which is not zero, so it carries on. It stops only when the count comes back round to zero, after <strong>256</strong> passes instead of none.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="The level byte 0xFF plus one wraps to 0x00. Because 0 is under 8, the fruit loop runs, and because it subtracts before testing for zero it runs 256 times. Below, a strip of memory shows the 256 writes filling the fruit row and then the right half of the maze, while the left half is untouched.">
+      <rect class="d-box" x="16" y="16" width="160" height="64" rx="8"/>
+      <text class="d-muted" x="96" y="38" text-anchor="middle">level byte</text>
+      <text class="d-mono" x="96" y="58" text-anchor="middle">0xFF = 255</text>
+      <text class="d-muted" x="96" y="73" text-anchor="middle">(level 256)</text>
+
+      <path class="d-accent" d="M176 48 H226"/>
+      <path class="d-accent" d="M218 42 L226 48 L218 54"/>
+      <text class="d-label" x="201" y="38" text-anchor="middle">+ 1</text>
+
+      <rect class="d-box" x="228" y="16" width="160" height="64" rx="8"/>
+      <text class="d-muted" x="308" y="38" text-anchor="middle">fruit count</text>
+      <text class="d-mono" x="308" y="58" text-anchor="middle">0x00 = 0</text>
+      <text class="d-muted" x="308" y="73" text-anchor="middle">ninth bit dropped</text>
+
+      <path class="d-accent" d="M388 48 H438"/>
+      <path class="d-accent" d="M430 42 L438 48 L430 54"/>
+      <text class="d-label" x="413" y="38" text-anchor="middle">&lt; 8</text>
+
+      <rect class="d-accent-soft" x="440" y="16" width="184" height="64" rx="8"/>
+      <text class="d-text" x="532" y="38" text-anchor="middle">draw, then count − 1</text>
+      <text class="d-text" x="532" y="56" text-anchor="middle">until count = 0</text>
+      <text class="d-muted" x="532" y="73" text-anchor="middle">0 − 1 = 255: 256 passes</text>
+
+      <text class="d-muted" x="16" y="108">screen memory, in the order the loop writes it</text>
+
+      <path class="d-accent" d="M16 140 V134 H336 V140"/>
+      <text class="d-label" x="176" y="128" text-anchor="middle">256 writes</text>
+      <rect class="d-accent-soft" x="16" y="144" width="56" height="32"/>
+      <rect class="d-accent-soft" x="72" y="144" width="264" height="32"/>
+      <rect class="d-fill" x="336" y="144" width="288" height="32"/>
+      <text class="d-text" x="44" y="165" text-anchor="middle">fruit</text>
+      <text class="d-text" x="204" y="165" text-anchor="middle">maze, right half</text>
+      <text class="d-text" x="480" y="165" text-anchor="middle">maze, left half</text>
+      <text class="d-muted" x="44" y="196" text-anchor="middle">7 slots</text>
+      <text class="d-muted" x="204" y="196" text-anchor="middle">overwritten with junk</text>
+      <text class="d-muted" x="480" y="196" text-anchor="middle">never reached</text>
+      <text class="d-muted" x="16" y="230">Not to scale. The fruit row is tiny next to the maze.</text>
+    </svg>
+    <figcaption>One addition wraps, one comparison is fooled, and one loop runs 256 times. Each pass writes one more step along screen memory, far past the end of the fruit row.</figcaption>
+  </figure>
+
+  <h3>Two things go wrong at once</h3>
+  <p><strong>The loop reads past the end of its table.</strong> The fruit table is short, and on level 256 the loop runs far beyond its end. It keeps reading whatever bytes happen to come next in the program, and treats each one as a picture to draw. That is where the random letters and symbols come from.</p>
+  <p><strong>The loop writes past the end of the fruit row.</strong> Each pass draws at the next position in screen memory. After a few passes the fruit row is full, and the writes run on into the memory that holds the maze tiles and their colours. On the real board the maze memory that comes next holds the right-hand columns of the screen, which is why the damage is a clean half: the left side is never reached and plays normally.</p>
+  <p>A level ends only when every dot is eaten, 244 in all. The garbage has wiped out most of the dots on the right; the number commonly cited for what remains there is 9. There is no way to clear the board, so it is called a <dfn>kill screen</dfn>: the level where a game breaks rather than ends.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>A counter that wraps, a loop that trusts it, and writes that never check where they land.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Processors got wider, but the edge is still there. A C# <code>byte</code> still wraps at 255 and an <code>int</code> a little past two billion, without warning by default. Network sequence numbers and packed save data are often kept small on purpose. Lua in LÖVE stores numbers as 64-bit floats, so they never wrap, but its <code>bit</code> library works in 32 bits. Whenever a value is stored small, ask the 1980 question: what happens one step past the largest value?</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Leave the level at 5 and press <strong>Run</strong>: five fruit appear and the loop stops. Then drag the level to 256 and press <strong>Step</strong> a few times. See the loop counter jump from 0 to 255, then press <strong>Run</strong> and watch the writes leave the fruit row and walk through the maze column by column from the right. Turn on the fix and try level 256 again.</p>
+
+  <figure class="demo wide" data-demo="fruit-overflow">
+    <canvas id="fruit-overflow"></canvas>
+    <figcaption>A simplified, original stand-in for the board. The strip at the bottom is the same memory in a line: 256 writes cover the fruit slots and then about half the maze.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Lua numbers don't wrap, so the <code>byte</code> function imitates an 8-bit register with <code>% 256</code>. Lua's <code>%</code> always returns a value from 0 to 255 here, even for −1. The table, the "bytes after the table" and the memory layout match the demo: addresses 0 to 6 are the fruit row, and everything after that is the maze, one column at a time from the right.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local COLS, ROWS, FRUIT_SLOTS, CELL = 28, 18, 7, 16
+local FRUIT_TABLE = {1, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8}
+local memory = {}                    <span class="c">-- address -&gt; picture number</span>
+
+local function byte(n) return n % 256 end    <span class="c">-- keep 0..255, like a register</span>
+
+local function readTable(i)          <span class="c">-- i counts from 0, as the game does</span>
+  if i &lt; #FRUIT_TABLE then return FRUIT_TABLE[i + 1] end
+  local k = i - #FRUIT_TABLE + 1     <span class="c">-- past the end: whatever bytes follow</span>
+  return (k * 37 + 11) % 256
+end
+
+local function drawFruitCounter(level, fixed)  <span class="c">-- level: 0 means level 1</span>
+  local count = byte(level + 1)
+<span class="k">  if fixed then count = math.min(level + 1, 255) end   -- stop at the top, don't wrap</span>
+  if count &gt;= 8 then
+    local last = math.min(count, #FRUIT_TABLE)
+    for i = 0, FRUIT_SLOTS - 1 do memory[i] = readTable(last - FRUIT_SLOTS + i) end
+  else
+    local b, addr = count, 0
+    repeat                           <span class="c">-- draw first, test afterwards</span>
+      memory[addr] = readTable(addr)
+      addr = addr + 1
+<span class="k">      b = byte(b - 1)                <span class="c">-- 0 - 1 becomes 255: 256 passes</span></span>
+    until b == 0
+  end
+end
+
+function love.load()
+  drawFruitCounter(255, false)       <span class="c">-- level 256</span>
+end
+
+function love.draw()
+  for addr, value in pairs(memory) do
+    if addr &gt;= FRUIT_SLOTS then      <span class="c">-- a maze cell that got overwritten</span>
+      local m = addr - FRUIT_SLOTS
+      local col, row = COLS - 1 - math.floor(m / ROWS), m % ROWS
+      love.graphics.setColor((value % 8) / 7, 0.5, 1 - (value % 8) / 7)
+      love.graphics.rectangle("fill", col * CELL, row * CELL, CELL - 1, CELL - 1)
+    end
+  end
+end</code></pre>
+  </div>
+  <p>As written, the right half of a 28 by 18 grid fills with junk. Pass <code>true</code> as the second argument and only the fruit row is touched.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Testing only the levels people reach.</strong> Overflow lives at the edges. Test 0, the largest value, and one step past it. A test that sets the counter to 254 and advances twice would have exposed this bug.</li>
+    <li><strong>"Draw first, check afterwards" loops.</strong> A loop that subtracts before it tests for zero runs once for a count of 1, and the full range for a count of 0. Test the count before entering the loop, or count up to a limit instead.</li>
+    <li><strong>Reads and writes with no bounds check.</strong> Reading past a table gives garbage in assembly or C and <code>nil</code> in Lua. Writing past a buffer is worse: that is what destroyed the maze. Give every write loop a hard stop at the buffer's end, whatever its counter says.</li>
+    <li><strong>A wider type only moves the edge.</strong> Switching to 16 bits would have pushed the bug out to level 65,536. When a value is only for display, clamp it (as the fix in the demo does) so it can never wrap.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Pac-Man's level 256 is the best known kill screen, and the split screen became a goal in itself for top players: a "perfect" game means taking every possible point on all 255 levels and then as many as possible on the broken one. Don Hodges disassembled the routine, explained the fault and published a fix for it.</p>
+  <p>The next lesson in this series looks at Donkey Kong, whose level 22 is cut short by a different 8-bit calculation, the bonus timer, which overflows and leaves too little time to finish.</p>
+  <p>Modern engines move the edge rather than remove it: GDScript integers are 64 bits, and C# in Unity wraps silently unless you ask for <code>checked</code> arithmetic.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one counter in your own project that is stored in a small type, saved into a byte, or shown with a fixed number of digits: a level number, a combo, a wave count. Write a test that sets it one below its maximum and advances it twice. Then decide what should happen at the top (stop, wrap on purpose, or grow into a wider type) and make the code do exactly that. You are done when the test passes and shows the value at the maximum and one step past it.</p>
+  <p>No such counter? Call the Lua <code>drawFruitCounter</code> with 253, 254 and 255 and print which addresses were written.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A byte holds 0 to 255. On 8-bit hardware 255 + 1 is 0 and 0 − 1 is 255, with no error.</li>
+    <li>Pac-Man stores the level from 0, so level 256 is 255, and the fruit routine's "level + 1" wraps to 0.</li>
+    <li>A count of 0 sent into a draw-then-subtract loop runs 256 times, reading past the fruit table and writing over the right half of the maze.</li>
+    <li>Guard both sides: test counters at their limits, and give every write loop a hard stop at the end of its buffer.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we stay with one-byte arithmetic in Donkey Kong, where the level 22 bonus timer overflows and the stage ends before the player can reach the top.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: none of these pages could be opened in this session. The core mechanism (level stored from 0, the +1 wrapping to 0, 256 loop passes, the right half corrupted, 244 dots needed and about 9 left) was cross-checked only against search summaries of them. The memory layout here is simplified; look these works up for exact addresses.</p>
+  <ul>
+    <li>Don Hodges, his article on Pac-Man's split screen level, analysed and fixed (donhodges.com). The original disassembly, explanation and patch.</li>
+    <li>The Cutting Room Floor, <cite>Bugs:Pac-Man (Arcade)</cite>. The level 256 entry walks through the fruit routine.</li>
+    <li>Glitch City Laboratories, <cite>Level 256 split screen (Pac-Man)</cite>.</li>
+    <li>Jamey Pittman, <cite>The Pac-Man Dossier</cite>. A long technical study of the arcade game, including the split screen.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 28, ROWS = 18, FRUIT_SLOTS = 7;
+  var MAZE_CELLS = COLS * ROWS;
+  var MEM_SIZE = FRUIT_SLOTS + MAZE_CELLS;
+  var HALF_END = FRUIT_SLOTS + (COLS / 2) * ROWS; // first address of the left half
+  var TABLE = [1, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8];
+
+  var reduceMotion = !DemoKit.testMode && !!(window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // Same as readTable in the Lua listing.
+  function readTable(i) {
+    if (i < TABLE.length) return TABLE[i];
+    var k = i - TABLE.length + 1;
+    return (k * 37 + 11) % 256;
+  }
+
+  // ---- an original, mirrored maze (walls and corridors) ----
+  var open = new Array(MAZE_CELLS);
+  (function buildMaze() {
+    var rng = DemoKit.rng(256);
+    var x, y, k;
+    for (k = 0; k < MAZE_CELLS; k++) open[k] = false;
+    function setOpen(cx, cy) { open[cy * COLS + cx] = true; }
+    var hRows = [1, 5, 9, 12, 16];
+    var vLeft = [1, 6, 10, 13];
+    for (k = 0; k < hRows.length; k++) {
+      for (x = 1; x <= COLS - 2; x++) setOpen(x, hRows[k]);
+    }
+    for (var v = 0; v < vLeft.length; v++) {
+      for (k = 0; k < hRows.length - 1; k++) {
+        var keep = vLeft[v] === 1 || rng() < 0.6;
+        if (!keep) continue;
+        for (y = hRows[k]; y <= hRows[k + 1]; y++) {
+          setOpen(vLeft[v], y);
+          setOpen(COLS - 1 - vLeft[v], y);
+        }
+      }
+    }
+  })();
+  var dotsTotal = 0;
+  for (var d = 0; d < MAZE_CELLS; d++) if (open[d]) dotsTotal++;
+
+  // Maze address -> cell. Columns are stored from the right, top to bottom.
+  function cellIndexOf(addr) {
+    var m = addr - FRUIT_SLOTS;
+    var col = COLS - 1 - Math.floor(m / ROWS);
+    var row = m % ROWS;
+    return row * COLS + col;
+  }
+  var addrOfCell = new Array(MAZE_CELLS);
+  for (var a = FRUIT_SLOTS; a < MEM_SIZE; a++) addrOfCell[cellIndexOf(a)] = a;
+
+  // ---- simulation state ----
+  var mem = new Array(MEM_SIZE);
+  var plan = null;
+  var done = 0, acc = 0, running = false;
+
+  function makePlan(levelByte, fixed) {
+    var count = (levelByte + 1) & 255;
+    if (fixed) count = Math.min(levelByte + 1, 255);
+    var writes = [];
+    var i;
+    if (count >= 8) {
+      var last = Math.min(count, TABLE.length);
+      for (i = 0; i < FRUIT_SLOTS; i++) {
+        writes.push({ addr: i, val: readTable(last - FRUIT_SLOTS + i), b: FRUIT_SLOTS - 1 - i });
+      }
+    } else {
+      var b = count, addr = 0;
+      do {
+        writes.push({ addr: addr, val: readTable(addr), b: (b - 1) & 255 });
+        addr = addr + 1;
+        b = (b - 1) & 255;
+      } while (b !== 0 && addr < MEM_SIZE);
+    }
+    return { count: count, writes: writes, wrapped: !fixed && levelByte === 255 };
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="fruit-overflow"]');
+  var level = ui.slider({ label: 'Level (as the player sees it)', min: 1, max: 256, step: 1, value: 5,
+    onInput: function () { reset(); } });
+  var fix = ui.toggle({ label: 'Fix: stop the count at 255 instead of wrapping', value: false,
+    onChange: function () { reset(); } });
+  var order = ui.toggle({ label: 'Shade the maze in memory order', value: false,
+    onChange: function () { redraw(); } });
+  var speed = ui.slider({ label: 'Run speed', min: 5, max: 240, step: 5, value: 40, unit: ' writes/s' });
+  ui.button({ label: 'Step', onClick: function () { running = false; doWrite(); redraw(); } });
+  ui.button({ label: 'Run', onClick: function () {
+    if (done >= plan.writes.length) reset();
+    if (reduceMotion) {
+      while (done < plan.writes.length) doWrite();
+    } else {
+      running = true;
+      acc = 0;
+      if (handle) handle.play();
+    }
+    redraw();
+  } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var outByte = ui.readout({ label: 'Level byte' });
+  var outCount = ui.readout({ label: 'Fruit count (level byte + 1, in one byte)' });
+  var outLoop = ui.readout({ label: 'Loop' });
+  var outDots = ui.readout({ label: 'Dots left' });
+
+  function hex(n) { return '0x' + (n < 16 ? '0' : '') + n.toString(16).toUpperCase(); }
+
+  function doWrite() {
+    if (!plan || done >= plan.writes.length) return;
+    var w = plan.writes[done];
+    mem[w.addr] = w.val;
+    done++;
+    if (done >= plan.writes.length) running = false;
+    updateInfo();
+  }
+
+  function dotsLeft() {
+    var n = 0;
+    for (var c = 0; c < MAZE_CELLS; c++) {
+      if (open[c] && mem[addrOfCell[c]] === undefined) n++;
+    }
+    return n;
+  }
+
+  function updateInfo() {
+    var lb = level.value - 1;
+    outByte.set(lb + ' (' + hex(lb) + ')');
+    var c = plan.count;
+    var countText = c + ' (' + hex(c) + ')';
+    if (plan.wrapped) countText += ': 255 + 1 needs a ninth bit, so it wraps to 0';
+    else if (fix.value && lb === 255) countText += ': held at 255 by the fix';
+    countText += c >= 8 ? '. 8 or more, so copy the last 7 fruit' : '. Under 8, so loop';
+    outCount.set(countText);
+    var total = plan.writes.length;
+    var loopText = 'write ' + done + ' of ' + total;
+    if (done > 0) {
+      var w = plan.writes[done - 1];
+      loopText += ', counter now ' + w.b;
+      if (plan.wrapped && done === 1) loopText += ' (0 - 1 wrapped to 255)';
+      if (w.addr >= FRUIT_SLOTS) loopText += ', writing into the maze';
+    }
+    outLoop.set(loopText);
+    var left = dotsLeft();
+    var dotsText = left + ' of ' + dotsTotal;
+    if (left < dotsTotal) dotsText += '. The level needs all of them, so it can never end';
+    outDots.set(dotsText);
+  }
+
+  function reset() {
+    for (var i = 0; i < MEM_SIZE; i++) mem[i] = undefined;
+    plan = makePlan(level.value - 1, fix.value);
+    done = 0;
+    acc = 0;
+    running = false;
+    updateInfo();
+    redraw();
+  }
+
+  // ---- drawing ----
+  var FRUIT_HUES = [0, 355, 25, 45, 130, 200, 265, 310, 170];
+
+  function drawGlyph(ctx, v, x, y, size, col) {
+    var pad = Math.max(1, size * 0.14);
+    var inner = size - pad * 2;
+    var cx = x + size / 2, cy = y + size / 2, r = inner / 2;
+    if (v >= 1 && v <= 8) {
+      ctx.fillStyle = 'hsl(' + FRUIT_HUES[v] + ', 70%, 52%)';
+      ctx.beginPath();
+      var shape = v % 4;
+      if (shape === 1) {
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      } else if (shape === 2) {
+        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+      } else if (shape === 3) {
+        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy + r * 0.8); ctx.lineTo(cx - r, cy + r * 0.8);
+        ctx.closePath();
+      } else {
+        ctx.rect(cx - r * 0.8, cy - r * 0.8, r * 1.6, r * 1.6);
+      }
+      ctx.fill();
+      ctx.fillStyle = col.good;
+      ctx.fillRect(cx - 0.5, y + pad * 0.3, Math.max(1, size * 0.08), pad * 1.2);
+      return;
+    }
+    // Not a fruit: draw the byte's bits as a 3 by 3 block of junk.
+    ctx.fillStyle = 'hsl(' + ((v * 47) % 360) + ', 55%, 50%)';
+    var q = inner / 3;
+    for (var bit = 0; bit < 9; bit++) {
+      var on = bit < 8 ? (v >> bit) & 1 : 1;
+      if (on) ctx.fillRect(x + pad + (bit % 3) * q, y + pad + Math.floor(bit / 3) * q, q, q);
+    }
+  }
+
+  function draw(ctx, s) {
+    var col = s.colors;
+    var W = s.width, H = s.height;
+    var c = Math.floor(Math.min((W - 16) / COLS, (H - 118) / (ROWS + 1)));
+    if (c < 6) c = 6;
+    var ox = Math.round((W - c * COLS) / 2);
+    var oy = 8;
+    var nextAddr = plan && done < plan.writes.length ? plan.writes[done].addr : -1;
+
+    // maze
+    for (var row = 0; row < ROWS; row++) {
+      for (var cc = 0; cc < COLS; cc++) {
+        var ci = row * COLS + cc;
+        var addr = addrOfCell[ci];
+        var x = ox + cc * c, y = oy + row * c;
+        var v = mem[addr];
+        if (v !== undefined) {
+          ctx.fillStyle = col.surface2;
+          ctx.fillRect(x, y, c, c);
+          drawGlyph(ctx, v, x, y, c, col);
+        } else if (!open[ci]) {
+          ctx.fillStyle = col.surface2;
+          ctx.fillRect(x, y, c, c);
+          ctx.strokeStyle = col.line;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, c - 1, c - 1);
+        } else {
+          ctx.fillStyle = col.ink2;
+          ctx.beginPath();
+          ctx.arc(x + c / 2, y + c / 2, Math.max(1.5, c * 0.12), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (order.value && v === undefined) {
+          var m = addr - FRUIT_SLOTS;
+          ctx.globalAlpha = 0.06 + 0.4 * (1 - m / MAZE_CELLS);
+          ctx.fillStyle = col.topic;
+          ctx.fillRect(x, y, c, c);
+          ctx.globalAlpha = 1;
+        }
+        if (addr === nextAddr) {
+          ctx.strokeStyle = col.topic;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, c - 2, c - 2);
+        }
+      }
+    }
+    ctx.strokeStyle = col.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox - 0.5, oy - 0.5, c * COLS + 1, c * ROWS + 1);
+    // the middle of the maze
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(ox + c * COLS / 2, oy);
+    ctx.lineTo(ox + c * COLS / 2, oy + c * ROWS);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // fruit row (address 0 is the rightmost slot)
+    var fy = oy + ROWS * c + 6;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = col.ink2;
+    ctx.textAlign = 'right';
+    ctx.fillText('fruit row', ox + (COLS - FRUIT_SLOTS) * c - 6, fy + c / 2);
+    for (var f = 0; f < FRUIT_SLOTS; f++) {
+      var fx = ox + (COLS - 1 - f) * c;
+      ctx.strokeStyle = col.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(fx + 0.5, fy + 0.5, c - 1, c - 1);
+      if (mem[f] !== undefined) drawGlyph(ctx, mem[f], fx, fy, c, col);
+      if (f === nextAddr) {
+        ctx.strokeStyle = col.topic;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx + 1, fy + 1, c - 2, c - 2);
+      }
+    }
+
+    // memory strip
+    var sx = ox, sw = c * COLS;
+    var sy = fy + c + 24;
+    var sh = 14;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText(sw < 400 ? 'Memory, in write order' : 'Memory in write order: 7 fruit slots, then the maze from the right', sx, sy - 6);
+    ctx.fillStyle = col.surface2;
+    ctx.fillRect(sx, sy, sw, sh);
+    var unit = sw / MEM_SIZE;
+    ctx.fillStyle = col.topic;
+    for (var mAddr = 0; mAddr < MEM_SIZE; mAddr++) {
+      if (mem[mAddr] !== undefined) ctx.fillRect(sx + mAddr * unit, sy, Math.ceil(unit), sh);
+    }
+    ctx.strokeStyle = col.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
+    ctx.beginPath();
+    ctx.moveTo(sx + FRUIT_SLOTS * unit, sy - 2); ctx.lineTo(sx + FRUIT_SLOTS * unit, sy + sh + 2);
+    ctx.moveTo(sx + HALF_END * unit, sy - 2); ctx.lineTo(sx + HALF_END * unit, sy + sh + 2);
+    ctx.stroke();
+    if (nextAddr >= 0) {
+      var px = sx + (nextAddr + 0.5) * unit;
+      ctx.fillStyle = col.ink;
+      ctx.beginPath();
+      ctx.moveTo(px, sy + sh + 1); ctx.lineTo(px - 5, sy + sh + 8); ctx.lineTo(px + 5, sy + sh + 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('right half', sx + (FRUIT_SLOTS + HALF_END) / 2 * unit, sy + sh + 22);
+    ctx.fillText('left half', sx + (HALF_END + MEM_SIZE) / 2 * unit, sy + sh + 22);
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  handle = DemoKit.canvas('#fruit-overflow', {
+    height: 400,
+    label: 'A small maze with a fruit row below it. Stepping the fruit loop fills the fruit row, and at level 256 the writes continue into the right half of the maze, replacing dots with junk.',
+    update: function (dt) {
+      if (!running || !plan) return;
+      acc += dt * speed.value;
+      while (acc >= 1 && done < plan.writes.length) {
+        doWrite();
+        acc -= 1;
+      }
+      if (done >= plan.writes.length) running = false;
+    },
+    draw: draw
+  });
+
+  reset();
+})();
+</script>
+</body>
+</html>
