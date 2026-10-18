@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Squash and stretch: weight without new art · Game Dev Daily</title>
+<meta name="description" content="How squashing and stretching a character while keeping its area the same adds weight and energy to jumps and landings, with no new art.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Squash and stretch: weight without new art</h1>
+  <p class="lede">How squashing and stretching a character while keeping its area the same adds weight and energy to jumps and landings, with no new art.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character jumps, rises, falls and lands, and through all of it the sprite stays the exact same rectangle. The motion is correct, but it looks like a cardboard cutout sliding on a wire. Two numbers per frame, a width scale and a height scale, can make it look like it has mass and muscle.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Deform the shape, keep the amount</h2>
+  <p><dfn>Squash and stretch</dfn> means deforming a shape while it moves: it gets shorter and wider when it hits something, and taller and thinner when it moves fast. It is the first of the twelve principles of animation set out by Disney animators Frank Thomas and Ollie Johnston, and the classic exercise is a bouncing ball.</p>
+  <p>A squash on landing says "this hit the ground hard". A stretch while moving says "this is fast". Without them the eye must judge speed and impact from position alone, and a rigid shape tends to read as light or stiff.</p>
+
+  <h3>The volume rule</h3>
+  <p>The shape should look like it holds the same amount of stuff. In 2D, keep the area the same: if the height scale is <code>sy</code>, the width scale is <code>sx = 1 / sy</code>. Break this rule and the character seems to shrink or grow instead of bend.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="A bounce drawn as a dashed arc. At take-off the shape is tall and thin, about 0.74 wide by 1.35 tall. Rising and falling it is slightly stretched, at the top of the arc it is round, at impact it is short and wide, 1.5 by 0.67, then it wobbles and rests at 1 by 1. A side panel shows three rectangles of equal area: 1 by 1, 1.5 by 0.67, and 0.67 by 1.5, with the rule sx equals 1 divided by sy.">
+      <path class="d-dash" d="M70 200 Q195 -80 340 200"/>
+      <path class="d-stroke" d="M20 230 H470"/>
+
+      <rect class="d-accent-fill" x="55" y="176" width="30" height="54" rx="8"/>
+      <rect class="d-accent-soft" x="119" y="70" width="30" height="50" rx="8"/>
+      <rect class="d-accent-fill" x="180" y="40" width="40" height="40" rx="10"/>
+      <rect class="d-accent-soft" x="254" y="70" width="30" height="50" rx="8"/>
+      <rect class="d-accent-fill" x="310" y="203" width="60" height="27" rx="8"/>
+      <rect class="d-accent-soft" x="392" y="186" width="36" height="44" rx="9"/>
+      <rect class="d-box" x="435" y="190" width="30" height="40" rx="8"/>
+
+      <g text-anchor="middle">
+        <text class="d-text" x="70" y="254">take-off</text>
+        <text class="d-muted" x="70" y="274">0.74 × 1.35</text>
+        <text class="d-text" x="200" y="254">top: round</text>
+        <text class="d-muted" x="200" y="274">1 × 1</text>
+        <text class="d-text" x="340" y="254">impact</text>
+        <text class="d-muted" x="340" y="274">1.5 × 0.67</text>
+        <text class="d-text" x="432" y="254">wobble, rest</text>
+        <text class="d-muted" x="432" y="274">back to 1 × 1</text>
+      </g>
+
+      <rect class="d-fill" x="490" y="16" width="140" height="234" rx="8"/>
+      <text class="d-label" x="505" y="40">Same area</text>
+      <rect class="d-box" x="505" y="56" width="32" height="32" rx="4"/>
+      <text class="d-text" x="552" y="77">1 × 1</text>
+      <rect class="d-box" x="505" y="110" width="48" height="21" rx="4"/>
+      <text class="d-text" x="562" y="125">1.5 × 0.67</text>
+      <rect class="d-box" x="505" y="150" width="21" height="48" rx="4"/>
+      <text class="d-text" x="536" y="179">0.67 × 1.5</text>
+      <text class="d-mono" x="505" y="232">sx = 1 / sy</text>
+    </svg>
+    <figcaption>One bounce. Stretch on take-off and while moving fast, round at the top where speed is zero, squash on impact, then a small wobble back to normal. The width is always one over the height.</figcaption>
+  </figure>
+
+  <h3>Three moments drive it</h3>
+  <p>Track a single number, the <dfn>deform</dfn> <code>d</code>, and set the height scale to <code>1 + d</code>. Positive is stretch, negative is squash.</p>
+  <ol>
+    <li><strong>Take-off.</strong> On the frame the jump starts, set <code>d</code> to +0.35: an instant stretch.</li>
+    <li><strong>In the air.</strong> Pull <code>d</code> toward a stretch that grows with vertical speed, up to +0.25. At the top of the arc the speed is zero, so the shape is briefly round.</li>
+    <li><strong>Landing.</strong> On the frame of contact, set <code>d</code> to a squash scaled by impact strength, up to −0.35. Strength is the same 0 to 1 value as in the particles lesson: landing speed minus 200, divided by 700, clamped.</li>
+  </ol>
+  <p>Between events a <dfn>spring</dfn> pulls <code>d</code> back to its target: each frame it accelerates toward the target and loses some speed to damping. A soft spring overshoots once, so after a squash the character gets briefly taller before settling. That wobble makes it look elastic rather than resized.</p>
+
+  <h3>Scale from the feet</h3>
+  <p>The <dfn>pivot</dfn> is the point a scale is applied around, often the centre by default. Squash around the centre and the bottom edge lifts off the floor; stretch and it sinks in. Put the pivot at the feet.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>Take-off stretch +0.35, air stretch up to +0.25, landing squash up to −0.35, spring stiffness 300 and damping 14 (settles in about a third of a second). Clamp the height scale between 0.4 and 1.8. These are starting points, not rules: a heavy knight wants half these values, a bouncy slime double.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both blobs share one set of physics; only the drawing differs. Hop and big-jump a few times and compare. Turn on <em>Quarter speed</em> to see each phase, and watch the graph at the top: the squash dips on the landing frame and swings back past 1. Then switch off <em>Keep area</em> (the blob seems to shrink when it lands) and <em>Scale from the feet</em> (it floats above the floor when squashed). Finally drag <em>Amount</em> to 200 percent and notice when it stops reading as weight and starts reading as jelly.</p>
+
+  <figure class="demo" data-demo="squash">
+    <canvas id="squash"></canvas>
+    <figcaption>Controls: click the canvas, then press Space or J to hop and K for a big jump. On a phone, tap the canvas to hop or use the Hop and Big jump buttons. The left blob is rigid and the right blob squashes and stretches. The graph at the top shows the right blob's height scale over the last three seconds, with take-offs and landings marked.</figcaption>
+  </figure>
+
+  <p>The jumps are identical in height and timing, yet the right blob tends to look heavier on landing and springier on take-off.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's right blob in LÖVE, with the same names and numbers. Only the drawing uses the deform; the position and the collision box are untouched.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, HOP, BIG = 1800, 500, 850
+local FLOOR, W, H = 380, 44, 44
+local AMOUNT = 1.0                   <span class="c">-- the Amount slider, 0 to 2</span>
+local STIFFNESS, DAMPING = 300, 14   <span class="c">-- the spring that pulls the shape back</span>
+local keepArea = true
+
+local blob = { x = 300, y = FLOOR, vy = 0, grounded = true, d = 0, dv = 0 }
+
+local function jump(speed)
+  if not blob.grounded then return end
+  blob.vy = -speed
+  blob.grounded = false
+<span class="k">  blob.d, blob.dv = 0.35 * AMOUNT, 0              -- stretch on take-off</span>
+end
+
+local function land(impactSpeed)
+  local strength = math.max(0, math.min(1, (impactSpeed - 200) / 700))
+<span class="k">  blob.d, blob.dv = -0.35 * AMOUNT * strength, 0   -- squash on landing</span>
+end
+
+function love.keypressed(key)
+  if key == "space" or key == "j" then jump(HOP) end
+  if key == "k" then jump(BIG) end
+end
+
+function love.update(dt)
+  if not blob.grounded then
+    blob.vy = blob.vy + G * dt
+    blob.y = blob.y + blob.vy * dt
+    if blob.y &gt;= FLOOR then
+      blob.y = FLOOR
+      blob.grounded = true
+      land(blob.vy)                  <span class="c">-- before the speed is zeroed</span>
+      blob.vy = 0
+    end
+  end
+  <span class="c">-- in the air, stretch with speed; on the ground, rest at 0</span>
+  local target = 0
+  if not blob.grounded then
+    target = 0.25 * AMOUNT * math.min(math.abs(blob.vy) / BIG, 1)
+  end
+<span class="k">  blob.dv = blob.dv + ((target - blob.d) * STIFFNESS - blob.dv * DAMPING) * dt</span>
+  blob.d = blob.d + blob.dv * dt
+end
+
+function love.draw()
+  local sy = math.max(0.4, math.min(1.8, 1 + blob.d))
+  local sx = 1
+<span class="k">  if keepArea then sx = 1 / sy end           -- same area, so it bends, not shrinks</span>
+  local w, h = W * sx, H * sy
+  <span class="c">-- pivot at the feet: the bottom edge stays on the floor</span>
+  love.graphics.rectangle("fill", blob.x - w / 2, blob.y - h, w, h, 10, 10)
+end</code></pre>
+  </div>
+  <p>With a sprite instead of a rectangle, pass <code>sx</code> and <code>sy</code> as the scale arguments of <code>love.graphics.draw</code>, and set the origin to the bottom centre of the image so the pivot is at the feet.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Scaling the hitbox.</strong> Deform only what is drawn. If the collision box squashes too, landings change the character's size for a few frames and they can clip into ceilings or fall through gaps.</li>
+    <li><strong>Pivot at the centre.</strong> The character floats above the ground when squashed and sinks into it when stretched. Scale from the feet for ground contact. For a wall hit, a pivot at the side that touches the wall works the same way.</li>
+    <li><strong>Forgetting the facing flip.</strong> Many games mirror a sprite by making its x scale negative. Multiply the squash width by the facing sign after computing it, or one of the two will overwrite the other.</li>
+    <li><strong>Anticipation that delays the jump.</strong> Animators often squash before a jump to wind up. In a game, a crouch before take-off is added input latency. Stretch on the press frame instead, unless your game is deliberately weighty.</li>
+    <li><strong>Too much, too often.</strong> If every step wobbles, nothing stands out. Save big values for big events.</li>
+    <li><strong>A spring that explodes.</strong> A stiff spring updated with a very long frame can overshoot further each step. Clamp <code>dt</code>, or update the spring in small fixed steps.</li>
+  </ul>
+  <div class="callout warn">
+    <p class="callout-title">When not to use it</p>
+    <p>Rigid things such as crates and robots look wrong when they bend; give them shake or dust instead. Realistic art styles tend to clash with cartoon deformation. In low-resolution pixel art, scaling by non-whole numbers smears pixels; some games accept that, others draw a few hand-made squash frames instead. And in games where the player reads exact positions and sizes, such as precise fighting games, keep the deformation small so the drawing still matches the hitbox.</p>
+  </div>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Squash and stretch on jumping and landing is common in 2D platformers. One case that can be checked is <cite>Celeste</cite> (2018), whose developers published the source code of its player character. In that code the sprite scale is set to 0.6 wide by 1.4 tall when a jump starts. On landing it is squashed toward 1.6 wide by 0.4 tall, in proportion to how fast the player was falling, and each frame both scales move back toward 1 at a steady rate.</p>
+  <p>Those numbers do not keep the area exactly: 0.6 × 1.4 is 0.84. The volume rule is a guide for the eye, and a squash lasting a few frames need not be exact.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add the deform <code>d</code>, the spring and the three events to your player's drawing code. Draw with the pivot at the feet. Then make one of these choices and tune it: a heavy character (halve every value, raise the damping to about 20 so it does not wobble) or a light one (raise the amount, lower the damping to about 8).</p>
+  <p>You are done when a friend who watches only the character, with the sound off, can tell a hop from a long fall, and when switching the deform off makes the character feel noticeably stiffer to you.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Squash on impact, stretch while moving fast, round at rest and at the top of a jump.</li>
+    <li>Keep the area roughly the same: width scale is one over height scale.</li>
+    <li>Drive it with one value and a soft spring, so it overshoots once and settles.</li>
+    <li>Scale from the feet, and only scale the drawing, never the hitbox.</li>
+    <li>Use less for heavy or rigid things, and none where precise reading of shapes matters.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The character now shows weight with its body; next, sound timing and variation show how the same hit can feel sharper or duller through when and how it sounds.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Frank Thomas and Ollie Johnston, <cite>The Illusion of Life: Disney Animation</cite>, book (1981). The source of the twelve principles, squash and stretch first among them.</li>
+    <li>Richard Williams, <cite>The Animator's Survival Kit</cite>, book. Bouncing ball exercises and the timing of squash.</li>
+    <li>Maddy Thorson and Noel Berry, <a href="https://raw.githubusercontent.com/NoelFB/Celeste/master/Source/Player/Player.cs"><cite>Celeste</cite> player source code, Player.cs</a>. The jump and landing scale values quoted above.</li>
+    <li>Martin Jonasson and Petri Purho, <cite>Juice it or lose it</cite>, conference talk. Shows simple squash effects among other polish on a brick-breaking game.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var G = 1800, HOP = 500, BIG = 850;
+  var W = 44, H = 44;
+  var STIFFNESS = 300, DAMPING = 14;
+  var SUB = 1 / 240;          // spring sub-step, keeps it stable on slow frames
+  var HISTORY = 3;            // seconds shown in the graph
+
+  var ui = DemoKit.controls('[data-demo="squash"]');
+  var onT = ui.toggle({ label: 'Squash and stretch (right blob)', value: true });
+  var amountS = ui.slider({ label: 'Amount', min: 0, max: 200, step: 10, value: 100, unit: ' %' });
+  var areaT = ui.toggle({ label: 'Keep area', value: true });
+  var feetT = ui.toggle({ label: 'Scale from the feet', value: true });
+  var slowT = ui.toggle({ label: 'Quarter speed', value: false });
+  var autoT = ui.toggle({ label: 'Keep bouncing', value: false });
+  ui.button({ label: 'Hop', onClick: function () { jump(HOP); } });
+  ui.button({ label: 'Big jump', onClick: function () { jump(BIG); } });
+  var readout = ui.readout({ label: 'Last landing' });
+  readout.set('none yet');
+
+  var blob = { y: 0, vy: 0, grounded: true, d: 0, dv: 0 };
+  var floorY = 380;
+  var simTime = 0;
+  var restTimer = 0;
+  var autoCount = 0;
+  var samples = [];   // { t, sy }
+  var events = [];    // { t, kind }
+
+  function amount() { return amountS.value / 100; }
+
+  function jump(speed) {
+    if (!blob.grounded) return;
+    blob.vy = -speed;
+    blob.grounded = false;
+    blob.d = 0.35 * amount();
+    blob.dv = 0;
+    events.push({ t: simTime, kind: 'jump' });
+  }
+
+  function land(impactSpeed) {
+    var strength = Math.max(0, Math.min(1, (impactSpeed - 200) / 700));
+    blob.d = -0.35 * amount() * strength;
+    blob.dv = 0;
+    events.push({ t: simTime, kind: 'land' });
+    var sh = scales();
+    readout.set(Math.round(impactSpeed) + ' px/s, strength ' + strength.toFixed(2) +
+      ', squashed to ' + sh.sx.toFixed(2) + ' wide × ' + sh.sy.toFixed(2) + ' tall');
+  }
+
+  function scales() {
+    var sy = Math.max(0.4, Math.min(1.8, 1 + blob.d));
+    var sx = areaT.value ? 1 / sy : 1;
+    if (!onT.value) { sx = 1; sy = 1; }
+    return { sx: sx, sy: sy };
+  }
+
+  function step(dt) {
+    simTime += dt;
+    if (!blob.grounded) {
+      blob.vy += G * dt;
+      blob.y += blob.vy * dt;
+      if (blob.y >= 0) {
+        blob.y = 0;
+        blob.grounded = true;
+        land(blob.vy);
+        blob.vy = 0;
+        restTimer = 0;
+      }
+    } else if (autoT.value) {
+      restTimer += dt;
+      if (restTimer > 0.45) {
+        autoCount++;
+        jump(autoCount % 3 === 0 ? BIG : HOP);
+      }
+    }
+    var target = 0;
+    if (!blob.grounded) target = 0.25 * amount() * Math.min(Math.abs(blob.vy) / BIG, 1);
+    var left = dt;
+    while (left > 1e-6) {
+      var h = Math.min(SUB, left);
+      blob.dv += ((target - blob.d) * STIFFNESS - blob.dv * DAMPING) * h;
+      blob.d += blob.dv * h;
+      left -= h;
+    }
+    samples.push({ t: simTime, sy: scales().sy });
+    while (samples.length && samples[0].t < simTime - HISTORY) samples.shift();
+    while (events.length && events[0].t < simTime - HISTORY) events.shift();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function drawBlob(ctx, c, cx, sx, sy, feet) {
+    var w = W * sx, h = H * sy;
+    var bottom = floorY + blob.y;
+    if (!feet) bottom = floorY + blob.y - H / 2 + h / 2;   // scaled around the centre
+    var top = bottom - h;
+    ctx.fillStyle = c.topic;
+    roundRect(ctx, cx - w / 2, top, w, h, 12 * Math.min(sx, sy));
+    ctx.fill();
+    // eyes, placed relative to the scaled body
+    ctx.fillStyle = c.surface;
+    var ey = top + h * 0.32, er = 3.5;
+    ctx.beginPath();
+    ctx.arc(cx - w * 0.18, ey, er, 0, Math.PI * 2);
+    ctx.arc(cx + w * 0.18, ey, er, 0, Math.PI * 2);
+    ctx.fill();
+    // dashed outline of the undeformed shape at the same feet position
+    ctx.strokeStyle = c.ink3;
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - W / 2 + 0.5, floorY + blob.y - H + 0.5, W - 1, H - 1);
+    ctx.setLineDash([]);
+  }
+
+  function drawGraph(ctx, c, s) {
+    var gx = 10, gy = 22, gw = s.width - 20, gh = 56;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(gx, gy, gw, gh);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(gx + 0.5, gy + 0.5, gw - 1, gh - 1);
+    function ymap(sy) { return gy + gh - (sy - 0.4) / (1.6 - 0.4) * gh; }
+    function xmap(t) { return gx + (t - (simTime - HISTORY)) / HISTORY * gw; }
+    // the rigid reference at 1.0
+    ctx.strokeStyle = c.ink3;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(gx, ymap(1));
+    ctx.lineTo(gx + gw, ymap(1));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // events
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    for (var i = 0; i < events.length; i++) {
+      var ex = xmap(events[i].t);
+      ctx.strokeStyle = events[i].kind === 'land' ? c.bad : c.good;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ex, gy);
+      ctx.lineTo(ex, gy + gh);
+      ctx.stroke();
+    }
+    // height scale line
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var j = 0; j < samples.length; j++) {
+      var px = xmap(samples[j].t), py = ymap(Math.max(0.4, Math.min(1.6, samples[j].sy)));
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('height scale: up = stretch, down = squash', gx, gy - 6);
+    ctx.fillStyle = c.good;
+    ctx.fillText('take-off', gx + 4, gy + gh + 14);
+    ctx.fillStyle = c.bad;
+    ctx.fillText('landing', gx + 64, gy + gh + 14);
+  }
+
+  DemoKit.canvas('#squash', {
+    height: 430,
+    keys: true,
+    label: 'Two blobs jump together. The left one stays rigid; the right one stretches on take-off and while moving fast, and squashes on landing. A graph at the top plots the right blob height scale over time.',
+    onResize: function (s) { floorY = s.height - 40; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'j') jump(HOP);
+      if (key === 'k') jump(BIG);
+    },
+    onDown: function () { jump(HOP); },
+    update: function (dt) {
+      step(slowT.value ? dt * 0.25 : dt);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      floorY = s.height - 40;
+      var w = s.width, mid = w / 2;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, w, s.height);
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, floorY, w, s.height - floorY);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, floorY);
+      ctx.lineTo(w, floorY);
+      ctx.stroke();
+      ctx.strokeStyle = c.line;
+      ctx.beginPath();
+      ctx.moveTo(mid, 100);
+      ctx.lineTo(mid, floorY);
+      ctx.stroke();
+
+      drawGraph(ctx, c, s);
+
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Rigid', 10, 116);
+      ctx.fillText(onT.value ? 'Squash, stretch' : 'Squash: off', mid + 10, 116);
+
+      drawBlob(ctx, c, mid / 2, 1, 1, true);
+      var sc = scales();
+      drawBlob(ctx, c, mid + mid / 2, sc.sx, sc.sy, feetT.value);
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(sc.sx.toFixed(2) + ' × ' + sc.sy.toFixed(2), mid + 10, 134);
+      ctx.fillText('area ' + (sc.sx * sc.sy).toFixed(2), mid + 10, 150);
+      if (slowT.value) ctx.fillText('quarter speed', 10, 134);
+    }
+  });
+})();
+</script>
+</body>
+</html>

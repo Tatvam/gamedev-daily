@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving towards a target: why does my unit shake when it arrives? · Game Dev Daily</title>
+<meta name="description" content="How direction times speed times delta time moves an object towards a point, and how one distance check stops it overshooting and shaking on arrival.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-to { color: var(--warn); font-weight: 650; }
+  .v-step { color: var(--topic); font-weight: 650; }
+  .v-over { color: var(--bad); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Moving towards a target: why does my unit shake when it arrives?</h1>
+  <p class="lede">How direction times speed times delta time moves an object towards a point, and how one distance check stops it overshooting and shaking on arrival.</p>
+</header>
+
+<section data-section="hook">
+  <p>You click on the map and your unit walks there. It walks well, but when it gets there it never stops: it shakes on the spot, forwards and back, forever. This lesson adds the one missing line.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Three questions every frame</h2>
+  <p>As in the last lessons, positions are measured in grid squares and <strong>y grows downwards</strong>, as on a screen. Our chaser starts at (1, 1) and the target is at (4, 5).</p>
+  <p>Each frame, the chaser asks three questions.</p>
+  <ol>
+    <li><strong>Which way?</strong> Subtract: <span class="v-to">to = target − position</span> = (4 − 1, 5 − 1) = (3, 4). This is the arrow from the chaser to the target. Its length is the distance: √(3² + 4²) = √25 = 5. Normalising it (dividing by 5) gives the direction (0.6, 0.8), an arrow of length 1, as in the last lesson.</li>
+    <li><strong>How far?</strong> The <dfn>speed</dfn> is how many squares the chaser covers per second. The time since the last frame is called <dfn>delta time</dfn>, written <code>dt</code>, in seconds. The distance for this frame is speed × dt. To keep the numbers easy, pretend the game runs at 2 frames per second, so dt = 0.5. With a speed of 4 the step is 4 × 0.5 = 2 squares.</li>
+    <li><strong>Where to?</strong> Multiply the direction by the step and add it: <span class="v-step">(0.6 × 2, 0.8 × 2) = (1.2, 1.6)</span>, so the new position is (1 + 1.2, 1 + 1.6) = (2.2, 2.6). The chaser is now 3 squares from the target.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="A grid with y pointing down. The chaser is at (1, 1) and the target at (4, 5). An orange arrow from chaser to target is the vector (3, 4) with length 5. A green arrow along it is the first step of length 2, ending at (2.2, 2.6). On the right, the five lines of working.">
+      <g style="stroke: var(--line); stroke-width: 1">
+        <path d="M40 30 V270 M80 30 V270 M120 30 V270 M160 30 V270 M200 30 V270 M240 30 V270 M280 30 V270"/>
+        <path d="M40 30 H280 M40 70 H280 M40 110 H280 M40 150 H280 M40 190 H280 M40 230 H280 M40 270 H280"/>
+      </g>
+      <g class="d-muted" text-anchor="middle">
+        <text x="40" y="22">0</text><text x="80" y="22">1</text><text x="120" y="22">2</text>
+        <text x="160" y="22">3</text><text x="200" y="22">4</text><text x="240" y="22">5</text><text x="280" y="22">6</text>
+      </g>
+      <g class="d-muted" text-anchor="end">
+        <text x="32" y="74">1</text><text x="32" y="114">2</text><text x="32" y="154">3</text>
+        <text x="32" y="194">4</text><text x="32" y="234">5</text><text x="32" y="274">6</text>
+      </g>
+      <!-- to vector (orange) -->
+      <path style="stroke: var(--warn); fill: none; stroke-width: 5" d="M80 70 L200 230"/>
+      <path style="stroke: var(--warn); fill: none; stroke-width: 3" d="M190 225 L200 230 L198 219"/>
+      <!-- first step (green) -->
+      <path class="d-accent" style="stroke-width: 2.5" d="M80 70 L128 134"/>
+      <path class="d-accent" style="stroke-width: 2.5" d="M118 129 L128 134 L126 123"/>
+      <circle cx="128" cy="134" r="4" style="fill: var(--surface); stroke: var(--topic); stroke-width: 2"/>
+      <circle cx="200" cy="230" r="9" class="d-stroke"/>
+      <circle cx="80" cy="70" r="6" style="fill: var(--ink)"/>
+      <text class="d-text" x="92" y="64">chaser (1, 1)</text>
+      <text class="d-text" x="214" y="250">target (4, 5)</text>
+      <text class="d-mono" style="fill: var(--warn)" x="174" y="170">to = (3, 4)</text>
+      <text class="d-mono" style="fill: var(--topic)" x="116" y="156" text-anchor="end">step 1:</text>
+      <text class="d-mono" style="fill: var(--topic)" x="116" y="174" text-anchor="end">(2.2, 2.6)</text>
+      <text class="d-muted" x="40" y="292">x right, y down, 1 square = 1 unit</text>
+
+      <text class="d-text" x="310" y="30">One frame, speed 4, dt 0.5</text>
+      <text class="d-mono" style="fill: var(--warn)" x="310" y="62">1. to = target − pos</text>
+      <text class="d-mono" x="326" y="80">= (4 − 1, 5 − 1) = (3, 4)</text>
+      <text class="d-mono" x="310" y="108">2. dist = √(3² + 4²) = 5</text>
+      <text class="d-mono" x="310" y="136">3. dir = to ÷ dist = (0.6, 0.8)</text>
+      <text class="d-mono" x="310" y="164">4. step = speed × dt</text>
+      <text class="d-mono" x="326" y="182">= 4 × 0.5 = 2</text>
+      <text class="d-mono" style="fill: var(--topic)" x="310" y="210">5. pos = pos + dir × step</text>
+      <text class="d-mono" x="326" y="228">= (1 + 1.2, 1 + 1.6)</text>
+      <text class="d-mono" style="fill: var(--topic)" x="326" y="246">= (2.2, 2.6)</text>
+    </svg>
+    <figcaption>Orange is the vector to the target. Green is the step taken this frame: the same direction, cut to length speed × dt.</figcaption>
+  </figure>
+
+  <p>Written as one line, that is <code>position = position + direction × speed × dt</code>. Because of <code>dt</code>, a game at 30 frames per second takes bigger steps than one at 120, and both cover 4 squares per second.</p>
+
+  <h2>The overshoot</h2>
+  <p>Run the next frame. The distance is 3, the step is 2, so the chaser reaches (3.4, 4.2), 1 square short. Now the frame after: the distance is 1 but the step is still 2. The chaser moves 2 squares along the direction and ends up at (4.6, 5.8), <span class="v-over">1 square past the target</span>.</p>
+  <p>On the next frame the arrow to the target points backwards, so the chaser steps 2 squares back to (3.4, 4.2). Then forwards again. It never lands: it is always 1 square away, on one side or the other. That is the shaking unit from the start of the lesson.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 232" role="img" aria-label="Two rows of steps along a line, each step 2 squares long, with the target 5 squares from the start. Top row without a check: steps land at 2, 4 and 6, one square past the target, then step back to 4, and repeat. Bottom row with a check: steps land at 2 and 4, then the last step is cut to 1 square and lands exactly on the target.">
+      <text class="d-text" x="20" y="22">Without a check: the last step jumps past, then back, forever</text>
+      <path class="d-thin" d="M60 80 H460"/>
+      <path class="d-accent" d="M60 76 Q120 36 180 76 M180 76 Q240 36 300 76"/>
+      <path class="d-bad" d="M300 76 Q360 36 420 76"/>
+      <path class="d-bad" style="stroke-dasharray: 5 4" d="M420 84 Q360 124 300 84"/>
+      <g class="d-label" text-anchor="middle"><text x="120" y="50">2</text><text x="240" y="50">2</text></g>
+      <text class="d-text" style="fill: var(--bad)" x="360" y="50" text-anchor="middle">2</text>
+      <circle cx="360" cy="80" r="8" class="d-stroke"/>
+      <circle cx="60" cy="80" r="5" style="fill: var(--ink)"/>
+      <circle cx="180" cy="80" r="4" class="d-accent-fill"/>
+      <circle cx="300" cy="80" r="4" class="d-accent-fill"/>
+      <circle cx="420" cy="80" r="5" class="d-bad-fill"/>
+      <text class="d-muted" x="60" y="104" text-anchor="middle">start</text>
+      <text class="d-text" style="fill: var(--bad)" x="436" y="76">1 past the target,</text>
+      <text class="d-text" style="fill: var(--bad)" x="436" y="96">then 2 back next frame</text>
+
+      <text class="d-text" x="20" y="140">With a check: distance 1 is not more than the step 2, so land</text>
+      <path class="d-thin" d="M60 190 H460"/>
+      <path class="d-accent" d="M60 186 Q120 146 180 186 M180 186 Q240 146 300 186 M300 186 Q330 162 360 186"/>
+      <g class="d-label" text-anchor="middle"><text x="120" y="160">2</text><text x="240" y="160">2</text><text x="330" y="166">1</text></g>
+      <circle cx="360" cy="190" r="8" class="d-stroke"/>
+      <circle cx="360" cy="190" r="4" class="d-accent-fill"/>
+      <circle cx="60" cy="190" r="5" style="fill: var(--ink)"/>
+      <circle cx="180" cy="190" r="4" class="d-accent-fill"/>
+      <circle cx="300" cy="190" r="4" class="d-accent-fill"/>
+      <text class="d-text" x="380" y="194">lands on the target</text>
+
+      <circle cx="68" cy="222" r="6" class="d-stroke"/>
+      <text class="d-muted" x="82" y="226">target, 5 squares from the start. Each step is speed × dt = 2.</text>
+    </svg>
+    <figcaption>The same three frames, measured along the line from the chaser to the target. One comparison turns the last step from a jump past the target into a landing.</figcaption>
+  </figure>
+
+  <h2>The fix: land if you can reach it</h2>
+  <p>Before moving, compare the distance with the step. If the distance is <em>not more than</em> the step, the chaser could reach the target this frame, so put it exactly on the target and stop. Otherwise take the normal step.</p>
+<pre><code>if dist &lt;= step then
+  pos = target                -- close enough: arrive exactly
+else
+  pos = pos + dir * step      -- still far: take a full step
+end</code></pre>
+  <p>In the example the third frame has distance 1 and step 2. 1 ≤ 2, so the chaser goes to (4, 5) and stays there. The check also handles the case where the chaser already sits on the target: the distance is 0, the check passes, and we never divide by 0 to normalise.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Moving at a fixed speed towards a point? Compare the distance with speed × dt first. If it is smaller or equal, snap to the target.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap anywhere on the grid to place the target, or drag it. With the canvas focused, the arrow keys move the target one square and P switches the protection. The chaser runs at the frame rate you choose and leaves one dot per frame.</p>
+  <p>With protection off, watch the chaser shake across the target while the overshoot count climbs. Raise the speed or lower the frame rate: the shaking grows, because it is one step wide. Then switch protection on. Press Reset and set the frame rate to 2 to replay the worked example.</p>
+
+  <figure class="demo" data-demo="move-towards">
+    <canvas id="move-towards"></canvas>
+    <figcaption>Orange is the vector to the target, green is the step the chaser will take next. The dashed circle has a radius of one step: when the target is inside it, the chaser can reach it this frame. Red marks an overshoot. If your system asks for reduced motion, press Play to start the chaser.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same numbers as the worked example and the demo. A square is 40 pixels. Click to move the target, press P to switch protection.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Positions are in grid squares. y grows downwards, like LÖVE's screen.</span>
+local UNIT = 40                    <span class="c">-- pixels per grid square</span>
+local SPEED = 4                    <span class="c">-- squares per second</span>
+local chaser = { x = 1, y = 1 }
+local target = { x = 4, y = 5 }
+local protect = true               <span class="c">-- overshoot protection</span>
+
+local function moveTowards(pos, goal, step)
+  local toX = goal.x - pos.x       <span class="c">-- the vector to the goal</span>
+  local toY = goal.y - pos.y
+  local dist = math.sqrt(toX * toX + toY * toY)
+<span class="k">  if protect and dist &lt;= step then  -- can reach it this frame: land</span>
+<span class="k">    return { x = goal.x, y = goal.y }</span>
+<span class="k">  end</span>
+  if dist == 0 then                <span class="c">-- no direction to move in</span>
+    return { x = pos.x, y = pos.y }
+  end
+  return {                         <span class="c">-- direction times step</span>
+    x = pos.x + toX / dist * step,
+    y = pos.y + toY / dist * step
+  }
+end
+
+function love.mousepressed(x, y, button)
+  target = { x = x / UNIT, y = y / UNIT }
+end
+
+function love.keypressed(key)
+  if key == "p" then
+    protect = not protect
+  end
+end
+
+function love.update(dt)
+  chaser = moveTowards(chaser, target, SPEED * dt)
+end
+
+function love.draw()
+  love.graphics.circle("line", target.x * UNIT, target.y * UNIT, 10)
+  love.graphics.circle("fill", chaser.x * UNIT, chaser.y * UNIT, 8)
+  love.graphics.print("protect: " .. tostring(protect), 10, 10)
+end</code></pre>
+  </div>
+  <p>Check it by hand: <code>moveTowards({ x = 1, y = 1 }, { x = 4, y = 5 }, 2)</code> returns (2.2, 2.6), as in the diagram. At a real 60 frames per second the step is only 4 × (1/60), about 0.07 squares, so the shaking without protection is small but it is still there.</p>
+  <p>Built-in versions: Godot has <code>Vector2.move_toward(to, delta)</code> and Unity has <code>Vector2.MoveTowards(current, target, maxDistanceDelta)</code>. Both include the landing check.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>No landing check.</strong> The chaser shakes across the target by up to one step forever. The shaking gets worse with higher speed or a lower frame rate, so it can look fine on your machine and bad on a slow one.</li>
+    <li><strong>An arrival radius instead of a snap.</strong> <code>if dist &lt; 0.1 then stop</code> works only while the step is smaller than 0.2. At high speed or a low frame rate the chaser can step over the whole circle and shake again. Comparing with the step itself always works.</li>
+    <li><strong>Forgetting to normalise.</strong> <code>pos + to * speed * dt</code> moves fast when the target is far and slow when it is near. With speed 4 and dt 0.5 the example jumps from (1, 1) to (7, 9) and back forever.</li>
+    <li><strong>Forgetting dt.</strong> Moving <code>SPEED</code> squares per frame instead of per second makes the chaser twice as fast on a 120 Hz screen as on a 60 Hz one.</li>
+    <li><strong>Distance exactly 0.</strong> Without protection, a chaser that lands exactly on the target divides 0 by 0. In Lua that gives NaN (not a number), and the chaser vanishes. The landing check catches this for free; without it you need the separate <code>dist == 0</code> test.</li>
+    <li><strong>Negative speed.</strong> A negative step moves the chaser away and the landing check never fires. Keep speed at 0 or above.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Click-to-move units in strategy games and action RPGs, moving platforms and lifts that travel between two points, and patrols that walk from waypoint to waypoint all need "move at this speed towards that point and stop there". Godot's <code>move_toward</code> and Unity's <code>MoveTowards</code> exist because the pattern is so common.</p>
+  <p>The same idea works on single numbers, such as a health bar sliding towards the real health value at a fixed rate.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into a new LÖVE project. Then turn the chaser into a guard on patrol: make a list of four waypoints, <code>{ x = 2, y = 2 }</code>, <code>{ x = 8, y = 2 }</code>, <code>{ x = 8, y = 6 }</code> and <code>{ x = 2, y = 6 }</code>, and move towards the current one. When the guard's position equals the waypoint exactly, move on to the next one, and back to the first after the last.</p>
+  <p>The exact comparison works because <code>moveTowards</code> copies the goal when it lands. You are done when the guard walks the rectangle forever without shaking at a corner. Then press P and watch it get stuck at the first corner.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>To move towards a point: subtract to get the vector to it, normalise it, multiply by speed × dt and add.</li>
+    <li>speed × dt is the distance you can travel this frame. In the example, 4 × 0.5 = 2 squares.</li>
+    <li>If the distance to the target is not more than that step, snap to the target. Otherwise the object overshoots and shakes.</li>
+    <li>The same check stops you dividing by zero when the object is already on the target.</li>
+    <li>Godot's <code>move_toward</code> and Unity's <code>MoveTowards</code> do all of this for you.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we meet the dot product, a single number that says how much two vectors point the same way.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on vectors.</li>
+    <li>Godot Engine documentation, the <cite>Vector2</cite> class reference, <cite>move_toward</cite>.</li>
+    <li>Unity Scripting API, <cite>Vector2.MoveTowards</cite>.</li>
+    <li>LÖVE wiki, <cite>love.mousepressed</cite> and <cite>love.keypressed</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua code. Grid squares, y grows downwards.
+  var START = { x: 1, y: 1 };
+  var GOAL = { x: 4, y: 5 };
+  var chaser = { x: START.x, y: START.y };
+  var target = { x: GOAL.x, y: GOAL.y };
+  var trail = [];
+  var TRAIL_MAX = 40;
+  var acc = 0;
+  var overshoots = 0;
+  var lastEvent = 'moving';   // 'moving' | 'arrived' | 'overshot' | 'zero'
+  var lastOver = 0;
+  var L = { ox: 30, oy: 28, unit: 40, cols: 10, rows: 9 };
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="move-towards"]');
+  var protT = ui.toggle({ label: 'Overshoot protection (P)', value: false, onChange: redraw });
+  var speedS = ui.slider({ label: 'Speed', min: 1, max: 12, step: 0.5, value: 4, unit: ' squares/s', onInput: redraw });
+  var fpsS = ui.slider({ label: 'Frame rate (dt = 1 ÷ rate)', min: 2, max: 60, step: 1, value: 10, unit: ' per s', onInput: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    chaser = { x: START.x, y: START.y };
+    target = { x: GOAL.x, y: GOAL.y };
+    trail = [];
+    acc = 0;
+    overshoots = 0;
+    lastEvent = 'moving';
+    redraw();
+  } });
+  var outTo = ui.readout({ label: 'To target (orange)' });
+  var outStep = ui.readout({ label: 'Step = speed × dt' });
+  var outPos = ui.readout({ label: 'Chaser' });
+  var outStatus = ui.readout({ label: 'Status' });
+
+  function round(n) { return Math.round(n * 100) / 100; }
+  function num(n) { n = round(n); if (n === 0) n = 0; return n < 0 ? '−' + (-n) : String(n); }
+  function pair(v) { return '(' + num(v.x) + ', ' + num(v.y) + ')'; }
+  function stepLength() { return speedS.value / fpsS.value; }
+
+  // One frame of movement, exactly as moveTowards in the Lua code.
+  function tick(step) {
+    var toX = target.x - chaser.x;
+    var toY = target.y - chaser.y;
+    var dist = Math.sqrt(toX * toX + toY * toY);
+    if (protT.value && dist <= step) {
+      if (dist > 0) trail.push({ x: target.x, y: target.y, over: false });
+      chaser = { x: target.x, y: target.y };
+      lastEvent = 'arrived';
+    } else if (dist === 0) {
+      lastEvent = 'zero';
+    } else {
+      var over = dist < step;
+      chaser = { x: chaser.x + toX / dist * step, y: chaser.y + toY / dist * step };
+      trail.push({ x: chaser.x, y: chaser.y, over: over });
+      if (over) {
+        overshoots += 1;
+        lastOver = step - dist;
+        lastEvent = 'overshot';
+      } else {
+        lastEvent = 'moving';
+      }
+    }
+    while (trail.length > TRAIL_MAX) trail.shift();
+  }
+
+  function layout(s) {
+    L.unit = Math.max(24, Math.min(40, Math.floor((s.width - 40) / 12)));
+    L.cols = Math.max(6, Math.floor((s.width - L.ox - 10) / L.unit));
+    L.rows = Math.max(6, Math.floor((s.height - L.oy - 10) / L.unit));
+  }
+  function toScreen(p) { return { x: L.ox + p.x * L.unit, y: L.oy + p.y * L.unit }; }
+  function clampPoint(p) {
+    p.x = DemoKit.clamp(p.x, 0, L.cols);
+    p.y = DemoKit.clamp(p.y, 0, L.rows);
+  }
+  function setTargetFrom(p) {
+    target = {
+      x: Math.round(((p.x - L.ox) / L.unit) * 2) / 2,
+      y: Math.round(((p.y - L.oy) / L.unit) * 2) / 2
+    };
+    clampPoint(target);
+    redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function arrow(ctx, x1, y1, x2, y2, size) {
+    var l = Math.hypot(x2 - x1, y2 - y1);
+    if (l < 1) return;
+    line(ctx, x1, y1, x2, y2);
+    var a = Math.atan2(y2 - y1, x2 - x1);
+    var sz = Math.min(size, l);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - sz * Math.cos(a - 0.45), y2 - sz * Math.sin(a - 0.45));
+    ctx.lineTo(x2 - sz * Math.cos(a + 0.45), y2 - sz * Math.sin(a + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var FONT = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#move-towards', {
+    height: 400,
+    drag: true,
+    keys: true,
+    label: 'A grid with y pointing down. A chaser moves towards a target you place by clicking, dragging or with the arrow keys, leaving one dot per frame. An orange arrow points from the chaser to the target, a green arrow shows the next step, and a dashed circle around the chaser shows how far one step reaches. Overshoots are marked in red.',
+    onResize: function (s) { layout(s); clampPoint(chaser); clampPoint(target); },
+    onDown: function (p) { setTargetFrom(p); },
+    onMove: function (p) { if (p.down) setTargetFrom(p); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'p') { protT.set(!protT.value); }
+      else if (key === 'arrowleft') { target.x -= 1; }
+      else if (key === 'arrowright') { target.x += 1; }
+      else if (key === 'arrowup') { target.y -= 1; }
+      else if (key === 'arrowdown') { target.y += 1; }
+      else { return; }
+      clampPoint(target);
+      redraw();
+    },
+    update: function (dt) {
+      var h = 1 / fpsS.value;
+      acc = Math.min(acc + dt, 0.5);
+      while (acc >= h) {
+        acc -= h;
+        tick(speedS.value * h);
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      layout(s);
+      clampPoint(chaser);
+      clampPoint(target);
+      var u = L.unit;
+      var gx1 = L.ox + L.cols * u;
+      var gy1 = L.oy + L.rows * u;
+      var i;
+
+      // Grid and axes, origin top-left, y down.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = 0; i <= L.cols; i++) line(ctx, L.ox + i * u + 0.5, L.oy, L.ox + i * u + 0.5, gy1);
+      for (i = 0; i <= L.rows; i++) line(ctx, L.ox, L.oy + i * u + 0.5, gx1, L.oy + i * u + 0.5);
+      ctx.strokeStyle = c.ink2;
+      ctx.fillStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      arrow(ctx, L.ox, L.oy, Math.min(s.width - 4, gx1 + 8), L.oy, 8);
+      arrow(ctx, L.ox, L.oy, L.ox, Math.min(s.height - 4, gy1 + 8), 8);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      var every = u < 30 ? 2 : 1;
+      for (i = 0; i <= L.cols; i += every) ctx.fillText(String(i), L.ox + i * u, L.oy - 8);
+      ctx.textAlign = 'right';
+      for (i = every; i <= L.rows; i += every) ctx.fillText(String(i), L.ox - 6, L.oy + i * u + 4);
+
+      var sp = toScreen(chaser);
+      var tp = toScreen(target);
+      var step = stepLength();
+      var toX = target.x - chaser.x;
+      var toY = target.y - chaser.y;
+      var dist = Math.sqrt(toX * toX + toY * toY);
+      var reach = dist <= step;
+
+      // Trail: one dot per frame, overshoots in red.
+      for (i = 0; i < trail.length; i++) {
+        var q = toScreen(trail[i]);
+        ctx.globalAlpha = 0.25 + 0.6 * (i + 1) / trail.length;
+        ctx.fillStyle = trail[i].over ? c.bad : c.ink2;
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, trail[i].over ? 4 : 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Reach circle: radius one step.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(L.ox, L.oy, L.cols * u, L.rows * u);
+      ctx.clip();
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = reach ? 2 : 1;
+      ctx.strokeStyle = reach ? (protT.value ? c.topic : c.bad) : c.ink3;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, Math.max(1, step * u), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Target.
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(tp.x, tp.y, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      line(ctx, tp.x - 5, tp.y, tp.x + 5, tp.y);
+      line(ctx, tp.x, tp.y - 5, tp.x, tp.y + 5);
+
+      // Orange: vector to the target. Green: next step.
+      if (dist > 0) {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = c.warn;
+        ctx.fillStyle = c.warn;
+        arrow(ctx, sp.x, sp.y, tp.x, tp.y, 12);
+        var len = (protT.value && reach) ? dist : step;
+        var nx = sp.x + toX / dist * len * u;
+        var ny = sp.y + toY / dist * len * u;
+        var stepColor = (!protT.value && reach) ? c.bad : c.topic;
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = stepColor;
+        ctx.fillStyle = stepColor;
+        arrow(ctx, sp.x, sp.y, nx, ny, 10);
+      }
+
+      // Chaser.
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Status line, bottom-left (the Pause button lives bottom-right).
+      ctx.font = SMALL;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink3;
+      var by = Math.min(s.height - 6, gy1 + 2) - 4;
+      ctx.fillText('y down · protection ' + (protT.value ? 'on' : 'off'), L.ox + 6, by - 16);
+      ctx.font = FONT;
+      ctx.fillStyle = overshoots > 0 ? c.bad : c.ink2;
+      ctx.fillText('overshoots: ' + overshoots, L.ox + 6, by);
+
+      // Readouts.
+      outTo.set(pair({ x: toX, y: toY }) + ', distance ' + dist.toFixed(2));
+      outStep.set(num(speedS.value) + ' × 1/' + fpsS.value + ' = ' + step.toFixed(2) + ' squares' +
+        (dist > 0 ? (reach ? ' (reaches the target)' : '') : ''));
+      outPos.set(pair(chaser));
+      var msg;
+      if (dist === 0) {
+        msg = lastEvent === 'zero'
+          ? 'exactly on the target: distance 0, nothing to normalise, so it stays'
+          : 'arrived: landed exactly on the target';
+      } else if (reach && protT.value) {
+        msg = 'distance ' + dist.toFixed(2) + ' ≤ step ' + step.toFixed(2) + ': will land next frame';
+      } else if (reach) {
+        msg = 'distance ' + dist.toFixed(2) + ' < step ' + step.toFixed(2) + ': will overshoot by ' + (step - dist).toFixed(2);
+      } else if (lastEvent === 'overshot') {
+        msg = 'overshot by ' + lastOver.toFixed(2) + ', turning back';
+      } else {
+        msg = 'moving: ' + dist.toFixed(2) + ' squares to go';
+      }
+      outStatus.set(msg);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kite in a Storm: reel in to climb, let go to escape · Game Dev Daily</title>
+<meta name="description" content="A one-button storm game where holding reels a kite in and releasing lets line out, with a playable prototype and the kite physics in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Kite in a Storm: reel in to climb, let go to escape</h1>
+  <p class="lede">A one-button storm game where holding reels a kite in and releasing lets line out, with a playable prototype and the kite physics in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>A storm is rolling in and your kite is still up, with stars glinting between the thunderclouds. Hold to haul the line and the kite leaps upward. Let go and it drifts away on the wind, and the wind never blows the same way for long.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: read the wind, pull or give, slip between clouds</h2>
+  <p>Kite in a Storm is a <dfn>tethered flight</dfn> game: the thing you fly is tied to you by a line, and the weather does most of the moving. Your only input is the reel.</p>
+  <p>The surprise at the centre of the game is something real kite flyers know. Pulling the line in does not just bring the kite closer. It drags the kite through the air faster, which gives it more lift, so <em>reeling in makes the kite climb</em>. Letting line out does the opposite: the kite eases off, drifts downwind and sinks. One button controls both height and distance, and they pull against each other.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read the wind arrow and the clouds, then hold to reel in and climb or release to let out and drift, then grab a star or dodge a cloud, then back to reading the wind. Beside it, two longer loops: every minute more clouds roll in and gusts flip direction, and every session the player tries to beat their best number of stars.">
+      <defs>
+        <marker id="ks-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="100" y="16" width="200" height="54" rx="8"/>
+      <text class="d-text" x="200" y="39" text-anchor="middle">Read the wind</text>
+      <text class="d-muted" x="200" y="57" text-anchor="middle">which way, how hard?</text>
+
+      <rect class="d-accent-soft" x="220" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="315" y="183" text-anchor="middle">Reel in or let out</text>
+      <text class="d-muted" x="315" y="201" text-anchor="middle">climb or drift</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="170" height="54" rx="8"/>
+      <text class="d-text" x="95" y="183" text-anchor="middle">Star or cloud</text>
+      <text class="d-muted" x="95" y="201" text-anchor="middle">grab or dodge</text>
+
+      <path class="d-accent" d="M262 72 L300 156" marker-end="url(#ks-arrow)"/>
+      <path class="d-accent" d="M218 187 L184 187" marker-end="url(#ks-arrow)"/>
+      <path class="d-accent" d="M100 156 L140 74" marker-end="url(#ks-arrow)"/>
+      <text class="d-label" x="200" y="128" text-anchor="middle">every few seconds</text>
+
+      <path class="d-dash" d="M430 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">more clouds roll in,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">gusts flip direction</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">beat your best</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">number of stars</text>
+    </svg>
+    <figcaption>The short loop is one pull or one release. The minute loop is the storm thickening. The session loop is a best score.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <p>The kite is a single point with a velocity. Four forces act on it, and the player only changes one of them, through the length of the line.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 240" role="img" aria-label="Forces on the kite. Drag points along the wind to the right. Lift points straight up and grows with the airspeed over the kite. Gravity points down and never changes. The line tension points back down along the line toward the flyer, and only exists when the line is stretched.">
+      <defs>
+        <marker id="ks-f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <path class="d-thin d-dash" d="M50 220 L190 100"/>
+      <circle class="d-fill" cx="50" cy="220" r="6"/>
+      <text class="d-muted" x="62" y="226">flyer</text>
+      <path class="d-accent-fill" d="M190 82 L204 100 L190 120 L176 100 Z"/>
+      <path class="d-accent" d="M210 100 H272" marker-end="url(#ks-f)"/>
+      <text class="d-text" x="230" y="90">drag</text>
+      <path class="d-accent" d="M190 76 V24" marker-end="url(#ks-f)"/>
+      <text class="d-text" x="200" y="34">lift</text>
+      <path class="d-accent" d="M196 124 V170" marker-end="url(#ks-f)"/>
+      <text class="d-text" x="206" y="166">gravity</text>
+      <path class="d-accent" d="M178 112 L132 151" marker-end="url(#ks-f)"/>
+      <text class="d-text" x="64" y="132">tension</text>
+      <text class="d-muted" x="200" y="198">wind blows right</text>
+    </svg>
+    <figcaption>Lift grows with the airspeed over the kite. Reeling in raises that airspeed, which is why the kite climbs.</figcaption>
+  </figure>
+
+  <ul>
+    <li><strong>Wind</strong> pushes horizontally. Its strength changes every few seconds, between 55 and 150 pixels per second, and after the first ten seconds a gust may reverse it. A faint arrow under the wind gauge shows the next gust a moment before it arrives.</li>
+    <li><strong>Drag</strong> pulls the kite toward the wind's speed: <code>1.2 * (wind - vx)</code> sideways, and it also damps vertical motion.</li>
+    <li><strong>Lift</strong> is <code>2.4 * |wind - vx|</code>, straight up. A kite drifting with the wind has no lift; one held still or pulled upwind has plenty.</li>
+    <li><strong>Gravity</strong> is a steady 120 pixels per second squared. In a lull it wins, and the kite falls unless you pull.</li>
+    <li><strong>The line</strong> is a one-way spring: when the kite is further away than the line length it pulls the kite back, and when the line is slack it does nothing. Holding shortens the line by 90 pixels per second, down to 50. Releasing lets it out at 70, up to 300, but only as fast as the kite pulls it.</li>
+    <li><strong>Goal.</strong> Touch stars to collect them. Each star fades after 14 seconds and a new one appears. Touching a thundercloud costs one of three hearts, and the run ends when they are gone.</li>
+  </ul>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is calm skill in bad weather: one person on a hill keeping something fragile alive with a string. The constraint is that you never steer. You choose whether the line gets shorter or longer, and the wind decides where that sends the kite.</p>
+  <p>Short pulls lift the kite over a cloud or up to a star. Long releases trade height for reach. When the wind drops or turns, the kite falls and swings across the sky, and the answer is to reel in hard until the new wind catches it.</p>
+  <p>The hardest part to build is tuning the forces: the kite must float at a slant in steady wind, climb clearly when pulled, and fall slowly enough in a lull to be saved.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the canvas to focus it. Nothing moves until your first press. Let line out to reach the nearby star, then try short tugs to climb. Watch the wind arrow at the top: when the faint arrow under it points the other way, a reversal is coming.</p>
+
+  <figure class="demo" data-demo="kite">
+    <canvas id="kite"></canvas>
+    <figcaption>Controls: hold <kbd>Space</kbd>, <kbd>Enter</kbd>, <kbd>X</kbd> or <kbd>Up</kbd> to reel in, release to let line out. On a phone or with a mouse, press and hold anywhere on the canvas. The bar beside the flyer shows how much line is out. Notice that the kite rises while you pull and sinks while it drifts.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the heart of the mechanic in LÖVE: the reel, the four forces and the one-way line. The names and numbers match the prototype. Physics runs in fixed steps of 1/120 of a second, because a stiff spring can blow up with large steps.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, K_DRAG, K_LIFT = 120, 1.2, 2.4   <span class="c">-- gravity, air drag, lift per unit of airspeed</span>
+local K_SPRING, C_DAMP = 60, 8            <span class="c">-- stiffness and damping of the line</span>
+local REEL_IN, LET_OUT = 90, 70           <span class="c">-- line speed in pixels per second</span>
+local L_MIN, L_MAX, STEP = 50, 300, 1 / 120
+local anchor = { x = 400, y = 560 }       <span class="c">-- the flyer's hands</span>
+local kite = { x = 497, y = 473, vx = 0, vy = 0 }
+local L, wind, acc = 130, 90, 0           <span class="c">-- line length, wind, unsimulated time</span>
+
+local function step(h, reeling)
+  local dx, dy = kite.x - anchor.x, kite.y - anchor.y
+  local d = math.max(math.sqrt(dx * dx + dy * dy), 1)
+  if reeling then
+    L = math.max(L_MIN, L - REEL_IN * h)
+  else                                    <span class="c">-- line feeds out only as the kite pulls it</span>
+    L = math.max(L_MIN, math.min(L_MAX, d + 20, L + LET_OUT * h))
+  end
+  local rel = wind - kite.vx              <span class="c">-- airspeed over the kite</span>
+  local fx = K_DRAG * rel
+<span class="k">  local fy = -K_DRAG * kite.vy + G - K_LIFT * math.abs(rel)  <span class="c">-- y points down</span></span>
+  if d &gt; L then                           <span class="c">-- a line pulls, it never pushes</span>
+    local nx, ny = dx / d, dy / d
+    local tension = K_SPRING * (d - L) + C_DAMP * (kite.vx * nx + kite.vy * ny)
+    tension = math.max(0, tension)
+    fx, fy = fx - tension * nx, fy - tension * ny
+  end
+  kite.vx, kite.vy = kite.vx + fx * h, kite.vy + fy * h
+  kite.x, kite.y = kite.x + kite.vx * h, kite.y + kite.vy * h
+end
+
+function love.update(dt)
+  local reeling = love.keyboard.isDown("space") or love.mouse.isDown(1)
+  acc = acc + dt
+  while acc &gt;= STEP do
+    step(STEP, reeling)
+    acc = acc - STEP
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted line is the whole idea: when the line pulls the kite upwind, <code>rel</code> grows, and lift grows with it. The prototype also stops the kite at the ground and screen edges.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Holding forever is safe.</strong> A short line keeps the kite low, under every cloud. In the prototype it scores nothing, because stars appear at least 90 pixels out. If testers camp low anyway, make high stars worth more.</li>
+    <li><strong>The kite feels like a balloon.</strong> If lift is too strong, the kite rises whatever you do and pulling feels pointless. Test by doing nothing for ten seconds in steady wind: the kite should settle at a slant, not shoot to the top. Then hold for one second: the climb should be obvious.</li>
+    <li><strong>Unfair lulls.</strong> When the wind reverses, it passes through zero and the kite falls. Without warning, players blame the game. The faint next-gust arrow is the fix; watch whether testers notice it.</li>
+    <li><strong>Spring explosions.</strong> A stiff line with a big time step overshoots and flings the kite off screen. Use a fixed physics step as in the code, and if you raise <code>K_SPRING</code>, take smaller steps.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Kite in a Storm sits in the family of one-button games where holding and releasing change a physical state rather than firing an action. Tiny Wings (Andreas Illiger, 2011) is a well-known example: holding makes the bird dive into the slopes of rolling hills to build speed, and releasing lets it fly off them.</p>
+  <p>It also borrows from the real hobby, where flyers tug the line to gain height in light wind. Flying a kite near a real thunderstorm is dangerous; this game is a fantasy, not advice.</p>
+  <p>What this idea changes is that the player's one input acts on a tether, so every decision is filtered through the wind. I do not know of a published game built on exactly this rule, but I have not searched thoroughly, so check before calling it new.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with one circle for the kite, a straight line to a fixed anchor, and a printed wind value. Change the wind between 60 and 140 every four seconds, without reversals. Add one star as a circle in a random spot and count touches.</p>
+  <p>Give it to someone and say only "catch the stars". The one question to answer: <strong>within the first minute, does the player discover by themselves that pulling makes the kite climb?</strong> If they do, add clouds and reversals. If they only think of the button as "closer" and "further", raise <code>K_LIFT</code> or put the first star high above the kite.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype with a rippling tail, rain that shows the wind, wind sound the player can turn on, and a saved best score.</li>
+    <li><strong>One-month version:</strong> a set of hillsides with their own weather patterns, such as a sea cliff with steady wind or a valley with swirling gusts, plus kites with different weights and lifts.</li>
+    <li><strong>Cut first:</strong> direct steering. Left and right controls make the wind irrelevant.</li>
+    <li>The hardest part is tuning the forces. Get it right before drawing anything else.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: make the line itself conduct lightning, so clouds become dangerous to cross with the line as well as the kite, and players must think about the whole curve from hand to kite.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On tuning how a simulated object responds to input.</li>
+    <li>Thomas Jakobsen, <cite>Advanced Character Physics</cite> (Game Developers Conference, 2001). Simple, stable constraint physics, for a rope with many segments.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008). On balancing skill against chance, here the wind.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var G = 120, K_DRAG = 1.2, K_LIFT = 2.4;       // gravity, air drag, lift per unit of airspeed
+  var K_SPRING = 60, C_DAMP = 8;                 // the line: stiffness and damping
+  var REEL_IN = 90, LET_OUT = 70, L_MIN = 50;    // px per second, shortest line
+  var STEP = 1 / 120, STAR_LIFE = 14, INVULN = 1.5, SEED = 7;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var PRESS_KEYS = { space: true, enter: true, x: true, arrowup: true };
+
+  var mode, random, k, L, wind, target, gustLeft, t, acc, clouds, stars, streaks, tail, tailT;
+  var score, hearts, invuln, zap, overTime, reeling;
+  var pointerHeld = false, best = 0, handle = null, zapFrom = { x: 0, y: 0 };
+  var W = 360, H = 420, ax = 180, ay = 384, lMax = 300;
+
+  function layout(s) {
+    var changed = s.width !== W || s.height !== H;
+    W = s.width; H = s.height;
+    ax = Math.round(W / 2); ay = H - 36;
+    lMax = Math.min(300, ay - 70);
+    if (changed && mode === 'ready') reset();
+  }
+
+  function addCloud(offscreen) {
+    var r = 24 + 8 * random();
+    var x = offscreen ? (wind > 0 ? -r - 8 : W + r + 8) : W * (0.12 + 0.76 * random());
+    clouds.push({ x: x, y: 70 + random() * Math.max(10, ay - 230), r: r });
+  }
+
+  function placeStar(first) {
+    var side = wind >= 0 ? 1 : -1, x, y, ok, i, tries;
+    for (tries = 0; tries < 40; tries++) {
+      var a = first ? 0.8 : (-0.35 + 1.5 * random()) * side;
+      var r = first ? Math.min(170, lMax - 15) : 90 + random() * (lMax - 105);
+      x = ax + Math.sin(a) * r; y = ay - Math.cos(a) * r;
+      ok = x > 16 && x < W - 16 && y > 54;
+      for (i = 0; ok && i < clouds.length; i++) {
+        if (Math.hypot(x - clouds[i].x, y - clouds[i].y) < clouds[i].r + 30) ok = false;
+      }
+      if (ok) break;
+    }
+    if (!ok) { x = ax; y = ay - 110; }
+    return { x: x, y: y, life: STAR_LIFE };
+  }
+
+  function reset() {
+    mode = 'ready';
+    random = DemoKit.rng(SEED);
+    L = 130; wind = 90; target = 90; gustLeft = 6; t = 0; acc = 0;
+    k = { x: ax + Math.sin(0.84) * L, y: ay - Math.cos(0.84) * L, vx: 0, vy: 0 };
+    clouds = [{ x: W * 0.18, y: 80, r: 28 }, { x: W * 0.8, y: 70, r: 26 }];
+    stars = [placeStar(true), placeStar(false)];
+    streaks = [];
+    for (var i = 0; i < 14; i++) streaks.push({ x: random() * W, y: 46 + random() * (ay - 60) });
+    tail = []; tailT = 0;
+    score = 0; hearts = 3; invuln = 0; zap = 0; overTime = 0; reeling = false;
+  }
+
+  function nextGust() {
+    var mag = 55 + 95 * random();
+    var sign = wind >= 0 ? 1 : -1;
+    if (t > 10 && random() < 0.25) sign = -sign;
+    target = sign * mag;
+    gustLeft = 2.5 + 2 * random();
+  }
+
+  function physics(h) {
+    var dx = k.x - ax, dy = k.y - ay, d = Math.hypot(dx, dy) || 1;
+    if (reeling) L = Math.max(L_MIN, L - REEL_IN * h);
+    else L = Math.max(L_MIN, Math.min(lMax, d + 20, L + LET_OUT * h));
+
+    var rel = wind - k.vx;                       // horizontal airspeed over the kite
+    var fx = K_DRAG * rel;
+    var fy = -K_DRAG * k.vy + G - K_LIFT * Math.abs(rel);   // screen y points down
+    if (d > L) {                                 // the line only pulls, never pushes
+      var nx = dx / d, ny = dy / d;
+      var tension = Math.max(0, K_SPRING * (d - L) + C_DAMP * (k.vx * nx + k.vy * ny));
+      fx -= tension * nx; fy -= tension * ny;
+    }
+    k.vx += fx * h; k.vy += fy * h;
+    k.x += k.vx * h; k.y += k.vy * h;
+
+    if (k.y > ay - 2) { k.y = ay - 2; if (k.vy > 0) k.vy = 0; k.vx *= 1 - 4 * h; }
+    if (k.x < 8) { k.x = 8; if (k.vx < 0) k.vx = 0; }
+    if (k.x > W - 8) { k.x = W - 8; if (k.vx > 0) k.vx = 0; }
+  }
+
+  function start() {
+    if (mode === 'over') { if (overTime < 0.8) return; reset(); }
+    if (mode === 'ready') { mode = 'run'; if (handle) handle.play(); }
+  }
+
+  function update(dt, s) {
+    layout(s);
+    if (mode === 'over') { overTime += dt; return; }
+    if (mode !== 'run') return;
+    t += dt;
+    var held = pointerHeld, i;
+    for (var key in PRESS_KEYS) if (s.keys && s.keys.has(key)) held = true;
+    reeling = held;
+
+    gustLeft -= dt;
+    if (gustLeft <= 0) nextGust();
+    wind += (target - wind) * Math.min(1, 1.2 * dt);
+
+    acc += dt;
+    while (acc >= STEP) { physics(STEP); acc -= STEP; }
+
+    tailT += dt;
+    if (tailT > 0.03) { tailT = 0; tail.unshift({ x: k.x, y: k.y }); if (tail.length > 12) tail.pop(); }
+    for (i = 0; i < streaks.length; i++) {
+      var st = streaks[i];
+      st.x += wind * dt;
+      if (st.x > W + 20) st.x -= W + 40;
+      if (st.x < -20) st.x += W + 40;
+    }
+
+    if (clouds.length < Math.min(4, 2 + Math.floor(t / 25))) addCloud(true);
+    for (i = 0; i < clouds.length; i++) {
+      var c = clouds[i];
+      c.x += wind * 0.3 * dt;
+      if (c.x > W + c.r + 10) c.x = -c.r - 8;
+      if (c.x < -c.r - 10) c.x = W + c.r + 8;
+      if (invuln <= 0 && Math.hypot(k.x - c.x, k.y - c.y) < c.r + 6) {
+        hearts--; invuln = INVULN; zap = 0.3;
+        zapFrom = { x: c.x, y: c.y };
+      }
+    }
+    invuln = Math.max(0, invuln - dt); zap = Math.max(0, zap - dt);
+
+    for (i = 0; i < stars.length; i++) {
+      stars[i].life -= dt;
+      if (Math.hypot(k.x - stars[i].x, k.y - stars[i].y) < 18) { score++; stars[i] = placeStar(false); }
+      else if (stars[i].life <= 0) stars[i] = placeStar(false);
+    }
+
+    if (hearts <= 0) { mode = 'over'; overTime = 0; best = Math.max(best, score); }
+  }
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT;
+    ctx.fillStyle = color;
+    ctx.textAlign = align || 'center';
+    ctx.fillText(str, x, y);
+  }
+
+  function arrow(ctx, x, y, v, color, width) {
+    var len = v * 0.22;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+    ctx.beginPath(); ctx.moveTo(x - len / 2, y); ctx.lineTo(x + len / 2, y); ctx.stroke();
+    var dir = v >= 0 ? 1 : -1, tip = x + len / 2;
+    ctx.beginPath(); ctx.moveTo(tip + dir * 5, y); ctx.lineTo(tip - dir * 2, y - 5); ctx.lineTo(tip - dir * 2, y + 5); ctx.fill();
+  }
+
+  function drawStar(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r;
+      ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+
+  function draw(ctx, s) {
+    layout(s);
+    var c = s.colors, i;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+    var sl = Math.max(6, Math.abs(wind) * 0.15) * (wind >= 0 ? 1 : -1);
+    for (i = 0; i < streaks.length; i++) {
+      ctx.beginPath(); ctx.moveTo(streaks[i].x, streaks[i].y); ctx.lineTo(streaks[i].x - sl, streaks[i].y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    for (i = 0; i < clouds.length; i++) {
+      var cl = clouds[i];
+      ctx.fillStyle = c.ink3; ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.arc(cl.x, cl.y, cl.r, 0, Math.PI * 2);
+      ctx.arc(cl.x - cl.r * 0.8, cl.y + cl.r * 0.3, cl.r * 0.6, 0, Math.PI * 2);
+      ctx.arc(cl.x + cl.r * 0.8, cl.y + cl.r * 0.3, cl.r * 0.6, 0, Math.PI * 2);
+      ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cl.x + 3, cl.y - 9); ctx.lineTo(cl.x - 4, cl.y + 2); ctx.lineTo(cl.x + 3, cl.y + 2); ctx.lineTo(cl.x - 3, cl.y + 12); ctx.stroke();
+    }
+
+    for (i = 0; i < stars.length; i++) {
+      var sr = stars[i];
+      drawStar(ctx, sr.x, sr.y, 9, c.warn);
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sr.x, sr.y, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sr.life / STAR_LIFE); ctx.stroke();
+    }
+
+    // Ground, flyer and spool.
+    ctx.fillStyle = c.line; ctx.fillRect(0, ay + 2, W, H - ay - 2);
+    ctx.fillStyle = c.ink; ctx.beginPath(); ctx.arc(ax, ay + 8, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(ax - 3, ay + 13, 6, 14);
+
+    // Line: straight when taut, sagging when slack.
+    var dx = k.x - ax, dy = k.y - ay, d = Math.hypot(dx, dy);
+    var sag = d < L ? Math.sqrt(L * L - d * d) * 0.5 : 0;
+    ctx.strokeStyle = reeling ? c.topic : c.ink2; ctx.lineWidth = reeling ? 2 : 1.2;
+    ctx.beginPath(); ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo((ax + k.x) / 2, (ay + k.y) / 2 + sag, k.x, k.y); ctx.stroke();
+
+    ctx.strokeStyle = c.topic; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(k.x, k.y);
+    for (i = 0; i < tail.length; i++) ctx.lineTo(tail[i].x, tail[i].y + 10);
+    ctx.stroke(); ctx.globalAlpha = 1;
+
+    var blink = invuln > 0 && Math.floor(invuln * 10) % 2 === 0;
+    var ang = Math.atan2(dx, -dy) * 0.6;
+    ctx.save(); ctx.translate(k.x, k.y); ctx.rotate(ang);
+    ctx.fillStyle = blink ? c.bad : c.topic;
+    ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = c.surface; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(0, 12); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
+    ctx.restore();
+
+    if (zap > 0) {
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(zapFrom.x, zapFrom.y);
+      ctx.lineTo((zapFrom.x + k.x) / 2 + 8, (zapFrom.y + k.y) / 2 - 6); ctx.lineTo(k.x, k.y); ctx.stroke();
+    }
+
+    // Line length gauge beside the flyer.
+    var gw = Math.min(90, W * 0.25), gx = ax - gw - 16, gy = ay + 14;
+    ctx.fillStyle = c.surface; ctx.fillRect(gx, gy, gw, 8);
+    ctx.fillStyle = c.topic; ctx.fillRect(gx, gy, gw * (L / lMax), 8);
+    text(ctx, 'line', gx - 6, gy + 8, c.ink2, '12px', 'right');
+
+    // HUD.
+    ctx.fillStyle = c.surface; ctx.fillRect(0, 0, W, 36);
+    ctx.fillStyle = c.line; ctx.fillRect(0, 35, W, 1);
+    text(ctx, 'Stars ' + score, 10, 23, c.ink, '600 13px', 'left');
+    text(ctx, 'Best ' + best, W - 10, 54, c.ink2, '12px', 'right');
+    var hs = '';
+    for (i = 0; i < 3; i++) hs += i < hearts ? '♥' : '♡';
+    text(ctx, hs, W - 10, 24, c.bad, '16px', 'right');
+    var wx = W * 0.55;
+    text(ctx, 'wind', wx - 42, 23, c.ink2, '12px', 'right');
+    arrow(ctx, wx, 18, wind, c.ink, 2.5);
+    if (gustLeft < 1.5 && mode === 'run') { ctx.globalAlpha = 0.35; arrow(ctx, wx, 30, target, c.ink, 2); ctx.globalAlpha = 1; }
+
+    if (mode === 'run') text(ctx, reeling ? 'Reeling in' : 'Letting out', 10, 54, reeling ? c.topic : c.ink2, '600 12px', 'left');
+    else {
+      var bw = Math.min(310, W - 20), by = H * 0.42;
+      ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(W / 2 - bw / 2, by, bw, 74); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(W / 2 - bw / 2 + 0.5, by + 0.5, bw - 1, 73);
+      if (mode === 'ready') {
+        text(ctx, 'Hold to reel the kite in. It climbs.', W / 2, by + 22, c.ink, '600 13px');
+        text(ctx, 'Release to let line out. It drifts.', W / 2, by + 42, c.ink, '600 13px');
+        text(ctx, 'Press to start', W / 2, by + 62, c.ink2, '12px');
+      } else {
+        text(ctx, 'Struck by lightning: ' + score + ' stars', W / 2, by + 30, c.ink, '600 14px');
+        if (overTime > 0.8) text(ctx, 'Press to fly again', W / 2, by + 54, c.ink2, '12px');
+      }
+    }
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="kite"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); if (handle) handle.redraw(); } });
+
+  handle = DemoKit.canvas('#kite', {
+    height: 420,
+    keys: true,
+    drag: true,
+    label: 'Kite in a Storm prototype. Hold Space, Enter, X or Up, or press and hold the canvas, to reel the kite in. Release to let the line out. Collect stars and avoid the lightning clouds.',
+    update: update,
+    draw: draw,
+    onDown: function () { pointerHeld = true; start(); },
+    onUp: function () { pointerHeld = false; },
+    onKey: function (key, isDown) { if (isDown && PRESS_KEYS[key]) start(); }
+  });
+})();
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **UV coordinates** — How normalised coordinates from 0 to 1 let a shader work at any resolution. Demo: view UV as colour with toggles to centre the origin and correct the aspect ratio. (published 2026-10-17, uv-coordinates)
 - [x] **Colour as vectors** — How colours are vectors that can be added, multiplied and swizzled. Demo: pick two colours and an operation to see the result, with sliders for each channel. (published 2026-10-17, colour-as-vectors)
 - [x] **Step and smoothstep** — How thresholds create hard and soft edges. Demo: sliders for the edge position and softness draw the function as a graph and as a gradient. (published 2026-10-18, step-and-smoothstep)
-- [ ] **Blending with mix** — How mix interpolates between colours using any value as a mask. Demo: choose two colours and a mask pattern with a slider for blend amount.
+- [x] **Blending with mix** — How mix interpolates between colours using any value as a mask. Demo: choose two colours and a mask pattern with a slider for blend amount. (published 2026-10-18, blending-with-mix)
 - [ ] **Repeating space with fract** — How fract and floor tile space into cells that each have their own local coordinates. Demo: a tile count slider repeats a simple motif with a toggle that shows cell coordinates.
 - [ ] **Stripes and checkerboards** — How to combine fract, step and mod into basic patterns. Demo: sliders for frequency, angle and line width switch between stripes, grids and checkers.
 - [ ] **Circles from distance** — How the length function turns distance from a point into discs, rings and glows. Demo: sliders for radius, edge softness and ring thickness shape a circle.
