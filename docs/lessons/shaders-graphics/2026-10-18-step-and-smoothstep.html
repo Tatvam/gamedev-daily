@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step and smoothstep: hard edges and soft edges · Game Dev Daily</title>
+<meta name="description" content="step turns a value into a hard 0 or 1 at an edge; smoothstep blends across a band instead. Together they draw every edge a shader makes.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Step and smoothstep: hard edges and soft edges</h1>
+  <p class="lede">step turns a value into a hard 0 or 1 at an edge; smoothstep blends across a band instead. Together they draw every edge a shader makes.</p>
+</header>
+
+<section data-section="hook">
+  <p>A health bar has to stop at exactly 37 percent. A spotlight should fade out at its rim, not cut off. A circle drawn with a plain <code>if</code> has jagged stairs around it.</p>
+  <p>All three ask one number the same question: is it past the edge, and how gently does the answer change? GLSL has two built-in functions for this, and nearly every shape in later lessons uses them.</p>
+</section>
+
+<section data-section="concept">
+  <h2>From a gradient to an edge</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far ours have returned smooth gradients, such as the UV coordinate <code>x</code> running from 0.0 at the left to 1.0 at the right. To draw a shape we need a place where the colour changes.</p>
+  <p>The tool is a <dfn>threshold</dfn>: a value we compare against. The answer is a number from 0.0 to 1.0 called a <dfn>mask</dfn>, because it decides where a colour shows and where it is hidden.</p>
+
+  <h3>step: a hard edge</h3>
+  <p><code>step(edge, x)</code> returns 0.0 when <code>x</code> is less than <code>edge</code> and 1.0 otherwise. The edge comes first, which surprises almost everyone: <code>step(0.5, 0.3)</code> is 0.0 and <code>step(0.5, 0.7)</code> is 1.0. Multiply a colour by this mask and the colour only appears on one side of the edge.</p>
+
+  <h3>smoothstep: a soft edge</h3>
+  <p><code>smoothstep(e0, e1, x)</code> returns 0.0 below <code>e0</code>, 1.0 above <code>e1</code>, and a smooth curve in between. The gap between <code>e0</code> and <code>e1</code> is the <dfn>softness</dfn>: how wide the fade is. Inside the gap it computes:</p>
+<pre><code>float t = clamp((x - e0) / (e1 - e0), 0.0, 1.0);   // 0 to 1 across the gap
+float result = t * t * (3.0 - 2.0 * t);</code></pre>
+  <p>The first line alone is a straight ramp. The second bends it into an S shape whose slope is zero at both ends. A straight ramp meets the flat parts at a sharp corner, and the eye sees a faint line at each corner. The S curve joins them smoothly, so the fade looks soft all the way across.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Three graphs of output against x. step at 0.5 jumps straight from 0 to 1. A clamped straight ramp from 0.3 to 0.7 rises in a line, with sharp corners circled at both ends. smoothstep from 0.3 to 0.7 rises in an S curve that is flat where it meets 0 and 1.">
+      <text class="d-label" x="86" y="30" text-anchor="middle">1:1</text>
+      <rect class="d-fill" x="56" y="46" width="60" height="60"/>
+      <rect class="d-accent-fill" x="56" y="94" width="12" height="12"/>
+      <rect class="d-accent-fill" x="68" y="82" width="12" height="12"/>
+      <rect class="d-accent-fill" x="80" y="70" width="12" height="12"/>
+      <rect class="d-accent-fill" x="92" y="58" width="12" height="12"/>
+      <rect class="d-accent-fill" x="104" y="46" width="12" height="12"/>
+      <path class="d-thin" d="M68 46V106M80 46V106M92 46V106M104 46V106M56 58H116M56 70H116M56 82H116M56 94H116"/>
+      <text class="d-mono" x="86" y="132" text-anchor="middle">runs 1 1 1 1 1</text>
+      <text class="d-muted" x="86" y="152" text-anchor="middle">about 45°</text>
+      <text class="d-label" x="242" y="30" text-anchor="middle">2:1</text>
+      <rect class="d-fill" x="194" y="58" width="96" height="48"/>
+      <rect class="d-accent-fill" x="194" y="94" width="24" height="12"/>
+      <rect class="d-accent-fill" x="218" y="82" width="24" height="12"/>
+      <rect class="d-accent-fill" x="242" y="70" width="24" height="12"/>
+      <rect class="d-accent-fill" x="266" y="58" width="24" height="12"/>
+      <path class="d-thin" d="M206 58V106M218 58V106M230 58V106M242 58V106M254 58V106M266 58V106M278 58V106M194 70H290M194 82H290M194 94H290"/>
+      <text class="d-mono" x="242" y="132" text-anchor="middle">runs 2 2 2 2</text>
+      <text class="d-muted" x="242" y="152" text-anchor="middle">about 26.6°</text>
+      <text class="d-label" x="398" y="30" text-anchor="middle">3:1</text>
+      <rect class="d-fill" x="344" y="70" width="108" height="36"/>
+      <rect class="d-accent-fill" x="344" y="94" width="36" height="12"/>
+      <rect class="d-accent-fill" x="380" y="82" width="36" height="12"/>
+      <rect class="d-accent-fill" x="416" y="70" width="36" height="12"/>
+      <path class="d-thin" d="M356 70V106M368 70V106M380 70V106M392 70V106M404 70V106M416 70V106M428 70V106M440 70V106M344 82H452M344 94H452"/>
+      <text class="d-mono" x="398" y="132" text-anchor="middle">runs 3 3 3</text>
+      <text class="d-muted" x="398" y="152" text-anchor="middle">about 18.4°</text>
+      <text class="d-text" x="554" y="30" text-anchor="middle">Uneven</text>
+      <rect class="d-fill" x="500" y="58" width="108" height="48"/>
+      <rect class="d-accent-fill" x="500" y="94" width="24" height="12"/>
+      <rect class="d-bad-fill" x="524" y="82" width="36" height="12"/>
+      <rect class="d-accent-fill" x="560" y="70" width="24" height="12"/>
+      <rect class="d-accent-fill" x="584" y="58" width="24" height="12"/>
+      <path class="d-thin" d="M512 58V106M524 58V106M536 58V106M548 58V106M560 58V106M572 58V106M584 58V106M596 58V106M500 70H608M500 82H608M500 94H608"/>
+      <text class="d-mono" x="554" y="132" text-anchor="middle">runs 2 3 2 2</text>
+      <text class="d-muted" x="554" y="152" text-anchor="middle">one run is longer</text>
+    </svg>
+    <figcaption>step jumps. A clamped ramp fades but bends sharply at both ends (circled). smoothstep fades and starts and stops gently.</figcaption>
+  </figure>
+
+  <h3>Building it up, one line at a time</h3>
+  <p>Here is the demo's picture as four lines of GLSL. The demo's <em>Stage</em> menu shows the result after each:</p>
+<pre><code>float x = uv.x;                          // 1. input: a gradient from 0 to 1
+float m = step(0.5, x);                  // 2. mask: hard edge at 0.5
+m = smoothstep(0.4, 0.6, x);             //    or a soft edge from 0.4 to 0.6
+vec3 col = vec3(1.0, 0.55, 0.15) * m;    // 3. final: orange where the mask is 1</code></pre>
+  <p>One float goes in per pixel and one float comes out. Nothing in it knows about the screen: <code>x</code> could be a distance from a point, a health value or a noise value, and the same line turns it into a shape. To fade the other way, write <code>1.0 - smoothstep(e0, e1, x)</code>.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Use <code>step</code> when the edge must be exact, such as a bar that fills to a value. Use <code>smoothstep</code> for shapes: about one pixel of softness for a crisp edge, more for a glow.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The top half graphs input <code>x</code> across against the mask <code>m</code> up, from the bottom line (0.0) to the top line (1.0). The strip below is the picture the shader paints. The blue probe shows what goes in and what comes out at one pixel: tap the canvas or use the <em>Probe x</em> slider.</p>
+  <p>Move the edge with <em>step</em>. Switch to <em>smoothstep</em> and widen the softness, then compare the <em>straight ramp</em>: look for faint lines at the two ends of its fade. Last, step through the <em>Stage</em> menu.</p>
+
+  <figure class="demo" data-demo="step-smoothstep">
+    <div class="demo-stage">
+      <canvas id="step-smoothstep"></canvas>
+      <span class="demo-label">Graph: m = f(x)</span>
+      <span class="demo-label" style="top: calc(56% + 8px)">Picture</span>
+    </div>
+    <figcaption>Graph and picture share one horizontal axis, so the curve sits above the edge it draws. The shaded band is the soft zone from e0 to e1; the dashed line is the edge.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the same <code>shape</code> function in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Left and right move the edge, up and down change the softness, 1 to 3 pick the function, F flips and S cycles the stage.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values.</span>
+local edge = 0.5
+local soft = 0.2     <span class="c">-- never 0: smoothstep needs e0 &lt; e1</span>
+local fn = 0         <span class="c">-- 0 step, 1 smoothstep, 2 straight ramp</span>
+local flip = 0
+local stage = 2      <span class="c">-- 0 input, 1 mask, 2 final colour</span>
+local strip = { 20, 200, 600, 120 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_edge;
+uniform float u_soft;
+uniform float u_fn;
+uniform float u_flip;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+float shape(float x)
+{
+    float e0 = u_edge - 0.5 * u_soft;
+    float e1 = u_edge + 0.5 * u_soft;
+<span class="k">    float m = step(u_edge, x);                                  // 0. hard edge</span>
+<span class="k">    if (u_fn &gt; 0.5) m = smoothstep(e0, e1, x);                  // 1. soft edge</span>
+    if (u_fn &gt; 1.5) m = clamp((x - e0) / (e1 - e0), 0.0, 1.0);  // 2. straight ramp
+    if (u_flip &gt; 0.5) m = 1.0 - m;                              // flip the mask
+    return m;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    float x = (screen_coords.x - u_rect.x) / u_rect.z;   // 0 at the left of the strip
+    float m = shape(x);
+    vec3 col = vec3(1.0, 0.55, 0.15) * m;
+    if (u_stage &lt; 1.5) col = vec3(m);
+    if (u_stage &lt; 0.5) col = vec3(x);
+    return vec4(col, 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("right") then edge = edge + 0.5 * dt end
+  if love.keyboard.isDown("left") then edge = edge - 0.5 * dt end
+  if love.keyboard.isDown("up") then soft = soft + 0.3 * dt end
+  if love.keyboard.isDown("down") then soft = soft - 0.3 * dt end
+  edge = math.max(0, math.min(1, edge))
+  soft = math.max(0.02, math.min(0.6, soft))
+end
+
+function love.keypressed(key)
+  if key == "1" or key == "2" or key == "3" then fn = tonumber(key) - 1 end
+  if key == "f" then flip = 1 - flip end
+  if key == "s" then stage = (stage + 1) % 3 end
+end
+
+function love.draw()
+  shader:send("u_edge", edge)
+  shader:send("u_soft", soft)
+  shader:send("u_fn", fn)
+  shader:send("u_flip", flip)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", strip)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", strip[1], strip[2], strip[3], strip[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_dpr;
+uniform float u_edge;
+uniform float u_soft;
+uniform float u_fn;
+uniform float u_flip;
+uniform float u_stage;
+uniform float u_probe;
+
+// The lesson: turn any value x into a mask from 0.0 to 1.0.
+float shape(float x) {
+  float e0 = u_edge - 0.5 * u_soft;
+  float e1 = u_edge + 0.5 * u_soft;
+<span class="k">  float m = step(u_edge, x);                                  // 0. hard edge</span>
+<span class="k">  if (u_fn &gt; 0.5) m = smoothstep(e0, e1, x);                  // 1. soft edge</span>
+  if (u_fn &gt; 1.5) m = clamp((x - e0) / (e1 - e0), 0.0, 1.0);  // 2. straight ramp
+  if (u_flip &gt; 0.5) m = 1.0 - m;                              // flip the mask
+  return m;
+}
+
+// Demo only: 1.0 inside the rectangle lo..hi, 0.0 outside.
+float box(vec2 p, vec2 lo, vec2 hi) {
+  vec2 s = step(lo, p) * step(p, hi);
+  return s.x * s.y;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;          // pixels, origin bottom-left
+  vec2 res = u_resolution;
+  float pad = 14.0 * u_dpr;
+  float t = 1.5 * u_dpr;              // half the width of a line, in pixels
+  float x0 = pad;
+  float w = res.x - 2.0 * pad;
+  float x = (px.x - x0) / w;          // 0.0 at the left, 1.0 at the right
+  vec3 col = vec3(0.13, 0.14, 0.16);
+
+  // The picture: the strip at the bottom, one stage at a time.
+  float inStrip = box(px, vec2(x0, pad), vec2(x0 + w, 0.30 * res.y));
+  float m = shape(x);
+  vec3 pic = vec3(1.0, 0.55, 0.15) * m;   // 3. final colour
+  if (u_stage &lt; 1.5) pic = vec3(m);       // 2. the mask as grey
+  if (u_stage &lt; 0.5) pic = vec3(x);       // 1. the input as grey
+  col = mix(col, pic, inStrip);
+
+  // The graph: output m (up) against input x (across).
+  float gy0 = 0.44 * res.y;
+  float gy1 = res.y - 32.0 * u_dpr;
+  float gh = gy1 - gy0;
+  float inGraph = box(px, vec2(x0, gy0), vec2(x0 + w, gy1));
+  col = mix(col, vec3(0.18, 0.19, 0.22), inGraph);
+
+  float e0 = u_edge - 0.5 * u_soft;
+  float e1 = u_edge + 0.5 * u_soft;
+  float zone = step(e0, x) * step(x, e1) * step(0.5, u_fn);
+  col = mix(col, vec3(0.25, 0.28, 0.35), zone * inGraph);
+
+  float guide = step(abs(px.y - gy0), 0.6 * u_dpr) + step(abs(px.y - gy1), 0.6 * u_dpr)
+              + step(abs(px.y - gy0 - 0.5 * gh), 0.5 * u_dpr) * 0.5;
+  col = mix(col, vec3(0.45, 0.47, 0.52), clamp(guide, 0.0, 1.0) * inGraph);
+
+  float dash = step(0.5, fract(px.y / (8.0 * u_dpr)));
+  float edgeLine = step(abs(px.x - (x0 + u_edge * w)), 0.75 * u_dpr);
+  col = mix(col, vec3(0.70, 0.72, 0.76), edgeLine * dash * inGraph);
+
+  float probeX = x0 + u_probe * w;
+  float probeLine = step(abs(px.x - probeX), 0.75 * u_dpr) * (inGraph + inStrip);
+  col = mix(col, vec3(0.35, 0.75, 1.0), 0.85 * probeLine);
+
+  // The curve: in each column, fill from the lowest to the highest value nearby.
+  float fa = shape((px.x - t - x0) / w);
+  float fb = shape((px.x + t - x0) / w);
+  float lo = gy0 + min(fa, fb) * gh - t;
+  float hi = gy0 + max(fa, fb) * gh + t;
+  float onCurve = step(lo, px.y) * step(px.y, hi) * box(px, vec2(x0, gy0 - t), vec2(x0 + w, gy1 + t));
+  col = mix(col, vec3(0.98, 0.72, 0.28), onCurve);
+
+  // The probe: what goes in (x) and what comes out (m).
+  float d = length(px - vec2(probeX, gy0 + shape(u_probe) * gh));
+  col = mix(col, vec3(0.35, 0.75, 1.0), step(d, 5.0 * u_dpr));
+  col = mix(col, vec3(1.0), step(d, 2.0 * u_dpr));
+
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float u_edge : hint_range(0.0, 1.0) = 0.5;
+uniform float u_soft : hint_range(0.02, 0.6) = 0.2;
+uniform float u_fn = 0.0;      // 0 step, 1 smoothstep, 2 straight ramp
+uniform float u_flip = 0.0;
+uniform float u_stage = 2.0;
+
+float shape(float x) {
+    float e0 = u_edge - 0.5 * u_soft;
+    float e1 = u_edge + 0.5 * u_soft;
+<span class="k">    float m = step(u_edge, x);</span>
+<span class="k">    if (u_fn &gt; 0.5) m = smoothstep(e0, e1, x);</span>
+    if (u_fn &gt; 1.5) m = clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+    if (u_flip &gt; 0.5) m = 1.0 - m;
+    return m;
+}
+
+void fragment() {
+    float x = UV.x;   // 0 at the left edge of the ColorRect
+    float m = shape(x);
+    vec3 col = vec3(1.0, 0.55, 0.15) * m;
+    if (u_stage &lt; 1.5) col = vec3(m);
+    if (u_stage &lt; 0.5) col = vec3(x);
+    COLOR = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/StepSmoothstep"
+{
+    Properties
+    {
+        _Edge ("Edge", Range(0, 1)) = 0.5
+        _Soft ("Softness", Range(0.02, 0.6)) = 0.2
+        _Fn ("Function (0 step, 1 smooth, 2 ramp)", Float) = 0
+        _Flip ("Flip (0 or 1)", Float) = 0
+        _Stage ("Stage (0, 1 or 2)", Float) = 2
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float _Edge, _Soft, _Fn, _Flip, _Stage;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float shape (float x)
+            {
+                float e0 = _Edge - 0.5 * _Soft;
+                float e1 = _Edge + 0.5 * _Soft;
+<span class="k">                float m = step(_Edge, x);</span>
+<span class="k">                if (_Fn &gt; 0.5) m = smoothstep(e0, e1, x);</span>
+                if (_Fn &gt; 1.5) m = saturate((x - e0) / (e1 - e0));
+                if (_Flip &gt; 0.5) m = 1.0 - m;
+                return m;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float x = i.uv.x;
+                float m = shape(x);
+                float3 col = float3(1.0, 0.55, 0.15) * m;
+                if (_Stage &lt; 1.5) col = float3(m, m, m);
+                if (_Stage &lt; 0.5) col = float3(x, x, x);
+                return fixed4(col, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL's <code>step</code> and <code>smoothstep</code> take arguments in the same order as GLSL; <code>saturate(v)</code> means <code>clamp(v, 0.0, 1.0)</code>. In URP, Shader Graph has Step and Smoothstep nodes that do the same.</p>
+  <p>This lesson uses only the horizontal coordinate, where everyone agrees that 0 is on the left. Vertical differs: <code>gl_FragCoord</code> in WebGL starts at the bottom-left, Godot's <code>canvas_item</code> <code>UV.y</code> is 0 at the top, a Unity Quad's <code>uv.y</code> is 0 at the bottom, and LÖVE's <code>screen_coords</code> count from the top-left.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Arguments in the wrong order.</strong> <code>step(x, 0.5)</code> compiles and returns the opposite mask. If a shape appears inside out, check this first.</li>
+    <li><strong>Swapping smoothstep's edges to reverse it.</strong> The GLSL ES specification says the result is undefined when <code>e0 &gt;= e1</code>. Many GPUs return the mirrored curve, so it works on your machine and fails on another. Use <code>1.0 - smoothstep(e0, e1, x)</code>, and never let the softness reach zero; the demo's slider stops at 0.02.</li>
+    <li><strong>Softness that depends on the screen.</strong> A softness of 0.01 in UV units is about 3 pixels on a 360 pixel phone and 19 on a 1920 pixel monitor; the <em>Soft zone</em> readout shows your screen. For about one pixel, use <code>1.0 / u_resolution.x</code>. Godot and Unity can also use <code>fwidth(x)</code>, how much <code>x</code> changes between neighbouring pixels; WebGL 1 needs the <code>OES_standard_derivatives</code> extension for it.</li>
+    <li><strong>Expecting anti-aliasing to fix a hard step.</strong> Multisample anti-aliasing (MSAA) smooths triangle edges but normally runs the fragment shader once per pixel, so a <code>step</code> edge inside a triangle stays jagged. A narrow <code>smoothstep</code> is how a shader smooths its own edges.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Both are cheap, even on a phone. <code>step</code> is a compare and select, often one instruction. <code>smoothstep</code> is a subtract, a divide, a clamp and a few multiplies; with constant edges the compiler can precompute <code>1.0 / (e1 - e0)</code> and drop the divide. A later lesson on branching compares them with <code>if</code>.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Distance field text is the best-known use. Each texel of the font texture stores how far it is from a letter's edge, and the shader thresholds that distance at the halfway value. Chris Green's 2007 Valve paper on the technique, used in Team Fortress 2, describes the threshold and softening the edge around it so letters stay smooth at any size. Unity's TextMesh Pro also renders text from distance fields.</p>
+  <p>Alpha cutout, which draws leaves or a fence as solid or empty depending on whether alpha passes a cutoff, is the same threshold applied to a texture's alpha. Unity's Shader Graph has Step and Smoothstep nodes, and Godot's visual shader editor has a SmoothStep node.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a health bar:</p>
+  <ol>
+    <li>Add a <code>u_health</code> uniform (0.0 to 1.0), sent from Lua and changed by the up and down keys.</li>
+    <li>Colour the filled part by multiplying with a mask: <code>vec3(0.2, 0.9, 0.3) * (1.0 - step(u_health, x))</code>. Pixels left of the health value are green and the rest are black.</li>
+    <li>Add a white band that marks the end of the fill: subtract two smoothsteps, <code>smoothstep(u_health - 0.02, u_health, x) - smoothstep(u_health, u_health + 0.02, x)</code>, and add it to the colour.</li>
+  </ol>
+  <p>You are done when the fill stops exactly at the health value and the white marker follows it with soft edges.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader draws an edge by turning a value into a mask from 0.0 to 1.0.</li>
+    <li><code>step(edge, x)</code> gives a hard edge; the edge comes first.</li>
+    <li><code>smoothstep(e0, e1, x)</code> fades from e0 to e1 with no visible corners. Keep e0 below e1; reverse with <code>1.0 - smoothstep</code>.</li>
+    <li>Softness is in the units of <code>x</code>; tie it to the resolution for a fixed pixel width.</li>
+    <li>Both are cheap, even on phones.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson uses these masks to blend colours with <code>mix</code>, the line the demo's final stage did by hand.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Shaping functions". Graphs of shaping curves.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.3 "Common Functions". Defines step and smoothstep, including the undefined case.</li>
+    <li>Chris Green (Valve), <cite>Improved Alpha-Tested Magnification for Vector Textures and Special Effects</cite>, SIGGRAPH 2007.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot documentation, <cite>Shading language</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity Manual, <cite>Writing shaders for the Built-in Render Pipeline</cite>; Shader Graph documentation, <cite>Step Node</cite> and <cite>Smoothstep Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_dpr;",
+    "uniform float u_edge;",
+    "uniform float u_soft;",
+    "uniform float u_fn;",
+    "uniform float u_flip;",
+    "uniform float u_stage;",
+    "uniform float u_probe;",
+    "",
+    "// The lesson: turn any value x into a mask from 0.0 to 1.0.",
+    "float shape(float x) {",
+    "  float e0 = u_edge - 0.5 * u_soft;",
+    "  float e1 = u_edge + 0.5 * u_soft;",
+    "  float m = step(u_edge, x);                                  // 0. hard edge",
+    "  if (u_fn > 0.5) m = smoothstep(e0, e1, x);                  // 1. soft edge",
+    "  if (u_fn > 1.5) m = clamp((x - e0) / (e1 - e0), 0.0, 1.0);  // 2. straight ramp",
+    "  if (u_flip > 0.5) m = 1.0 - m;                              // flip the mask",
+    "  return m;",
+    "}",
+    "",
+    "// Demo only: 1.0 inside the rectangle lo..hi, 0.0 outside.",
+    "float box(vec2 p, vec2 lo, vec2 hi) {",
+    "  vec2 s = step(lo, p) * step(p, hi);",
+    "  return s.x * s.y;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;          // pixels, origin bottom-left",
+    "  vec2 res = u_resolution;",
+    "  float pad = 14.0 * u_dpr;",
+    "  float t = 1.5 * u_dpr;              // half the width of a line, in pixels",
+    "  float x0 = pad;",
+    "  float w = res.x - 2.0 * pad;",
+    "  float x = (px.x - x0) / w;          // 0.0 at the left, 1.0 at the right",
+    "  vec3 col = vec3(0.13, 0.14, 0.16);",
+    "",
+    "  // The picture: the strip at the bottom, one stage at a time.",
+    "  float inStrip = box(px, vec2(x0, pad), vec2(x0 + w, 0.30 * res.y));",
+    "  float m = shape(x);",
+    "  vec3 pic = vec3(1.0, 0.55, 0.15) * m;   // 3. final colour",
+    "  if (u_stage < 1.5) pic = vec3(m);       // 2. the mask as grey",
+    "  if (u_stage < 0.5) pic = vec3(x);       // 1. the input as grey",
+    "  col = mix(col, pic, inStrip);",
+    "",
+    "  // The graph: output m (up) against input x (across).",
+    "  float gy0 = 0.44 * res.y;",
+    "  float gy1 = res.y - 32.0 * u_dpr;",
+    "  float gh = gy1 - gy0;",
+    "  float inGraph = box(px, vec2(x0, gy0), vec2(x0 + w, gy1));",
+    "  col = mix(col, vec3(0.18, 0.19, 0.22), inGraph);",
+    "",
+    "  float e0 = u_edge - 0.5 * u_soft;",
+    "  float e1 = u_edge + 0.5 * u_soft;",
+    "  float zone = step(e0, x) * step(x, e1) * step(0.5, u_fn);",
+    "  col = mix(col, vec3(0.25, 0.28, 0.35), zone * inGraph);",
+    "",
+    "  float guide = step(abs(px.y - gy0), 0.6 * u_dpr) + step(abs(px.y - gy1), 0.6 * u_dpr)",
+    "              + step(abs(px.y - gy0 - 0.5 * gh), 0.5 * u_dpr) * 0.5;",
+    "  col = mix(col, vec3(0.45, 0.47, 0.52), clamp(guide, 0.0, 1.0) * inGraph);",
+    "",
+    "  float dash = step(0.5, fract(px.y / (8.0 * u_dpr)));",
+    "  float edgeLine = step(abs(px.x - (x0 + u_edge * w)), 0.75 * u_dpr);",
+    "  col = mix(col, vec3(0.70, 0.72, 0.76), edgeLine * dash * inGraph);",
+    "",
+    "  float probeX = x0 + u_probe * w;",
+    "  float probeLine = step(abs(px.x - probeX), 0.75 * u_dpr) * (inGraph + inStrip);",
+    "  col = mix(col, vec3(0.35, 0.75, 1.0), 0.85 * probeLine);",
+    "",
+    "  // The curve: in each column, fill from the lowest to the highest value nearby.",
+    "  float fa = shape((px.x - t - x0) / w);",
+    "  float fb = shape((px.x + t - x0) / w);",
+    "  float lo = gy0 + min(fa, fb) * gh - t;",
+    "  float hi = gy0 + max(fa, fb) * gh + t;",
+    "  float onCurve = step(lo, px.y) * step(px.y, hi) * box(px, vec2(x0, gy0 - t), vec2(x0 + w, gy1 + t));",
+    "  col = mix(col, vec3(0.98, 0.72, 0.28), onCurve);",
+    "",
+    "  // The probe: what goes in (x) and what comes out (m).",
+    "  float d = length(px - vec2(probeX, gy0 + shape(u_probe) * gh));",
+    "  col = mix(col, vec3(0.35, 0.75, 1.0), step(d, 5.0 * u_dpr));",
+    "  col = mix(col, vec3(1.0), step(d, 2.0 * u_dpr));",
+    "",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join('\n');
+
+  var PAD = 14;   // CSS pixels between the canvas edge and the graph, as in the shader
+  var NAMES = ['step', 'smoothstep', 'straight ramp'];
+
+  var handle = null;
+  var cssWidth = 0;
+  var ui = DemoKit.controls('[data-demo="step-smoothstep"]');
+
+  var fn = ui.select({
+    label: 'Function',
+    options: [
+      { value: '0', label: 'step (hard edge)' },
+      { value: '1', label: 'smoothstep (soft edge)' },
+      { value: '2', label: 'straight ramp (for comparison)' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_fn', Number(v)); }
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Input: x as grey' },
+      { value: '1', label: '2. Mask: m as grey' },
+      { value: '2', label: '3. Final: orange * m' }
+    ],
+    value: '2',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var edge = ui.slider({ label: 'Edge', min: 0, max: 1, step: 0.01, value: 0.5,
+    onInput: function (v) { send('u_edge', v); } });
+  var soft = ui.slider({ label: 'Softness (e1 - e0)', min: 0.02, max: 0.6, step: 0.01, value: 0.2,
+    onInput: function (v) { send('u_soft', v); } });
+  var probe = ui.slider({ label: 'Probe x', min: 0, max: 1, step: 0.01, value: 0.45,
+    onInput: function (v) { send('u_probe', v); } });
+  var flip = ui.toggle({ label: 'Flip: 1.0 - m', value: false,
+    onChange: function (v) { send('u_flip', v ? 1 : 0); } });
+
+  var formulaOut = ui.readout({ label: 'Formula' });
+  var probeOut = ui.readout({ label: 'At the probe' });
+  var zoneOut = ui.readout({ label: 'Soft zone' });
+
+  // The same maths as shape() in the shader, for the readouts.
+  function shape(x) {
+    var n = Number(fn.value);
+    var e0 = edge.value - 0.5 * soft.value;
+    var e1 = edge.value + 0.5 * soft.value;
+    var m = x < edge.value ? 0 : 1;
+    if (n > 0.5) {
+      var t = DemoKit.clamp((x - e0) / (e1 - e0), 0, 1);
+      m = t * t * (3 - 2 * t);
+    }
+    if (n > 1.5) m = DemoKit.clamp((x - e0) / (e1 - e0), 0, 1);
+    if (flip.value) m = 1 - m;
+    return m;
+  }
+
+  function f2(v) {
+    var s = v.toFixed(2);
+    return s === '-0.00' ? '0.00' : s;
+  }
+
+  function updateReadout() {
+    var n = Number(fn.value);
+    var e0 = edge.value - 0.5 * soft.value;
+    var e1 = edge.value + 0.5 * soft.value;
+    var call;
+    if (n === 0) call = 'step(' + f2(edge.value) + ', x)';
+    else if (n === 1) call = 'smoothstep(' + f2(e0) + ', ' + f2(e1) + ', x)';
+    else call = 'clamp((x - ' + f2(e0) + ') / ' + f2(e1 - e0) + ', 0.0, 1.0)';
+    formulaOut.set('m = ' + (flip.value ? '1.0 - ' + call : call));
+    probeOut.set('x = ' + f2(probe.value) + '  gives  m = ' + f2(shape(probe.value)));
+    if (n === 0) {
+      zoneOut.set('none: step jumps at ' + f2(edge.value));
+    } else {
+      var px = Math.round(soft.value * Math.max(0, cssWidth - 2 * PAD));
+      zoneOut.set(f2(e0) + ' to ' + f2(e1) + ', ' + px + ' px wide on this screen');
+    }
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function probeAt(p, s) {
+    var w = s.width - 2 * PAD;
+    if (w <= 0) return;
+    var v = Math.round(DemoKit.clamp((p.x - PAD) / w, 0, 1) * 100) / 100;
+    probe.set(v);
+    send('u_probe', v);
+  }
+
+  handle = DemoKit.shader('#step-smoothstep', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 260,
+    maxHeight: 380,
+    label: 'A live fragment shader. The top half graphs the mask m against the input x; the bottom strip shows the picture the shader paints, with a probe line marking one pixel.',
+    uniforms: {
+      u_dpr: function (s) { return s.dpr; },
+      u_edge: 0.5,
+      u_soft: 0.2,
+      u_fn: 0,
+      u_flip: 0,
+      u_stage: 2,
+      u_probe: 0.45
+    },
+    onResize: function (s) {
+      cssWidth = s.width;
+      updateReadout();
+    },
+    onDown: probeAt,
+    onMove: function (p, s) { if (p.down) probeAt(p, s); }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

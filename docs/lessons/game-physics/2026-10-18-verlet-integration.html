@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verlet integration · Game Dev Daily</title>
+<meta name="description" content="How storing the previous position instead of a velocity gives a stable integrator that you can constrain just by moving points.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Verlet integration</h1>
+  <p class="lede">How storing the previous position instead of a velocity gives a stable integrator that you can constrain just by moving points.</p>
+</header>
+
+<section data-section="hook">
+  <p>You want a lantern on a rope, so you write the obvious thing: let gravity pull the lantern, then snap it back to the length of the rope. The lantern does not swing. It drops to the bottom and lies there, dead, while its velocity grows larger every frame.</p>
+  <p>The snapping was right. The problem is that you moved the lantern and forgot to tell its velocity. Verlet integration has no velocity to forget.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Remember where it was, not how fast it goes</h2>
+  <p>The Euler methods from the last two lessons store a position and a velocity. <dfn>Verlet integration</dfn> (position Verlet, also called Störmer–Verlet) stores the current position and the <em>previous</em> position instead. The velocity is never stored. It is implied by the gap between the two.</p>
+  <p>One step is a single line:</p>
+<pre><code>next = current + (current - previous) + acceleration * dt * dt</code></pre>
+  <p>In words: move the same distance you moved last step, then add the nudge that acceleration gives over one step. After that, the current position becomes the previous one, and the next becomes the current one.</p>
+  <p>Units: <code>current - previous</code> is in pixels, and px/s² times s² is also pixels.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Left: a Verlet step. The move from the previous position to the current position is repeated, then a small gravity nudge points down to the next position. Right: the next position lies outside the rope circle, so it is pulled back toward the pivot onto the circle, and the green arrow from where the bob was to where it is now is its new velocity.">
+      <text class="d-text" x="20" y="24">1. Step: coast, then fall</text>
+      <path class="d-thin" d="M50 200 L140 140"/>
+      <text class="d-label" x="100" y="192">last move</text>
+      <path class="d-dash" d="M140 140 L230 80"/>
+      <text class="d-label" x="176" y="96" text-anchor="end">same move again</text>
+      <path class="d-accent" d="M230 80 V120"/>
+      <path class="d-accent-fill" d="M230 130 L224 118 L236 118 Z"/>
+      <text class="d-label" x="242" y="108">+ a·dt²</text>
+      <circle class="d-stroke" cx="50" cy="200" r="6"/>
+      <text class="d-muted" x="50" y="228" text-anchor="middle">previous</text>
+      <circle class="d-accent-fill" cx="140" cy="140" r="6"/>
+      <text class="d-muted" x="152" y="164">current</text>
+      <circle class="d-good-fill" cx="230" cy="136" r="6"/>
+      <text class="d-text" x="242" y="141">next</text>
+
+      <path class="d-thin" d="M320 16 V246"/>
+
+      <text class="d-text" x="340" y="24">2. Put it back on the rope</text>
+      <path class="d-dash" d="M394 208 A150 150 0 0 0 550 135"/>
+      <text class="d-muted" x="556" y="130">rope</text>
+      <circle class="d-fill" cx="420" cy="60" r="5"/>
+      <text class="d-muted" x="408" y="64" text-anchor="end">pivot</text>
+      <path class="d-thin" d="M420 60 L508 181"/>
+      <circle class="d-stroke" cx="471" cy="201" r="6"/>
+      <text class="d-muted" x="462" y="186" text-anchor="end">was here</text>
+      <path class="d-good" d="M477 198 L493 190"/>
+      <path class="d-good-fill" d="M503 184 L495 194 L490 186 Z"/>
+      <circle class="d-stroke" cx="529" cy="210" r="6"/>
+      <text class="d-muted" x="540" y="214">after step</text>
+      <path class="d-accent" d="M525 205 L517 194"/>
+      <path class="d-accent-fill" d="M512 187 L521 192 L514 197 Z"/>
+      <circle class="d-accent-fill" cx="508" cy="181" r="6"/>
+      <text class="d-text" x="340" y="244">new velocity = where it is − where it was</text>
+    </svg>
+    <figcaption>Left: the step repeats the last move and adds gravity. Right: the step left the bob off the rope, so we move it back toward the pivot. Because the velocity is only the gap between the last two positions, the green arrow already points along the rope circle. Nothing else needs fixing.</figcaption>
+  </figure>
+
+  <h3>Without constraints, it is semi-implicit Euler</h3>
+  <p>Take the jump from earlier lessons: launch at 600 px/s, gravity 1800 px/s², 60 steps per second, height measured upward. To start Verlet with a velocity, set <code>previous = current - velocity * dt</code>, so previous is −10 px.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Step</th><th class="num">Verlet</th><th class="num">Semi-implicit Euler</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td class="num">0 + 10 − 0.5 = 9.5 px</td><td class="num">v = 570, y = 9.5 px</td></tr>
+      <tr><td>2</td><td class="num">9.5 + 9.5 − 0.5 = 18.5 px</td><td class="num">v = 540, y = 18.5 px</td></tr>
+      <tr><td>Peak</td><td class="num">95.0 px</td><td class="num">95.0 px</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The two methods produce exactly the same positions. That is not a coincidence: semi-implicit Euler's velocity is always the last move divided by <code>dt</code>. So Verlet is just as stable, but not more accurate. (Start it with <code>previous = current - velocity * dt + ½ · acceleration · dt²</code> instead and the jump peaks at exactly 100 px, because Verlet is exact for constant acceleration when it starts on the true curve.)</p>
+  <p>The real difference appears when something moves a point directly.</p>
+
+  <h3>One rope step by hand</h3>
+  <p>The demo's pendulum: pivot at the origin, screen y pointing down, rope 150 px, gravity 1000 px/s², step 1/60 s. The bob hangs at (0, 150) and moved 5 px right last step, so previous is (−5, 150). That is 300 px/s.</p>
+  <ul>
+    <li>Coast and fall: (0 + 5, 150 + 0 + 1000/3600) = (5, 150.278). That is 150.361 px from the pivot, too long.</li>
+    <li>Pull it back to 150 px along the line to the pivot: (4.988, 149.917).</li>
+    <li>The implied velocity is now (4.988 − 0, 149.917 − 150) × 60 = (299.3, −5.0) px/s.</li>
+  </ul>
+  <p>The velocity has turned upward to follow the circle, and we never touched a velocity. With Euler, the stored velocity would still be (300, 16.7), pointing out of the circle, and gravity would add another 16.7 px/s to it every step. That is the dead lantern from the opening.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Stable is not the same as lossless</p>
+    <p>Snapping a point back onto a rope throws away a little of its motion every step, and more when it moves far per step. In the demo a 60° swing shrinks to about 28° after ten seconds at 60 steps per second, 15° at 30, and 48° at 240. A real pendulum would keep swinging. For ropes, chains and cloth in a game, settling down is usually what you want. If you need a pendulum that swings forever, use more steps.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Three pendulums start at the same angle and all use the same rope rule: after each step, put the bob back at 150 px from the pivot. Watch the two Euler bobs fall to the bottom and stay there while their energy shoots off the graph. The Verlet bob swings.</p>
+  <p>Then switch on <strong>Euler: also fix velocity</strong>, which removes the part of the velocity pointing along the rope after each snap. Now all three swing. Finally, drag in any picture to grab the bobs, and let go while moving. Only the Verlet bob keeps your throw, because its velocity is simply the distance your drag moved it.</p>
+
+  <figure class="demo wide" data-demo="verlet-pendulum">
+    <canvas id="verlet-pendulum"></canvas>
+    <figcaption>With debug drawing on, the hollow circle is the previous position, dots mark the last 30 steps and the green arrow is the velocity (for Verlet, the implied one). Lower the steps per second and the rope's energy loss grows. Explicit Euler keeps more swing here only because its energy gain from the earlier lesson happens to cancel part of the rope's loss.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Verlet pendulum as a LÖVE program, with the demo's numbers. Hold the left mouse button to drag the bob and release to throw it.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G = 1000              <span class="c">-- gravity, px/s^2 (screen y points down)</span>
+local ROPE = 150            <span class="c">-- rope length, px</span>
+local STEP = 1 / 60         <span class="c">-- fixed step, seconds</span>
+local PX, PY = 400, 250     <span class="c">-- pivot on screen</span>
+local start = math.rad(60)  <span class="c">-- 60 degrees out, at rest</span>
+local bob = { x = PX + ROPE * math.sin(start), y = PY + ROPE * math.cos(start) }
+bob.px, bob.py = bob.x, bob.y   <span class="c">-- previous = current: not moving yet</span>
+local accumulator = 0
+
+<span class="k">local function verlet(b, dt)
+  local mx, my = b.x - b.px, b.y - b.py   <span class="c">-- the last move</span>
+  b.px, b.py = b.x, b.y                   <span class="c">-- current becomes previous</span>
+  b.x = b.x + mx                          <span class="c">-- same move again</span>
+  b.y = b.y + my + G * dt * dt            <span class="c">-- plus the nudge from gravity</span>
+end</span>
+
+local function keepRopeLength(b)
+  local dx, dy = b.x - PX, b.y - PY
+  local d = math.sqrt(dx * dx + dy * dy)
+  if d &gt; 0 then
+<span class="k">    b.x = PX + dx / d * ROPE              <span class="c">-- move it back onto the rope;</span>
+    b.y = PY + dy / d * ROPE              <span class="c">-- there is no velocity to fix</span></span>
+  end
+end
+
+local function hold(b, tx, ty, dt)        <span class="c">-- follow the mouse</span>
+  local follow = math.min(1, 30 * dt)
+  b.px, b.py = b.x, b.y
+  b.x, b.y = b.x + (tx - b.x) * follow, b.y + (ty - b.y) * follow
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    if love.mouse.isDown(1) then
+      hold(bob, love.mouse.getX(), love.mouse.getY(), STEP)
+    else
+      verlet(bob, STEP)
+    end
+    keepRopeLength(bob)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.line(PX, PY, bob.x, bob.y)
+  love.graphics.circle("fill", bob.x, bob.y, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D placed at the pivot.</span>
+extends Node2D
+
+const G := 1000.0     <span class="c"># px/s^2, Godot's 2D y also points down</span>
+const ROPE := 150.0
+var bob := Vector2.ZERO        <span class="c"># relative to the pivot</span>
+var previous := Vector2.ZERO
+
+func _ready() -&gt; void:
+    var a := deg_to_rad(60.0)
+    bob = Vector2(sin(a), cos(a)) * ROPE
+    previous = bob
+
+func _physics_process(delta: float) -&gt; void:
+<span class="k">    var moved := bob - previous
+    previous = bob
+    bob += moved + Vector2(0, G) * delta * delta</span>
+    bob = bob.normalized() * ROPE   <span class="c"># keep the rope length</span>
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_line(Vector2.ZERO, bob, Color.WHITE, 2.0)
+    draw_circle(bob, 10.0, Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity works in metres and its y axis points UP, so gravity is negative y.</span>
+using UnityEngine;
+
+public class VerletPendulum : MonoBehaviour
+{
+    public float gravity = 9.81f;   <span class="c">// m/s^2</span>
+    public float rope = 1.5f;       <span class="c">// m</span>
+    Vector2 bob, previous;          <span class="c">// relative to this object, the pivot</span>
+
+    void Start()
+    {
+        float a = 60f * Mathf.Deg2Rad;
+        bob = new Vector2(Mathf.Sin(a), -Mathf.Cos(a)) * rope;
+        previous = bob;
+    }
+
+    void FixedUpdate()
+    {
+        float dt = Time.fixedDeltaTime;
+<span class="k">        Vector2 moved = bob - previous;
+        previous = bob;
+        bob += moved + Vector2.down * gravity * dt * dt;</span>
+        bob = bob.normalized * rope;   <span class="c">// keep the rope length</span>
+    }
+
+    void OnDrawGizmos()
+    {
+        Gizmos.DrawLine(transform.position, transform.position + (Vector3)bob);
+    }
+}</code></pre>
+  </div>
+  <p>The rigid bodies built into Godot and Unity store a velocity, and you do not choose their integrator. Verlet is what you write yourself for ropes, chains, cloth and particles, drawn with <code>Line2D</code> in Godot or <code>LineRenderer</code> in Unity.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Teleporting only the current position.</strong> Moving a body to a spawn point without moving <code>previous</code> as well gives it a velocity equal to the whole jump. It will shoot off. Move both by the same offset.</li>
+    <li><strong>Changing the step size.</strong> The stored gap was made with the old <code>dt</code>. With a new one it means a different speed, so the body speeds up or slows down. Use a fixed step. If you must change it, scale the gap: <code>previous = current - (current - previous) * newDt / oldDt</code>. The demo does this when you move the slider.</li>
+    <li><strong>Setting a velocity.</strong> There is no velocity variable. To launch at speed <code>v</code>, set <code>previous = current - v * dt</code>.</li>
+    <li><strong>Forces that need the velocity.</strong> Drag and damping read the velocity. Use <code>(current - previous) / dt</code>, which describes the last step rather than this one. A common shortcut for damping is to multiply the last move by a number just under 1, such as 0.99. That number is tied to your step rate.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Thomas Jakobsen's GDC 2001 paper <cite>Advanced Character Physics</cite> describes the system he built at IO Interactive for <cite>Hitman: Codename 47</cite>: particles moved with Verlet integration, then pushed around directly to satisfy stick constraints and collisions. That approach became a standard recipe for cloth, ropes and ragdolls in games.</p>
+  <p>Position Based Dynamics (Müller and colleagues, 2007) is a close relative: it corrects positions to satisfy constraints, then sets each velocity to the corrected move divided by the step.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the Lua program and add a wall 80 px to the left of the pivot, at <code>PX - 80</code>. It is closer than the rope is long, so the swinging bob hits it. After <code>keepRopeLength</code>, if <code>bob.x</code> is left of the wall, set it to the wall. Change nothing else.</p>
+  <p>You are done when the bob stops against the wall and swings back to the right without you writing any collision response or velocity code. Then drag the bob into the wall with the mouse and let go: it still behaves.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Verlet stores the current and previous positions. One step is: repeat the last move, add acceleration times dt squared.</li>
+    <li>Without constraints it traces the same positions as semi-implicit Euler, so it is just as stable.</li>
+    <li>Its strength is constraints and collisions: move a point and its velocity follows by itself.</li>
+    <li>Snapping points back bleeds energy, more at low step rates. Ropes settle instead of exploding.</li>
+    <li>Use a fixed step, and move <code>previous</code> along with <code>current</code> when you teleport.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson leaves integrators behind and looks closely at gravity: how constant acceleration draws a parabola and how to choose a gravity value in pixels per second squared.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Thomas Jakobsen, <cite>Advanced Character Physics</cite> (Game Developers Conference, 2001). Verlet particles, stick constraints and collisions for cloth and ragdolls.</li>
+    <li>Matthias Müller, Bruno Heidelberger, Marcus Hennix and John Ratcliff, <cite>Position Based Dynamics</cite> (2007). The method that grew from the same idea.</li>
+    <li>Loup Verlet, <cite>Computer "Experiments" on Classical Fluids</cite> (Physical Review, 1967). The molecular dynamics paper that made the method widely known. Advanced.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var G = 1000;          // gravity, px/s^2, screen y points down
+  var ROPE = 150;        // rope length, px
+  var GRAPH_H = 150;     // height of the energy graph strip, CSS pixels
+  var TRAIL = 30;        // step dots kept for debug drawing
+  var SAMPLE_EVERY = 0.1;
+  var MAX_E = 150;       // top of the energy graph, percent
+  var MIN_E0 = G * ROPE * (1 - Math.cos(10 * Math.PI / 180)); // floor for the 100% reference
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  // The pivot is at (0, 0). Every body also keeps px, py: for Verlet that is its state,
+  // for the Euler bodies it is only kept so debug drawing can show the previous position.
+
+  function explicitEuler(b, dt) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.vy += G * dt;
+  }
+
+  function semiImplicitEuler(b, dt) {
+    b.vy += G * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+  }
+
+  function verlet(b, dt) {
+    var mx = b.x - b.px, my = b.y - b.py;
+    b.px = b.x;
+    b.py = b.y;
+    b.x += mx;
+    b.y += my + G * dt * dt;
+  }
+
+  function keepRopeLength(b) {
+    var d = Math.sqrt(b.x * b.x + b.y * b.y);
+    if (d > 1e-9) {
+      b.x = b.x / d * ROPE;
+      b.y = b.y / d * ROPE;
+    }
+  }
+
+  // The Euler patch: remove the part of the velocity that points along the rope.
+  function fixVelocity(b) {
+    var ux = b.x / ROPE, uy = b.y / ROPE;
+    var along = b.vx * ux + b.vy * uy;
+    b.vx -= along * ux;
+    b.vy -= along * uy;
+  }
+
+  function hold(b, tx, ty, dt) {
+    var follow = Math.min(1, 30 * dt);
+    b.px = b.x;
+    b.py = b.y;
+    b.x += (tx - b.x) * follow;
+    b.y += (ty - b.y) * follow;
+  }
+
+  var sims = [
+    { title: 'Explicit Euler', short: 'Explicit', kind: 'euler', integrate: explicitEuler, colorKey: 'bad' },
+    { title: 'Semi-implicit Euler', short: 'Semi-implicit', kind: 'euler', integrate: semiImplicitEuler, colorKey: 'warn' },
+    { title: 'Verlet', short: 'Verlet', kind: 'verlet', integrate: verlet, colorKey: 'topic' }
+  ];
+
+  var stepDt = 1 / 60;
+  var accumulator = 0, simTime = 0, lastSample = 0;
+  var dragging = false, target = { x: 0, y: 0 };
+
+  function velocity(m) {
+    var b = m.b;
+    if (m.kind === 'verlet') return { x: (b.x - b.px) / stepDt, y: (b.y - b.py) / stepDt };
+    return { x: b.vx, y: b.vy };
+  }
+
+  function energy(m) {
+    var v = velocity(m);
+    return 0.5 * (v.x * v.x + v.y * v.y) + G * (ROPE - m.b.y);
+  }
+
+  function percent(m) {
+    return energy(m) / m.E0 * 100;
+  }
+
+  function restartRecords() {
+    simTime = 0;
+    lastSample = 0;
+    for (var i = 0; i < sims.length; i++) {
+      var m = sims[i];
+      m.E0 = Math.max(energy(m), MIN_E0);
+      m.samples = [{ t: 0, e: percent(m) }];
+      m.steps = [];
+    }
+  }
+
+  function reset(deg) {
+    var a = deg * Math.PI / 180;
+    var x = ROPE * Math.sin(a), y = ROPE * Math.cos(a);
+    for (var i = 0; i < sims.length; i++) {
+      sims[i].b = { x: x, y: y, px: x, py: y, vx: 0, vy: 0 };
+    }
+    accumulator = 0;
+    restartRecords();
+  }
+
+  function stepSim(m, dt) {
+    var b = m.b;
+    if (dragging) {
+      hold(b, target.x, target.y, dt);
+      keepRopeLength(b);
+      b.vx = 0;
+      b.vy = 0;
+    } else if (m.kind === 'verlet') {
+      verlet(b, dt);
+      keepRopeLength(b);
+    } else {
+      b.px = b.x;
+      b.py = b.y;
+      m.integrate(b, dt);
+      keepRopeLength(b);
+      if (patch.value) fixVelocity(b);
+    }
+    m.steps.push({ x: b.x, y: b.y });
+    if (m.steps.length > TRAIL) m.steps.shift();
+  }
+
+  function stepAll(dt) {
+    for (var i = 0; i < sims.length; i++) stepSim(sims[i], dt);
+    if (dragging) return;
+    simTime += dt;
+    if (simTime - lastSample >= SAMPLE_EVERY) {
+      lastSample = simTime;
+      for (var j = 0; j < sims.length; j++) {
+        var m = sims[j];
+        m.samples.push({ t: simTime, e: percent(m) });
+        if (m.samples.length > 2000) {
+          m.samples = m.samples.filter(function (p, k) { return k % 2 === 0; });
+        }
+      }
+    }
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="verlet-pendulum"]');
+  var rate = ui.slider({ label: 'Steps per second', min: 10, max: 240, step: 1, value: 60,
+    onInput: function (v) {
+      var newDt = 1 / v;
+      // Rescale the Verlet gap so the implied velocity stays the same.
+      for (var i = 0; i < sims.length; i++) {
+        var b = sims[i].b;
+        b.px = b.x - (b.x - b.px) * newDt / stepDt;
+        b.py = b.y - (b.y - b.py) * newDt / stepDt;
+      }
+      stepDt = newDt;
+      accumulator = 0;
+      redraw();
+    } });
+  var angle = ui.slider({ label: 'Start angle', min: 10, max: 170, step: 1, value: 60, unit: '°',
+    onInput: function (v) { reset(v); redraw(); } });
+  var patch = ui.toggle({ label: 'Euler: also fix velocity', value: false,
+    onChange: function () { reset(angle.value); redraw(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { redraw(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(angle.value); redraw(); } });
+
+  reset(60);
+
+  function layout(s) {
+    var oh = Math.max(220, s.height - GRAPH_H);
+    var pw = s.width / 3;
+    var top = 28, bottomPad = 24;
+    var R = Math.max(20, Math.min(pw / 2 - 10, (oh - top - bottomPad) / 2 - 8));
+    return { oh: oh, pw: pw, cy: top + (oh - top - bottomPad) / 2, R: R, scale: R / ROPE };
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 3) return;
+    var ux = dx / len, uy = dy / len;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * 6, y2 - uy * 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 9 - uy * 4.5, y2 - uy * 9 + ux * 4.5);
+    ctx.lineTo(x2 - ux * 9 + uy * 4.5, y2 - uy * 9 - ux * 4.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPanel(ctx, c, L, index) {
+    var m = sims[index];
+    var col = c[m.colorKey];
+    var left = index * L.pw;
+    var cx = left + L.pw / 2, cy = L.cy, sc = L.scale;
+    function sx(x) { return cx + x * sc; }
+    function sy(y) { return cy + y * sc; }
+    var b = m.b;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, 0, L.pw, L.oh);
+    ctx.clip();
+
+    // The circle the rope allows.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, L.R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (debug.value) {
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.5;
+      for (var k = 0; k < m.steps.length; k++) {
+        ctx.beginPath();
+        ctx.arc(sx(m.steps[k].x), sy(m.steps[k].y), 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // Previous position.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx(b.px), sy(b.py), 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Rope and pivot.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(sx(b.x), sy(b.y));
+    ctx.stroke();
+    ctx.fillStyle = c.ink2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bob.
+    var bx = sx(b.x), by = sy(b.y);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(bx, by, Math.max(6, 10 * sc * 1.4), 0, Math.PI * 2);
+    ctx.fill();
+
+    if (debug.value && !dragging) {
+      var v = velocity(m);
+      var ax = v.x * 0.15 * sc, ay = v.y * 0.15 * sc;
+      var len = Math.sqrt(ax * ax + ay * ay);
+      var maxLen = L.R * 1.5;
+      if (len > maxLen) { ax = ax / len * maxLen; ay = ay / len * maxLen; }
+      arrow(ctx, bx, by, bx + ax, by + ay, c.good);
+    }
+    ctx.restore();
+
+    // Title and energy.
+    ctx.font = BOLD;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(L.pw < 160 ? m.short : m.title, cx, 18);
+    ctx.font = FONT;
+    var p = percent(m);
+    var text;
+    if (dragging) {
+      ctx.fillStyle = c.ink2;
+      text = 'release to let go';
+    } else if (p > MAX_E) {
+      ctx.fillStyle = c.bad;
+      text = 'energy ' + (p > 9999 ? '>9999' : p.toFixed(0)) + '%';
+    } else {
+      ctx.fillStyle = c.ink2;
+      text = 'energy ' + p.toFixed(0) + '%';
+    }
+    ctx.fillText(text, cx, L.oh - 8);
+  }
+
+  function drawGraph(ctx, s, c, L) {
+    var x0 = 44, x1 = s.width - 14;
+    var top = L.oh + 30, bottom = s.height - 44;
+    var tMax = Math.max(10, Math.ceil(simTime / 10) * 10);
+    function gx(t) { return x0 + (x1 - x0) * t / tMax; }
+    function gy(e) { return bottom - (bottom - top) * DemoKit.clamp(e, 0, MAX_E) / MAX_E; }
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, L.oh + 0.5);
+    ctx.lineTo(s.width, L.oh + 0.5);
+    ctx.stroke();
+
+    ctx.font = FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Energy (100% = at start)', 12, L.oh + 18);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('step ' + (1000 * stepDt).toFixed(1) + ' ms, ' + simTime.toFixed(1) + ' s', x1, L.oh + 18);
+
+    var levels = [0, 50, 100, 150];
+    for (var i = 0; i < levels.length; i++) {
+      var y = gy(levels[i]);
+      ctx.strokeStyle = c.line;
+      ctx.setLineDash(levels[i] === 100 ? [4, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText(levels[i] + '%', x0 - 6, y + 4);
+    }
+    ctx.setLineDash([]);
+
+    for (var n = 0; n < sims.length; n++) {
+      var m = sims[n];
+      ctx.strokeStyle = c[m.colorKey];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var k = 0; k < m.samples.length; k++) {
+        var p = m.samples[k];
+        if (k === 0) ctx.moveTo(gx(p.t), gy(p.e));
+        else ctx.lineTo(gx(p.t), gy(p.e));
+      }
+      ctx.stroke();
+    }
+
+    // Legend, bottom left (the bottom right corner holds the Pause button).
+    var ly = bottom + 20, lx = x0;
+    ctx.textAlign = 'left';
+    for (var q = 0; q < sims.length; q++) {
+      ctx.fillStyle = c[sims[q].colorKey];
+      ctx.fillRect(lx, ly - 8, 14, 3);
+      ctx.fillStyle = c.ink2;
+      var label = sims[q].short;
+      ctx.fillText(label, lx + 18, ly - 3);
+      lx += 18 + ctx.measureText(label).width + 12;
+    }
+  }
+
+  function aim(p, s) {
+    var L = layout(s);
+    var index = DemoKit.clamp(Math.floor(p.x / L.pw), 0, 2);
+    var cx = index * L.pw + L.pw / 2;
+    target.x = (p.x - cx) / L.scale;
+    target.y = (p.y - L.cy) / L.scale;
+  }
+
+  handle = DemoKit.canvas('#verlet-pendulum', {
+    height: 480,
+    drag: true,
+    label: 'Three pendulums side by side, stepped with explicit Euler, semi-implicit Euler and Verlet, all held to the same rope length by moving the bob back after each step. Without a velocity fix the two Euler bobs fall to the bottom and stick while their energy climbs. The Verlet bob keeps swinging. A graph below shows the energy of all three.',
+    update: function (dt) {
+      accumulator += dt;
+      var guard = 0;
+      while (accumulator >= stepDt - 1e-9 && guard < 1000) {
+        stepAll(stepDt);
+        accumulator -= stepDt;
+        guard += 1;
+      }
+      if (guard >= 1000 || accumulator < 0) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      for (var i = 0; i < sims.length; i++) drawPanel(ctx, c, L, i);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (var j = 1; j < sims.length; j++) {
+        var x = Math.round(L.pw * j) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, L.oh);
+        ctx.stroke();
+      }
+      drawGraph(ctx, s, c, L);
+    },
+    onDown: function (p, s) {
+      if (p.y < layout(s).oh) {
+        dragging = true;
+        aim(p, s);
+      }
+    },
+    onMove: function (p, s) {
+      if (dragging && p.down) aim(p, s);
+    },
+    onUp: function () {
+      if (dragging) {
+        dragging = false;
+        restartRecords();
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Donkey Kong's level 22: a timer that wraps to almost nothing · Game Dev Daily</title>
+<meta name="description" content="Why Donkey Kong ends at level 22: the bonus timer is worked out in one byte, 260 wraps to 4, and the cap that should catch it checks too late.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Donkey Kong's level 22: a timer that wraps to almost nothing</h1>
+  <p class="lede">Why Donkey Kong ends at level 22: the bonus timer is worked out in one byte, 260 wraps to 4, and the cap that should catch it checks too late.</p>
+</header>
+
+<section data-section="hook">
+  <p>In the 1981 Donkey Kong arcade game, each stage starts with a bonus timer in the corner. If it reaches zero, Mario loses a life. On level 22 the timer starts so low that he dies a few seconds in, long before anyone could climb to the top.</p>
+  <p>Nobody chose that ending. It comes from the order of two lines of arithmetic, and the same mistake still turns up in code written today.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: every number fits in one byte</h2>
+  <p>The Donkey Kong board runs on a Z80, an 8-bit processor. Its working unit is the <dfn>byte</dfn>: eight bits, which hold whole numbers from 0 to 255. When a sum needs a ninth bit, the processor keeps the low eight bits and drops the ninth. This is <dfn>wrap-around</dfn>, or <dfn>overflow</dfn>: 250 + 10 gives 4, not 260, and no error is raised. The processor does set a <dfn>carry flag</dfn> to say a bit fell off, but only code that checks the flag will notice.</p>
+  <p>Programmers of the time lived inside this limit. Scores were split across several bytes, and anything that fitted in one byte was kept in one byte.</p>
+
+  <h2>The formula: more levels, more time, up to a cap</h2>
+  <p>The bonus timer is stored in hundreds of points. A widely cited disassembly of the game by Don Hodges describes how its starting value is worked out from the level number:</p>
+  <ol>
+    <li>Multiply the level by 10 and add 40.</li>
+    <li>If the result is more than 80, use 80.</li>
+    <li>Show it multiplied by 100 on screen.</li>
+  </ol>
+  <p>So level 1 gets 50 (shown as 5000), level 2 gets 60, level 3 gets 70, and from level 4 on the cap holds the timer at 80, or 8000. The cap is there so the timer stops growing, and for eighteen levels it does its job.</p>
+
+  <h2>The bug: the cap checks a number that has already wrapped</h2>
+  <p>On level 21 the sum is 21 × 10 + 40 = 250. That fits in a byte, it is more than 80, and the cap turns it into 80. Normal.</p>
+  <p>On level 22 the sum is 22 × 10 + 40 = 260. That needs nine bits. The processor keeps the low eight, and 260 − 256 = 4. Now the cap asks "is 4 more than 80?" The answer is no, so 4 goes through untouched. The stage starts with a timer of 400 points instead of 8000, and the timer runs out in a few seconds.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Level 22 times 10 plus 40 equals 260, which in binary is 1 0000 0100. The ninth bit is dropped, leaving 0000 0100, which is 4. The cap compares 4 with 80, lets it through, and the timer starts at 400 points instead of 8000.">
+      <rect class="d-box" x="16" y="16" width="150" height="64" rx="8"/>
+      <text class="d-muted" x="91" y="40" text-anchor="middle">level 22</text>
+      <text class="d-mono" x="91" y="62" text-anchor="middle">22 × 10 + 40</text>
+
+      <path class="d-accent" d="M166 48 H214"/>
+      <path class="d-accent" d="M206 42 L214 48 L206 54"/>
+
+      <rect class="d-box" x="216" y="16" width="200" height="64" rx="8"/>
+      <text class="d-muted" x="316" y="40" text-anchor="middle">true answer, needs 9 bits</text>
+      <text class="d-mono" x="316" y="62" text-anchor="middle">260 = 1 0000 0100</text>
+
+      <path class="d-accent" d="M416 48 H464"/>
+      <path class="d-accent" d="M456 42 L464 48 L456 54"/>
+
+      <rect class="d-accent-soft" x="466" y="16" width="158" height="64" rx="8"/>
+      <text class="d-muted" x="545" y="40" text-anchor="middle">what one byte keeps</text>
+      <text class="d-mono" x="545" y="62" text-anchor="middle">0000 0100 = 4</text>
+
+      <text class="d-label" x="316" y="104" text-anchor="middle">the leading 1 (worth 256) falls off</text>
+
+      <path class="d-accent" d="M545 80 V132"/>
+      <path class="d-accent" d="M539 124 L545 132 L551 124"/>
+
+      <rect class="d-box" x="400" y="134" width="224" height="64" rx="8"/>
+      <text class="d-text" x="512" y="158" text-anchor="middle">cap: is 4 more than 80?</text>
+      <text class="d-muted" x="512" y="180" text-anchor="middle">no, so 4 passes through</text>
+
+      <path class="d-accent" d="M400 166 H316"/>
+      <path class="d-accent" d="M324 160 L316 166 L324 172"/>
+
+      <rect class="d-accent-soft" x="16" y="134" width="298" height="64" rx="8"/>
+      <text class="d-text" x="165" y="158" text-anchor="middle">timer starts at 4 × 100 = 400</text>
+      <text class="d-muted" x="165" y="180" text-anchor="middle">level 21 got 8000</text>
+
+      <text class="d-muted" x="16" y="236">Order matters: overflow happens first, and the cap only ever sees the wrapped value.</text>
+    </svg>
+    <figcaption>The whole kill screen in four boxes. The cap was meant to stop large numbers, but by the time it looks, 260 has already become 4.</figcaption>
+  </figure>
+
+  <p>A level that can't be finished is called a <dfn>kill screen</dfn>. Donkey Kong's is the first stage of level 22, often written 22-1. It became the end point of competitive play: top scores are measured by what a player collects before reaching it.</p>
+
+  <h3>The levels after 22</h3>
+  <p>The wrap does not last forever. Each later level adds 10 to the wrapped value: 14 on level 23, 24 on level 24, up to 74 on level 29, and on level 30 the result is 84, which the cap pulls back to 80. Those later timers are still short. The table shows the values the formula gives.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Level</th><th>level × 10 + 40</th><th>In one byte</th><th>After the cap</th><th>Shown</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>50</td><td>50</td><td>50</td><td>5000</td></tr>
+      <tr><td>4</td><td>80</td><td>80</td><td>80</td><td>8000</td></tr>
+      <tr><td>21</td><td>250</td><td>250</td><td>80</td><td>8000</td></tr>
+      <tr><td><strong>22</strong></td><td>260</td><td><strong>4</strong></td><td><strong>4</strong></td><td><strong>400</strong></td></tr>
+      <tr><td>23</td><td>270</td><td>14</td><td>14</td><td>1400</td></tr>
+      <tr><td>26</td><td>300</td><td>44</td><td>44</td><td>4400</td></tr>
+      <tr><td>30</td><td>340</td><td>84</td><td>80</td><td>8000</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>A limit checked after the arithmetic can't catch an overflow. Clamp the input, or check the carry, before the result is trusted.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Bytes are still everywhere: colour channels in images, packed save files, sequence numbers in network packets, small integer types chosen to save memory on mobile or in large arrays. C# in Unity wraps integers silently unless you ask for <code>checked</code> arithmetic. Lua in LÖVE stores numbers as 64-bit floats, so they don't wrap, but the moment you write a value into a byte (an image pixel, a binary file) the old edge returns. Whenever a result is clamped, ask whether the value being clamped could already be wrong.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the level from 21 to 22 and watch the bits: the ninth bit lights up, falls off, and the cap lets the small leftover through. Press <strong>Climb</strong> to send the climber up a toy stage with that much time. You can also click or tap a bar in the chart at the bottom to jump to that level. Then turn on the fix and try level 22 again.</p>
+
+  <figure class="demo wide" data-demo="dk-timer">
+    <canvas id="dk-timer"></canvas>
+    <figcaption>The arithmetic is the formula above. The stage is a toy, not the real game: here a full climb needs 40 timer units (4000 points) and the timer drains 10 units per second, so the climber either reaches the top or stops where time ran out.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Lua numbers don't wrap, so <code>toByte</code> imitates an 8-bit register with <code>% 256</code>. The buggy version adds first and caps afterwards, as the game effectively does. The fixed version caps the level before the sum can grow too big. The numbers match the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Bonus timer in hundreds of points, worked out like an 8-bit machine would.</span>
+local TIMER_CAP = 80               <span class="c">-- 80 hundreds = 8000 points</span>
+
+local function toByte(n)
+  return n % 256                   <span class="c">-- keep the low 8 bits, drop the carry</span>
+end
+
+local function bonusBuggy(level)
+<span class="k">  local t = toByte(level * 10 + 40)  -- level 22: 260 becomes 4</span>
+  if t &gt; TIMER_CAP then t = TIMER_CAP end   <span class="c">-- too late: 4 is not &gt; 80</span>
+  return t
+end
+
+local function bonusFixed(level)
+<span class="k">  local l = math.min(level, 4)       -- clamp the input first</span>
+  local t = toByte(l * 10 + 40)      <span class="c">-- now at most 80, can never wrap</span>
+  if t &gt; TIMER_CAP then t = TIMER_CAP end
+  return t
+end
+
+local lines = {}
+
+function love.load()
+  for level = 20, 30 do
+    lines[#lines + 1] = string.format("level %2d   buggy %4d   fixed %4d",
+      level, bonusBuggy(level) * 100, bonusFixed(level) * 100)
+  end
+end
+
+function love.draw()
+  for i, text in ipairs(lines) do
+    love.graphics.print(text, 20, 20 + (i - 1) * 18)
+  end
+end</code></pre>
+  </div>
+  <p>Run it and the buggy column drops from 8000 to 400 at level 22, then climbs back by 1000 a level until 30. The fixed column stays at 8000.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Clamping the output instead of the input.</strong> A cap after the sum can only catch values that are still correct. Clamp the inputs so the sum can't overflow, or do the sum in a wider type and clamp that.</li>
+    <li><strong>Ignoring the carry.</strong> In assembly the processor tells you a bit fell off. Checking the carry flag after the addition, and treating a set flag as "too big", would have caught this one. In high-level code the equivalent is a checked or saturating add.</li>
+    <li><strong>Testing only the levels people reach.</strong> Level 22 takes a skilled player a long time to reach. A test that loops the formula over every level from 1 to 255 shows the dip at once. Cheap exhaustive tests beat long play sessions for this kind of bug.</li>
+    <li><strong>A wider type only moves the edge.</strong> A 16-bit timer would have pushed the wrap out to level 6,550. That is safe in practice, but clamping the input is safe for every level.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The level 22 kill screen is part of arcade history. It is the finish line in the 2007 documentary <cite>The King of Kong: A Fistful of Quarters</cite>, and record scores are set by players who reach it. Don Hodges disassembled the timer routine, explained the overflow and published a patch that removes it.</p>
+  <p>Donkey Kong Jr. is often reported to have a kill screen at level 22 from a similar timer overflow. I could not check that against a primary source, so treat it as often repeated, not confirmed.</p>
+  <p>In 2025 news sites reported that a player called Kosmic had found a way to finish the level 22 stage despite the tiny timer, using precise inputs on an emulator. I could not open those reports, so the details are not confirmed here.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one formula in your project that grows with progress and has a cap: enemy health per wave, spawn count per level, a reward per combo. Write a loop that calls it for every value from 1 up to the largest the type allows (or 10,000 if the type is wide) and prints any result that goes down when the input goes up. You are done when the loop prints nothing, or when you have moved the clamp to the input and it prints nothing.</p>
+  <p>No such formula? Run the Lua above for levels 1 to 255 and count how many levels get less than 4000 points.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Donkey Kong works out the bonus timer as level × 10 + 40 in one byte, capped at 80 (8000 points).</li>
+    <li>On level 22 the sum is 260, which wraps to 4, and the cap lets 4 through because it is smaller than 80.</li>
+    <li>The stage starts with 400 points on the timer, too little to climb, so level 22 is a kill screen.</li>
+    <li>Clamp inputs, or check for overflow, before you clamp results. A limit placed after the arithmetic can't see a wrap.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we leave the arcade for the ZX Spectrum, where colour is stored per 8 by 8 block rather than per pixel, and moving sprites stain the scenery around them.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: web pages could not be opened in this session. The formula (level × 10 + 40, capped at 80), the wrap from 260 to 4 on level 22, and the 400-point timer were cross-checked only against search summaries of the works below. Accounts differ on exactly how many seconds Mario has on level 22, so this page does not give a number. Look these works up for the original analysis.</p>
+  <ul>
+    <li>Don Hodges, <cite>How High Can You Get? The Fix for Donkey Kong's Kill Screen</cite> (donhodges.com). The disassembly of the timer routine and a patch.</li>
+    <li>Jeff's Romhack, the Donkey Kong kill screen technical page (jeffsromhack.com).</li>
+    <li>Seth Gordon (director), <cite>The King of Kong: A Fistful of Quarters</cite> (2007). The competitive scene that treats level 22 as the end.</li>
+    <li>Heise Online, <cite>Donkey Kong killscreen overcome after 44 years</cite>. The 2025 report about getting past the stage.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var CAP = 80;           // 80 hundreds = 8000 points
+  var NEED = 40;          // toy stage: timer units needed for a full climb
+  var DRAIN = 10;         // toy stage: timer units lost per second
+  var MAX_LEVEL = 30;
+
+  var reduceMotion = !DemoKit.testMode && !!(window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function calc(level, fixed) {
+    var l = fixed ? Math.min(level, 4) : level;
+    var raw = l * 10 + 40;
+    var b = raw % 256;
+    var capped = b > CAP ? CAP : b;
+    return { l: l, raw: raw, b: b, carry: raw > 255, capped: capped };
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="dk-timer"]');
+  var level = ui.slider({ label: 'Level', min: 1, max: MAX_LEVEL, step: 1, value: 21,
+    onInput: function () { reset(); } });
+  var fix = ui.toggle({ label: 'Fix: clamp the level to 4 before the sum', value: false,
+    onChange: function () { reset(); } });
+  ui.button({ label: 'Climb', onClick: function () { startClimb(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var outSum = ui.readout({ label: 'Sum' });
+  var outCap = ui.readout({ label: 'Cap' });
+  var outResult = ui.readout({ label: 'Result' });
+
+  // ---- climb state ----
+  var t = 0;              // seconds since the climb started
+  var climbing = false;
+  var finished = false;
+
+  function current() { return calc(level.value, fix.value); }
+  function climbTime() { return NEED / DRAIN; }                 // 4 seconds for the full climb
+  function deathTime(c) { return c.capped / DRAIN; }            // when the timer hits zero
+  function endTime(c) { return Math.min(climbTime(), deathTime(c)); }
+
+  function startClimb() {
+    t = 0;
+    finished = false;
+    if (reduceMotion) {
+      t = endTime(current());
+      finished = true;
+      climbing = false;
+    } else {
+      climbing = true;
+      if (handle) handle.play();
+    }
+    updateInfo();
+    redraw();
+  }
+
+  function reset() {
+    t = 0;
+    climbing = false;
+    finished = false;
+    updateInfo();
+    redraw();
+  }
+
+  function updateInfo() {
+    var c = current();
+    var sumText = (fix.value && level.value > 4 ? 'min(' + level.value + ', 4) = 4, ' : '') +
+      c.l + ' × 10 + 40 = ' + c.raw;
+    if (c.carry) sumText += ', needs 9 bits, so one byte keeps ' + c.raw + ' − 256 = ' + c.b;
+    outSum.set(sumText);
+    var capText = c.b > CAP ? c.b + ' is more than 80, so use 80' : c.b + ' is not more than 80, so keep ' + c.b;
+    outCap.set(capText);
+    var res = 'timer ' + c.capped * 100 + ' points';
+    res += c.capped >= NEED ? ': enough for the toy climb' : ': runs out ' + Math.round(100 * c.capped / NEED) + '% of the way up';
+    outResult.set(res);
+  }
+
+  // ---- toy stage geometry (fractions of the stage box) ----
+  // Four girders, ladders alternate right and left. The path walks and climbs to the top.
+  var GIRDERS = [0.92, 0.66, 0.40, 0.14];
+  var LADDER_X = [0.86, 0.14, 0.86];
+  var PATH = (function () {
+    var p = [[0.06, GIRDERS[0]]];
+    for (var i = 0; i < 3; i++) {
+      p.push([LADDER_X[i], GIRDERS[i]]);
+      p.push([LADDER_X[i], GIRDERS[i + 1]]);
+    }
+    p.push([0.5, GIRDERS[3]]);
+    return p;
+  })();
+
+  function pathPoint(frac, w, h) {
+    // Walk along PATH in stage pixels; frac in [0, 1].
+    var pts = [], i, total = 0, lens = [];
+    for (i = 0; i < PATH.length; i++) pts.push([PATH[i][0] * w, PATH[i][1] * h]);
+    for (i = 1; i < pts.length; i++) {
+      var len = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      lens.push(len);
+      total += len;
+    }
+    var d = DemoKit.clamp(frac, 0, 1) * total;
+    for (i = 0; i < lens.length; i++) {
+      if (d <= lens[i] || i === lens.length - 1) {
+        var k = lens[i] > 0 ? Math.min(1, d / lens[i]) : 0;
+        return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * k, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k];
+      }
+      d -= lens[i];
+    }
+    return pts[pts.length - 1];
+  }
+
+  // ---- drawing ----
+  function drawBits(ctx, s, x, y, w, c) {
+    var col = s.colors;
+    var n = 9;
+    var gap = 4;
+    var box = Math.min(34, Math.floor((w - gap * (n - 1)) / n));
+    var total = box * n + gap * (n - 1);
+    var x0 = x + Math.round((w - total) / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (var i = 0; i < n; i++) {
+      var bit = 8 - i;
+      var on = (c.raw >> bit) & 1;
+      var bx = x0 + i * (box + gap);
+      if (bit === 8) {
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = on ? col.bad : col.ink3;
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = col.ink3;
+      }
+      if (on) {
+        ctx.fillStyle = bit === 8 ? col.bad : col.topic;
+        ctx.globalAlpha = bit === 8 ? 0.35 : 0.85;
+        ctx.fillRect(bx, y, box, box);
+        ctx.globalAlpha = 1;
+      }
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, y + 0.5, box - 1, box - 1);
+      ctx.fillStyle = col.ink;
+      ctx.font = 'bold 14px ui-monospace, monospace';
+      ctx.fillText(String(on), bx + box / 2, y + box / 2 + 1);
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = col.ink3;
+      ctx.fillText(String(1 << bit), bx + box / 2, y + box + 10);
+    }
+    ctx.setLineDash([]);
+    // bracket over the kept byte
+    var kx0 = x0 + (box + gap), kx1 = x0 + total;
+    ctx.strokeStyle = col.ink2;
+    ctx.beginPath();
+    ctx.moveTo(kx0, y - 4); ctx.lineTo(kx0, y - 9); ctx.lineTo(kx1, y - 9); ctx.lineTo(kx1, y - 4);
+    ctx.stroke();
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('one byte keeps these 8 bits = ' + c.b, (kx0 + kx1) / 2, y - 18);
+    ctx.fillStyle = c.carry ? col.bad : col.ink3;
+    ctx.fillText(c.carry ? 'dropped' : '9th bit', x0 + box / 2, y + box + 24);
+  }
+
+  function drawStage(ctx, s, x, y, w, h, c) {
+    var col = s.colors;
+    var i;
+    ctx.save();
+    ctx.translate(x, y);
+    // timer bar
+    var barH = 10;
+    ctx.fillStyle = col.surface2;
+    ctx.fillRect(0, 0, w, barH);
+    var left = Math.max(0, c.capped - t * DRAIN);
+    ctx.fillStyle = left > 0 ? col.topic : col.bad;
+    ctx.fillRect(0, 0, w * Math.min(1, left / CAP), barH);
+    ctx.strokeStyle = col.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, w - 1, barH - 1);
+    // mark of what a full climb needs
+    var nx = w * NEED / CAP;
+    ctx.strokeStyle = col.ink;
+    ctx.beginPath(); ctx.moveTo(nx, -3); ctx.lineTo(nx, barH + 3); ctx.stroke();
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('timer ' + Math.ceil(left) * 100, 0, barH + 4);
+    ctx.textAlign = 'center';
+    ctx.fillText('climb needs ' + NEED * 100, Math.min(Math.max(nx, 60), w - 60), barH + 4);
+
+    var sy = barH + 22, sh = h - sy;
+    ctx.translate(0, sy);
+    // girders
+    ctx.strokeStyle = col.ink2;
+    ctx.lineWidth = 4;
+    for (i = 0; i < GIRDERS.length; i++) {
+      ctx.beginPath();
+      ctx.moveTo(w * 0.03, sh * GIRDERS[i]);
+      ctx.lineTo(w * 0.97, sh * GIRDERS[i]);
+      ctx.stroke();
+    }
+    // ladders
+    ctx.lineWidth = 2;
+    for (i = 0; i < LADDER_X.length; i++) {
+      var lx = w * LADDER_X[i];
+      var y0 = sh * GIRDERS[i], y1 = sh * GIRDERS[i + 1];
+      ctx.beginPath();
+      ctx.moveTo(lx - 6, y0); ctx.lineTo(lx - 6, y1);
+      ctx.moveTo(lx + 6, y0); ctx.lineTo(lx + 6, y1);
+      for (var r = y1 + 6; r < y0; r += 8) { ctx.moveTo(lx - 6, r); ctx.lineTo(lx + 6, r); }
+      ctx.stroke();
+    }
+    // goal
+    var goal = pathPoint(1, w, sh);
+    ctx.fillStyle = col.good;
+    ctx.beginPath();
+    ctx.moveTo(goal[0], goal[1] - 22); ctx.lineTo(goal[0] + 14, goal[1] - 16); ctx.lineTo(goal[0], goal[1] - 10);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = col.good;
+    ctx.beginPath(); ctx.moveTo(goal[0], goal[1] - 2); ctx.lineTo(goal[0], goal[1] - 22); ctx.stroke();
+
+    // where the timer will run out
+    var deathFrac = c.capped / NEED;
+    if (deathFrac < 1) {
+      var dp = pathPoint(deathFrac, w, sh);
+      ctx.strokeStyle = col.bad;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(dp[0] - 6, dp[1] - 16); ctx.lineTo(dp[0] + 6, dp[1] - 4);
+      ctx.moveTo(dp[0] + 6, dp[1] - 16); ctx.lineTo(dp[0] - 6, dp[1] - 4);
+      ctx.stroke();
+      ctx.fillStyle = col.bad;
+      ctx.textAlign = dp[0] > w / 2 ? 'right' : 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('time runs out', dp[0] + (dp[0] > w / 2 ? -10 : 10), dp[1] - 6);
+    }
+
+    // climber: an original round token
+    var frac = t / climbTime();
+    var p = pathPoint(frac, w, sh);
+    var dead = (climbing || finished) && left <= 0 && frac < 1;
+    ctx.fillStyle = dead ? col.bad : col.topic;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1] - 9, 7, 0, Math.PI * 2);
+    ctx.fill();
+    if (finished) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = dead ? col.bad : col.good;
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.fillText(dead ? 'Out of time' : 'Made it', w / 2, sh * GIRDERS[3] - 26);
+    }
+    ctx.restore();
+  }
+
+  function drawChart(ctx, s, x, y, w, h) {
+    var col = s.colors;
+    var n = MAX_LEVEL;
+    var bw = w / n;
+    var top = y + 16, base = y + h - 16;
+    var cur = level.value;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('Starting timer by level (click or tap a bar)', x, y + 10);
+    // line for the toy climb need
+    var ny = base - (base - top) * NEED / CAP;
+    ctx.strokeStyle = col.ink3;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(x, ny); ctx.lineTo(x + w, ny); ctx.stroke();
+    ctx.setLineDash([]);
+    for (var L = 1; L <= n; L++) {
+      var c = calc(L, fix.value);
+      var bh = (base - top) * c.capped / CAP;
+      ctx.fillStyle = L === cur ? col.topic : (c.capped < NEED ? col.bad : col.ink3);
+      ctx.globalAlpha = L === cur ? 1 : 0.55;
+      ctx.fillRect(x + (L - 1) * bw + 1, base - bh, Math.max(1, bw - 2), bh);
+      ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = col.ink3;
+    var marks = [1, 10, 22, 30];
+    for (var m = 0; m < marks.length; m++) {
+      ctx.fillText(String(marks[m]), x + (marks[m] - 0.5) * bw, base + 13);
+    }
+  }
+
+  var layout = { chartX: 0, chartY: 0, chartW: 1, chartH: 1 };
+
+  function draw(ctx, s) {
+    var col = s.colors;
+    var W = s.width, H = s.height;
+    var c = current();
+    var pad = 12;
+    ctx.font = '12px system-ui, sans-serif';
+
+    // top: bits
+    drawBits(ctx, s, pad, 34, W - pad * 2, c);
+
+    // middle: stage
+    var stageY = 110, chartH = 90;
+    var stageH = H - stageY - chartH - 20;
+    var stageW = Math.min(W - pad * 2, 520);
+    drawStage(ctx, s, Math.round((W - stageW) / 2), stageY, stageW, stageH, c);
+
+    // bottom: chart (leave the bottom-right corner for the pause button)
+    var cw = Math.max(120, W - pad * 2 - 90);
+    layout.chartX = pad; layout.chartY = H - chartH - 6; layout.chartW = cw; layout.chartH = chartH;
+    drawChart(ctx, s, layout.chartX, layout.chartY, cw, chartH);
+  }
+
+  function pickBar(p) {
+    if (p.x < layout.chartX || p.x > layout.chartX + layout.chartW) return;
+    if (p.y < layout.chartY || p.y > layout.chartY + layout.chartH) return;
+    var L = Math.floor((p.x - layout.chartX) / (layout.chartW / MAX_LEVEL)) + 1;
+    L = DemoKit.clamp(L, 1, MAX_LEVEL);
+    if (L !== level.value) { level.set(L); reset(); }
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  handle = DemoKit.canvas('#dk-timer', {
+    height: 460,
+    label: 'The bits of level times 10 plus 40, with the ninth bit dropped; a toy stage of girders and ladders with a draining timer bar; and a bar chart of the starting timer for levels 1 to 30, which dips at level 22.',
+    onDown: function (p) { pickBar(p); },
+    update: function (dt) {
+      if (!climbing) return;
+      t += dt;
+      var e = endTime(current());
+      if (t >= e) { t = e; climbing = false; finished = true; }
+    },
+    draw: draw
+  });
+
+  reset();
+})();
+</script>
+</body>
+</html>

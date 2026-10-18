@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impact particles: dust, sparks and debris · Game Dev Daily</title>
+<meta name="description" content="How short bursts of dust, sparks and debris tell the player what happened, what was touched and how hard, and how to scale them with the impact.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Impact particles: dust, sparks and debris</h1>
+  <p class="lede">How short bursts of dust, sparks and debris tell the player what happened, what was touched and how hard, and how to scale them with the impact.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character drops from a high ledge, lands, and simply stops. The game knows it was a hard landing because it measured the speed. The player is told nothing. A puff of dust and a few pebbles would say it in a quarter of a second.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Particles are messages</h2>
+  <p>A <dfn>particle</dfn> is a tiny, short-lived visual object: a dot, a line, a small square. It usually has no effect on the game rules. Particles are spawned in groups called <dfn>bursts</dfn> when something happens, or streamed steadily by an <dfn>emitter</dfn> for things like smoke or rain. This lesson is about bursts on impact.</p>
+  <p>A good impact burst answers four questions for the player at a glance:</p>
+  <ul>
+    <li><strong>What happened?</strong> Something landed, hit or broke.</li>
+    <li><strong>Where?</strong> The burst starts at the point of contact.</li>
+    <li><strong>What was touched?</strong> Soft dust for dirt, bright sparks for metal.</li>
+    <li><strong>How hard?</strong> More particles, flying faster, for a harder impact.</li>
+  </ul>
+  <p>A burst that answers none of these is decoration, competing for the player's eyes.</p>
+
+  <h3>One particle, start to finish</h3>
+  <p>Every particle needs only a few numbers: a position, a velocity, an age and a <dfn>lifetime</dfn> (how many seconds it lives). Each frame it is pulled by gravity, slowed by <dfn>drag</dfn> (a steady loss of speed, like air resistance), moved and aged, and removed when its age reaches its lifetime. The ratio <code>t = age / life</code> runs from 0 to 1 and drives the look: fade as <code>t</code> rises, grow a dust puff.</p>
+
+  <h3>Three kinds, three messages</h3>
+  <p>Dust, sparks and debris use the same code with different numbers.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Top row: landing speed becomes a strength from 0 to 1, which sets particle count and speed. Below, three panels. Dust: slow puffs spreading sideways and growing as they fade, meaning soft ground. Sparks: fast thin streaks in an upward fan falling in arcs, short life, meaning hard metal. Debris: heavy chunks thrown up that bounce on the floor and last longest, only above a strength of 0.6, meaning a hard hit.">
+      <rect class="d-box" x="20" y="16" width="160" height="44" rx="6"/>
+      <text class="d-text" x="100" y="43" text-anchor="middle">landing speed</text>
+      <path class="d-accent" d="M184 38 H226"/>
+      <path class="d-accent" d="M218 33 L226 38 L218 43"/>
+      <rect class="d-accent-soft" x="232" y="16" width="160" height="44" rx="6"/>
+      <text class="d-text" x="312" y="43" text-anchor="middle">strength 0 to 1</text>
+      <path class="d-accent" d="M396 38 H438"/>
+      <path class="d-accent" d="M430 33 L438 38 L430 43"/>
+      <rect class="d-box" x="444" y="16" width="176" height="44" rx="6"/>
+      <text class="d-text" x="532" y="43" text-anchor="middle">count and speed</text>
+
+      <rect class="d-fill" x="20" y="84" width="190" height="200" rx="8"/>
+      <rect class="d-fill" x="225" y="84" width="190" height="200" rx="8"/>
+      <rect class="d-fill" x="430" y="84" width="190" height="200" rx="8"/>
+      <text class="d-label" x="36" y="108">Dust</text>
+      <text class="d-label" x="241" y="108">Sparks</text>
+      <text class="d-label" x="446" y="108">Debris</text>
+
+      <path class="d-stroke" d="M36 200 H194"/>
+      <circle class="d-thin" cx="115" cy="194" r="4"/>
+      <circle class="d-thin" cx="140" cy="190" r="7"/>
+      <circle class="d-thin" cx="170" cy="186" r="10" opacity="0.6"/>
+      <circle class="d-thin" cx="90" cy="190" r="7"/>
+      <circle class="d-thin" cx="60" cy="186" r="10" opacity="0.6"/>
+      <text class="d-muted" x="36" y="228">slow, spreads sideways</text>
+      <text class="d-muted" x="36" y="246">grows as it fades, 0.5 s</text>
+      <text class="d-text" x="36" y="270">says: soft ground</text>
+
+      <path class="d-stroke" d="M241 200 H399"/>
+      <path class="d-accent" d="M320 196 L290 150"/>
+      <path class="d-accent" d="M320 196 L312 140"/>
+      <path class="d-accent" d="M320 196 L340 142"/>
+      <path class="d-accent" d="M320 196 L362 156"/>
+      <path class="d-dash" d="M290 150 Q 278 138 266 170"/>
+      <path class="d-dash" d="M362 156 Q 376 146 384 176"/>
+      <text class="d-muted" x="241" y="228">fast, thin, bright</text>
+      <text class="d-muted" x="241" y="246">falls in arcs, 0.3 s</text>
+      <text class="d-text" x="241" y="270">says: hard metal</text>
+
+      <path class="d-stroke" d="M446 200 H604"/>
+      <rect class="d-box" x="480" y="140" width="9" height="9" transform="rotate(20 484 144)"/>
+      <rect class="d-box" x="528" y="126" width="9" height="9" transform="rotate(-15 532 130)"/>
+      <rect class="d-box" x="570" y="186" width="9" height="9"/>
+      <path class="d-dash" d="M525 196 Q 548 110 574 186"/>
+      <path class="d-dash" d="M574 192 Q 584 172 594 196"/>
+      <text class="d-muted" x="446" y="228">heavy, bounces, 1 s</text>
+      <text class="d-muted" x="446" y="246">only above strength 0.6</text>
+      <text class="d-text" x="446" y="270">says: a hard hit</text>
+    </svg>
+    <figcaption>The kind of particle says what was touched; count and speed say how hard. Debris appears only past a threshold.</figcaption>
+  </figure>
+
+  <h3>Scale the burst with the impact</h3>
+  <p>The most useful trick is to turn the impact into a <dfn>strength</dfn> between 0 and 1 and multiply count and launch speed by it. In the demo, strength is the landing speed minus 200, divided by 700, clamped to that range. A small hop lands at about 500 pixels per second, a strength near 0.4. A big jump lands at about 850, near 0.9. Below 200 nothing spawns, so tiny drops stay quiet.</p>
+  <p>A <dfn>threshold</dfn> adds a second layer of meaning. Debris only appears when strength is 0.6 or more, so the player learns, without being told, that pebbles mean "that was a big one".</p>
+  <p>Add a little randomness to every particle's angle, speed and lifetime. Otherwise every burst is the same stamp, and the eye soon stops reading it.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>At full strength: dust about 12 puffs living 0.5 seconds, sparks about 16 streaks living 0.3 seconds, debris about 6 chunks living 1 second. Most of a burst should be gone within half a second. These are starting points, not rules: a slow, chunky game wants fewer, larger particles; a fast arcade game more, shorter ones.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Hop and big-jump on the dirt with every toggle off, then turn them on one at a time. Do the same on the metal. Then switch off <em>Scale with landing speed</em>: every landing gets the full burst and the hop and big jump look alike. Finally push count and lifetime to 300 percent and notice when the effect starts to hide the character.</p>
+
+  <figure class="demo" data-demo="impact">
+    <canvas id="impact"></canvas>
+    <figcaption>Controls: click the canvas, then use the Left and Right arrows or A and D to walk, J or Space to hop, and K for a big jump. On a phone, tap the canvas where you want to walk and use the Hop and Big jump buttons. The left half of the floor is dirt, the right half is metal. The bar at the top shows the strength of the last landing and the 0.6 mark where debris starts.</figcaption>
+  </figure>
+
+  <p>With everything off, a landing is only a stop. With dust on, the hop and the big jump already look different, and sparks or pebbles tell you the surface without looking at the floor.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's particle system in LÖVE, same names and numbers. Call <code>land</code> on the frame the player touches the ground, with their downward speed, before zeroing it. <code>updateParticles(dt)</code> goes in <code>love.update</code> and the drawing loop in <code>love.draw</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local FLOOR = 340
+local KINDS = {
+  dust   = { count = 12, life = 0.5, speed = 120, gravity = -40,  drag = 6, size = 4 },
+  sparks = { count = 16, life = 0.3, speed = 420, gravity = 900,  drag = 1, size = 2 },
+  debris = { count = 6,  life = 1.0, speed = 320, gravity = 1200, drag = 0, size = 4, bounce = 0.4 },
+}
+local DEBRIS_MIN = 0.6               <span class="c">-- only hard landings throw debris</span>
+local countScale, lifeScale = 1, 1   <span class="c">-- the demo's two sliders</span>
+local particles = {}
+
+local function burst(kind, x, y, strength)
+  local k = KINDS[kind]
+<span class="k">  local n = math.floor(k.count * countScale * strength + 0.5)</span>
+  for i = 1, n do
+    local angle
+    if kind == "dust" then              <span class="c">-- low, half left and half right</span>
+      angle = -math.random() * 0.35
+      if i % 2 == 0 then angle = math.pi - angle end
+    elseif kind == "sparks" then        <span class="c">-- wide upward fan</span>
+      angle = -math.pi * (0.1 + 0.8 * math.random())
+    else                                <span class="c">-- debris: mostly straight up</span>
+      angle = -math.pi * (0.33 + 0.34 * math.random())
+    end
+<span class="k">    local speed = k.speed * (0.4 + 0.6 * strength) * (0.5 + 0.5 * math.random())</span>
+    table.insert(particles, { kind = kind, x = x, y = y, age = 0,
+      vx = math.cos(angle) * speed, vy = math.sin(angle) * speed,
+      life = k.life * lifeScale * (0.7 + 0.3 * math.random()),
+      spin = (math.random() - 0.5) * 20 })
+  end
+end
+
+local function land(x, impactSpeed, surface)
+<span class="k">  local strength = math.max(0, math.min(1, (impactSpeed - 200) / 700))</span>
+  <span class="c">-- strength = 1 here makes every landing look the same</span>
+  if surface == "dirt" then
+    burst("dust", x, FLOOR - 2, strength)
+    if strength &gt;= DEBRIS_MIN then burst("debris", x, FLOOR - 2, strength) end
+  else
+    burst("dust", x, FLOOR - 2, strength * 0.4)
+    burst("sparks", x, FLOOR - 2, strength)
+  end
+end
+
+local function updateParticles(dt)
+  for i = #particles, 1, -1 do         <span class="c">-- backwards, so removing is safe</span>
+    local p = particles[i]
+    local k = KINDS[p.kind]
+    p.age = p.age + dt
+    p.vx = p.vx / (1 + k.drag * dt)
+    p.vy = p.vy / (1 + k.drag * dt) + k.gravity * dt
+    p.x = p.x + p.vx * dt
+    p.y = p.y + p.vy * dt
+    if p.y &gt; FLOOR then
+      if k.bounce then
+        p.y = FLOOR
+        p.vy = -p.vy * k.bounce
+        p.vx = p.vx * 0.7
+      else
+        p.age = p.life                 <span class="c">-- sparks and dust die on the floor</span>
+      end
+    end
+    if p.age &gt;= p.life then table.remove(particles, i) end
+  end
+end
+
+function love.draw()
+  for _, p in ipairs(particles) do
+    local k = KINDS[p.kind]
+<span class="k">    local t = p.age / p.life             -- 0 at birth, 1 at death</span>
+    if p.kind == "dust" then
+      love.graphics.setColor(0.6, 0.6, 0.6, 1 - t)
+      love.graphics.circle("fill", p.x, p.y, k.size + 8 * t)
+    elseif p.kind == "sparks" then
+      love.graphics.setColor(1, 0.75, 0.25, 1 - t)
+      love.graphics.line(p.x, p.y, p.x - p.vx * 0.03, p.y - p.vy * 0.03)
+    else
+      love.graphics.setColor(0.45, 0.35, 0.25, math.min(1, (1 - t) / 0.3))
+      love.graphics.push()
+      love.graphics.translate(p.x, p.y)
+      love.graphics.rotate(p.spin * p.age)
+      love.graphics.rectangle("fill", -k.size, -k.size, k.size * 2, k.size * 2)
+      love.graphics.pop()
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end</code></pre>
+  </div>
+  <p>Sparks are lines pointing back along their velocity, so faster sparks are longer streaks. Debris fades only in its last 30 percent, so it reads as solid.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Particles that outstay the event.</strong> Dust still drifting a second later blends into the next burst. Keep most of a burst under half a second.</li>
+    <li><strong>Hiding the action.</strong> A big burst can cover the character or the next bullet. Keep particles small near the player and draw them behind characters.</li>
+    <li><strong>Particles that look like gameplay.</strong> If enemy bullets are small orange dots, orange sparks will be mistaken for them. Never borrow the look of threats or pickups.</li>
+    <li><strong>The same burst every time.</strong> Without scaling, the effect carries no information. Even two levels, soft and hard, beat one.</li>
+    <li><strong>Spawning per frame.</strong> For emitters that stream particles, spawn by time (for example 30 per second, using <code>dt</code>), not a fixed number per frame, or the effect doubles on a 120 hertz screen.</li>
+    <li><strong>Creating garbage.</strong> A new table per particle is fine for a few hundred. For thousands, reuse dead particles from a pool or use the engine's particle system.</li>
+    <li><strong>Celebrating everything.</strong> Showers of coins and sparkles on every reward can make tiny wins feel large. Slot machines are known for celebrating payouts that are smaller than the bet. If your bursts make a loss feel like a win, you are misleading the player.</li>
+  </ul>
+  <div class="callout warn">
+    <p class="callout-title">When to hold back</p>
+    <p>Bullet-dense games, where clutter hides threats. Puzzle and strategy games, where the player needs to read the board. Minimal art styles, where detail clashes. Competitive games, where effects tend to be kept readable. And bright, flickering sparks can bother players sensitive to flashing, so keep them small and offer a setting to reduce effects.</p>
+  </div>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Dust on landing, dust when a character turns sharply, and sparks when metal strikes metal are common in action games and platformers. Many shooters show a different bullet impact for each surface, such as stone chips or sparks off metal, which tells the player what they hit even at a distance.</p>
+  <p>Engines build this in. LÖVE has <code>love.graphics.newParticleSystem</code>. Godot has <code>GPUParticles2D</code> and <code>CPUParticles2D</code> and their 3D versions. Unity has a Particle System component, and Unreal Engine has the Niagara effects system and physical materials, whose surface types are commonly used to choose which impact effect to play.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one impact in your game, such as landing, a hit or a wall bump. Add the <code>burst</code> and <code>updateParticles</code> functions, and spawn only dust, with strength from the impact speed. Tune the 200 and 700 so your gentlest impact is near 0 and your hardest near 1.</p>
+  <p>Then add one second burst: a threshold kind for hard impacts, or a different kind for a second surface. You are done when someone watching only the character, not the floor or the numbers, can tell a small impact from a big one, and the screen is clear again within half a second.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An impact burst should say what happened, where, what was touched and how hard.</li>
+    <li>Turn the impact into a strength from 0 to 1 and scale count and speed with it.</li>
+    <li>Use the kind of particle to show the surface, and thresholds to mark big events.</li>
+    <li>Keep bursts short, small near the player, and visually unlike anything dangerous.</li>
+    <li>Hold back in busy, competitive or puzzle games, and never use bursts to dress up a loss.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The dust shows how hard the landing was on the ground; next, squash and stretch shows it on the character itself.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Martin Jonasson and Petri Purho, <cite>Juice it or lose it</cite>, conference talk. Adds effects one by one to a simple brick-breaking game, particles among them.</li>
+    <li>Jan Willem Nijman, <cite>The art of screenshake</cite>, conference talk (Vlambeer). A series of small feel effects added to a simple shooter.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite>, book. Discusses polish effects as part of how a game feels.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newParticleSystem</cite>. The built-in emitter, for when you outgrow a hand-written one.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var G = 1800, HOP = 500, BIG = 850, WALK = 220;   // px/s², px/s
+  var KINDS = {
+    dust:   { count: 12, life: 0.5, speed: 120, gravity: -40,  drag: 6, size: 4 },
+    sparks: { count: 16, life: 0.3, speed: 420, gravity: 900,  drag: 1, size: 2 },
+    debris: { count: 6,  life: 1.0, speed: 320, gravity: 1200, drag: 0, size: 4, bounce: 0.4 }
+  };
+  var DEBRIS_MIN = 0.6;
+  var MAX_PARTICLES = 800;
+  var PW = 26, PH = 36;
+
+  var ui = DemoKit.controls('[data-demo="impact"]');
+  var dustOn = ui.toggle({ label: 'Dust', value: true });
+  var sparksOn = ui.toggle({ label: 'Sparks (metal)', value: true });
+  var debrisOn = ui.toggle({ label: 'Debris (dirt, hard landings)', value: true });
+  var scaleOn = ui.toggle({ label: 'Scale with landing speed', value: true });
+  var countS = ui.slider({ label: 'Count', min: 0, max: 300, step: 10, value: 100, unit: ' %' });
+  var lifeS = ui.slider({ label: 'Lifetime', min: 25, max: 300, step: 5, value: 100, unit: ' %' });
+  var slow = ui.toggle({ label: 'Quarter speed', value: false });
+  ui.button({ label: 'Hop', onClick: function () { jump(HOP); } });
+  ui.button({ label: 'Big jump', onClick: function () { jump(BIG); } });
+  var readout = ui.readout({ label: 'Last landing' });
+  readout.set('none yet');
+
+  var rand = DemoKit.rng(11);
+  var particles = [];
+  var player = { x: -1, y: 0, vy: 0, grounded: true };
+  var targetX = null;
+  var floorY = 300, width = 640;
+  var last = null;    // { speed, strength, surface, counts }
+  var keys = null;
+
+  function surfaceAt(x) { return x < width / 2 ? 'dirt' : 'metal'; }
+
+  function jump(v) {
+    if (!player.grounded) return;
+    player.vy = -v;
+    player.grounded = false;
+  }
+
+  function burst(kind, x, y, strength) {
+    var k = KINDS[kind];
+    var n = Math.floor(k.count * (countS.value / 100) * strength + 0.5);
+    for (var i = 1; i <= n; i++) {
+      var angle;
+      if (kind === 'dust') {
+        angle = -rand() * 0.35;
+        if (i % 2 === 0) angle = Math.PI - angle;
+      } else if (kind === 'sparks') {
+        angle = -Math.PI * (0.1 + 0.8 * rand());
+      } else {
+        angle = -Math.PI * (0.33 + 0.34 * rand());
+      }
+      var speed = k.speed * (0.4 + 0.6 * strength) * (0.5 + 0.5 * rand());
+      if (particles.length < MAX_PARTICLES) {
+        particles.push({
+          kind: kind, x: x, y: y, age: 0,
+          vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+          life: k.life * (lifeS.value / 100) * (0.7 + 0.3 * rand()),
+          spin: (rand() - 0.5) * 20
+        });
+      }
+    }
+    return n;
+  }
+
+  function land(x, impactSpeed, surface) {
+    var strength = Math.max(0, Math.min(1, (impactSpeed - 200) / 700));
+    if (!scaleOn.value) strength = 1;
+    var counts = { dust: 0, sparks: 0, debris: 0 };
+    var y = floorY - 2;
+    if (surface === 'dirt') {
+      if (dustOn.value) counts.dust = burst('dust', x, y, strength);
+      if (debrisOn.value && strength >= DEBRIS_MIN) counts.debris = burst('debris', x, y, strength);
+    } else {
+      if (dustOn.value) counts.dust = burst('dust', x, y, strength * 0.4);
+      if (sparksOn.value) counts.sparks = burst('sparks', x, y, strength);
+    }
+    last = { speed: Math.round(impactSpeed), strength: strength, surface: surface, counts: counts };
+    readout.set(last.speed + ' px/s on ' + surface + ', strength ' + strength.toFixed(2) + ': ' +
+      counts.dust + ' dust, ' + counts.sparks + ' sparks, ' + counts.debris + ' debris');
+  }
+
+  function updateParticles(dt) {
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      var k = KINDS[p.kind];
+      p.age += dt;
+      p.vx = p.vx / (1 + k.drag * dt);
+      p.vy = p.vy / (1 + k.drag * dt) + k.gravity * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.y > floorY) {
+        if (k.bounce) {
+          p.y = floorY;
+          p.vy = -p.vy * k.bounce;
+          p.vx = p.vx * 0.7;
+        } else {
+          p.age = p.life;
+        }
+      }
+      if (p.age >= p.life) particles.splice(i, 1);
+    }
+  }
+
+  function updatePlayer(dt) {
+    var dir = 0;
+    if (keys) {
+      if (keys.has('arrowleft') || keys.has('a')) dir -= 1;
+      if (keys.has('arrowright') || keys.has('d')) dir += 1;
+    }
+    if (dir !== 0) {
+      targetX = null;
+    } else if (targetX !== null) {
+      var dx = targetX - player.x;
+      if (Math.abs(dx) < 3) targetX = null;
+      else dir = dx > 0 ? 1 : -1;
+    }
+    player.x = DemoKit.clamp(player.x + dir * WALK * dt, PW, width - PW);
+    if (!player.grounded) {
+      player.vy += G * dt;
+      player.y += player.vy * dt;
+      if (player.y >= floorY) {
+        var impact = player.vy;
+        player.y = floorY;
+        player.vy = 0;
+        player.grounded = true;
+        land(player.x, impact, surfaceAt(player.x));
+      }
+    }
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function layout(s) {
+    width = s.width;
+    floorY = s.height - 60;
+    if (player.x < 0) { player.x = Math.round(s.width * 0.25); player.y = floorY; }
+    if (player.grounded) player.y = floorY;
+    player.x = DemoKit.clamp(player.x, PW, width - PW);
+  }
+
+  DemoKit.canvas('#impact', {
+    height: 400,
+    keys: true,
+    label: 'A small character walks and jumps on a floor that is dirt on the left and metal on the right. Landings throw dust, sparks on metal, and debris on hard dirt landings. A bar at the top shows the strength of the last landing.',
+    onResize: layout,
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'j' || key === 'space') jump(HOP);
+      if (key === 'k') jump(BIG);
+    },
+    onDown: function (p) { targetX = p.x; },
+    update: function (dt, s) {
+      layout(s);
+      keys = s.keys;
+      var gdt = slow.value ? dt * 0.25 : dt;
+      updatePlayer(gdt);
+      updateParticles(gdt);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      layout(s);
+      var w = s.width, h = s.height, mid = w / 2;
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, w, floorY);
+
+      // Floor: dirt on the left, metal on the right.
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, floorY, w, h - floorY);
+      ctx.fillStyle = c.line;
+      for (var dxp = 8; dxp < mid; dxp += 17) {
+        ctx.fillRect(dxp, floorY + 8 + (dxp * 7) % 13, 3, 3);
+        ctx.fillRect(dxp + 6, floorY + 30 + (dxp * 5) % 11, 2, 2);
+      }
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (var mx = mid + 10; mx < w; mx += 14) line(ctx, mx, floorY + 4, mx - 8, floorY + 20);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      line(ctx, 0, floorY, w, floorY);
+      line(ctx, mid, floorY, mid, h);
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('dirt', 10, floorY + 46);
+      ctx.fillText('metal', mid + 10, floorY + 46);
+
+      // Particles behind the character, so it stays readable.
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        var k = KINDS[p.kind];
+        var t = p.age / p.life;
+        if (p.kind === 'dust') {
+          ctx.globalAlpha = Math.max(0, 1 - t) * 0.8;
+          ctx.fillStyle = c.ink3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, k.size + 8 * t, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.kind === 'sparks') {
+          ctx.globalAlpha = Math.max(0, 1 - t);
+          ctx.strokeStyle = c.warn;
+          ctx.lineWidth = 2;
+          line(ctx, p.x, p.y, p.x - p.vx * 0.03, p.y - p.vy * 0.03);
+        } else {
+          ctx.globalAlpha = Math.max(0, Math.min(1, (1 - t) / 0.3));
+          ctx.fillStyle = c.ink2;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.spin * p.age);
+          ctx.fillRect(-k.size, -k.size, k.size * 2, k.size * 2);
+          ctx.restore();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // Character.
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(player.x - PW / 2, player.y - PH, PW, PH);
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(player.x + 2, player.y - PH + 9, 5, 5);
+
+      // Walk target marker from a tap.
+      if (targetX !== null) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1.5;
+        line(ctx, targetX, floorY - 6, targetX, floorY + 6);
+      }
+
+      // HUD: the hidden numbers of the last landing.
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink;
+      ctx.fillText(last ? 'Last landing: ' + last.speed + ' px/s on ' + last.surface : 'Jump to see a landing', 10, 18);
+      var bx = 10, by = 28, bw = Math.min(180, w - 120), bh = 10;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(bx, by, bw * (last ? last.strength : 0), bh);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2;
+      line(ctx, bx + bw * DEBRIS_MIN, by - 3, bx + bw * DEBRIS_MIN, by + bh + 3);
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('strength ' + (last ? last.strength.toFixed(2) : '0.00'), bx + bw + 8, by + 9);
+      ctx.fillText('debris', bx + bw * DEBRIS_MIN - 16, by + bh + 15);
+      if (last) {
+        ctx.fillText(last.counts.dust + ' dust, ' + last.counts.sparks + ' sparks, ' +
+          last.counts.debris + ' debris', 10, by + bh + 32);
+      }
+      ctx.fillText('alive: ' + particles.length + (slow.value ? ', quarter speed' : ''), 10, by + bh + 48);
+    }
+  });
+})();
+</script>
+</body>
+</html>

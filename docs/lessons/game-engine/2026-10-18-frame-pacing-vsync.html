@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame pacing and vsync · Game Dev Daily</title>
+<meta name="description" content="Why evenly spaced frames feel smoother than a higher but uneven frame rate, what vsync does to frame times, and how Godot and Unity set it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Frame pacing and vsync</h1>
+  <p class="lede">Why evenly spaced frames feel smoother than a higher but uneven frame rate, what vsync does to frame times, and how Godot and Unity set it.</p>
+</header>
+
+<section data-section="hook">
+  <p>The counter in the corner says 50 frames per second, yet the camera pan hitches every few frames. Lock the same game to 30 and it suddenly looks calmer, even though fewer pictures reach the screen. The counter was telling the truth about the average and nothing about the spacing.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Frame rate is an average, frame time is what you see</h2>
+  <p><dfn>Frame time</dfn> is how long one frame takes, in milliseconds. 60 frames per second means 16.7 ms per frame on average. The word "average" hides a lot:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Run</th><th>Frame times (ms)</th><th class="num">Counter shows</th><th>Looks</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>A</td><td>16.7, 16.7, 16.7, 16.7</td><td class="num">60 fps</td><td>smooth</td></tr>
+      <tr><td>B</td><td>8.3, 25, 8.3, 25</td><td class="num">60 fps</td><td>shaky</td></tr>
+      <tr><td>C</td><td>16.7, 16.7, 33.3, 16.7, 16.7, 33.3</td><td class="num">45 fps</td><td>stutters</td></tr>
+      <tr><td>D</td><td>33.3, 33.3, 33.3, 33.3</td><td class="num">30 fps</td><td>steady</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Your eye expects a moving object to cover equal distances in equal times. When one picture stays up twice as long as its neighbours, the object seems to stop, then jump. <dfn>Frame pacing</dfn> is how evenly frames are spaced when they reach the screen. Run D has worse frame rate than C and better pacing, and many players prefer it.</p>
+
+  <h2>The screen has its own clock</h2>
+  <p>A typical monitor redraws itself at a fixed rate, for example 60 times per second. Each <dfn>refresh</dfn> reads a picture from memory and sends it out line by line, top to bottom. The short gap before the next refresh starts is the <dfn>vertical blank</dfn>.</p>
+  <p>The game never draws straight into the picture being shown. It draws into a hidden <dfn>back buffer</dfn>, then hands it over with a <dfn>swap</dfn>, which makes it the front buffer the display reads from. Until the swap the game owns the picture; after it, the display does. The only question is <em>when</em> the swap may happen.</p>
+  <ul>
+    <li><strong>Vsync off.</strong> The swap happens the moment the frame is ready, even halfway through a refresh. The top of the screen shows the old frame and the bottom the new one, split at a visible line: <dfn>tearing</dfn>.</li>
+    <li><strong>Vsync on.</strong> <dfn>Vsync</dfn> (vertical synchronisation) makes the swap wait for the vertical blank. No tearing, but a frame that misses the deadline by 1 ms waits for the next refresh. The old picture is shown twice, and that frame takes 33.3 ms on screen.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Two timelines over 100 milliseconds of a 60 hertz display. With vsync on, frame 2 takes 20 milliseconds, misses a refresh and waits, so frame 1 is shown twice. With vsync off, frames are shown the moment they finish, and most refreshes contain a tear line where the picture changes.">
+      <g text-anchor="middle">
+        <text class="d-muted" x="130" y="18">0 ms</text>
+        <text class="d-muted" x="210" y="18">16.7</text>
+        <text class="d-muted" x="290" y="18">33.3</text>
+        <text class="d-muted" x="370" y="18">50</text>
+        <text class="d-muted" x="450" y="18">66.7</text>
+        <text class="d-muted" x="530" y="18">83.3</text>
+        <text class="d-muted" x="610" y="18">100</text>
+      </g>
+      <g>
+        <path class="d-dash" d="M130 26 V252"/>
+        <path class="d-dash" d="M210 26 V252"/>
+        <path class="d-dash" d="M290 26 V252"/>
+        <path class="d-dash" d="M370 26 V252"/>
+        <path class="d-dash" d="M450 26 V252"/>
+        <path class="d-dash" d="M530 26 V252"/>
+        <path class="d-dash" d="M610 26 V252"/>
+      </g>
+
+      <text class="d-label" x="12" y="46">Vsync on</text>
+      <text class="d-text" x="12" y="77">game</text>
+      <rect class="d-accent-soft" x="130" y="58" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="210" y="58" width="96" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="370" y="58" width="58" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="450" y="58" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="530" y="58" width="67" height="28" rx="3"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="163" y="77">F1</text>
+        <text class="d-mono" x="258" y="77">F2 20 ms</text>
+        <text class="d-muted" x="338" y="77">waits</text>
+        <text class="d-mono" x="399" y="77">F3</text>
+        <text class="d-mono" x="483" y="77">F4</text>
+        <text class="d-mono" x="563" y="77">F5</text>
+      </g>
+      <text class="d-text" x="12" y="115">screen</text>
+      <rect class="d-box" x="133" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-box" x="213" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-box" x="293" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-bad" x="293" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-box" x="373" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-box" x="453" y="96" width="74" height="28" rx="3"/>
+      <rect class="d-box" x="533" y="96" width="74" height="28" rx="3"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="170" y="115">F0</text>
+        <text class="d-mono" x="250" y="115">F1</text>
+        <text class="d-mono" x="330" y="115">F1 again</text>
+        <text class="d-mono" x="410" y="115">F2</text>
+        <text class="d-mono" x="490" y="115">F3</text>
+        <text class="d-mono" x="570" y="115">F4</text>
+      </g>
+
+      <text class="d-label" x="12" y="156">Vsync off</text>
+      <text class="d-text" x="12" y="187">game</text>
+      <rect class="d-accent-soft" x="130" y="168" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="197" y="168" width="96" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="293" y="168" width="58" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="351" y="168" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="418" y="168" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="485" y="168" width="67" height="28" rx="3"/>
+      <rect class="d-accent-soft" x="552" y="168" width="58" height="28" rx="3"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="163" y="187">F1</text>
+        <text class="d-mono" x="245" y="187">F2</text>
+        <text class="d-mono" x="322" y="187">F3</text>
+        <text class="d-mono" x="384" y="187">F4</text>
+        <text class="d-mono" x="451" y="187">F5</text>
+        <text class="d-mono" x="518" y="187">F6</text>
+        <text class="d-mono" x="581" y="187">F7</text>
+      </g>
+      <text class="d-text" x="12" y="231">screen</text>
+      <rect class="d-box" x="133" y="206" width="74" height="40" rx="3"/>
+      <rect class="d-box" x="213" y="206" width="74" height="40" rx="3"/>
+      <rect class="d-box" x="293" y="206" width="74" height="40" rx="3"/>
+      <rect class="d-box" x="373" y="206" width="74" height="40" rx="3"/>
+      <rect class="d-box" x="453" y="206" width="74" height="40" rx="3"/>
+      <rect class="d-box" x="533" y="206" width="74" height="40" rx="3"/>
+      <path class="d-bad" d="M133 239.6 H207"/>
+      <path class="d-bad" d="M293 208.6 H367"/>
+      <path class="d-bad" d="M293 236.4 H367"/>
+      <path class="d-bad" d="M373 230 H447"/>
+      <path class="d-bad" d="M453 223.6 H527"/>
+      <path class="d-bad" d="M533 217.2 H607"/>
+
+      <path class="d-bad" d="M130 274 H152"/>
+      <text class="d-text" x="160" y="278">tear line</text>
+      <rect class="d-bad" x="300" y="266" width="22" height="14" rx="2"/>
+      <text class="d-text" x="330" y="278">same picture shown twice</text>
+    </svg>
+    <figcaption>The same frame costs (14, 20, 12, 14 ms...) on a 60 Hz display. With vsync on, the game waits for each refresh, and the one slow frame makes F1 stay on screen for 33.3 ms. With vsync off, each frame appears as soon as it is done, so pictures change partway down the screen.</figcaption>
+  </figure>
+
+  <p>So with vsync on, frame times snap to whole refreshes: 16.7, 33.3, 50 ms. A game whose frames take 15 to 20 ms does not run at a smooth 55. It flips between 60 and 30 from one frame to the next, which is run C in the table. In the simple model drawn here, where the game waits for each swap before starting the next frame, a game that always takes 18 ms drops straight to 30. Real drivers often queue an extra frame (<dfn>triple buffering</dfn>), which raises the average but adds delay.</p>
+
+  <h3>How to get even spacing</h3>
+  <ul>
+    <li><strong>Fit the budget with room to spare.</strong> If your worst frames stay under 16.7 ms, vsync gives you a perfectly flat 60.</li>
+    <li><strong>Cap at a rate that divides the refresh.</strong> 30 on a 60 Hz screen, 40 or 60 on 120 Hz. Every picture then stays up for the same number of refreshes.</li>
+    <li><strong>Variable refresh rate.</strong> Displays with <dfn>VRR</dfn> (sold as G-Sync, FreeSync or Adaptive-Sync) wait for the game instead, within a range, so a 20 ms frame is shown for 20 ms.</li>
+  </ul>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th>Godot 4</th><th>Unity 6 / 2022 LTS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Vsync</td><td>Project Settings &gt; Display &gt; Window &gt; V-Sync Mode, or <code>DisplayServer.window_set_vsync_mode()</code></td><td><code>QualitySettings.vSyncCount</code>: 0 off, 1 every refresh, 2 every second refresh</td></tr>
+      <tr><td>Frame cap</td><td><code>Engine.max_fps</code> (0 means no cap)</td><td><code>Application.targetFrameRate</code> (-1 means platform default)</td></tr>
+      <tr><td>Watch out</td><td>Modes also include Adaptive (tears when it falls behind) and Mailbox (newest frame wins, no cap)</td><td>On desktop the cap is ignored while vsync is on. On Android and iOS vsync count is ignored; use the cap</td></tr>
+      <tr><td>Refresh rate</td><td><code>DisplayServer.screen_get_refresh_rate()</code></td><td><code>Screen.currentResolution.refreshRateRatio</code> (2022.2 and later)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A tiny model of a game and a 60 Hz display. The game draws frames back to back, each taking the render time plus a random jitter. The top panel is the screen, the graph shows how long each new picture stayed up. Red bars differ from the bar before them: those are the hitches you feel.</p>
+  <p>Start at 15 ms with vsync on: the graph is flat. Raise the jitter to 6 ms and watch bars jump to 33.3 while the average falls to about 45 per second. Now pick the 30 per second cap: lower, but flat again. Finally switch vsync off and look for the red tear marks at the screen edges. Quarter speed and Step one refresh help you see each picture.</p>
+
+  <figure class="demo wide" data-demo="pacing">
+    <canvas id="pacing"></canvas>
+    <figcaption>Each frame shows the game world at the moment the frame began. With vsync off the screen is cut into bands from different frames; red ticks at both edges mark each tear.</figcaption>
+  </figure>
+  <p>The model leaves out the GPU working in parallel with the CPU, driver frame queues and compositors. It treats each refresh of your own screen as one 60 Hz refresh, so on a 120 Hz screen it runs twice as fast.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The most useful pacing tool is a frame time graph you can switch on in any build. This LÖVE version uses the demo's numbers: it burns 15 ms plus or minus 6 ms per frame to stand in for rendering, keeps the last 48 frame times and draws them as bars. Press V to toggle vsync and watch the bars change.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- conf.lua: function love.conf(t) t.window.vsync = 1 end</span>
+local RENDER_MS = 15   <span class="c">-- pretend cost of one frame</span>
+local JITTER_MS = 6    <span class="c">-- random change in that cost, plus or minus</span>
+local SPEED, SPACING = 240, 40
+local HISTORY = 48     <span class="c">-- frame times kept for the graph</span>
+local times = {}       <span class="c">-- ring buffer, milliseconds</span>
+local head, scroll, vsync = 0, 0, 1
+
+function love.load()
+  math.randomseed(7)
+  love.window.setVSync(vsync)
+end
+
+local function burn(ms)   <span class="c">-- stands in for real rendering work</span>
+  local stop = love.timer.getTime() + ms / 1000
+  while love.timer.getTime() &lt; stop do end
+end
+
+function love.update(dt)
+<span class="k">  head = head % HISTORY + 1
+  times[head] = dt * 1000   -- includes any wait for vsync</span>
+  scroll = (scroll + SPEED * dt) % SPACING
+end
+
+function love.draw()
+  for x = -SPACING, love.graphics.getWidth(), SPACING do
+    love.graphics.rectangle("fill", x + scroll, 0, 14, 130)
+  end
+  local n, sum, worst = #times, 0, 0
+  for i = 1, n do
+    local ms = times[(head + i - 1) % n + 1]   <span class="c">-- oldest first</span>
+    sum = sum + ms
+    worst = math.max(worst, ms)
+    love.graphics.rectangle("fill", 10 + (i - 1) * 6, 300 - ms * 2, 4, ms * 2)
+  end
+  if sum &gt; 0 then
+<span class="k">    love.graphics.print(string.format("avg %.1f fps  worst %.1f ms  vsync %d (V)",
+      1000 * n / sum, worst, vsync), 10, 310)</span>
+  end
+  burn(math.max(2, RENDER_MS + JITTER_MS * (2 * math.random() - 1)))
+end
+
+function love.keypressed(key)
+  if key == "v" then
+    vsync = 1 - vsync
+    love.window.setVSync(vsync)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D in a new scene. Press V to toggle vsync.</span>
+extends Node2D
+
+const RENDER_MS := 15.0
+const JITTER_MS := 6.0
+const SPEED := 240.0
+const SPACING := 40.0
+const HISTORY := 48
+
+var times: Array[float] = []
+var scroll := 0.0
+var last_usec := 0
+var rng := RandomNumberGenerator.new()
+
+func _ready() -&gt; void:
+    rng.seed = 7
+    DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
+    Engine.max_fps = 0   <span class="c"># no cap; try 30</span>
+    last_usec = Time.get_ticks_usec()
+
+func _process(delta: float) -&gt; void:
+    <span class="c"># Measure real time between frames rather than trusting delta,</span>
+    <span class="c"># which Godot may smooth while vsync is on.</span>
+<span class="k">    var now := Time.get_ticks_usec()
+    times.append((now - last_usec) / 1000.0)
+    last_usec = now</span>
+    if times.size() &gt; HISTORY:
+        times.pop_front()
+    scroll = fmod(scroll + SPEED * delta, SPACING)
+    var cost := maxf(2.0, RENDER_MS + JITTER_MS * rng.randf_range(-1.0, 1.0))
+    var stop := Time.get_ticks_usec() + int(cost * 1000.0)
+    while Time.get_ticks_usec() &lt; stop:   <span class="c"># stands in for rendering work</span>
+        pass
+    queue_redraw()
+
+func _draw() -&gt; void:
+    var x := -SPACING
+    while x &lt; get_viewport_rect().size.x:
+        draw_rect(Rect2(x + scroll, 0, 14, 130), Color.WHITE)
+        x += SPACING
+    var sum := 0.0
+    var worst := 0.0
+    for i in times.size():
+        var ms := times[i]
+        sum += ms
+        worst = maxf(worst, ms)
+        draw_rect(Rect2(10 + i * 6, 300 - ms * 2, 4, ms * 2), Color.ORANGE)
+    if sum &gt; 0.0:
+        var on := DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_ENABLED
+        draw_string(ThemeDB.fallback_font, Vector2(10, 330),
+            "avg %.1f fps  worst %.1f ms  vsync %s (V)" % [1000.0 * times.size() / sum, worst, on])
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event is InputEventKey and event.pressed and event.keycode == KEY_V:
+        var on := DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_ENABLED
+        DisplayServer.window_set_vsync_mode(
+            DisplayServer.VSYNC_DISABLED if on else DisplayServer.VSYNC_ENABLED)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS. Put on an empty GameObject and test in a build:</span>
+<span class="c">// the Editor's own timing is not representative.</span>
+using UnityEngine;
+
+public class FramePacing : MonoBehaviour
+{
+    const float RenderMs = 15f, JitterMs = 6f, Speed = 240f, Spacing = 40f;
+    const int History = 48;
+    readonly float[] times = new float[History];
+    readonly System.Random rng = new System.Random(7);
+    int head, count;
+    float scroll;
+
+    void Start()
+    {
+        QualitySettings.vSyncCount = 1;     <span class="c">// 0 off, 1 every refresh, 2 every second</span>
+        Application.targetFrameRate = -1;   <span class="c">// only used when vSyncCount is 0</span>
+    }
+
+    void Update()
+    {
+<span class="k">        times[head] = Time.unscaledDeltaTime * 1000f;
+        head = (head + 1) % History;</span>
+        count = Mathf.Min(count + 1, History);
+        scroll = (scroll + Speed * Time.unscaledDeltaTime) % Spacing;
+
+        float cost = Mathf.Max(2f, RenderMs + JitterMs * (float)(rng.NextDouble() * 2.0 - 1.0));
+        var watch = System.Diagnostics.Stopwatch.StartNew();   <span class="c">// stands in for rendering</span>
+        while (watch.Elapsed.TotalMilliseconds &lt; cost) { }
+    }
+
+    void OnGUI()
+    {
+        if (GUI.Button(new Rect(10, 340, 160, 30), "Toggle vsync"))
+            QualitySettings.vSyncCount = QualitySettings.vSyncCount == 0 ? 1 : 0;
+        if (Event.current.type != EventType.Repaint) return;
+
+        for (float x = -Spacing; x &lt; Screen.width; x += Spacing)
+            GUI.DrawTexture(new Rect(x + scroll, 0, 14, 130), Texture2D.whiteTexture);
+        float sum = 0f, worst = 0f;
+        for (int i = 0; i &lt; count; i++)
+        {
+            float ms = times[(head - count + i + History) % History];   <span class="c">// oldest first</span>
+            sum += ms;
+            worst = Mathf.Max(worst, ms);
+            GUI.DrawTexture(new Rect(10 + i * 6, 300 - ms * 2, 4, ms * 2), Texture2D.whiteTexture);
+        }
+        if (sum &gt; 0f)
+            GUI.Label(new Rect(10, 310, 400, 24),
+                $"avg {1000f * count / sum:F1} fps  worst {worst:F1} ms  vSyncCount {QualitySettings.vSyncCount}");
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Judging by the frame rate counter.</strong> An average over a second hides single long frames. Look at a frame time graph and at the worst frame, not the mean.</li>
+    <li><strong>A cap that does not divide the refresh.</strong> 50 per second on a 60 Hz screen with vsync on means a mix of 16.7 and 33.3 ms pictures: the worst of both. Read the real refresh rate instead of assuming 60; 120 and 144 Hz screens are common.</li>
+    <li><strong>Expecting <code>targetFrameRate</code> to work with vsync on.</strong> On desktop Unity ignores it unless <code>vSyncCount</code> is 0. Unity's documentation also notes that the software cap is less precise than vsync and can cause small stutters.</li>
+    <li><strong>Pacing the start, not the arrival.</strong> A software cap times when frames begin. If their cost varies, they still reach the screen unevenly. Try the 30 cap with vsync off in the demo to see it.</li>
+    <li><strong>Measuring in the editor.</strong> Editor windows, tool panels and desktop compositors all change timing. Judge pacing in an exported build, ideally full screen.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Console games commonly offer a "quality" mode locked at 30 and a "performance" mode at 60 rather than an unlocked rate in between, because both divide a 60 Hz TV evenly. Insomniac's <cite>Ratchet &amp; Clank: Rift Apart</cite> added a 40 per second mode for 120 Hz displays, where 40 divides the refresh into three.</p>
+  <p>The Steam Deck's performance menu lets players set both a frame limit and the screen refresh rate, so the two can be matched. On Android, Google's Frame Pacing library (also called Swappy) lines up when a game submits frames with when the display uses them, and Unity exposes it as the Optimized Frame Pacing option in the Android player settings.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add the frame time graph from the code section to your own project as an overlay you can toggle. Export a build, pan the camera for ten seconds and note the worst frame with vsync on, with vsync off, and with a cap at half your refresh rate. You are done when you can say which setting gives the flattest graph on your machine, and why.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Frame pacing is how evenly pictures reach the screen. Even spacing matters more than a high average.</li>
+    <li>Vsync stops tearing by waiting for the refresh, so frame times snap to whole refreshes: 16.7, 33.3, 50 ms at 60 Hz.</li>
+    <li>A frame rate between 30 and 60 on a 60 Hz screen with vsync is a stutter of mixed 16.7 and 33.3 ms frames.</li>
+    <li>Fit the budget, cap at a divisor of the refresh rate, or use a VRR display.</li>
+    <li>Godot uses V-Sync Mode and <code>Engine.max_fps</code>; Unity uses <code>vSyncCount</code> and <code>targetFrameRate</code>, which do not combine on desktop.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>With the loop and its clocks covered, the next lesson moves to how objects are built: nodes in Godot versus GameObjects and components in Unity.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Unity Technologies, <cite>QualitySettings.vSyncCount</cite> and <cite>Application.targetFrameRate</cite>, Unity Scripting API.</li>
+    <li>Godot Engine contributors, <cite>DisplayServer</cite> (the VSyncMode values) and <cite>Engine</cite> (<code>max_fps</code>), Godot class reference.</li>
+    <li>Google, <cite>Frame Pacing library</cite>, Android Game Development Kit documentation.</li>
+    <li>Alen Ladavac, <cite>The Elusive Frame Timing</cite>, GDC 2019 talk on why games stutter even at a steady frame rate.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var REFRESH = 1000 / 60;   // ms per refresh of the pretend display
+  var SPEED = 240;           // pixels per second of game time
+  var SPACING = 40;          // gap between scrolling bars
+  var HISTORY = 48;          // pictures kept in the graph
+  var GRAPH_MAX = 60;        // ms at the top of the graph
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var ui = DemoKit.controls('[data-demo="pacing"]');
+  var renderMs = ui.slider({ label: 'Render time', min: 4, max: 40, step: 1, value: 15, unit: ' ms' });
+  var jitter = ui.slider({ label: 'Jitter', min: 0, max: 12, step: 1, value: 0, unit: ' ms' });
+  var vsync = ui.toggle({ label: 'Vsync', value: true, onChange: restartGame });
+  var cap = ui.select({ label: 'Frame cap', value: 'none', onChange: restartGame,
+    options: [{ value: 'none', label: 'None' }, { value: '30', label: '30 per second' }] });
+  var speed = ui.select({ label: 'Speed', value: '1',
+    options: [{ value: '1', label: 'Real time' }, { value: '4', label: 'Quarter speed' }] });
+  ui.button({ label: 'Step one refresh', onClick: function () { refresh(); if (handle) handle.redraw(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); if (handle) handle.redraw(); } });
+  var stats = ui.readout({ label: 'Measured' });
+
+  var random, k, game, shown, presents, bands, tearLog, lastPresentTime, lastPresentIndex, tick, lastText;
+  var handle = null;
+
+  function cost() {
+    return Math.max(2, renderMs.value + jitter.value * (2 * random() - 1));
+  }
+
+  // A frame samples the game world when it starts, then takes cost() ms to render.
+  function startFrame(t) {
+    game = { start: t, sim: t, end: t + cost() };
+  }
+
+  function reset() {
+    random = DemoKit.rng(7);
+    k = 0;
+    shown = { sim: 0 };
+    presents = [];
+    bands = [{ y0: 0, y1: 1, sim: 0 }];
+    tearLog = [];
+    lastPresentTime = null;
+    lastPresentIndex = -10;
+    tick = 0;
+    startFrame(0);
+    showStats();
+  }
+
+  function restartGame() {
+    presents = [];
+    tearLog = [];
+    lastPresentTime = null;
+    lastPresentIndex = -10;
+    startFrame(k * REFRESH);
+    showStats();
+    if (handle) handle.redraw();
+  }
+
+  function present(t, frame) {
+    if (lastPresentTime !== null) {
+      presents.push(t - lastPresentTime);
+      if (presents.length > HISTORY) presents.shift();
+    }
+    lastPresentTime = t;
+    shown = frame;
+  }
+
+  // Simulate one refresh of the display, covering [t0, t1).
+  function refresh() {
+    var t0 = k * REFRESH;
+    var t1 = t0 + REFRESH;
+    var capOn = cap.value === '30';
+    var tears = 0;
+
+    if (vsync.value) {
+      // Swap only at the vertical blank, and only if a finished frame is waiting.
+      var allowed = !capOn || k - lastPresentIndex >= 2;
+      if (game.end <= t0 + 1e-6 && allowed) {
+        present(t0, game);
+        lastPresentIndex = k;
+        startFrame(t0);   // double buffering: the next frame starts after the swap
+      }
+      bands = [{ y0: 0, y1: 1, sim: shown.sim }];
+    } else {
+      // Swap the moment each frame is done. The scan-out is at height (t - t0) / REFRESH.
+      bands = [];
+      var y = 0;
+      var current = shown.sim;
+      var guard = 0;
+      while (game.end < t1 && guard < 50) {
+        var frame = game;
+        var cut = (Math.max(frame.end, t0) - t0) / REFRESH;
+        if (cut > y) {
+          bands.push({ y0: y, y1: cut, sim: current });
+          y = cut;
+          tears += 1;
+        }
+        current = frame.sim;
+        present(frame.end, frame);
+        var next = frame.end;
+        if (capOn) next = Math.max(next, frame.start + 2 * REFRESH);
+        startFrame(next);
+        guard += 1;
+      }
+      bands.push({ y0: y, y1: 1, sim: current });
+    }
+
+    tearLog.push(tears);
+    if (tearLog.length > 60) tearLog.shift();
+    k += 1;
+    showStats();
+  }
+
+  function average() {
+    var sum = 0;
+    for (var i = 0; i < presents.length; i++) sum += presents[i];
+    return presents.length ? sum / presents.length : 0;
+  }
+
+  function showStats() {
+    var text;
+    if (presents.length < 2) {
+      text = 'collecting frames';
+    } else {
+      var worst = 0;
+      for (var i = 0; i < presents.length; i++) worst = Math.max(worst, presents[i]);
+      var tears = 0;
+      for (var j = 0; j < tearLog.length; j++) tears += tearLog[j];
+      text = (1000 / average()).toFixed(1) + ' per second average, worst ' + worst.toFixed(1) +
+        ' ms, ' + tears + ' tears in the last 60 refreshes';
+    }
+    if (text !== lastText) {
+      lastText = text;
+      stats.set(text);
+    }
+  }
+
+  reset();
+
+  function drawScreen(ctx, c, x, y, w, h) {
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(x, y, w, h);
+    for (var b = 0; b < bands.length; b++) {
+      var band = bands[b];
+      var top = y + band.y0 * h;
+      var bh = (band.y1 - band.y0) * h;
+      if (bh <= 0) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, top, w, bh);
+      ctx.clip();
+      var travel = SPEED * band.sim / 1000;
+      var offset = travel % SPACING;
+      ctx.fillStyle = c.topic;
+      for (var bx = offset - SPACING; bx < w; bx += SPACING) {
+        ctx.fillRect(x + bx, y, 14, h);
+      }
+      // A square that crosses the screen, so tears show on a solid shape too.
+      var lap = w + 40;
+      var sx = (travel * 0.5) % lap - 40;
+      ctx.fillStyle = c.ink;
+      ctx.fillRect(x + sx, y + h * 0.35, 40, h * 0.3);
+      ctx.restore();
+    }
+    // Tear markers at both edges.
+    ctx.strokeStyle = c.bad;
+    ctx.lineWidth = 3;
+    for (var t = 1; t < bands.length; t++) {
+      var ty = Math.round(y + bands[t].y0 * h) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x - 8, ty); ctx.lineTo(x, ty);
+      ctx.moveTo(x + w, ty); ctx.lineTo(x + w + 8, ty);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+
+  function drawGraph(ctx, c, x, y, w, h) {
+    var left = x + 34;
+    var gw = w - 34;
+    function yOf(ms) { return y + h - Math.min(ms, GRAPH_MAX) / GRAPH_MAX * h; }
+
+    ctx.font = FONT;
+    ctx.textAlign = 'right';
+    ctx.lineWidth = 1;
+    var lines = [REFRESH, 2 * REFRESH, 3 * REFRESH];
+    for (var i = 0; i < lines.length; i++) {
+      var gy = Math.round(yOf(lines[i])) + 0.5;
+      ctx.strokeStyle = c.line;
+      ctx.beginPath(); ctx.moveTo(left, gy); ctx.lineTo(left + gw, gy); ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(lines[i].toFixed(1), left - 4, gy + 4);
+    }
+    ctx.strokeStyle = c.ink3;
+    ctx.beginPath(); ctx.moveTo(left, y + h + 0.5); ctx.lineTo(left + gw, y + h + 0.5); ctx.stroke();
+
+    var slot = gw / HISTORY;
+    var barW = Math.max(1, slot - 2);
+    var startSlot = HISTORY - presents.length;
+    for (var j = 0; j < presents.length; j++) {
+      var ms = presents[j];
+      var uneven = j > 0 && Math.abs(ms - presents[j - 1]) > 2;
+      ctx.fillStyle = uneven ? c.bad : c.topic;
+      var top = yOf(ms);
+      ctx.fillRect(left + (startSlot + j) * slot + 1, top, barW, y + h - top);
+    }
+
+    if (presents.length > 1) {
+      var ay = Math.round(yOf(average())) + 0.5;
+      ctx.strokeStyle = c.ink;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(left, ay); ctx.lineTo(left + gw, ay); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'left';
+      ctx.fillText('average', left + 4, ay - 4);
+    }
+  }
+
+  handle = DemoKit.canvas('#pacing', {
+    height: 400,
+    label: 'A pretend 60 hertz screen showing scrolling bars and a moving square, above a graph of how long each new picture stayed on screen.',
+    update: function () {
+      tick += 1;
+      if (tick >= Number(speed.value)) {
+        tick = 0;
+        refresh();
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var pad = 14;
+      var w = s.width - pad * 2;
+
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Screen, 60 Hz' + (vsync.value ? ' (vsync on)' : ' (vsync off)'), pad, 22);
+
+      drawScreen(ctx, c, pad, 32, w, 130);
+
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink2;
+      var note;
+      if (vsync.value) {
+        note = 'Whole picture swaps at the refresh. Frame on screen began at ' + shown.sim.toFixed(0) + ' ms.';
+      } else {
+        var cuts = bands.length - 1;
+        note = cuts === 0 ? 'No tear this refresh.' : (cuts === 1 ? '1 tear this refresh.' : cuts + ' tears this refresh.');
+      }
+      ctx.fillText(note, pad, 182);
+
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Time each new picture stayed up (ms)', pad, 210);
+
+      drawGraph(ctx, c, pad, 222, w, 120);
+    }
+  });
+})();
+</script>
+</body>
+</html>

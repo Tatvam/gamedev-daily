@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawbridge Duty: one bridge, two queues, one button · Game Dev Daily</title>
+<meta name="description" content="A one-button traffic game where holding raises a bridge for boats and releasing lowers it for carts, with a playable prototype and the bridge rules in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Drawbridge Duty: one bridge, two queues, one button</h1>
+  <p class="lede">A one-button traffic game where holding raises a bridge for boats and releasing lowers it for carts, with a playable prototype and the bridge rules in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>You run the only bridge in town. Boats pile up on the river and carts pile up on the road, and you have a single lever. Hold it and the bridge rises. Let go and it comes down. Everyone is in a hurry, and nobody can cross while the other side is crossing.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: watch, choose a side, let them through</h2>
+  <p>Drawbridge Duty is a <dfn>queue juggling</dfn> game: two lines of customers want one shared resource, the bridge, and the player decides who gets it and for how long.</p>
+  <p>The button is not just "up" or "down". Holding raises the bridge a little at a time, and boats need different amounts of room. A rowboat slips under a bridge raised a quarter of the way; a tall ship needs it almost fully open. So the question is not only <em>who goes next</em> but <em>how high to go</em>, because every bit of height costs time on the way down.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read both queues, then hold or release the button to set the bridge height, then vehicles cross and their patience bar refills, then back to reading. Beside it, two longer loops: every minute traffic gets denser and tall ships appear, and every session the player tries to beat their best number of crossings.">
+      <defs>
+        <marker id="dd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="100" y="16" width="200" height="54" rx="8"/>
+      <text class="d-text" x="200" y="39" text-anchor="middle">Read both queues</text>
+      <text class="d-muted" x="200" y="57" text-anchor="middle">who is angrier?</text>
+
+      <rect class="d-accent-soft" x="220" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="315" y="183" text-anchor="middle">Hold or release</text>
+      <text class="d-muted" x="315" y="201" text-anchor="middle">just high enough</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="170" height="54" rx="8"/>
+      <text class="d-text" x="95" y="183" text-anchor="middle">They cross</text>
+      <text class="d-muted" x="95" y="201" text-anchor="middle">patience refills</text>
+
+      <path class="d-accent" d="M262 72 L300 156" marker-end="url(#dd-arrow)"/>
+      <path class="d-accent" d="M218 187 L184 187" marker-end="url(#dd-arrow)"/>
+      <path class="d-accent" d="M100 156 L140 74" marker-end="url(#dd-arrow)"/>
+      <text class="d-label" x="200" y="128" text-anchor="middle">every 3 to 5 seconds</text>
+
+      <path class="d-dash" d="M430 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">traffic gets denser,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">tall ships appear</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">beat your best</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">number of crossings</text>
+    </svg>
+    <figcaption>The short loop is one decision about who crosses. The minute loop is traffic getting heavier. The session loop is a best score.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <p>The bridge has a <dfn>lift</dfn>, a number from 0 (flat, road open) to 1 (fully raised). Holding the button raises it to full in 1.2 seconds. Releasing lowers it to flat in 1 second. Each boat has a <dfn>mast height</dfn> on the same scale, and it may pass only when the lift is at least that high.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 200" role="img" aria-label="A vertical lift gauge from 0 to 1. Carts may cross only at 0. A rowboat needs 0.25, a sailboat 0.55 and a tall ship 0.9. The space above each mark is shaded to show that any higher lift also works.">
+      <rect class="d-fill" x="150" y="20" width="26" height="160" rx="3"/>
+      <rect class="d-accent-soft" x="150" y="36" width="26" height="144" rx="3" opacity="0.35"/>
+      <path class="d-stroke" d="M140 180 H186"/>
+      <text class="d-text" x="132" y="184" text-anchor="end">0  carts only</text>
+      <path class="d-stroke" d="M140 140 H186"/>
+      <text class="d-text" x="132" y="144" text-anchor="end">0.25  rowboat</text>
+      <path class="d-stroke" d="M140 92 H186"/>
+      <text class="d-text" x="132" y="96" text-anchor="end">0.55  sailboat</text>
+      <path class="d-stroke" d="M140 36 H186"/>
+      <text class="d-text" x="132" y="40" text-anchor="end">0.9  tall ship</text>
+      <text class="d-muted" x="132" y="16" text-anchor="end">1  fully raised</text>
+      <text class="d-label" x="196" y="118">lift</text>
+      <text class="d-muted" x="196" y="140">up in 1.2 s</text>
+      <text class="d-muted" x="196" y="158">down in 1 s</text>
+    </svg>
+    <figcaption>One number decides who may enter. Raising past what the next boat needs only adds wait time for the carts.</figcaption>
+  </figure>
+
+  <ul>
+    <li><strong>Carts</strong> drive onto the bridge only when it is completely flat.</li>
+    <li><strong>Boats</strong> stop at the buoys and wait until the lift reaches their mast height.</li>
+    <li><strong>No accidents.</strong> While a cart is on the deck the bridge will not rise, and while a boat is under it the bridge will not drop below that mast. The game shows "locked" instead of punishing you, so the only enemy is time.</li>
+    <li><strong>Patience.</strong> Boats share one patience bar and carts share another. Each bar drains by 0.04 per second for every vehicle stuck waiting on that side. Each vehicle that crosses refills its side by 0.12.</li>
+    <li><strong>The end.</strong> When either bar empties, the run is over. Your score is the number of vehicles that crossed. Traffic arrives faster the longer you last.</li>
+  </ul>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the bridge keeper: one small person whose single lever controls a whole town's traffic. The constraint is that the button costs time in both directions, and time spent moving the bridge serves nobody. Good play means grouping vehicles: let three carts roll over in a row, then open once for two boats.</p>
+  <p>The boat heights turn an on and off switch into a judgement of degree. A rowboat is a cheap favour. A tall ship is a big decision, because opening that high shuts the road for more than two seconds.</p>
+  <p>The hardest part to build is the queue movement: each vehicle must stop at the line, follow the one in front without overlapping, and know when it has committed to crossing. The locks and patience bars both depend on it.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the canvas to focus it. Nothing moves until your first press. The lift gauge on the left bank shows how high the bridge is and marks what the next boat needs. Try opening only that far, and let a few carts bunch up before serving them.</p>
+
+  <figure class="demo" data-demo="bridge">
+    <canvas id="bridge"></canvas>
+    <figcaption>Controls: hold <kbd>Space</kbd>, <kbd>Enter</kbd>, <kbd>X</kbd> or <kbd>Up</kbd> to raise the bridge, release to lower it. On a phone or with a mouse, press and hold anywhere on the canvas. The two bars at the top are the patience of the carts and the boats. Notice how much time a tall ship costs the road.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the heart of the mechanic in LÖVE: the lift, the rule at the stop line, the locks, and the two patience bars. The numbers and names are the ones the prototype uses. Moving the queues and drawing are your own functions and are left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local RAISE, LOWER = 1 / 1.2, 1 / 1.0  <span class="c">-- lift per second: up in 1.2 s, down in 1 s</span>
+local DRAIN, REFILL = 0.04, 0.12       <span class="c">-- per waiting vehicle per second, per crossing</span>
+local lift, score = 0, 0               <span class="c">-- lift 0 = flat for carts, 1 = fully raised</span>
+local patience = { boat = 1, cart = 1 }
+
+local function mayEnter(v)             <span class="c">-- asked when a vehicle reaches its stop line</span>
+  if v.kind == "cart" then return lift &lt;= 0.01 end
+<span class="k">  return lift &gt;= v.mast                <span class="c">-- rowboat 0.25, sailboat 0.55, tall ship 0.9</span></span>
+end
+
+local function updateBridge(dt, cartOnDeck, mastUnder)
+  local holding = love.keyboard.isDown("space") or love.mouse.isDown(1)
+  if holding and not cartOnDeck then
+    lift = math.min(1, lift + RAISE * dt)
+  elseif not holding and lift &gt; mastUnder then
+    lift = math.max(mastUnder, lift - LOWER * dt)  <span class="c">-- never drop onto a mast</span>
+  end
+end
+
+local function updatePatience(dt, waitingBoats, waitingCarts)
+  patience.boat = patience.boat - DRAIN * waitingBoats * dt
+  patience.cart = patience.cart - DRAIN * waitingCarts * dt
+  return patience.boat &lt;= 0 or patience.cart &lt;= 0  <span class="c">-- true ends the run</span>
+end
+
+local function crossed(v)              <span class="c">-- call once when a vehicle clears the bridge</span>
+  score = score + 1
+  patience[v.kind] = math.min(1, patience[v.kind] + REFILL)
+end
+
+function love.update(dt)
+  local cartOnDeck, mastUnder = scanDeck()     <span class="c">-- mastUnder is 0 when no boat is under</span>
+  updateBridge(dt, cartOnDeck, mastUnder)
+  local wb, wc = moveQueues(dt, mayEnter, crossed)
+  if updatePatience(dt, wb, wc) then gameOver() end
+end</code></pre>
+  </div>
+  <p><code>moveQueues</code> moves every vehicle forward, stops it behind the one in front or at the line when <code>mayEnter</code> says no, and returns how many on each side are stuck. Count only stuck vehicles: a cart still driving up to the bridge is not annoyed yet.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>One side always wins.</strong> If boats are rare, the best strategy is to keep the bridge down and open only when a boat bar gets low, and the game turns into waiting. Log how much of each run the bridge spends flat. If it is over 80 percent, add boats or make carts arrive in bursts.</li>
+    <li><strong>No real choice.</strong> With light traffic you serve everyone and the game is a chore. The fun is when both bars are falling and you must pick. Tune spawn rates until that happens within 30 seconds.</li>
+    <li><strong>Unfair failure.</strong> If a bar can empty while the player does everything right, the game feels rigged. Check the worst case: four carts waiting while a tall ship crosses drains 0.16 per second for about four seconds. That hurts but can be recovered. Recompute it whenever you change a number.</li>
+    <li><strong>Invisible locks.</strong> When the bridge refuses to move, players think the button is broken. Show the lock clearly in the moment, in words and colour, as the prototype does.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Drawbridge Duty belongs to a family of games about serving queues against a patience meter. Diner Dash (PlayFirst, 2004) has the player seat and serve restaurant customers whose patience runs out, and Mini Metro (Dinosaur Polo Club, 2015) ends the game when a station becomes too crowded. Both are about spreading limited attention across many demands.</p>
+  <p>The mechanism is real: a <dfn>bascule bridge</dfn> has a deck that tips up on a hinge to let ships pass, and Tower Bridge in London is a famous example. The timings in this game are invented for play.</p>
+  <p>What this idea changes is that the whole game is one shared resource with continuous height, so the button is a dial rather than a switch. I do not know of a published game built on exactly this rule, but I have not searched thoroughly, so check before calling it new.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with rectangles only: a blue band for the river, a grey strip for the road, carts as squares, boats as long rectangles with a number for their mast height. Use only rowboats and sailboats. Print the time the bridge spends flat at the end of each run.</p>
+  <p>Hand it to someone and say only "keep everyone moving". The one question to answer: <strong>in the first minute, does the player ever hesitate over which side to serve?</strong> If they never hesitate, traffic is too light or too lopsided, so tune the spawn rates before adding anything. If they hesitate and then smile or groan, the core works.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype above with a creaking bridge sound that plays only after the player turns sound on, simple drivers and sailors who wave when served, and a saved best score.</li>
+    <li><strong>One-month version:</strong> a week of shifts with different traffic, such as market day full of carts or a regatta full of tall ships, plus special vehicles like a doctor's cart that must not wait at all.</li>
+    <li><strong>Cut first:</strong> a second bridge. It sounds like a natural sequel, but it doubles the attention load and breaks the one-button promise.</li>
+    <li>The hardest part is the queue movement. Build the stop line and the following rule before any art.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the river current change with the tide, so boats drift backwards while they wait and a raised bridge has to be timed for when the current helps them through.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008). Its chapters on balance and on meaningful choices fit the question of when to serve which side.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On why a control that does not respond, such as a locked bridge, must be signalled clearly.</li>
+    <li>Jesper Juul, <cite>A Casual Revolution: Reinventing Video Games and Their Players</cite> (2009). On casual game design and short sessions, the space a game like this lives in.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var RAISE = 1 / 1.2, LOWER = 1 / 1.0;   // lift per second
+  var DRAIN = 0.04, REFILL = 0.12;         // patience
+  var BOAT_SPEED = 50, CART_SPEED = 70, GAP = 8, MAX_QUEUE = 4;
+  var LIFT_PX = 36;                        // how far the deck appears to rise at lift 1
+  var TYPES = {
+    row: { mast: 0.25, len: 26, w: 12 },
+    sail: { mast: 0.55, len: 38, w: 15 },
+    tall: { mast: 0.9, len: 54, w: 19 }
+  };
+  var CART_LEN = 24, CART_W = 18;
+  var HALF = 20, LINE = 26;                // half road width, stop line offset from bridge centre
+  var TOP = 60, RT = 190, RB = 270, LANE = 230;
+  var SEED = 11;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var PRESS_KEYS = { space: true, enter: true, x: true, arrowup: true };
+
+  var mode, lift, boats, carts, patience, score, t, nextBoat, nextCart, boatCount;
+  var random, overTime, cause, lockText, holdingNow;
+  var pointerHeld = false, best = 0, handle = null;
+  var W = 360, H = 400, cx = 223;
+
+  function layout(s) { W = s.width; H = s.height; cx = Math.round(W * 0.62); }
+
+  function reset() {
+    mode = 'ready';
+    random = DemoKit.rng(SEED);
+    lift = 0;
+    boats = [];
+    carts = [];
+    patience = { boat: 1, cart: 1 };
+    score = 0; t = 0; boatCount = 0;
+    nextBoat = 3; nextCart = 1;
+    overTime = 0; cause = ''; lockText = ''; holdingNow = false;
+  }
+
+  function interval(base) {
+    return base * Math.max(0.5, 1 - t / 120) * (0.7 + 0.6 * random());
+  }
+
+  function spawnBoat() {
+    var queued = 0;
+    for (var i = 0; i < boats.length; i++) if (boats[i].x <= -LINE) queued++;
+    if (queued >= MAX_QUEUE) { nextBoat = 0.5; return; }
+    var r = random(), kind;
+    if (boatCount === 0) kind = 'row';
+    else if (r < 0.45) kind = 'row';
+    else if (r < 0.8 || t < 25) kind = 'sail';
+    else kind = 'tall';
+    boatCount++;
+    var ty = TYPES[kind], x = -cx - 4;
+    var last = boats[boats.length - 1];
+    if (last) x = Math.min(x, last.x - last.len - GAP);
+    boats.push({ kind: 'boat', type: kind, mast: ty.mast, len: ty.len, w: ty.w, x: x, wait: false, done: false });
+    nextBoat = interval(6);
+  }
+
+  function spawnCart() {
+    var queued = 0;
+    for (var i = 0; i < carts.length; i++) if (carts[i].y <= RT - 6) queued++;
+    if (queued >= MAX_QUEUE) { nextCart = 0.5; return; }
+    var y = TOP - 4;
+    var last = carts[carts.length - 1];
+    if (last) y = Math.min(y, last.y - CART_LEN - GAP);
+    carts.push({ kind: 'cart', y: y, wait: false, done: false });
+    nextCart = interval(3.6);
+  }
+
+  function crossed(kind) {
+    score++;
+    patience[kind] = Math.min(1, patience[kind] + REFILL);
+  }
+
+  function start() {
+    if (mode === 'over') {
+      if (overTime < 0.8) return;
+      reset();
+    }
+    if (mode === 'ready') {
+      mode = 'run';
+      if (handle) handle.play();
+    }
+  }
+
+  function update(dt, s) {
+    layout(s);
+    if (mode === 'over') { overTime += dt; return; }
+    if (mode !== 'run') return;
+    t += dt;
+
+    var holding = pointerHeld;
+    for (var k in PRESS_KEYS) if (s.keys.has(k)) holding = true;
+    holdingNow = holding;
+
+    // Locks: a cart on the deck stops raising, a boat under the deck stops lowering.
+    var cartOnDeck = false, mastUnder = 0, i, b, c;
+    for (i = 0; i < carts.length; i++) {
+      c = carts[i];
+      if (c.y > RT - 6 && c.y - CART_LEN < RB + 4) cartOnDeck = true;
+    }
+    for (i = 0; i < boats.length; i++) {
+      b = boats[i];
+      if (b.x > -LINE && b.x - b.len < LINE) mastUnder = Math.max(mastUnder, b.mast);
+    }
+    lockText = '';
+    if (holding && !cartOnDeck) {
+      lift = Math.min(1, lift + RAISE * dt);
+    } else if (holding) {
+      lockText = 'Locked: cart on the bridge';
+    } else if (lift > mastUnder) {
+      lift = Math.max(mastUnder, lift - LOWER * dt);
+    } else if (mastUnder > 0) {
+      lockText = 'Locked: boat under the bridge';
+    }
+
+    // Boats move right. x is the bow, measured from the bridge centre.
+    var waitingBoats = 0;
+    for (i = 0; i < boats.length; i++) {
+      b = boats[i];
+      var want = b.x + BOAT_SPEED * dt, nx = want;
+      if (i > 0) nx = Math.min(nx, boats[i - 1].x - boats[i - 1].len - GAP);
+      if (b.x <= -LINE && nx > -LINE && lift < b.mast) nx = -LINE;
+      nx = Math.max(nx, b.x);
+      b.wait = b.x <= -LINE && nx < want - 0.01;
+      if (b.wait) waitingBoats++;
+      b.x = nx;
+      if (!b.done && b.x - b.len > LINE) { b.done = true; crossed('boat'); }
+    }
+    boats = boats.filter(function (q) { return q.x - q.len < W - cx + 10; });
+
+    // Carts move down. y is the front of the cart.
+    var waitingCarts = 0;
+    for (i = 0; i < carts.length; i++) {
+      c = carts[i];
+      var wantY = c.y + CART_SPEED * dt, ny = wantY;
+      if (i > 0) ny = Math.min(ny, carts[i - 1].y - CART_LEN - GAP);
+      if (c.y <= RT - 6 && ny > RT - 6 && lift > 0.01) ny = RT - 6;
+      ny = Math.max(ny, c.y);
+      c.wait = c.y <= RT - 6 && ny < wantY - 0.01;
+      if (c.wait) waitingCarts++;
+      c.y = ny;
+      if (!c.done && c.y - CART_LEN > RB + 4) { c.done = true; crossed('cart'); }
+    }
+    carts = carts.filter(function (q) { return q.y - CART_LEN < H + 10; });
+
+    patience.boat -= DRAIN * waitingBoats * dt;
+    patience.cart -= DRAIN * waitingCarts * dt;
+    if (patience.boat <= 0 || patience.cart <= 0) {
+      cause = patience.boat <= 0 ? 'The boats gave up' : 'The carts gave up';
+      patience.boat = Math.max(0, patience.boat);
+      patience.cart = Math.max(0, patience.cart);
+      mode = 'over'; overTime = 0; lockText = '';
+      best = Math.max(best, score);
+      return;
+    }
+
+    nextBoat -= dt; if (nextBoat <= 0) spawnBoat();
+    nextCart -= dt; if (nextCart <= 0) spawnCart();
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT;
+    ctx.fillStyle = color;
+    ctx.textAlign = align || 'center';
+    ctx.fillText(str, x, y);
+  }
+
+  function barColor(c, v) { return v > 0.5 ? c.good : v > 0.25 ? c.warn : c.bad; }
+
+  function drawBar(ctx, c, label, x, w, v) {
+    text(ctx, label, x, 50, c.ink2, '12px', 'left');
+    var bx = x + 42, bw = Math.max(20, w - 46);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(bx, 42, bw, 9);
+    ctx.fillStyle = barColor(c, v);
+    ctx.fillRect(bx, 42, bw * Math.max(0, v), 9);
+  }
+
+  function angry(ctx, c, side, v, x, y) {
+    if (v.wait && patience[side] < 0.35) text(ctx, '!', x, y, c.bad, '700 13px');
+  }
+
+  function drawBoat(ctx, c, b) {
+    var front = cx + b.x, back = front - b.len, top = LANE - b.w / 2;
+    ctx.fillStyle = c.surface;
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(back, top);
+    ctx.lineTo(front - 8, top);
+    ctx.lineTo(front, LANE);
+    ctx.lineTo(front - 8, top + b.w);
+    ctx.lineTo(back, top + b.w);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // The mast points "up" the screen: its length shows the lift it needs.
+    var mx = back + b.len * 0.45, mt = LANE - b.mast * LIFT_PX;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(mx, LANE); ctx.lineTo(mx, mt); ctx.stroke();
+    ctx.fillStyle = b.type === 'tall' ? c.bad : b.type === 'sail' ? c.topic : c.good;
+    ctx.beginPath(); ctx.moveTo(mx + 1, mt); ctx.lineTo(mx + 11, mt + 4); ctx.lineTo(mx + 1, mt + 8); ctx.fill();
+    angry(ctx, c, 'boat', b, back + b.len / 2, top + b.w + 14);
+  }
+
+  function drawCart(ctx, c, q) {
+    var x = cx - CART_W / 2, y = q.y - CART_LEN;
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(x - 3, y + 4, 3, 6); ctx.fillRect(x + CART_W, y + 4, 3, 6);
+    ctx.fillRect(x - 3, y + 15, 3, 6); ctx.fillRect(x + CART_W, y + 15, 3, 6);
+    ctx.fillStyle = c.warn;
+    ctx.fillRect(x, y, CART_W, CART_LEN);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, CART_W - 1, CART_LEN - 1);
+    angry(ctx, c, 'cart', q, cx - HALF - 8, q.y - 6);
+  }
+
+  function draw(ctx, s) {
+    layout(s);
+    var c = s.colors, i;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, W, H);
+
+    // River with a few drifting ripples.
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(0, RT, W, RB - RT);
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = c.surface;
+    for (i = 0; i < 9; i++) {
+      var rx = ((i * 113 + t * 12) % (W + 40)) - 20;
+      ctx.fillRect(rx, RT + 10 + (i * 37) % (RB - RT - 20), 14, 2);
+    }
+    ctx.globalAlpha = 1;
+
+    // Road and stop markers.
+    ctx.fillStyle = c.line;
+    ctx.fillRect(cx - HALF, TOP, HALF * 2, RT - TOP);
+    ctx.fillRect(cx - HALF, RB, HALF * 2, H - RB);
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(cx - HALF, RT - 7, HALF * 2, 2);
+    ctx.fillStyle = c.bad;
+    ctx.beginPath(); ctx.arc(cx - LINE, RT + 6, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx - LINE, RB - 6, 4, 0, Math.PI * 2); ctx.fill();
+
+    for (i = 0; i < boats.length; i++) drawBoat(ctx, c, boats[i]);
+    // Carts still waiting on the road sit behind a raised deck, so draw them first.
+    for (i = 0; i < carts.length; i++) if (carts[i].y <= RT - 6) drawCart(ctx, c, carts[i]);
+
+    // The deck: its shadow stays on the water, the deck itself is drawn higher up the screen.
+    var z = lift * LIFT_PX;
+    ctx.globalAlpha = 0.18 * lift;
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(cx - HALF, RT, HALF * 2, RB - RT);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - HALF, RB); ctx.lineTo(cx - HALF, RB - z);
+    ctx.moveTo(cx + HALF, RB); ctx.lineTo(cx + HALF, RB - z);
+    ctx.stroke();
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(cx - HALF, RT - z, HALF * 2, RB - RT);
+    ctx.strokeStyle = lockText ? c.bad : c.ink2;
+    ctx.lineWidth = lockText ? 2.5 : 1.5;
+    ctx.strokeRect(cx - HALF, RT - z, HALF * 2, RB - RT);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    for (i = 1; i < 8; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx - HALF + 3, RT - z + i * 10);
+      ctx.lineTo(cx + HALF - 3, RT - z + i * 10);
+      ctx.stroke();
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.fillRect(cx - HALF - 5, RT - 5, 6, 6); ctx.fillRect(cx + HALF - 1, RT - 5, 6, 6);
+    ctx.fillRect(cx - HALF - 5, RB - 1, 6, 6); ctx.fillRect(cx + HALF - 1, RB - 1, 6, 6);
+
+    for (i = 0; i < carts.length; i++) if (carts[i].y > RT - 6) drawCart(ctx, c, carts[i]);
+
+    // Lift gauge on the left bank, with the first waiting boat's need marked.
+    var gx = cx - HALF - 22, gy = RB + 12, gh = 72;
+    var lead = null;
+    for (i = 0; i < boats.length; i++) if (boats[i].x <= -LINE) { lead = boats[i]; break; }
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(gx, gy, 10, gh);
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(gx, gy + gh * (1 - lift), 10, gh * lift);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(gx + 0.5, gy + 0.5, 9, gh - 1);
+    var marks = [[0, 'carts'], [0.25, 'row'], [0.55, 'sail'], [0.9, 'tall']];
+    for (i = 0; i < marks.length; i++) {
+      var my = gy + gh * (1 - marks[i][0]);
+      var isLead = lead && lead.mast === marks[i][0];
+      var ok = i === 0 ? lift <= 0.01 : lift >= marks[i][0];
+      ctx.fillStyle = isLead ? c.warn : ok ? c.good : c.ink3;
+      ctx.fillRect(gx - 6, my - 1, 22, 2);
+      text(ctx, (isLead ? 'next: ' : '') + marks[i][1], gx - 9, my + 4, isLead ? c.ink : c.ink2, isLead ? '600 12px' : '12px', 'right');
+    }
+    text(ctx, 'lift', gx + 5, gy + gh + 16, c.ink2, '12px');
+
+    // Status, top left grass.
+    var status = lockText || (mode !== 'run' ? '' : holdingNow ? (lift >= 1 ? 'Fully raised' : 'Raising') : lift > 0 ? 'Lowering' : 'Road open');
+    if (status) text(ctx, status, 12, TOP + 22, lockText ? c.bad : c.ink2, '600 12px', 'left');
+
+    // HUD.
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(0, 0, W, TOP);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, TOP - 1, W, 1);
+    text(ctx, 'Crossed ' + score, 12, 22, c.ink, '600 13px', 'left');
+    text(ctx, 'Best ' + best, W - 12, 22, c.ink2, '600 13px', 'right');
+    drawBar(ctx, c, 'Carts', 12, W / 2 - 20, patience.cart);
+    drawBar(ctx, c, 'Boats', W / 2 + 6, W / 2 - 18, patience.boat);
+
+    if (mode !== 'run') {
+      var bw = Math.min(310, W - 20), by = TOP + 34;
+      ctx.globalAlpha = 0.94;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(W / 2 - bw / 2, by, bw, 74);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.strokeRect(W / 2 - bw / 2 + 0.5, by + 0.5, bw - 1, 73);
+      if (mode === 'ready') {
+        text(ctx, 'Hold to raise the bridge for boats.', W / 2, by + 22, c.ink, '600 13px');
+        text(ctx, 'Release to lower it for carts.', W / 2, by + 42, c.ink, '600 13px');
+        text(ctx, 'Press to start', W / 2, by + 62, c.ink2, '12px');
+      } else {
+        text(ctx, cause + ': ' + score + ' crossed', W / 2, by + 30, c.ink, '600 14px');
+        if (overTime > 0.8) text(ctx, 'Press to open the bridge again', W / 2, by + 54, c.ink2, '12px');
+      }
+    }
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="bridge"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); if (handle) handle.redraw(); } });
+
+  handle = DemoKit.canvas('#bridge', {
+    height: 400,
+    keys: true,
+    drag: true,
+    label: 'Drawbridge Duty prototype. Hold Space, Enter, X or Up, or press and hold the canvas, to raise the bridge. Release to lower it. Carts cross only when the bridge is flat. Boats need the bridge raised at least to their mast height. Keep both patience bars from emptying.',
+    update: update,
+    draw: draw,
+    onDown: function () { pointerHeld = true; start(); },
+    onUp: function () { pointerHeld = false; },
+    onKey: function (key, isDown) { if (isDown && PRESS_KEYS[key]) start(); }
+  });
+})();
+</script>
+</body>
+</html>
