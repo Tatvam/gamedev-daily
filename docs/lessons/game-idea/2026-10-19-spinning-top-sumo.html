@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spinning Top Sumo: a duel where you only choose when · Game Dev Daily</title>
+<meta name="description" content="A one-button duel where each top's aim arrow spins on its own and a press dashes that way, with a playable prototype and the dash and collision code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Spinning Top Sumo: a duel where you only choose when</h1>
+  <p class="lede">A one-button duel where each top's aim arrow spins on its own and a press dashes that way, with a playable prototype and the dash and collision code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>Two spinning tops face off in a ring that keeps getting smaller. Your aim arrow sweeps around by itself, and your only move is to press at the moment it points at your rival, before their arrow comes round to point at you.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: watch the sweep, strike, recover</h2>
+  <p>Spinning Top Sumo is a <dfn>one-button duel</dfn>: each player has a single input, and the whole game is about when to use it. Nobody steers. Each top has an <dfn>aim arrow</dfn> that rotates around it at a fixed speed, and a press launches the top in the direction the arrow points right now.</p>
+  <p>That gives every press two sides. A dash aimed well hits the rival and sends them towards the edge. A dash aimed badly sends <em>you</em> towards the edge, and the arrow takes more than two seconds to come all the way round again.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: watch both arrows sweep, press to dash when yours points at the rival, then collide or miss and drift, and back to watching. Beside it, two longer loops: every round the ring shrinks until someone falls out, and every match is the best of three rounds.">
+      <defs>
+        <marker id="ts-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="100" y="16" width="200" height="54" rx="8"/>
+      <text class="d-text" x="200" y="39" text-anchor="middle">Watch both arrows</text>
+      <text class="d-muted" x="200" y="57" text-anchor="middle">where will mine be?</text>
+
+      <rect class="d-accent-soft" x="220" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="315" y="183" text-anchor="middle">Press to dash</text>
+      <text class="d-muted" x="315" y="201" text-anchor="middle">only when it lines up</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="170" height="54" rx="8"/>
+      <text class="d-text" x="95" y="183" text-anchor="middle">Hit or miss</text>
+      <text class="d-muted" x="95" y="201" text-anchor="middle">then drift and recover</text>
+
+      <path class="d-accent" d="M262 72 L300 156" marker-end="url(#ts-arrow)"/>
+      <path class="d-accent" d="M218 187 L184 187" marker-end="url(#ts-arrow)"/>
+      <path class="d-accent" d="M100 156 L140 74" marker-end="url(#ts-arrow)"/>
+      <text class="d-label" x="200" y="128" text-anchor="middle">every 1 to 3 seconds</text>
+
+      <path class="d-dash" d="M430 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every round</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">the ring shrinks until</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">someone falls out</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every match</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">best of three,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">then a rematch</text>
+    </svg>
+    <figcaption>The short loop is one timing decision. A round lasts until the ring is small enough to force a mistake. A match is short enough to ask for a rematch.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <p>Positions are measured in <dfn>ring units</dfn>, where the starting ring has a radius of 1. That keeps the numbers the same whatever the screen size.</p>
+  <ul>
+    <li><strong>The arrow</strong> turns at 2.6 radians per second, so it goes all the way round in about 2.4 seconds.</li>
+    <li><strong>The dash</strong> sets the top's velocity to 1.3 ring units per second in the arrow's direction. It replaces the old velocity rather than adding to it, so a dash can also be used to brake or turn back. After a dash the top must wait 0.5 seconds before it can dash again.</li>
+    <li><strong>The swing back.</strong> Each dash reverses the direction the arrow turns. If you dash towards the edge and miss, your arrow is already sweeping back towards the middle.</li>
+    <li><strong>Friction</strong> slows a moving top smoothly, so a dash from rest glides about 0.65 ring units and stops.</li>
+    <li><strong>Collisions.</strong> The tops are equal circles. When they hit, the speed along the line between them is passed across, so a dashing top nearly stops and the top it hit flies off with most of its speed.</li>
+    <li><strong>Ring out.</strong> The ring shrinks from radius 1 to 0.3 over 35 seconds. A top whose centre crosses the edge loses the round. If both go out at once, nobody scores. The first to win two rounds wins the match.</li>
+  </ul>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 210" role="img" aria-label="Two tops inside a ring. The blue top's arrow is pointing at the red top, which sits near the edge. A dashed line shows the blue top's dash path, and a second arrow shows the red top being pushed out past the edge. A curved arrow around the blue top shows that the aim arrow turns by itself.">
+      <defs>
+        <marker id="ts-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <circle class="d-stroke" cx="170" cy="110" r="90" fill="none"/>
+      <circle class="d-fill" cx="110" cy="120" r="14"/>
+      <path class="d-stroke d-thin" d="M92 96 A26 26 0 0 1 128 94" fill="none" marker-end="url(#ts-arrow2)"/>
+      <path class="d-accent" d="M124 120 H150" marker-end="url(#ts-arrow2)"/>
+      <path class="d-dash" d="M150 120 H196"/>
+      <circle class="d-accent-soft" cx="212" cy="120" r="14"/>
+      <path class="d-accent" d="M228 120 H290" marker-end="url(#ts-arrow2)"/>
+      <text class="d-label" x="110" y="152" text-anchor="middle">you</text>
+      <text class="d-label" x="212" y="152" text-anchor="middle">rival</text>
+      <text class="d-muted" x="110" y="80" text-anchor="middle">arrow turns</text>
+      <text class="d-muted" x="290" y="104" text-anchor="middle">out</text>
+      <text class="d-muted" x="170" y="198" text-anchor="middle">press when the arrow lines up</text>
+    </svg>
+    <figcaption>The arrow turns on its own. A press turns its direction into speed, and a hit passes that speed to the rival.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is a tiny gladiator in a schoolyard ring. The constraint is that you never choose a direction, only a moment. Both arrows are always visible, so each player can read the other's next threat: "their arrow reaches me in half a second, so I must strike first or dash away first". A single button becomes a game of reading and bluffing.</p>
+  <p>The shrinking ring is the pressure. Early on, a dash from the middle cannot carry you out, so mistakes are cheap. Later, a dash from the middle in the wrong direction is a ring-out, and every press is a risk.</p>
+  <p>The hardest part to build is the computer rival. It has to be beatable, it must not dash the instant its arrow lines up, and it must not throw itself out of the ring. The prototype's rival waits a random short time between dashes, aims slightly off target on purpose, and only dashes away from you when its landing point stays inside the ring.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the canvas to focus it, then press once to start. You are blue. Watch your arrow and press when it points at the red top. Then try a dash that only brings you back to the middle, and notice how the shrinking ring changes which presses are safe.</p>
+
+  <figure class="demo" data-demo="sumo">
+    <canvas id="sumo"></canvas>
+    <figcaption>Controls: blue dashes with <kbd>Space</kbd> or <kbd>A</kbd>, or a tap on the canvas. With Rival set to Friend, red dashes with <kbd>L</kbd> or <kbd>Enter</kbd>, and on a touch screen blue taps the left half and red the right half. A faded arrow means that top is waiting to dash again. The pips at the top count rounds won; first to two wins.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the heart of the mechanic in LÖVE: the turning arrow, the dash, friction, the collision between two equal tops, and the ring-out check. The numbers and names match the prototype. Drawing, the round flow and the computer rival are left out. <code>roundLost</code> is your own function.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPIN, DASH, FRICTION, COOLDOWN = 2.6, 1.3, 2.0, 0.5
+local TOP_R, BOUNCE = 0.09, 0.9
+local ringR = 1                          <span class="c">-- ring units; shrinks to 0.3 over 35 s</span>
+local tops = {
+  { x = -0.3, y = 0, vx = 0, vy = 0, aim = -math.pi / 2, turn = 1, cool = 0, key = "a" },
+  { x =  0.3, y = 0, vx = 0, vy = 0, aim =  math.pi / 2, turn = 1, cool = 0, key = "l" },
+}
+
+local function dash(t)
+  if t.cool &gt; 0 then return end
+<span class="k">  t.vx, t.vy = math.cos(t.aim) * DASH, math.sin(t.aim) * DASH  <span class="c">-- set, not add</span></span>
+  t.cool, t.turn = COOLDOWN, -t.turn     <span class="c">-- the arrow swings back the other way</span>
+end
+
+function love.keypressed(key)
+  for _, t in ipairs(tops) do
+    if key == t.key then dash(t) end
+  end
+end
+
+local function collide(a, b)
+  local dx, dy = b.x - a.x, b.y - a.y
+  local d = math.sqrt(dx * dx + dy * dy)
+  if d &gt;= TOP_R * 2 or d == 0 then return end
+  local nx, ny, push = dx / d, dy / d, (TOP_R * 2 - d) / 2
+  a.x, a.y, b.x, b.y = a.x - nx * push, a.y - ny * push, b.x + nx * push, b.y + ny * push
+  local rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny
+  if rel &lt;= 0 then return end            <span class="c">-- already moving apart</span>
+  local j = rel * (1 + BOUNCE) / 2       <span class="c">-- equal masses share the impulse</span>
+  a.vx, a.vy, b.vx, b.vy = a.vx - j * nx, a.vy - j * ny, b.vx + j * nx, b.vy + j * ny
+end
+
+function love.update(dt)
+  ringR = math.max(0.3, ringR - 0.02 * dt)
+  local slow = math.exp(-FRICTION * dt)  <span class="c">-- smooth slowdown at any frame rate</span>
+  for _, t in ipairs(tops) do
+    t.aim, t.cool = t.aim + SPIN * t.turn * dt, math.max(0, t.cool - dt)
+    t.vx, t.vy = t.vx * slow, t.vy * slow
+    t.x, t.y = t.x + t.vx * dt, t.y + t.vy * dt
+  end
+  collide(tops[1], tops[2])
+  for i, t in ipairs(tops) do
+    if math.sqrt(t.x * t.x + t.y * t.y) &gt; ringR then roundLost(i) end
+  end
+end</code></pre>
+  </div>
+  <p>Friction uses <code>math.exp(-FRICTION * dt)</code> so the glide is the same length at 30 or 144 frames per second. With speed 1.3 and friction 2.0, a dash from rest travels 1.3 / 2.0 = 0.65 ring units. The tops start 0.3 from the centre, so at the start no single dash can carry you out, and a dash from the centre only becomes deadly once the ring is smaller than 0.65. If both tops go out on the same frame, have <code>roundLost</code> check both before awarding the point.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Whoever presses first wins.</strong> If one well-timed dash always means a ring-out, rounds become a reaction test and nobody reads anybody. Check that a hit from the centre of the full-size ring cannot push the rival out alone. Here it cannot: the rival starts 0.3 from the centre and a hit makes it glide at most about 0.65 units. Two or three hits, or one hit late in the round, should be needed.</li>
+    <li><strong>Turtling.</strong> If sitting still in the middle is the best plan, the game stalls. The shrinking ring is the fix. Time a few rounds: if most last until the ring stops shrinking, speed up the shrink.</li>
+    <li><strong>An arrow you cannot read.</strong> The whole game is reading two arrows at once. If players lose and say "I did not see it", make the arrows longer, thicker and higher in contrast before touching any other number.</li>
+    <li><strong>A rival that is perfect or stupid.</strong> A computer that dashes the exact frame its arrow lines up feels like cheating, and one that walks out of the ring feels like a joke. Give it a reaction delay and an aim error, and tune those two numbers only.</li>
+    <li><strong>Lag between friends.</strong> Online, a few frames of delay change who hit first. Build it for two players on one device first, where timing is fair.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Spinning top battles are an old playground game, and Beyblade (from Takara Tomy) turned them into a toy line where tops are launched into a shallow stadium and knock each other out. In those toys the player's input ends at the launch, so the battle is watched rather than played.</p>
+  <p>The ring-out goal comes from sumo, where a wrestler loses by being forced out of the ring or touching the ground with anything other than the soles of the feet. Video games use the same idea: in Super Smash Bros. (Nintendo, 1999) you win by knocking rivals off the stage rather than by draining a health bar.</p>
+  <p>What this idea changes is that the direction is never chosen, only the moment. I have not searched thoroughly for other games that use a constantly rotating aim on one button, and such games may well exist, so check before calling this new.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with two circles, two lines for the arrows and one circle for the ring. Skip the computer rival: two players on one keyboard, <kbd>A</kbd> and <kbd>L</kbd>. Print the length of each round and how many dashes each player made.</p>
+  <p>Sit two people down and say only "push the other one out". The one question to answer: <strong>do players ever wait on purpose because the other arrow is about to point at them?</strong> If they only mash, the cooldown is too short or the arrow too fast. If you see someone hold back, then strike, the duel is working.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype above with a spark when tops collide, a little screen shake on a big hit, a click sound that plays only after a player turns sound on, and four players on one keyboard.</li>
+    <li><strong>One-month version:</strong> a handful of tops that differ in only one number each, such as a heavy top, a fast-spinning arrow or a long dash, plus a few ring shapes and a tournament ladder against computer rivals with names and habits.</li>
+    <li><strong>Cut first:</strong> online play. It is the most work and it damages the timing that makes the game fair. Local play is the game.</li>
+    <li>The hardest part is a computer rival that is fun to lose to. Tune it with only a reaction delay and an aim error.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let a top's spin wear down a little with every dash, so the arrow turns more slowly and the top gets heavier and harder to push, and the late round becomes a choice between attacking and keeping your spin.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On making one input feel responsive, which is everything in a one-button duel.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (2003). Its chapters on games as systems of conflict and on balance suit a symmetric two-player game.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008). Its lenses on skill, chance and fairness help when tuning the rival.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPIN = 2.6, DASH = 1.3, FRICTION = 2.0, COOLDOWN = 0.5;
+  var TOP_R = 0.09, BOUNCE = 0.9, R0 = 1, R_MIN = 0.3, SHRINK = 0.02;
+  var WIN = 2, HUD = 48, SEED = 7;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var P1_KEYS = { space: true, a: true };
+  var P2_KEYS = { l: true, enter: true };
+  var NAMES = ['Blue', 'Red'];
+
+  var mode, tops, ringR, t, timer, wins, round, msg, random, aiWait, aiOffset;
+  var rival = 'cpu', handle = null;
+  var W = 360, H = 400, cx = 180, cy = 224, S = 150;
+
+  function layout(s) {
+    W = s.width; H = s.height;
+    cx = W / 2; cy = HUD + (H - HUD) / 2;
+    S = Math.max(60, Math.min(W - 24, H - HUD - 20) / 2) / R0;
+  }
+
+  function makeTop(x, aim) {
+    return { x: x, y: 0, vx: 0, vy: 0, aim: aim, turn: 1, cool: 0, spin: 0, trail: [] };
+  }
+
+  function placeTops() {
+    tops = [makeTop(-0.3, -Math.PI / 2), makeTop(0.3, Math.PI / 2)];
+    ringR = R0; t = 0;
+  }
+
+  function newRound() {
+    placeTops();
+    mode = 'count'; timer = 1.2;
+    aiWait = 1.0; aiOffset = (random() - 0.5) * 0.5;
+  }
+
+  function reset() {
+    random = DemoKit.rng(SEED);
+    wins = [0, 0]; round = 1; msg = '';
+    placeTops();
+    mode = 'ready'; timer = 0;
+  }
+
+  function angleDiff(a, b) {
+    var d = (a - b) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  function dash(top) {
+    if (top.cool > 0 || mode !== 'fight') return false;
+    top.vx = Math.cos(top.aim) * DASH;
+    top.vy = Math.sin(top.aim) * DASH;
+    top.cool = COOLDOWN;
+    top.turn = -top.turn;
+    return true;
+  }
+
+  function press(i) {
+    if (mode === 'ready') { newRound(); if (handle) handle.play(); return; }
+    if (mode === 'over') { if (timer <= 0) { reset(); newRound(); } return; }
+    if (i === 1 && rival === 'cpu') return;
+    if (tops) dash(tops[i]);
+  }
+
+  function collide(a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d >= TOP_R * 2 || d === 0) return;
+    var nx = dx / d, ny = dy / d, push = (TOP_R * 2 - d) / 2;
+    a.x -= nx * push; a.y -= ny * push;
+    b.x += nx * push; b.y += ny * push;
+    var rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+    if (rel <= 0) return;
+    var j = rel * (1 + BOUNCE) / 2;
+    a.vx -= j * nx; a.vy -= j * ny;
+    b.vx += j * nx; b.vy += j * ny;
+  }
+
+  // The computer rival: a reaction delay, a small aim error, and a safety check.
+  function thinkAI(dt) {
+    var me = tops[1], foe = tops[0];
+    aiWait -= dt;
+    if (aiWait > 0 || me.cool > 0) return;
+    var dx = Math.cos(me.aim), dy = Math.sin(me.aim);
+    var reach = DASH / FRICTION;
+    var lx = me.x + dx * reach, ly = me.y + dy * reach;
+    var safe = Math.sqrt(lx * lx + ly * ly) < ringR - 0.05;
+    var fx = foe.x - me.x, fy = foe.y - me.y;
+    var foeDist = Math.sqrt(fx * fx + fy * fy);
+    var aimed = Math.abs(angleDiff(me.aim, Math.atan2(fy, fx) + aiOffset)) < 0.12;
+    var md = Math.sqrt(me.x * me.x + me.y * me.y);
+    var homeward = md > ringR * 0.65 && (dx * -me.x + dy * -me.y) > 0.92 * md;
+    var go = (aimed && (foeDist < reach || safe)) || homeward;
+    if (go && dash(me)) {
+      aiWait = 0.35 + random() * 0.5;
+      aiOffset = (random() - 0.5) * 0.5;
+    }
+  }
+
+  function update(dt, s) {
+    layout(s);
+    if (mode === 'ready') return;
+    var i, tp;
+    if (mode !== 'fight') {
+      timer -= dt;
+      if (mode === 'count') {
+        for (i = 0; i < 2; i++) tops[i].aim += SPIN * tops[i].turn * dt;
+        if (timer <= 0) mode = 'fight';
+      } else if (mode === 'roundover' && timer <= 0) {
+        round++; newRound();
+      }
+      return;
+    }
+
+    t += dt;
+    ringR = Math.max(R_MIN, R0 - SHRINK * t);
+    var slow = Math.exp(-FRICTION * dt);
+    for (i = 0; i < 2; i++) {
+      tp = tops[i];
+      tp.aim += SPIN * tp.turn * dt;
+      tp.cool = Math.max(0, tp.cool - dt);
+      tp.vx *= slow; tp.vy *= slow;
+      tp.x += tp.vx * dt; tp.y += tp.vy * dt;
+      var sp = Math.sqrt(tp.vx * tp.vx + tp.vy * tp.vy);
+      tp.spin += dt * (12 + sp * 10);
+      tp.trail.push({ x: tp.x, y: tp.y, fast: sp > 0.35 });
+      if (tp.trail.length > 10) tp.trail.shift();
+    }
+    collide(tops[0], tops[1]);
+    if (rival === 'cpu') thinkAI(dt);
+
+    var out = [];
+    for (i = 0; i < 2; i++) out.push(Math.sqrt(tops[i].x * tops[i].x + tops[i].y * tops[i].y) > ringR);
+    if (out[0] || out[1]) {
+      if (out[0] && out[1]) msg = 'Both fell out. No point';
+      else {
+        var winner = out[0] ? 1 : 0;
+        wins[winner]++;
+        msg = NAMES[winner] + ' takes round ' + round;
+      }
+      if (wins[0] >= WIN || wins[1] >= WIN) {
+        var champ = wins[0] >= WIN ? 0 : 1;
+        msg = NAMES[champ] + ' wins the match ' + wins[champ] + '-' + wins[1 - champ];
+        mode = 'over'; timer = 0.8;
+      } else {
+        mode = 'roundover'; timer = 1.6;
+      }
+    }
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT;
+    ctx.fillStyle = color;
+    ctx.textAlign = align || 'center';
+    ctx.fillText(str, x, y);
+  }
+
+  function drawTop(ctx, c, tp, color) {
+    var px = cx + tp.x * S, py = cy + tp.y * S, r = TOP_R * S, i;
+    for (i = 0; i < tp.trail.length; i++) {
+      var q = tp.trail[i];
+      if (!q.fast) continue;
+      ctx.globalAlpha = 0.05 + 0.025 * i;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(cx + q.x * S, cy + q.y * S, r * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c.surface;
+    ctx.lineWidth = 2;
+    for (i = 0; i < 3; i++) {
+      var a = tp.spin + i * Math.PI * 2 / 3;
+      ctx.beginPath(); ctx.moveTo(px, py);
+      ctx.lineTo(px + Math.cos(a) * r * 0.85, py + Math.sin(a) * r * 0.85); ctx.stroke();
+    }
+    ctx.fillStyle = c.surface;
+    ctx.beginPath(); ctx.arc(px, py, r * 0.22, 0, Math.PI * 2); ctx.fill();
+
+    // Aim arrow: faded while the dash is cooling down.
+    var len = r + 0.2 * S, ax = Math.cos(tp.aim), ay = Math.sin(tp.aim);
+    var tx = px + ax * len, ty = py + ay * len;
+    ctx.globalAlpha = tp.cool > 0 ? 0.3 : 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(px + ax * r, py + ay * r); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(tx + ax * 8, ty + ay * 8);
+    ctx.lineTo(tx - ay * 6, ty + ax * 6);
+    ctx.lineTo(tx + ay * 6, ty - ax * 6);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function pips(ctx, c, x, n, color, align) {
+    for (var i = 0; i < WIN; i++) {
+      var px = align === 'left' ? x + i * 16 : x - i * 16;
+      ctx.beginPath(); ctx.arc(px, 34, 5, 0, Math.PI * 2);
+      if (i < n) { ctx.fillStyle = color; ctx.fill(); }
+      else { ctx.strokeStyle = c.ink3; ctx.lineWidth = 1.5; ctx.stroke(); }
+    }
+  }
+
+  function draw(ctx, s) {
+    layout(s);
+    var c = s.colors;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, W, H);
+
+    // The starting ring as a faint dashed line, the live ring filled.
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, R0 * S, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.surface;
+    ctx.beginPath(); ctx.arc(cx, cy, ringR * S, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = ringR < 0.6 ? c.bad : c.ink2;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy);
+    ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+
+    drawTop(ctx, c, tops[0], c.topic);
+    drawTop(ctx, c, tops[1], c.bad);
+
+    // HUD.
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(0, 0, W, HUD);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, HUD - 1, W, 1);
+    text(ctx, 'Blue (you)', 12, 18, c.topic, '600 13px', 'left');
+    text(ctx, rival === 'cpu' ? 'Red (computer)' : 'Red (friend)', W - 12, 18, c.bad, '600 13px', 'right');
+    pips(ctx, c, 18, wins[0], c.topic, 'left');
+    pips(ctx, c, W - 18, wins[1], c.bad, 'right');
+    text(ctx, 'Round ' + round, W / 2, 20, c.ink, '600 13px');
+    text(ctx, 'Ring ' + ringR.toFixed(2), W / 2, 38, c.ink2, '12px');
+
+    if (mode === 'fight') return;
+    var bw = Math.min(300, W - 20), by = cy - 40;
+    ctx.globalAlpha = 0.94;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(W / 2 - bw / 2, by, bw, 72);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(W / 2 - bw / 2 + 0.5, by + 0.5, bw - 1, 71);
+    if (mode === 'ready') {
+      text(ctx, 'Press to dash where your arrow points.', W / 2, by + 22, c.ink, '600 13px');
+      text(ctx, 'Push the red top out of the ring.', W / 2, by + 42, c.ink, '600 13px');
+      text(ctx, 'Press to start', W / 2, by + 61, c.ink2, '12px');
+    } else if (mode === 'count') {
+      text(ctx, 'Round ' + round, W / 2, by + 30, c.ink, '600 15px');
+      text(ctx, timer > 0.45 ? 'Ready...' : 'Go!', W / 2, by + 54, c.ink2, '600 13px');
+    } else {
+      text(ctx, msg, W / 2, by + 32, c.ink, '600 14px');
+      if (mode === 'over' && timer <= 0) text(ctx, 'Press for a rematch', W / 2, by + 56, c.ink2, '12px');
+    }
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="sumo"]');
+  ui.select({
+    label: 'Rival',
+    options: [{ value: 'cpu', label: 'Computer' }, { value: 'friend', label: 'Friend' }],
+    value: 'cpu',
+    onChange: function (v) { rival = v; reset(); if (handle) handle.redraw(); }
+  });
+  ui.button({ label: 'Restart', onClick: function () { reset(); if (handle) handle.redraw(); } });
+
+  handle = DemoKit.canvas('#sumo', {
+    height: 400,
+    keys: true,
+    drag: true,
+    label: 'Spinning Top Sumo prototype. Two tops in a shrinking ring. Each aim arrow turns by itself. Blue dashes with Space, A or a tap. Red is the computer, or a friend using L or Enter or the right half of the canvas. Push the other top out of the ring; first to two rounds wins.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { press(rival === 'friend' && p.x > W / 2 ? 1 : 0); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (P1_KEYS[key]) press(0);
+      else if (P2_KEYS[key]) press(1);
+    }
+  });
+})();
+</script>
+</body>
+</html>

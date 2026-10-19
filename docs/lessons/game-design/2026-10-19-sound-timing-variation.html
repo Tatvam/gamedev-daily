@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound timing, variation and layers · Game Dev Daily</title>
+<meta name="description" content="How the timing, pitch variation and layering of a sound effect change how the same hit feels, with starting numbers to tune.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-19">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sound timing, variation and layers</h1>
+  <p class="lede">How the timing, pitch variation and layering of a sound effect change how the same hit feels, with starting numbers to tune.</p>
+</header>
+
+<section data-section="hook">
+  <p>The hammer lands, the sparks fly, and the clang arrives a moment later, as if the hit happened somewhere else. Or the timing is right, but every hit plays the exact same recording, and by the twentieth it sounds like a typewriter. The picture is identical in both games. The sound decides whether the hit feels solid.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Three things decide how a hit sounds</h2>
+  <p>Three choices around a sound effect change the feel of the action: <strong>when</strong> it starts, <strong>how much it changes</strong> between plays, and <strong>what it is made of</strong>.</p>
+
+  <h3>1. Timing: sound and picture must fuse</h3>
+  <p>When a flash of sparks and a clang arrive close enough together, the brain merges them into one event. This is often called <dfn>audio-visual sync</dfn>. Pull them apart and the player hears two events, and the hit feels soft or laggy.</p>
+  <p>The tolerance is not the same in both directions. In the real world, light arrives before sound: sound travels about 343 metres per second, so it falls behind by roughly 3 milliseconds for every metre of distance. Slightly late sound is familiar. Sound <em>before</em> the picture never happens in nature, and people tend to notice it sooner.</p>
+  <p>Broadcast engineers measured this for television. The ITU recommendation BT.1359 gives detection thresholds of roughly 45 milliseconds for sound that leads the picture and 125 milliseconds for sound that lags it. Those numbers came from tests with people speaking on screen, not from games. A sharp impact that the player caused with their own button press is a much harsher test, so treat them as an outer limit, not a target.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 200" role="img" aria-label="A time axis from 100 milliseconds early to 250 milliseconds late, centred on the frame of the impact. A narrow band of one or two frames around the impact is marked as the target for games. A wider band from 45 milliseconds early to 125 milliseconds late is marked as the TV speech tolerance. Sound earlier than that reads as wrong, later than that reads as a separate event.">
+      <rect class="d-fill" x="128" y="70" width="272" height="44" rx="4"/>
+      <rect class="d-accent-soft" x="196" y="70" width="34" height="44" rx="4"/>
+      <path class="d-stroke" d="M40 114 H600"/>
+      <path class="d-accent" d="M200 58 V124"/>
+      <text class="d-text" x="200" y="48" text-anchor="middle">impact frame</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="40" y="142">-100</text>
+        <text class="d-muted" x="128" y="142">-45</text>
+        <text class="d-muted" x="200" y="142">0</text>
+        <text class="d-muted" x="400" y="142">+125</text>
+        <text class="d-muted" x="600" y="142">+250 ms</text>
+      </g>
+      <path class="d-thin" d="M128 114 V120"/>
+      <path class="d-thin" d="M400 114 V120"/>
+      <text class="d-label" x="212" y="168" text-anchor="middle">games: aim for 0 to 1 frame</text>
+      <text class="d-muted" x="320" y="96" text-anchor="middle">TV speech tolerance</text>
+      <text class="d-muted" x="80" y="96" text-anchor="middle">too early</text>
+      <text class="d-muted" x="500" y="96" text-anchor="middle">a separate event</text>
+      <text class="d-muted" x="40" y="190">sound early</text>
+      <text class="d-muted" x="600" y="190" text-anchor="end">sound late</text>
+    </svg>
+    <figcaption>Where the sound can start relative to the impact. The wide band is what television viewers tolerate for speech. For a hit the player caused, aim for the same frame as the impact, or the next one.</figcaption>
+  </figure>
+
+  <p>Delay usually sneaks in from a few places: the sound is triggered at the start or the end of an animation instead of the contact frame; a long file is streamed from disk instead of loaded into memory; the audio buffer is large; or the player wears wireless headphones, which can add far more delay than your code ever does. You control the first three.</p>
+
+  <h3>2. Variation: no two hits identical</h3>
+  <p>Hearing the exact same recording over and over is so common a problem that game audio people have a name for it: the <dfn>machine-gun effect</dfn>. The ear spots the repetition, and the sound stops being a hit and becomes a loop.</p>
+  <p>The cheapest fix is to change the <dfn>pitch</dfn>, how high or low the sound is, by a small random amount each time. Pitch is usually measured in <dfn>semitones</dfn>, the steps between neighbouring piano keys. A playback rate of <code>2 ^ (s / 12)</code> shifts the sound by <code>s</code> semitones, and one semitone is about 6 percent. A random shift within one semitone either way is a common place to start. Push past about three and the hits stop sounding like the same object.</p>
+  <p>Other kinds of variation stack well with pitch: a small random volume change, two to five recorded versions of the sound, and a rule that never plays the same version twice in a row.</p>
+
+  <h3>3. Layering: build one hit from parts</h3>
+  <p><dfn>Layering</dfn> means playing several short sounds at once so that each one does one job. A common split for an impact:</p>
+  <ul>
+    <li><strong>Click:</strong> a very short, bright burst. It marks the exact moment of contact.</li>
+    <li><strong>Thump:</strong> a low tone that drops in pitch. It carries weight.</li>
+    <li><strong>Rattle:</strong> a longer noisy tail. It says what the material is and how big the space is.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Three loudness envelopes on a shared time axis. The click is a tall spike lasting about 30 milliseconds. The thump rises fast and fades over about 240 milliseconds. The rattle rises a little later and fades over about 370 milliseconds. Together they make one hit.">
+      <text class="d-text" x="12" y="54">click</text>
+      <text class="d-text" x="12" y="114">thump</text>
+      <text class="d-text" x="12" y="174">rattle</text>
+      <path class="d-thin" d="M90 64 H600"/>
+      <path class="d-thin" d="M90 124 H600"/>
+      <path class="d-thin" d="M90 184 H600"/>
+      <path class="d-accent-fill" d="M90 64 L92 26 L129 64 Z"/>
+      <path class="d-accent-soft" d="M90 124 L93 84 C170 112 280 122 402 124 Z"/>
+      <path class="d-fill" d="M90 184 L103 160 C230 176 420 183 571 184 Z"/>
+      <path class="d-stroke" d="M103 160 C230 176 420 183 571 184"/>
+      <path class="d-accent" d="M90 20 V196"/>
+      <text class="d-label" x="96" y="16">contact</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="90" y="214">0</text>
+        <text class="d-muted" x="220" y="214">100</text>
+        <text class="d-muted" x="350" y="214">200</text>
+        <text class="d-muted" x="480" y="214">300 ms</text>
+      </g>
+      <text class="d-muted" x="140" y="48">marks the moment</text>
+      <text class="d-muted" x="350" y="104">carries weight</text>
+      <text class="d-muted" x="430" y="160">tells the material</text>
+    </svg>
+    <figcaption>Three layers of one hit, drawn as loudness over time. They all start at contact, so they fuse into a single sound, but each one fills a different part of it.</figcaption>
+  </figure>
+
+  <p>Shift every layer by the same random pitch: the hit stays one sound but never repeats exactly. Layers shifted separately drift apart and stop fusing.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>Start the sound on the impact frame. Random pitch within one semitone either way. Two or three layers, all starting together. These are numbers to begin from, not rules: a cartoon game may want wider pitch swings, a realistic one narrower.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Turn your volume down a little first; nothing plays until you press. Hit the block a few times with the default settings. Then drag the sound offset to +150 milliseconds and hit again: the hammer seems to land on something soft. Try −80 to hear the sound arrive first. Back at 0, switch pitch variation off and press the rapid button to hear the machine-gun effect, then switch it back on. Last, compare layers on and off.</p>
+
+  <figure class="demo" data-demo="hitsound">
+    <canvas id="hitsound"></canvas>
+    <figcaption>Controls: click the canvas, then press Space or J to hit and R for a burst of eight hits. On a phone, tap the canvas or use the buttons. The rings around the block appear when the sound starts. The strip below shows the last three seconds: a vertical line for each impact in the picture, a dot for each sound, joined by a line whose length is the delay. A dot's height is its pitch, so with variation off all dots sit on the middle line. Your speakers or headphones add their own delay on top, which the demo cannot remove.</figcaption>
+  </figure>
+
+  <p>Many people find the hit stops feeling instant somewhere around +60 to +100 milliseconds, well inside the TV figure. The sounds are generated in the browser as stand-ins for recorded files.</p>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's logic in LÖVE, with the same names and default numbers. A press starts the swing; the impact and the sound each get their own countdown, so the sound can start before, on or after the impact. The three layers are recorded files here.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SWING = 0.08         <span class="c">-- seconds from press to impact</span>
+local SOUND_OFFSET = 0     <span class="c">-- seconds; positive = sound after the impact</span>
+local PITCH_RANGE = 1      <span class="c">-- semitones either way; 0 = no variation</span>
+local LAYERED = true
+
+local layers = {
+  click  = love.audio.newSource("click.wav", "static"),
+  thump  = love.audio.newSource("thump.wav", "static"),
+  rattle = love.audio.newSource("rattle.wav", "static"),
+}
+local pending = {}         <span class="c">-- countdowns for impacts and sounds</span>
+
+local function playHit()
+<span class="k">  local semitones = (love.math.random() * 2 - 1) * PITCH_RANGE
+  local pitch = 2 ^ (semitones / 12)    -- one pitch for every layer</span>
+  local names = LAYERED and { "click", "thump", "rattle" } or { "thump" }
+  for i = 1, #names do
+    local s = layers[names[i]]:clone()  <span class="c">-- lets hits overlap</span>
+    s:setPitch(pitch)
+    s:play()
+  end
+end
+
+local function press()
+  table.insert(pending, {
+    impact = SWING,
+<span class="k">    sound = math.max(0, SWING + SOUND_OFFSET),</span>
+  })
+end
+
+function love.keypressed(key)
+  if key == "space" or key == "j" then press() end
+end
+
+function love.update(dt)
+  for i = #pending, 1, -1 do
+    local p = pending[i]
+    if p.impact then
+      p.impact = p.impact - dt
+      if p.impact &lt;= 0 then
+        p.impact = nil
+        spawnSparks()      <span class="c">-- your own impact effect</span>
+      end
+    end
+    if p.sound then
+      p.sound = p.sound - dt
+      if p.sound &lt;= 0 then
+        p.sound = nil
+        playHit()
+      end
+    end
+    if not p.impact and not p.sound then table.remove(pending, i) end
+  end
+end</code></pre>
+  </div>
+  <p>Load hit sounds as <code>"static"</code> sources, which are decoded into memory once. A <code>"stream"</code> source decodes as it plays and is meant for music.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Triggering on the wrong frame.</strong> A sound fired when the attack button is pressed plays before the contact; one fired when the animation ends plays after it. Fire it from the same line of code that applies the hit.</li>
+    <li><strong>Too much pitch range.</strong> Past a few semitones, hits sound like different objects, or like a tune. If players start hearing melodies in your footsteps, narrow the range.</li>
+    <li><strong>Unlimited overlapping copies.</strong> Cloning a source for every hit is fine for a few, but twenty explosions in one frame stack into a loud blast and a lot of garbage. Keep a small pool of sources per sound and cap how many play at once.</li>
+    <li><strong>Random pitch on sounds that carry meaning.</strong> A low-health warning or a voice line must stay recognisable. Vary the noisy, frequent sounds; keep the informative ones fixed.</li>
+  </ul>
+  <div class="callout warn">
+    <p class="callout-title">When not to use these</p>
+    <p>Rhythm and music games, where every sound must land on the beat and in key: random pitch is wrong there, and so is any delay. And sometimes a delay is right: a distant explosion that rumbles in a moment after the flash sells the distance, exactly as it would in real life. The rule is about the player's own actions up close.</p>
+  </div>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Random pitch and volume are common enough that engines and audio tools build them in. Godot 4 has an <code>AudioStreamRandomizer</code> resource with a random pitch setting, a random volume offset, and a playback mode that tries not to play the same sound twice in a row. Audio middleware such as FMOD and Wwise offers similar random containers and pitch randomisation, so sound designers can set up variation without code.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick the most frequent sound in your game: a footstep, a shot or a hit. First check its timing: find where it is played and move the call to the line that applies the effect. Then add random pitch within one semitone either way.</p>
+  <p>Then add a second layer, a short click or low thump you are licensed to use, played at the same moment with the same pitch. You are done when twenty fast repeats of the action no longer sound like a loop, and the sound feels attached to the moment of contact.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Start an impact sound on the frame of the impact. Late sound makes hits feel soft; early sound feels wrong even sooner.</li>
+    <li>Repeating the same recording causes the machine-gun effect. A random pitch within about one semitone is a cheap first fix.</li>
+    <li>Layer a hit from parts that do different jobs: a click for timing, a thump for weight, a tail for material.</li>
+    <li>Shift all layers by the same pitch so they stay one sound.</li>
+    <li>Keep rhythm-game sounds and meaningful cues fixed, and keep delays for things that are far away.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson moves from what the player hears to what the player sees: how camera smoothing and a dead zone stop the view from copying every small movement.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>International Telecommunication Union, <cite>Recommendation ITU-R BT.1359: Relative timing of sound and vision for broadcasting</cite> (1998). The source of the 45 and 125 millisecond detection thresholds, measured for television.</li>
+    <li>Godot Engine documentation, <cite>AudioStreamRandomizer</cite> class reference. Random pitch, random volume and no-repeat playback built into the engine.</li>
+    <li>Martin Jonasson and Petri Purho, <cite>Juice it or lose it</cite>, conference talk. Sound is one of the layers they add to a plain game to change how it feels.</li>
+    <li>Jan Willem Nijman, <cite>The art of screenshake</cite>, conference talk (Vlambeer). A series of feel effects added to a simple shooter, including impact sounds.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SWING = 0.08, HOLD = 0.03, RISE = 0.14;   // seconds
+  var REST = -55;                               // hammer angle at rest, degrees
+  var HISTORY = 3;                              // seconds shown on the strip
+  var SCENE = 220, STRIP = 120;
+  var BURST = 8, BURST_GAP = 250;               // hits, milliseconds apart
+  var MAX_SEMIS = 6;                            // pitch axis range on the strip
+
+  var ui = DemoKit.controls('[data-demo="hitsound"]');
+  var offset = ui.slider({ label: 'Sound offset from impact', min: -80, max: 300, step: 10, value: 0,
+    format: function (v) { return (v > 0 ? '+' : '') + v + ' ms'; } });
+  var pitchOn = ui.toggle({ label: 'Pitch variation', value: true });
+  var range = ui.slider({ label: 'Pitch range (either way)', min: 0, max: 6, step: 0.5, value: 1, unit: ' semitones' });
+  var layered = ui.toggle({ label: 'Layers (click, thump, rattle)', value: true });
+  var volume = ui.slider({ label: 'Volume', min: 0, max: 100, step: 5, value: 40, unit: '%',
+    onInput: function (v) { if (master) master.gain.value = v / 100; } });
+  ui.button({ label: 'Hit', onClick: function () { hit(); } });
+  ui.button({ label: 'Rapid: 8 hits', onClick: function () { burst(); } });
+  var lastOut = ui.readout({ label: 'Last hit' });
+  var latencyOut = ui.readout({ label: 'Output delay your browser reports' });
+  lastOut.set('none yet');
+  latencyOut.set('shown after the first hit');
+
+  var rng = DemoKit.rng(7);
+  var ac = null, master = null, noise = null, audioFailed = false;
+  var events = [];      // { contact, sound, semis }, times in seconds on the page clock
+  var lastPress = -10;
+  var timers = [];
+
+  function now() { return window.performance.now() / 1000; }
+
+  function audio() {
+    if (ac || audioFailed) return ac;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { audioFailed = true; return null; }
+    try {
+      ac = new AC();
+    } catch (e) {
+      audioFailed = true;
+      return null;
+    }
+    master = ac.createGain();
+    master.gain.value = volume.value / 100;
+    master.connect(ac.destination);
+    var length = Math.floor(ac.sampleRate * 0.5);
+    noise = ac.createBuffer(1, length, ac.sampleRate);
+    var data = noise.getChannelData(0);
+    var nr = DemoKit.rng(3);
+    for (var i = 0; i < length; i++) data[i] = nr() * 2 - 1;
+    return ac;
+  }
+
+  function envelope(gain, when, peak, attack, decay) {
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(peak, when + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + attack + decay);
+  }
+
+  function noiseLayer(when, pitch, type, freq, q, peak, attack, decay) {
+    var src = ac.createBufferSource();
+    src.buffer = noise;
+    src.playbackRate.value = pitch;
+    var f = ac.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq * pitch;
+    f.Q.value = q;
+    var g = ac.createGain();
+    envelope(g, when, peak, attack, decay);
+    src.connect(f);
+    f.connect(g);
+    g.connect(master);
+    src.start(when);
+    src.stop(when + attack + decay + 0.02);
+  }
+
+  function playHit(when, pitch, withLayers) {
+    var o = ac.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(190 * pitch, when);
+    o.frequency.exponentialRampToValueAtTime(65 * pitch, when + 0.14);
+    var g = ac.createGain();
+    envelope(g, when, 0.8, 0.005, 0.235);
+    o.connect(g);
+    g.connect(master);
+    o.start(when);
+    o.stop(when + 0.26);
+    if (withLayers) {
+      noiseLayer(when, pitch, 'highpass', 2500, 0.7, 0.5, 0.002, 0.028);   // click
+      noiseLayer(when, pitch, 'bandpass', 900, 1.5, 0.3, 0.01, 0.36);      // rattle
+    }
+  }
+
+  function hit() {
+    var t = now();
+    var off = offset.value / 1000;
+    var semis = pitchOn.value ? (rng() * 2 - 1) * range.value : 0;
+    var pitch = Math.pow(2, semis / 12);
+    lastPress = t;
+    events.push({ contact: t + SWING, sound: t + Math.max(0, SWING + off), semis: semis });
+
+    var a = audio();
+    if (a) {
+      if (a.state === 'suspended' && a.resume) a.resume();
+      try {
+        playHit(a.currentTime + Math.max(0, SWING + off), pitch, layered.value);
+      } catch (e) { /* audio is optional; the picture still works */ }
+      var reported = ((a.baseLatency || 0) + (a.outputLatency || 0)) * 1000;
+      latencyOut.set(reported > 0 ? 'about ' + Math.round(reported) + ' ms' : 'not reported by this browser');
+    } else {
+      latencyOut.set('sound is not available in this browser');
+    }
+    lastOut.set('sound ' + (offset.value === 0 ? 'on the impact' :
+      (offset.value > 0 ? '+' : '') + offset.value + ' ms from the impact') +
+      ', pitch ' + (semis >= 0 ? '+' : '') + semis.toFixed(1) + ' semitones' +
+      (layered.value ? ', 3 layers' : ', 1 layer'));
+  }
+
+  function burst() {
+    for (var i = 0; i < timers.length; i++) window.clearTimeout(timers[i]);
+    timers = [];
+    for (var k = 0; k < BURST; k++) timers.push(window.setTimeout(hit, k * BURST_GAP));
+  }
+
+  function ease(u) { return u * u * (3 - 2 * u); }
+
+  function hammerAngle(t) {
+    var u = t - lastPress;
+    if (u < 0 || u >= SWING + HOLD + RISE) return REST;
+    if (u < SWING) { var s = u / SWING; return DemoKit.lerp(REST, 0, s * s); }
+    if (u < SWING + HOLD) return 0;
+    return DemoKit.lerp(0, REST, ease((u - SWING - HOLD) / RISE));
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  DemoKit.canvas('#hitsound', {
+    height: SCENE + STRIP,
+    keys: true,
+    label: 'A hammer strikes a block. Sparks show the impact, and rings show when the sound starts. A strip below plots each impact as a line and each sound as a dot whose height is its pitch.',
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'j') hit();
+      if (key === 'r') burst();
+    },
+    onDown: function () { hit(); },
+    update: function () {
+      var t = now();
+      while (events.length && events[0].contact < t - HISTORY && events[0].sound < t - HISTORY) events.shift();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width;
+      var t = now();
+      var ground = SCENE - 30;
+      var cx = Math.round(w / 2 + 30);
+      var bw = 70, bh = 50;
+      var px = cx - 90, py = ground - bh - 18;
+
+      // ---- Scene ----
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, w, SCENE);
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, ground, w, SCENE - ground);
+      ctx.strokeStyle = c.ink2;
+      line(ctx, 0, ground, w, ground);
+
+      // Most recent impact that has happened, and most recent sound that has started.
+      var sinceImpact = 10, sinceSound = 10;
+      for (var i = 0; i < events.length; i++) {
+        if (events[i].contact <= t) sinceImpact = Math.min(sinceImpact, t - events[i].contact);
+        if (events[i].sound <= t) sinceSound = Math.min(sinceSound, t - events[i].sound);
+      }
+
+      // Sound rings: drawn when the sound starts, wherever the picture is.
+      if (sinceSound < 0.3) {
+        var k = sinceSound / 0.3;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 1 - k;
+        for (var r = 0; r < 2; r++) {
+          ctx.beginPath();
+          ctx.arc(cx, ground - bh / 2, 46 + r * 18 + k * 50, -Math.PI * 0.85, -Math.PI * 0.15);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Block, squashed a little just after the impact.
+      var squash = sinceImpact < 0.12 ? 0.1 * (1 - sinceImpact / 0.12) : 0;
+      var h = bh * (1 - squash);
+      var bwNow = bw * (1 + squash * 0.6);
+      ctx.fillStyle = c.surface;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.fillRect(cx - bwNow / 2, ground - h, bwNow, h);
+      ctx.strokeRect(cx - bwNow / 2, ground - h, bwNow, h);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      line(ctx, cx - bwNow / 2 + 8, ground - h * 0.5, cx + bwNow / 2 - 8, ground - h * 0.5);
+
+      // Sparks at the contact point.
+      if (sinceImpact < 0.12) {
+        var f = sinceImpact / 0.12;
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2.5;
+        for (var n = 0; n < 6; n++) {
+          var ang = Math.PI + n * Math.PI / 5;
+          var r0 = 8 + f * 14, r1 = 16 + f * 22;
+          line(ctx, cx + Math.cos(ang) * r0, ground - h + Math.sin(ang) * r0,
+            cx + Math.cos(ang) * r1, ground - h + Math.sin(ang) * r1);
+        }
+      }
+
+      // Hammer.
+      var a = hammerAngle(t) * Math.PI / 180;
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(px - 8, py - 4, 16, ground - py + 4);
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(a);
+      ctx.fillStyle = c.warn;
+      ctx.fillRect(0, -3, 82, 6);
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(79, -18, 22, 36);
+      ctx.restore();
+
+      // ---- Strip: impacts and sounds on a shared clock ----
+      var top = SCENE;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, top, w, STRIP);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, 0, top + 0.5, w, top + 0.5);
+
+      var gx0 = 10;
+      var gx1 = Math.max(gx0 + 120, w - 92);
+      var y0 = top + 28, y1 = top + 88, mid = (y0 + y1) / 2;
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('last 3 s', gx0, top + 16);
+      ctx.textAlign = 'right';
+      ctx.fillText('now', gx1, top + 16);
+      ctx.textAlign = 'left';
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(gx0, y0, gx1 - gx0, y1 - y0);
+      ctx.strokeStyle = c.line;
+      ctx.setLineDash([4, 4]);
+      line(ctx, gx0, mid, gx1, mid);
+      ctx.setLineDash([]);
+
+      function xOf(time) { return gx1 - (t - time) / HISTORY * (gx1 - gx0); }
+      function yOf(semis) { return mid - DemoKit.clamp(semis / MAX_SEMIS, -1, 1) * (mid - y0 - 4); }
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx0, y0 - 2, gx1 - gx0, y1 - y0 + 4);
+      ctx.clip();
+      for (var e = 0; e < events.length; e++) {
+        var ev = events[e];
+        if (ev.contact <= t) {
+          var ix = xOf(ev.contact);
+          ctx.strokeStyle = c.ink;
+          ctx.lineWidth = 2;
+          line(ctx, ix, y0, ix, y1);
+        }
+        if (ev.sound <= t) {
+          var sx = xOf(ev.sound), sy = yOf(ev.semis);
+          if (ev.contact <= t) {
+            ctx.strokeStyle = c.topic;
+            ctx.lineWidth = 1.5;
+            line(ctx, xOf(ev.contact), sy, sx, sy);
+          }
+          ctx.fillStyle = c.topic;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+
+      // Legend.
+      var ly = top + 108;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      line(ctx, gx0 + 4, ly - 10, gx0 + 4, ly + 1);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('impact', gx0 + 12, ly);
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(gx0 + 70, ly - 4, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(w < 400 ? 'sound (height = pitch)' : 'sound (higher dot = higher pitch)', gx0 + 80, ly);
+    }
+  });
+})();
+</script>
+</body>
+</html>

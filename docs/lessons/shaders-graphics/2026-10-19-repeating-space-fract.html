@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repeating space with fract: one motif, many tiles · Game Dev Daily</title>
+<meta name="description" content="Multiply UV by a tile count, then floor gives each cell a number and fract gives it its own 0 to 1 coordinates, so one shape repeats everywhere.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Repeating space with fract: one motif, many tiles</h1>
+  <p class="lede">Multiply UV by a tile count, then floor gives each cell a number and fract gives it its own 0 to 1 coordinates, so one shape repeats everywhere.</p>
+</header>
+
+<section data-section="hook">
+  <p>A floor covered in tiles, a wall of polka dots, the placement grid in a build mode. Drawing each tile as its own sprite means hundreds of objects to place and track.</p>
+  <p>A shader can draw the whole surface with one shape, written once. The trick is to fold space so that every pixel thinks it is in the first tile.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two questions about every pixel</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far the input has been the pixel's UV, a position that runs from 0.0 to 1.0 up the picture. Today we ask two new questions about that position: <em>which tile am I in</em>, and <em>where am I inside that tile</em>?</p>
+  <p>Start by scaling. If we want 4 tiles, multiply the UV by 4. Call the result <code>st</code>; it now runs from 0.0 to 4.0. Each whole-number step of <code>st</code> is one tile, or <dfn>cell</dfn>.</p>
+  <p>Two built-in functions split <code>st</code> into its two answers:</p>
+  <ul>
+    <li><code>floor(x)</code> rounds down to the whole number below. <code>floor(2.4)</code> is 2.0. That is the <dfn>cell id</dfn>: which cell the pixel is in, counting from 0.</li>
+    <li><code>fract(x)</code> keeps only the part after the decimal point, defined as <code>x - floor(x)</code>. <code>fract(2.4)</code> is 0.4. That is the pixel's <dfn>local coordinate</dfn>: where it sits inside its own cell, from 0.0 up to (but never reaching) 1.0.</li>
+  </ul>
+  <p>Add them back together and you get <code>st</code> again: the position has only been split in two.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a graph for x from 0 to 3. floor of x is a staircase at 0, 1 and 2. fract of x is a sawtooth that climbs from 0 to 1 inside each unit and drops back to 0. Right: a grid of 3 by 2 cells. The point st equals 2.4, 1.7 lies in the highlighted cell with id 2, 1, at local position 0.4, 0.7 measured from that cell's bottom-left corner.">
+      <!-- Legend -->
+      <path class="d-stroke" d="M40 26H64"/>
+      <text class="d-text" x="72" y="30">floor(x)</text>
+      <path class="d-accent" d="M150 26H174"/>
+      <text class="d-label" x="182" y="30">fract(x)</text>
+      <!-- Axes -->
+      <path class="d-thin" d="M40 200H290M40 200V52"/>
+      <path class="d-thin" d="M36 150H44M36 100H44M120 196V204M200 196V204M280 196V204"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="40" y="220">0</text>
+        <text class="d-muted" x="120" y="220">1</text>
+        <text class="d-muted" x="200" y="220">2</text>
+        <text class="d-muted" x="280" y="220">3</text>
+        <text class="d-muted" x="300" y="204">x</text>
+      </g>
+      <g text-anchor="end">
+        <text class="d-muted" x="30" y="154">1</text>
+        <text class="d-muted" x="30" y="104">2</text>
+      </g>
+      <!-- floor: staircase -->
+      <path class="d-stroke" d="M40 198H120M120 150H200M200 100H280"/>
+      <path class="d-dash" d="M120 198V150M200 150V100"/>
+      <!-- fract: sawtooth -->
+      <path class="d-accent" d="M40 200L118 152M120 200L198 152M200 200L278 152"/>
+      <text class="d-muted" x="40" y="244">Which step, and how far up it.</text>
+
+      <!-- Grid of cells -->
+      <rect class="d-box" x="360" y="40" width="80" height="80"/>
+      <rect class="d-box" x="440" y="40" width="80" height="80"/>
+      <rect class="d-accent-soft" x="520" y="40" width="80" height="80"/>
+      <rect class="d-box" x="360" y="120" width="80" height="80"/>
+      <rect class="d-box" x="440" y="120" width="80" height="80"/>
+      <rect class="d-box" x="520" y="120" width="80" height="80"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="400" y="84">(0, 1)</text>
+        <text class="d-mono" x="480" y="84">(1, 1)</text>
+        <text class="d-mono" x="400" y="164">(0, 0)</text>
+        <text class="d-mono" x="480" y="164">(1, 0)</text>
+        <text class="d-mono" x="560" y="164">(2, 0)</text>
+        <text class="d-label" x="581" y="112">(2, 1)</text>
+      </g>
+      <path class="d-dash" d="M520 74H548M552 120V78"/>
+      <circle class="d-accent-fill" cx="552" cy="74" r="5"/>
+      <text class="d-mono" x="360" y="228">st = (2.4, 1.7)</text>
+      <text class="d-mono" x="360" y="250">id = (2, 1)   local = (0.4, 0.7)</text>
+    </svg>
+    <figcaption>floor counts the steps; fract climbs from 0 to 1 inside each one and starts again. In 2D the same split happens on x and y at once, giving a cell id and a local position inside that cell.</figcaption>
+  </figure>
+
+  <h3>Draw once, appear everywhere</h3>
+  <p>The useful part is the local coordinate. It runs from 0.0 to 1.0 in <em>every</em> cell. Any shape you draw using <code>local</code> instead of <code>uv</code> therefore appears in every cell at once. You write a dot centred on (0.5, 0.5), and you get a whole grid of dots.</p>
+  <p>Here is the demo's shader, one line per stage. The <em>Stage</em> menu in the demo shows each result:</p>
+<pre><code>vec2 uv = px / u_resolution.y;         // 1. input: y from 0.0 to 1.0
+vec2 st = uv * u_tiles;                // 2. scaled: 0.0 to tiles
+vec2 id = floor(st);                   // 3. which cell: 0, 1, 2 ...
+vec2 local = fract(st);                // 4. where in the cell: 0.0 to 1.0
+float m = motif(local, aa);            // 5. the mask, from the local position
+vec3 col = mix(bg, ink, m);            // 6. final colour</code></pre>
+  <p>As in the UV lesson, the first line divides both axes by the height, so cells stay square on a wide screen. <em>Tiles</em> sets how many rows there are; the width gets as many columns as fit.</p>
+  <p>The cell id is the second gift. Every pixel in a cell gets the same id, so you can use it to make cells differ. The demo's <em>Vary by cell id</em> toggle uses <code>mod(id.x + id.y, 2.0)</code>, which is 0.0 and 1.0 in alternating cells, to swap the colour on every other dot. Next lesson builds a whole checkerboard from that line.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Scale, then split. <code>fract</code> says where you are in the tile, <code>floor</code> says which tile. Draw the shape with the first; vary it with the second.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Set <em>Stage</em> to <em>2. st = uv * tiles</em> first: most of the picture turns flat yellow, because red and green cannot go above 1.0 and <code>st</code> passes that after the first cell. Step to stage 3 and the picture becomes a staircase of flat colours, one per cell id. Stage 4 shows the same red-green ramp as stage 1, repeated in every cell.</p>
+  <p>Then go back to <em>6. Final</em>, drag <em>Tiles</em>, and tap or drag on the picture. The yellow outline marks the probe's cell, and the readouts show the numbers. Try <em>Tiles</em> at 3.5 to see half a row of cells at the top, and push <em>Motif size</em> past 0.5 to see the shape get cut at the cell border.</p>
+
+  <figure class="demo" data-demo="fract-tiles">
+    <canvas id="fract-tiles"></canvas>
+    <figcaption>Each stage shows one line of the shader. Stages 2 to 4 use the same picture as stage 1, only split differently. In WebGL, cell (0, 0) is at the bottom-left.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the same <code>motif</code> and <code>shade</code> functions in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Up and down change the tile count, left and right the motif size, M cycles the motif, V and G switch the variation and the grid, and S cycles the stage. Clicking prints the cell under the mouse, using the same split in plain Lua.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values.</span>
+local tiles = 4          <span class="c">-- rows of cells</span>
+local size = 0.32        <span class="c">-- motif radius, in cell units</span>
+local motifKind = 0      <span class="c">-- 0 dot, 1 ring, 2 diamond</span>
+local vary = 0           <span class="c">-- 1 swaps the colour on every other cell</span>
+local grid = 1           <span class="c">-- 1 draws the cell borders</span>
+local stage = 5          <span class="c">-- 0 UV, 1 st, 2 id, 3 local, 4 mask, 5 final</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_tiles;
+uniform float u_size;
+uniform float u_motif;
+uniform float u_vary;
+uniform float u_grid;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+float motif(vec2 local, float aa)
+{
+    vec2 p = local - 0.5;                          // (0, 0) is the cell centre
+    float d = length(p);                           // 0. dot, 1. ring
+    if (u_motif &gt; 1.5) d = abs(p.x) + abs(p.y);    // 2. diamond
+    float m = 1.0 - smoothstep(u_size - aa, u_size + aa, d);
+    if (u_motif &gt; 0.5 &amp;&amp; u_motif &lt; 1.5)
+        m = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, abs(d - u_size));
+    return m;
+}
+
+vec3 shade(vec2 uv, float aspect, float aa)
+{
+    vec2 st = uv * u_tiles;                        // 2. scaled
+    vec2 id = floor(st);                           // 3. which cell
+<span class="k">    vec2 local = fract(st);                        // 4. where in the cell</span>
+    float m = motif(local, aa);                    // 5. mask
+    float odd = mod(id.x + id.y, 2.0);
+    vec3 ink = mix(vec3(1.0, 0.62, 0.2), vec3(0.3, 0.8, 1.0), odd * u_vary);
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), ink, m); // 6. final
+    vec2 count = ceil(vec2(u_tiles * aspect, u_tiles));
+    if (u_stage &lt; 4.5) col = vec3(m);
+    if (u_stage &lt; 3.5) col = vec3(local, 0.0);
+    if (u_stage &lt; 2.5) col = vec3(id / count, 0.0);
+    if (u_stage &lt; 1.5) col = vec3(st, 0.0);
+    if (u_stage &lt; 0.5) col = vec3(uv, 0.0);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy) / u_rect.w;   // (0, 0) is top-left here
+    float aspect = u_rect.z / u_rect.w;
+    float aa = u_tiles / u_rect.w;                      // one pixel, in cell units
+    vec3 col = shade(uv, aspect, aa);
+    vec2 local = fract(uv * u_tiles);
+    vec2 edge = min(local, 1.0 - local) / aa;           // pixels to the cell border
+    float e = min(edge.x, edge.y);
+    col = mix(col, vec3(1.0), 0.55 * u_grid * (1.0 - step(1.0, e)));
+    return vec4(col, 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "up" then tiles = math.min(12, tiles + 0.5) end
+  if key == "down" then tiles = math.max(1, tiles - 0.5) end
+  if key == "right" then size = math.min(0.7, size + 0.02) end
+  if key == "left" then size = math.max(0.05, size - 0.02) end
+  if key == "m" then motifKind = (motifKind + 1) % 3 end
+  if key == "v" then vary = 1 - vary end
+  if key == "g" then grid = 1 - grid end
+  if key == "s" then stage = (stage + 1) % 6 end
+end
+
+function love.mousepressed(x, y)
+  <span class="c">-- The same split on the CPU: floor for the cell, x - floor(x) for fract.</span>
+  local stx = (x - rect[1]) / rect[4] * tiles
+  local sty = (y - rect[2]) / rect[4] * tiles
+  local idx, idy = math.floor(stx), math.floor(sty)
+  print("cell", idx, idy, "local", stx - idx, sty - idy)
+end
+
+function love.draw()
+  shader:send("u_tiles", tiles)
+  shader:send("u_size", size)
+  shader:send("u_motif", motifKind)
+  shader:send("u_vary", vary)
+  shader:send("u_grid", grid)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_dpr;
+uniform float u_tiles;
+uniform float u_size;
+uniform float u_motif;
+uniform float u_vary;
+uniform float u_grid;
+uniform float u_stage;
+uniform vec2 u_probe;
+
+// The motif: drawn once, in local coordinates from 0.0 to 1.0.
+float motif(vec2 local, float aa) {
+  vec2 p = local - 0.5;                          // (0, 0) is the cell centre
+  float d = length(p);                           // 0. dot, 1. ring
+  if (u_motif &gt; 1.5) d = abs(p.x) + abs(p.y);    // 2. diamond
+  float m = 1.0 - smoothstep(u_size - aa, u_size + aa, d);
+  if (u_motif &gt; 0.5 &amp;&amp; u_motif &lt; 1.5)
+    m = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, abs(d - u_size));
+  return m;
+}
+
+// The lesson: repeat space, then draw the motif in every cell.
+vec3 shade(vec2 uv, float aspect, float aa) {
+  vec2 st = uv * u_tiles;                        // 2. scaled: 0.0 to tiles
+  vec2 id = floor(st);                           // 3. which cell: 0, 1, 2 ...
+<span class="k">  vec2 local = fract(st);                        // 4. where in the cell: 0.0 to 1.0</span>
+  float m = motif(local, aa);                    // 5. the mask
+  float odd = mod(id.x + id.y, 2.0);             // 1.0 on every other cell
+  vec3 ink = mix(vec3(1.0, 0.62, 0.2), vec3(0.3, 0.8, 1.0), odd * u_vary);
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), ink, m); // 6. final
+  vec2 count = ceil(vec2(u_tiles * aspect, u_tiles));
+  if (u_stage &lt; 4.5) col = vec3(m);
+  if (u_stage &lt; 3.5) col = vec3(local, 0.0);
+  if (u_stage &lt; 2.5) col = vec3(id / count, 0.0);
+  if (u_stage &lt; 1.5) col = vec3(st, 0.0);
+  if (u_stage &lt; 0.5) col = vec3(uv, 0.0);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                     // pixels, origin bottom-left
+  float aspect = u_resolution.x / u_resolution.y;
+  vec2 uv = px / u_resolution.y;                 // 1. y 0.0 to 1.0, x 0.0 to aspect
+  float aa = u_tiles / u_resolution.y;           // one pixel, in cell units
+  vec3 col = shade(uv, aspect, aa);
+
+  // Demo only: grid lines on the cell borders.
+  vec2 st = uv * u_tiles;
+  vec2 local = fract(st);
+  vec2 edge = min(local, 1.0 - local) / aa;      // pixels to the cell border
+  float e = min(edge.x, edge.y);
+  col = mix(col, vec3(1.0), 0.55 * u_grid * (1.0 - step(u_dpr, e)));
+
+  // Demo only: a yellow outline around the probe's cell.
+  vec2 pid = floor(u_probe * u_tiles);
+  float same = 1.0 - step(0.5, length(floor(st) - pid));
+  col = mix(col, vec3(1.0, 0.85, 0.2), same * (1.0 - step(2.0 * u_dpr, e)));
+
+  // Demo only: the probe ring, dark outline then white.
+  float d = length(px - u_probe * u_resolution.y);
+  col = mix(col, vec3(0.0), step(abs(d - 8.0 * u_dpr), 2.5 * u_dpr));
+  col = mix(col, vec3(1.0), step(abs(d - 8.0 * u_dpr), 1.0 * u_dpr));
+
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float tiles = 4.0;
+uniform float size : hint_range(0.05, 0.7) = 0.32;
+uniform float motif_kind = 0.0;  // 0 dot, 1 ring, 2 diamond
+uniform float vary = 0.0;        // 1.0 swaps the colour on every other cell
+uniform float aspect = 1.0;      // set to the ColorRect's width / height
+
+float motif(vec2 local, float aa) {
+    vec2 p = local - 0.5;
+    float d = length(p);
+    if (motif_kind &gt; 1.5) d = abs(p.x) + abs(p.y);
+    float m = 1.0 - smoothstep(size - aa, size + aa, d);
+    if (motif_kind &gt; 0.5 &amp;&amp; motif_kind &lt; 1.5)
+        m = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, abs(d - size));
+    return m;
+}
+
+void fragment() {
+    vec2 st = UV * vec2(aspect, 1.0) * tiles;   // UV (0, 0) is the top-left
+    vec2 id = floor(st);
+<span class="k">    vec2 local = fract(st);</span>
+    float aa = fwidth(st.y);                    // one pixel, in cell units
+    float m = motif(local, aa);
+    float odd = mod(id.x + id.y, 2.0);
+    vec3 ink = mix(vec3(1.0, 0.62, 0.2), vec3(0.3, 0.8, 1.0), odd * vary);
+    COLOR = vec4(mix(vec3(0.1, 0.12, 0.22), ink, m), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/FractTiles"
+{
+    Properties
+    {
+        _Tiles ("Tiles", Float) = 4
+        _Size ("Motif size", Range(0.05, 0.7)) = 0.32
+        _Motif ("Motif (0 dot, 1 ring, 2 diamond)", Float) = 0
+        _Vary ("Vary by cell id (0 or 1)", Float) = 0
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float _Tiles, _Size, _Motif, _Vary, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float motif (float2 local, float aa)
+            {
+                float2 p = local - 0.5;
+                float d = length(p);
+                if (_Motif &gt; 1.5) d = abs(p.x) + abs(p.y);
+                float m = 1.0 - smoothstep(_Size - aa, _Size + aa, d);
+                if (_Motif &gt; 0.5 &amp;&amp; _Motif &lt; 1.5)
+                    m = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, abs(d - _Size));
+                return m;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 st = i.uv * float2(_Aspect, 1.0) * _Tiles;  // uv (0, 0) is the bottom-left
+                float2 id = floor(st);
+<span class="k">                float2 local = frac(st);</span>
+                float aa = fwidth(st.y);
+                float m = motif(local, aa);
+                float odd = fmod(id.x + id.y, 2.0);   // fine here: id is never negative
+                float3 ink = lerp(float3(1.0, 0.62, 0.2), float3(0.3, 0.8, 1.0), odd * _Vary);
+                return fixed4(lerp(float3(0.1, 0.12, 0.22), ink, m), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL spells <code>fract</code> as <code>frac</code>. In URP Shader Graph, the <em>Tiling And Offset</em> node does the scaling, and the <em>Fraction</em> and <em>Floor</em> nodes do the split. The Godot and Unity versions use <code>fwidth</code> to measure one pixel; WebGL 1 only has it through an extension, so the demo works it out from the resolution instead. They also leave out the stage menu and the grid.</p>
+  <p>Which corner is cell (0, 0) depends on where UV starts. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left; Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left. With a fractional tile count, the cut-off row lands at the top in WebGL and Unity and at the bottom in Godot and LÖVE. The colours are hard-coded numbers, so a Unity project in Linear colour space treats them as linear values, and they will look lighter there than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Shapes that leave their cell.</strong> Each pixel only ever looks at its own cell, so a motif that reaches past local 0.0 or 1.0 is cut off with a hard straight edge. Push <em>Motif size</em> above 0.5 in the demo to see it. To let shapes overlap their neighbours, each pixel has to check the cells next to it too; the cellular patterns lesson in Track 4 does this.</li>
+    <li><strong>Negative coordinates.</strong> Centre the UV and half the picture becomes negative. <code>floor(-0.25)</code> is -1.0 and <code>fract(-0.25)</code> is 0.75, which is exactly what tiling needs. But HLSL's <code>fmod</code> keeps the sign of the first number, so <code>fmod(-1.0, 2.0)</code> is -1.0 where GLSL's <code>mod</code> gives 1.0. Lua's <code>%</code> works like GLSL's <code>mod</code>; <code>math.fmod</code> works like HLSL's <code>fmod</code>.</li>
+    <li><strong>Edge softness that ignores the tile count.</strong> A soft edge of 0.02 in local units gets twice as wide on screen when the cells get twice as big. Measure softness in pixels, as the demo does with <code>aa = u_tiles / u_resolution.y</code>, so edges stay crisp at any tile count.</li>
+    <li><strong>Large values and precision.</strong> <code>fract</code> of a big number loses detail, because a float has only so many digits to share between the whole part and the fraction. Medium precision on phones runs out quickly; Track 6 returns to this.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p><code>floor</code> and <code>fract</code> are among the cheapest operations a GPU has, even on a phone. Better still, tiling costs nothing per tile: each pixel still runs the motif once, whether there are 4 cells or 400. The cost that does grow is visual: when cells shrink to a few pixels, thin rings shimmer and break up, the same problem that mipmaps solve for textures later in Track 2.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Repeating a texture across a surface is the same idea done by the texture hardware. In Unity, the <em>Tiling</em> and <em>Offset</em> fields on a material scale and shift the UV before the texture is read. Godot's materials have a matching <em>UV1 Scale</em> setting. A texture set to repeat then wraps the coordinates back into 0 to 1, much as <code>fract</code> does; the wrap modes lesson covers that.</p>
+  <p>Grid overlays, tiled backgrounds and patterned UI panels can be drawn this way with no texture at all. Giving each cell its own look from its id is where the hash and cellular noise lessons in Track 4 begin.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a level-select grid:</p>
+  <ol>
+    <li>Add a uniform <code>u_selected</code> of type <code>vec2</code>, sent from Lua, holding the id of one cell.</li>
+    <li>In <code>shade</code>, compute <code>float on = 1.0 - step(0.5, length(id - u_selected));</code>. It is 1.0 only in that one cell.</li>
+    <li>Use it to make the selected cell's motif bigger and brighter: for example change <code>u_size</code> to <code>u_size + 0.1 * on</code> inside <code>motif</code>, by passing <code>on</code> in.</li>
+    <li>In <code>love.mousepressed</code>, send the clicked <code>idx, idy</code> as <code>u_selected</code>.</li>
+  </ol>
+  <p>You are done when clicking any cell makes exactly that one stand out, while the shader still draws only one motif.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Multiply UV by a tile count to make each whole number one cell.</li>
+    <li><code>floor(st)</code> is the cell id; <code>fract(st)</code>, which equals <code>st - floor(st)</code>, is the position inside the cell from 0.0 to 1.0.</li>
+    <li>Draw a shape with the local position and it repeats in every cell. Use the id to make cells differ.</li>
+    <li>Shapes must stay inside their cell, and edge softness should be measured in pixels.</li>
+    <li>Tiling is almost free: one motif per pixel, no matter how many cells.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson combines <code>fract</code>, <code>step</code> and <code>mod</code> into stripes, grids and checkerboards, and rotates them to any angle.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Patterns". Tiles space with fract and draws a motif in each cell.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.3 "Common Functions". Defines floor, fract as x - floor(x), and mod as x - y * floor(x / y).</li>
+    <li>Microsoft, <cite>HLSL intrinsic functions</cite> reference, entries for frac and fmod.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot documentation, <cite>Shading language</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity Manual, <cite>Writing shaders for the Built-in Render Pipeline</cite>; Shader Graph documentation, <cite>Tiling And Offset Node</cite>, <cite>Fraction Node</cite> and <cite>Floor Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_dpr;",
+    "uniform float u_tiles;",
+    "uniform float u_size;",
+    "uniform float u_motif;",
+    "uniform float u_vary;",
+    "uniform float u_grid;",
+    "uniform float u_stage;",
+    "uniform vec2 u_probe;",
+    "",
+    "// The motif: drawn once, in local coordinates from 0.0 to 1.0.",
+    "float motif(vec2 local, float aa) {",
+    "  vec2 p = local - 0.5;                          // (0, 0) is the cell centre",
+    "  float d = length(p);                           // 0. dot, 1. ring",
+    "  if (u_motif > 1.5) d = abs(p.x) + abs(p.y);    // 2. diamond",
+    "  float m = 1.0 - smoothstep(u_size - aa, u_size + aa, d);",
+    "  if (u_motif > 0.5 && u_motif < 1.5)",
+    "    m = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, abs(d - u_size));",
+    "  return m;",
+    "}",
+    "",
+    "// The lesson: repeat space, then draw the motif in every cell.",
+    "vec3 shade(vec2 uv, float aspect, float aa) {",
+    "  vec2 st = uv * u_tiles;                        // 2. scaled: 0.0 to tiles",
+    "  vec2 id = floor(st);                           // 3. which cell: 0, 1, 2 ...",
+    "  vec2 local = fract(st);                        // 4. where in the cell: 0.0 to 1.0",
+    "  float m = motif(local, aa);                    // 5. the mask",
+    "  float odd = mod(id.x + id.y, 2.0);             // 1.0 on every other cell",
+    "  vec3 ink = mix(vec3(1.0, 0.62, 0.2), vec3(0.3, 0.8, 1.0), odd * u_vary);",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), ink, m); // 6. final",
+    "  vec2 count = ceil(vec2(u_tiles * aspect, u_tiles));",
+    "  if (u_stage < 4.5) col = vec3(m);",
+    "  if (u_stage < 3.5) col = vec3(local, 0.0);",
+    "  if (u_stage < 2.5) col = vec3(id / count, 0.0);",
+    "  if (u_stage < 1.5) col = vec3(st, 0.0);",
+    "  if (u_stage < 0.5) col = vec3(uv, 0.0);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                     // pixels, origin bottom-left",
+    "  float aspect = u_resolution.x / u_resolution.y;",
+    "  vec2 uv = px / u_resolution.y;                 // 1. y 0.0 to 1.0, x 0.0 to aspect",
+    "  float aa = u_tiles / u_resolution.y;           // one pixel, in cell units",
+    "  vec3 col = shade(uv, aspect, aa);",
+    "",
+    "  // Demo only: grid lines on the cell borders.",
+    "  vec2 st = uv * u_tiles;",
+    "  vec2 local = fract(st);",
+    "  vec2 edge = min(local, 1.0 - local) / aa;      // pixels to the cell border",
+    "  float e = min(edge.x, edge.y);",
+    "  col = mix(col, vec3(1.0), 0.55 * u_grid * (1.0 - step(u_dpr, e)));",
+    "",
+    "  // Demo only: a yellow outline around the probe's cell.",
+    "  vec2 pid = floor(u_probe * u_tiles);",
+    "  float same = 1.0 - step(0.5, length(floor(st) - pid));",
+    "  col = mix(col, vec3(1.0, 0.85, 0.2), same * (1.0 - step(2.0 * u_dpr, e)));",
+    "",
+    "  // Demo only: the probe ring, dark outline then white.",
+    "  float d = length(px - u_probe * u_resolution.y);",
+    "  col = mix(col, vec3(0.0), step(abs(d - 8.0 * u_dpr), 2.5 * u_dpr));",
+    "  col = mix(col, vec3(1.0), step(abs(d - 8.0 * u_dpr), 1.0 * u_dpr));",
+    "",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join('\n');
+
+  var handle = null;
+  var aspect = 16 / 9;
+  var ui = DemoKit.controls('[data-demo="fract-tiles"]');
+
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Input: uv as red, green' },
+      { value: '1', label: '2. st = uv * tiles' },
+      { value: '2', label: '3. id = floor(st)' },
+      { value: '3', label: '4. local = fract(st)' },
+      { value: '4', label: '5. Mask: motif(local)' },
+      { value: '5', label: '6. Final colour' }
+    ],
+    value: '5',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var tiles = ui.slider({ label: 'Tiles (rows of cells)', min: 1, max: 12, step: 0.5, value: 4,
+    onInput: function (v) { send('u_tiles', v); } });
+  var motifSel = ui.select({
+    label: 'Motif',
+    options: [
+      { value: '0', label: 'Dot' },
+      { value: '1', label: 'Ring' },
+      { value: '2', label: 'Diamond' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_motif', Number(v)); }
+  });
+  var size = ui.slider({ label: 'Motif size (cell units)', min: 0.05, max: 0.7, step: 0.01, value: 0.32,
+    onInput: function (v) { send('u_size', v); } });
+  ui.toggle({ label: 'Vary by cell id', value: false,
+    onChange: function (on) { send('u_vary', on ? 1 : 0); } });
+  ui.toggle({ label: 'Show cell grid', value: true,
+    onChange: function (on) { send('u_grid', on ? 1 : 0); } });
+  var probeX = ui.slider({ label: 'Probe x (across the picture)', min: 0, max: 1, step: 0.01, value: 0.4,
+    onInput: function () { probeChanged(); } });
+  var probeY = ui.slider({ label: 'Probe y (up the picture)', min: 0, max: 1, step: 0.01, value: 0.6,
+    onInput: function () { probeChanged(); } });
+
+  var scaleOut = ui.readout({ label: 'At the probe' });
+  var splitOut = ui.readout({ label: 'Split' });
+
+  function f2(x) {
+    var s = x.toFixed(2);
+    return s === '-0.00' ? '0.00' : s;
+  }
+  function pair(a, b, digits) {
+    if (digits === 0) return '(' + a.toFixed(0) + ', ' + b.toFixed(0) + ')';
+    return '(' + f2(a) + ', ' + f2(b) + ')';
+  }
+
+  // The probe in the shader's uv units: x from 0 to aspect, y from 0 to 1.
+  function probeUv() {
+    return [probeX.value * aspect, probeY.value];
+  }
+
+  // The same maths as shade() in the shader, for the readouts.
+  function updateReadout() {
+    var uv = probeUv();
+    var n = tiles.value;
+    var sx = uv[0] * n;
+    var sy = uv[1] * n;
+    var ix = Math.floor(sx);
+    var iy = Math.floor(sy);
+    scaleOut.set('uv ' + pair(uv[0], uv[1]) + ' * ' + n + ' = st ' + pair(sx, sy));
+    splitOut.set('floor(st) = id ' + pair(ix, iy, 0) + ',  fract(st) = local ' + pair(sx - ix, sy - iy));
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+  function probeChanged() {
+    if (handle) handle.redraw();
+    updateReadout();
+  }
+
+  function probeAt(p, s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    var u = Math.round(DemoKit.clamp(p.x / s.width, 0, 1) * 100) / 100;
+    var v = Math.round(DemoKit.clamp(1 - p.y / s.height, 0, 1) * 100) / 100;
+    probeX.set(u);
+    probeY.set(v);
+    probeChanged();
+  }
+
+  handle = DemoKit.shader('#fract-tiles', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 260,
+    maxHeight: 400,
+    drag: true,
+    label: 'A live fragment shader that repeats one motif in a grid of cells using floor and fract. A probe ring marks one pixel and its cell is outlined in yellow.',
+    uniforms: {
+      u_dpr: function (s) { return s.dpr; },
+      u_tiles: 4,
+      u_size: 0.32,
+      u_motif: 0,
+      u_vary: 0,
+      u_grid: 1,
+      u_stage: 5,
+      u_probe: function () { return probeUv(); }
+    },
+    onResize: function (s) {
+      if (s.width > 0 && s.height > 0) aspect = s.width / s.height;
+      updateReadout();
+    },
+    onDown: probeAt,
+    onMove: function (p, s) { if (p.down) probeAt(p, s); }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

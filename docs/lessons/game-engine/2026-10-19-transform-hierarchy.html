@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The scene tree and the transform hierarchy · Game Dev Daily</title>
+<meta name="description" content="How a child's local position, rotation and scale combine with its parent's to give its place in the world, and which values Godot and Unity store.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The scene tree and the transform hierarchy</h1>
+  <p class="lede">How a child's local position, rotation and scale combine with its parent's to give its place in the world, and which values Godot and Unity store.</p>
+</header>
+
+<section data-section="hook">
+  <p>You make a gun a child of the player's hand, set its position to (0, 0), and it appears halfway across the level. Or you drop it out of the hand and it teleports. Nothing is broken: you set a value in one coordinate space while thinking in another.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every node is measured from its parent</h2>
+  <p>A <dfn>transform</dfn> is a position, a rotation and a scale together. In a scene tree each node has a <dfn>local transform</dfn>: where it sits, how it is turned and how big it is <em>relative to its parent</em>. For a node with no parent, local and global are the same.</p>
+  <p>The <dfn>global transform</dfn> (Unity says <dfn>world</dfn>) is where the node really ends up. The engine works it out by applying each local transform in turn from the root down. That is why moving a parent moves its children: their local values did not change, but what they are measured from did.</p>
+
+  <h3>Combining one step</h3>
+  <p>Take a parent whose global transform is known, and a child with local values. The child's global values are:</p>
+  <ol>
+    <li><strong>Rotation adds.</strong> Child global rotation = parent rotation + child rotation.</li>
+    <li><strong>Scale multiplies.</strong> Child global scale = parent scale × child scale.</li>
+    <li><strong>Position is turned, stretched, then shifted.</strong> Rotate the child's local position by the parent's rotation, multiply it by the parent's scale, and add the parent's position.</li>
+  </ol>
+<pre><code><span class="c">-- one step down the tree (2D, uniform scale, angles in radians)</span>
+local c, s = math.cos(parent.rot), math.sin(parent.rot)
+child.gx = parent.gx + parent.gscale * (c * child.x - s * child.y)
+child.gy = parent.gy + parent.gscale * (s * child.x + c * child.y)
+child.grot = parent.grot + child.rot
+child.gscale = parent.gscale * child.scale</code></pre>
+  <p>Repeat for every level. Engines store each transform as a matrix so one step is a single multiply, but the matrix holds exactly these three ideas.</p>
+
+  <h3>A worked example</h3>
+  <p>An arm has three nodes: <strong>Arm</strong> at the root, <strong>Forearm</strong> under it, and <strong>Hand</strong> under that. The canvas has y pointing down, so a positive rotation turns clockwise.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: a tree of three nodes, Arm with local position 120, 170 and rotation 0, Forearm under it with local position 100, 0 and rotation 30 degrees, and Hand under Forearm with local position 80, 0 and rotation 20 degrees. Right: the same arm drawn in the world, with dashed lines from the world origin to each joint and the computed global positions: Arm at 120, 170, Forearm at 220, 170 and Hand at about 289, 210.">
+      <text class="d-label" x="20" y="24">Stored: local values</text>
+      <rect class="d-accent-soft" x="20" y="40" width="240" height="48" rx="6"/>
+      <text class="d-text" x="34" y="60">Arm</text>
+      <text class="d-muted" x="34" y="78">local (120, 170), 0°</text>
+      <rect class="d-box" x="50" y="108" width="210" height="48" rx="6"/>
+      <text class="d-text" x="64" y="128">Forearm</text>
+      <text class="d-muted" x="64" y="146">local (100, 0), 30°</text>
+      <rect class="d-box" x="80" y="176" width="180" height="48" rx="6"/>
+      <text class="d-text" x="94" y="196">Hand</text>
+      <text class="d-muted" x="94" y="214">local (80, 0), 20°</text>
+      <path class="d-thin" d="M34 88 V132 H50"/>
+      <path class="d-thin" d="M64 156 V200 H80"/>
+      <text class="d-muted" x="20" y="254">Each node is measured from its parent.</text>
+
+      <path class="d-accent" d="M270 140 H312"/>
+      <polygon class="d-accent-fill" points="320,140 310,134 310,146"/>
+
+      <text class="d-label" x="340" y="24">Computed: global values</text>
+      <path class="d-stroke" d="M340 50 H380"/>
+      <path class="d-stroke" d="M340 50 V90"/>
+      <text class="d-muted" x="386" y="54">x</text>
+      <text class="d-muted" x="336" y="104">y</text>
+      <text class="d-muted" x="350" y="70">world (0, 0)</text>
+      <path class="d-dash" d="M340 50 L430 177.5"/>
+      <path class="d-dash" d="M340 50 L505 177.5"/>
+      <path class="d-dash" d="M340 50 L557 207.5"/>
+      <path class="d-stroke" style="stroke-width:7" d="M430 177.5 L505 177.5"/>
+      <path class="d-stroke" style="stroke-width:5" d="M505 177.5 L557 207.5"/>
+      <path class="d-stroke" style="stroke-width:3" d="M557 207.5 L571.4 224.7"/>
+      <circle class="d-accent-fill" cx="430" cy="177.5" r="6"/>
+      <circle class="d-accent-fill" cx="505" cy="177.5" r="5"/>
+      <circle class="d-accent-fill" cx="557" cy="207.5" r="5"/>
+      <text class="d-text" x="430" y="206" text-anchor="middle">Arm (120, 170)</text>
+      <text class="d-text" x="516" y="166">Forearm (220, 170)</text>
+      <text class="d-text" x="632" y="252" text-anchor="end">Hand (289, 210)</text>
+    </svg>
+    <figcaption>The tree stores only local values. The global positions are worked out from them, root first.</figcaption>
+  </figure>
+
+  <p>Arm has no parent, so its global position is its local (120, 170). Forearm's local (100, 0) is rotated by Arm's 0° and added: (220, 170), turned 30°. Hand's local (80, 0) is rotated by Forearm's 30°, giving (69.3, 40), and added: about (289.3, 210), turned 30° + 20° = 50°.</p>
+  <p>Now scale Arm to 1.5. Nothing below it changes its stored values, yet Forearm moves to (270, 170) and Hand to about (373.9, 230): every offset under Arm is stretched by 1.5.</p>
+
+  <h2>Who owns the data, and in what order</h2>
+  <p>The local values are the truth. The global values are derived. Engines cache them and refresh a node's copy when something above it has changed, so reading a global position does not always walk the whole tree; how they do this is internal and differs between Godot and Unity. Writing a global position works backwards: the engine solves for the local values that put the node there.</p>
+  <p>Reparenting forces a choice: keep the local numbers, so the node jumps to the same offset from its new parent, or keep the global transform, so it stays put while its local numbers are recomputed.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Question</th><th>Godot 4 (Node2D / Node3D)</th><th>Unity (Transform)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Local position</td><td><code>position</code></td><td><code>localPosition</code></td></tr>
+      <tr><td>Global position</td><td><code>global_position</code></td><td><code>position</code></td></tr>
+      <tr><td>Rotation and scale</td><td><code>rotation</code>, <code>scale</code> and their <code>global_</code> versions</td><td><code>localRotation</code>, <code>localScale</code>; <code>rotation</code> is world; world scale is the read-only <code>lossyScale</code></td></tr>
+      <tr><td>Point from local to global and back</td><td><code>to_global()</code>, <code>to_local()</code></td><td><code>TransformPoint()</code>, <code>InverseTransformPoint()</code></td></tr>
+      <tr><td>Change parent</td><td><code>reparent(new_parent)</code> keeps the global transform by default. <code>remove_child</code> then <code>add_child</code> keeps local values</td><td><code>SetParent(parent, worldPositionStays)</code>; the second argument defaults to <code>true</code>, which keeps the world transform</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title">The naming trap</p>
+    <p><code>position</code> is local in Godot and world in Unity. Code ported by swapping syntax alone puts children in the wrong place.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A small model with the same three nodes and numbers as the example. Drag the blue Arm joint (or focus the canvas and use the arrow keys) and the whole arm follows. Change Arm's rotation and scale: Forearm and Hand move although their local values stay fixed. Switch between local and global values to see which numbers change.</p>
+  <p>Then press <strong>Move Hand to World</strong> and move the arm away: the hand stays behind. Try again with Keep global transform off and the hand jumps, because its old local numbers are now measured from the world origin. Dragging the Hand joint sets its global position, and the demo solves for the local one.</p>
+
+  <figure class="demo wide" data-demo="transform-hierarchy">
+    <canvas id="transform-hierarchy"></canvas>
+    <figcaption>Dashed lines show what each number is measured from. The short line at each joint is that node's own x axis. The model leaves out non-uniform scale, skew, 3D and caching.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version builds the hierarchy yourself in LÖVE, with the demo's names and numbers. <code>toGlobal</code> walks up to the root and combines on the way back down. <code>reparent</code> keeps the global transform. Left and right arrows rotate Arm; R moves Hand between Forearm and the world.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local function node(name, parent, x, y, deg, length)
+  return { name = name, parent = parent, x = x, y = y,
+           rot = math.rad(deg), scale = 1, length = length }
+end
+local arm     = node("Arm", nil, 120, 170, 0, 100)
+local forearm = node("Forearm", arm, 100, 0, 30, 80)
+local hand    = node("Hand", forearm, 80, 0, 20, 30)
+
+<span class="c">-- Global = the parent's global transform applied to my local one.</span>
+local function toGlobal(n)
+  if n.parent == nil then return n.x, n.y, n.rot, n.scale end
+  local px, py, prot, pscale = toGlobal(n.parent)
+  local c, s = math.cos(prot), math.sin(prot)
+<span class="k">  return px + pscale * (c * n.x - s * n.y),
+         py + pscale * (s * n.x + c * n.y),
+         prot + n.rot, pscale * n.scale</span>
+end
+
+<span class="c">-- Change parent, then solve for local values that keep n where it was.</span>
+local function reparent(n, parent)
+  local gx, gy, grot, gscale = toGlobal(n)
+  n.parent = parent
+  local px, py, prot, pscale = 0, 0, 0, 1      <span class="c">-- the world</span>
+  if parent then px, py, prot, pscale = toGlobal(parent) end
+  local c, s = math.cos(prot), math.sin(prot)
+  local dx, dy = gx - px, gy - py
+  n.x = (c * dx + s * dy) / pscale
+  n.y = (-s * dx + c * dy) / pscale
+  n.rot, n.scale = grot - prot, gscale / pscale
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("left") then arm.rot = arm.rot - math.rad(60) * dt end
+  if love.keyboard.isDown("right") then arm.rot = arm.rot + math.rad(60) * dt end
+end
+
+function love.keypressed(key)
+  if key == "r" then
+    if hand.parent then reparent(hand, nil) else reparent(hand, forearm) end
+  end
+end
+
+function love.draw()
+  for _, n in ipairs({ arm, forearm, hand }) do
+    local x, y, rot, scale = toGlobal(n)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(rot)
+    love.graphics.scale(scale)
+    love.graphics.rectangle("line", 0, -6, n.length, 12)
+    love.graphics.circle("fill", 0, 0, 5)
+    love.graphics.pop()
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># arm.gd (Godot 4). Attach to a Node2D at (0, 0) in a new scene and run.</span>
+<span class="c"># Left and right arrows rotate Arm. Enter or Space (ui_accept) moves Hand.</span>
+extends Node2D
+
+var arm := Node2D.new()
+var forearm := Node2D.new()
+var hand := Node2D.new()
+
+func _ready() -&gt; void:
+    add_child(arm)
+    arm.add_child(forearm)
+    forearm.add_child(hand)
+    arm.position = Vector2(120, 170)       <span class="c"># local to this root node</span>
+    forearm.position = Vector2(100, 0)     <span class="c"># local to Arm</span>
+    forearm.rotation_degrees = 30
+    hand.position = Vector2(80, 0)         <span class="c"># local to Forearm</span>
+    hand.rotation_degrees = 20
+<span class="k">    print(hand.position, " ", hand.global_position)  <span class="c"># local 80, 0 and global about 289.3, 210</span></span>
+
+func _process(delta: float) -&gt; void:
+    arm.rotation += deg_to_rad(60) * Input.get_axis("ui_left", "ui_right") * delta
+    if Input.is_action_just_pressed("ui_accept"):
+        var target: Node = self if hand.get_parent() == forearm else forearm
+<span class="k">        hand.reparent(target)              <span class="c"># keeps the global transform by default</span></span>
+    queue_redraw()
+
+func _draw() -&gt; void:
+    <span class="c"># This node sits at the world origin, so global positions can be drawn as they are.</span>
+    draw_line(arm.global_position, forearm.global_position, Color.WHITE, 8)
+    draw_line(forearm.global_position, hand.global_position, Color.WHITE, 6)
+    draw_line(hand.global_position, hand.to_global(Vector2(30, 0)), Color.ORANGE, 4)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// ArmRig.cs (Unity 6 or 2022 LTS). Add to an empty GameObject at (0, 0, 0) and press Play.</span>
+<span class="c">// Watch the Scene view. Drag Arm Degrees and tick Detach Hand in the Inspector while playing.</span>
+<span class="c">// Unity's y axis points up, so positive rotations turn counter-clockwise here.</span>
+using UnityEngine;
+
+public class ArmRig : MonoBehaviour
+{
+    [Range(-180f, 180f)] public float armDegrees = 0f;
+    public float armScale = 1f;
+    public bool detachHand;
+    Transform arm, forearm, hand;
+
+    void Start()
+    {
+        arm = new GameObject("Arm").transform;
+        forearm = new GameObject("Forearm").transform;
+        hand = new GameObject("Hand").transform;
+        arm.SetParent(transform, false);
+        forearm.SetParent(arm, false);
+        hand.SetParent(forearm, false);
+        <span class="c">// 1 unit = 100 pixels of the demo.</span>
+        arm.localPosition = new Vector3(1.2f, 1.7f, 0f);
+        forearm.localPosition = new Vector3(1f, 0f, 0f);
+        forearm.localRotation = Quaternion.Euler(0f, 0f, 30f);
+        hand.localPosition = new Vector3(0.8f, 0f, 0f);
+        hand.localRotation = Quaternion.Euler(0f, 0f, 20f);
+<span class="k">        Debug.Log(hand.localPosition + " " + hand.position);  <span class="c">// local 0.8, 0, 0 and world about 2.89, 2.1, 0</span></span>
+    }
+
+    void Update()
+    {
+        arm.localRotation = Quaternion.Euler(0f, 0f, armDegrees);
+        arm.localScale = Vector3.one * armScale;
+        Transform wanted = detachHand ? null : forearm;
+        if (hand.parent != wanted)
+<span class="k">            hand.SetParent(wanted, true);         <span class="c">// true: keep the world transform</span></span>
+        Debug.DrawLine(arm.position, forearm.position, Color.white);
+        Debug.DrawLine(forearm.position, hand.position, Color.white);
+        Debug.DrawLine(hand.position, hand.TransformPoint(0.3f, 0f, 0f), Color.yellow);
+    }
+}</code></pre>
+  </div>
+  <p>The highlighted lines are the lesson: one node, a local and a global position, and a reparent that keeps the global transform. <code>reparent</code> is new in Godot 4; in Godot 3 you removed and re-added the node and restored its global position yourself.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Setting a local value with a world value in mind.</strong> The opening gun bug. Use <code>global_position</code> in Godot or <code>position</code> in Unity when you mean "here in the level".</li>
+    <li><strong>Reparenting the wrong way.</strong> Godot's <code>remove_child</code> plus <code>add_child</code> keeps local values, so the node jumps; <code>reparent</code> keeps global ones. In Unity, <code>SetParent(parent, false)</code> keeps local values.</li>
+    <li><strong>Non-uniform scale on a parent.</strong> Scale a parent by (2, 1) and rotate a child, and the child gets sheared, which position, rotation and scale alone cannot describe. That is why Unity calls world scale <code>lossyScale</code>; Godot 2D nodes have a <code>skew</code> property for it. Keep odd scales on leaf nodes such as sprites.</li>
+    <li><strong>Two owners for one position.</strong> A simulated physics body writes its own world position every step. Parenting it to something that moves gives it two owners, with results that depend on engine and body type. Keep simulated bodies near the top of the tree.</li>
+    <li><strong>Rotation direction.</strong> Godot 2D has y pointing down, so positive rotation is clockwise. Unity has y up, so positive z rotation is counter-clockwise.</li>
+    <li><strong>Cost of deep trees.</strong> Moving a parent makes every descendant's cached global transform stale. Keep the tree flat when objects do not need to move together.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Skeletal animation is this lesson applied to bones. In Unity, the bones of a skinned mesh are ordinary Transforms in the hierarchy, and Godot's 2D bones (<code>Bone2D</code>) are nodes that inherit from <code>Node2D</code>. A held weapon is a child of a hand bone; a turret is a child of a tank hull.</p>
+  <p>A common Godot pattern is a <code>Camera2D</code> as a child of the player, so it follows without code. The idea predates both engines: fixed-function OpenGL kept a matrix stack with push and pop, which LÖVE's <code>love.graphics.push</code> and <code>pop</code> mirror.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a parent that rotates slowly with a child 100 pixels (or 1 unit) to its right. Every second, print the child's local and global position. Add a key that moves the child to the scene root, once keeping its global transform and once keeping its local values.</p>
+  <p>You are done when you can predict where the child will appear in each case, and one printed global position matches the formula worked out by hand.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Every node stores a local transform measured from its parent. The global transform is computed from the root down.</li>
+    <li>Rotations add, scales multiply, and positions are rotated and scaled by the parent before the parent's position is added.</li>
+    <li>Writing a global value makes the engine solve backwards for local values. Reparenting has to choose which of the two to keep.</li>
+    <li>In Godot <code>position</code> is local; in Unity <code>position</code> is world. Check which one you are writing.</li>
+    <li>Keep non-uniform scale and simulated physics bodies away from the middle of a tree.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>A tree of nodes is also something you can save and reuse, so the next lesson looks at packed scenes in Godot and prefabs in Unity, and how instances override their template.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Matrices and transforms</cite> (Godot 4 manual, Math section). The matrix form of the steps above.</li>
+    <li>Unity Manual, <cite>Transforms</cite>, and the Scripting Reference pages for <cite>Transform.SetParent</cite> and <cite>Transform.lossyScale</cite>.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Dirty Flag". Its example is caching world transforms in a scene graph.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 520;            // world size, in the same pixel units as the lesson's numbers
+  var H = 340;
+  var PAD = 18;           // room around the world so the origin axes are visible
+  var RAD = Math.PI / 180;
+  var WORLD = { x: 0, y: 0, rot: 0, scale: 1 };
+
+  var arm, forearm, hand, nodes;
+
+  function makeNode(name, parent, x, y, rot, length) {
+    return { name: name, parent: parent, x: x, y: y, rot: rot, scale: 1, length: length };
+  }
+
+  function reset() {
+    arm = makeNode('Arm', null, 120, 170, 0, 100);
+    forearm = makeNode('Forearm', arm, 100, 0, 30, 80);
+    hand = makeNode('Hand', forearm, 80, 0, 20, 30);
+    nodes = [arm, forearm, hand];
+  }
+  reset();
+
+  function wrap(deg) {
+    return ((deg + 180) % 360 + 360) % 360 - 180;
+  }
+
+  // Global = the parent's global transform applied to the local one. Angles in degrees.
+  function toGlobal(n) {
+    if (!n.parent) return { x: n.x, y: n.y, rot: n.rot, scale: n.scale };
+    var p = toGlobal(n.parent);
+    var c = Math.cos(p.rot * RAD);
+    var s = Math.sin(p.rot * RAD);
+    return {
+      x: p.x + p.scale * (c * n.x - s * n.y),
+      y: p.y + p.scale * (s * n.x + c * n.y),
+      rot: p.rot + n.rot,
+      scale: p.scale * n.scale
+    };
+  }
+
+  // The reverse: store the local values that put n at global transform g.
+  function setGlobal(n, g) {
+    var p = n.parent ? toGlobal(n.parent) : WORLD;
+    var c = Math.cos(p.rot * RAD);
+    var s = Math.sin(p.rot * RAD);
+    var dx = g.x - p.x;
+    var dy = g.y - p.y;
+    n.x = (c * dx + s * dy) / p.scale;
+    n.y = (-s * dx + c * dy) / p.scale;
+    n.rot = wrap(g.rot - p.rot);
+    n.scale = g.scale / p.scale;
+  }
+
+  function reparent(n, parent, keepGlobal) {
+    var g = toGlobal(n);
+    n.parent = parent;
+    if (keepGlobal) setGlobal(n, g);
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="transform-hierarchy"]');
+  var mode = ui.select({
+    label: 'Show',
+    options: [
+      { value: 'local', label: 'Local values (stored)' },
+      { value: 'global', label: 'Global values (computed)' }
+    ],
+    value: 'local',
+    onChange: redraw
+  });
+  var armRot = ui.slider({ label: 'Arm rotation', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { arm.rot = v; redraw(); } });
+  var armScale = ui.slider({ label: 'Arm scale', min: 0.5, max: 1.5, step: 0.05, value: 1,
+    onInput: function (v) { arm.scale = v; redraw(); } });
+  var foreRot = ui.slider({ label: 'Forearm rotation', min: -150, max: 150, step: 1, value: 30, unit: '°',
+    onInput: function (v) { forearm.rot = v; redraw(); } });
+  var handRot = ui.slider({ label: 'Hand rotation', min: -180, max: 180, step: 1, value: 20, unit: '°',
+    onInput: function (v) { hand.rot = v; redraw(); } });
+  var keep = ui.toggle({ label: 'Keep global transform when reparenting', value: true });
+  var moveBtn = ui.button({ label: 'Move Hand to World', onClick: function () {
+    reparent(hand, hand.parent ? null : forearm, keep.value);
+    handRot.set(Math.round(wrap(hand.rot)));
+    updateButton();
+    redraw();
+  } });
+  ui.button({ label: 'Reset', onClick: function () {
+    reset();
+    armRot.set(0);
+    armScale.set(1);
+    foreRot.set(30);
+    handRot.set(20);
+    updateButton();
+    redraw();
+  } });
+  var outArm = ui.readout({ label: 'Arm' });
+  var outFore = ui.readout({ label: 'Forearm' });
+  var outHand = ui.readout({ label: 'Hand' });
+
+  function updateButton() {
+    moveBtn.el.textContent = hand.parent ? 'Move Hand to World' : 'Move Hand back to Forearm';
+  }
+
+  // Screen mapping, recomputed on every draw.
+  var view = 1;
+  var ox = 0;
+  var oy = 0;
+  function computeView(s) {
+    var vw = W + PAD;
+    var vh = H + PAD;
+    view = Math.min(s.width / vw, s.height / vh);
+    ox = (s.width - vw * view) / 2 + PAD * view;
+    oy = (s.height - vh * view) / 2 + PAD * view;
+  }
+  function sx(x) { return ox + x * view; }
+  function sy(y) { return oy + y * view; }
+
+  function describe(n) {
+    var useGlobal = mode.value === 'global';
+    var t = useGlobal ? toGlobal(n) : n;
+    var from = useGlobal ? 'world' : (n.parent ? n.parent.name : 'world');
+    return '(' + Math.round(t.x) + ', ' + Math.round(t.y) + '), ' +
+      Math.round(wrap(t.rot)) + '°, scale ' + t.scale.toFixed(2) + ', from ' + from;
+  }
+
+  var drag = null;
+
+  function worldPoint(p) {
+    return {
+      x: DemoKit.clamp((p.x - ox) / view, 0, W),
+      y: DemoKit.clamp((p.y - oy) / view, 0, H)
+    };
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function label(ctx, c, text, x, y) {
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = c.bg;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = c.ink;
+    ctx.fillText(text, x, y);
+  }
+
+  handle = DemoKit.canvas('#transform-hierarchy', {
+    aspect: (W + PAD) / (H + PAD),
+    minHeight: 220,
+    maxHeight: 380,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A three-part arm: Arm, Forearm and Hand. Drag the Arm joint or use the arrow keys to move it; the children follow. Dashed lines show what each node is measured from.',
+    onDown: function (p) {
+      var w = { x: (p.x - ox) / view, y: (p.y - oy) / view };
+      var reach = 22 / view;
+      var gh = toGlobal(hand);
+      var ga = toGlobal(arm);
+      if (Math.hypot(w.x - gh.x, w.y - gh.y) < reach) drag = hand;
+      else if (Math.hypot(w.x - ga.x, w.y - ga.y) < reach) drag = arm;
+      else drag = null;
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      var w = worldPoint(p);
+      var g = toGlobal(drag);
+      g.x = w.x;
+      g.y = w.y;
+      setGlobal(drag, g);
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var dx = 0;
+      var dy = 0;
+      if (key === 'arrowleft') dx = -10;
+      else if (key === 'arrowright') dx = 10;
+      else if (key === 'arrowup') dy = -10;
+      else if (key === 'arrowdown') dy = 10;
+      else return;
+      arm.x = DemoKit.clamp(arm.x + dx, 0, W);
+      arm.y = DemoKit.clamp(arm.y + dy, 0, H);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      computeView(s);
+      var showGlobal = mode.value === 'global';
+      var g = nodes.map(toGlobal);
+      var i, n, t;
+
+      // World area and a light grid every 40 units.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.6;
+      for (i = 40; i < W; i += 40) line(ctx, sx(i), sy(0), sx(i), sy(H));
+      for (i = 40; i < H; i += 40) line(ctx, sx(0), sy(i), sx(W), sy(i));
+      ctx.globalAlpha = 1;
+      ctx.strokeRect(sx(0), sy(0), W * view, H * view);
+
+      // World origin axes.
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      line(ctx, sx(0), sy(0), sx(0) + 34, sy(0));
+      line(ctx, sx(0), sy(0), sx(0), sy(0) + 34);
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textBaseline = 'middle';
+      label(ctx, c, 'world (0, 0)', sx(0) + 40, sy(0) + 2);
+
+      // Dashed lines: what each node's numbers are measured from.
+      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = c.warn;
+      for (i = 0; i < nodes.length; i++) {
+        n = nodes[i];
+        var from = (!showGlobal && n.parent) ? toGlobal(n.parent) : WORLD;
+        line(ctx, sx(from.x), sy(from.y), sx(g[i].x), sy(g[i].y));
+      }
+      ctx.setLineDash([]);
+
+      // Segments.
+      for (i = 0; i < nodes.length; i++) {
+        n = nodes[i];
+        t = g[i];
+        var a = t.rot * RAD;
+        var len = n.length * t.scale * view;
+        var x1 = sx(t.x);
+        var y1 = sy(t.y);
+        var x2 = x1 + Math.cos(a) * len;
+        var y2 = y1 + Math.sin(a) * len;
+        if (n === hand) {
+          ctx.strokeStyle = c.ink2;
+          ctx.lineWidth = Math.max(2, 4 * view);
+          line(ctx, x1, y1, x2, y2);
+          var f = 12 * t.scale * view;
+          line(ctx, x2, y2, x2 + Math.cos(a - 0.6) * f, y2 + Math.sin(a - 0.6) * f);
+          line(ctx, x2, y2, x2 + Math.cos(a + 0.6) * f, y2 + Math.sin(a + 0.6) * f);
+        } else {
+          var thick = (n === arm ? 16 : 13) * view * Math.sqrt(t.scale);
+          ctx.strokeStyle = c.ink2;
+          ctx.lineWidth = thick;
+          line(ctx, x1, y1, x2, y2);
+          ctx.strokeStyle = c.surface2;
+          ctx.lineWidth = Math.max(1, thick - 4);
+          line(ctx, x1, y1, x2, y2);
+        }
+      }
+
+      // Each node's own x axis, joints and names.
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textBaseline = 'alphabetic';
+      for (i = 0; i < nodes.length; i++) {
+        n = nodes[i];
+        t = g[i];
+        var ax = Math.cos(t.rot * RAD);
+        var ay = Math.sin(t.rot * RAD);
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2;
+        line(ctx, sx(t.x), sy(t.y), sx(t.x) + ax * 26, sy(t.y) + ay * 26);
+        var draggable = n !== forearm;
+        ctx.fillStyle = draggable ? c.topic : c.ink2;
+        ctx.beginPath();
+        ctx.arc(sx(t.x), sy(t.y), draggable ? 7 : 5, 0, Math.PI * 2);
+        ctx.fill();
+        if (draggable) {
+          ctx.strokeStyle = c.topic;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(sx(t.x), sy(t.y), drag === n ? 14 : 11, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Put the name above the joint, or below when the segment points up.
+        var lx = sx(t.x) + 12;
+        var ly = sy(t.y) + (ay >= 0 ? -14 : 24);
+        label(ctx, c, n.name, lx, ly);
+      }
+
+      // Legend, bottom left.
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      label(ctx, c, showGlobal ? 'Dashed: global position, from the world origin'
+                               : 'Dashed: local position, from the parent',
+        sx(0) + 6, sy(H) - 8);
+
+      outArm.set(describe(arm));
+      outFore.set(describe(forearm));
+      outHand.set(describe(hand));
+    }
+  });
+  updateButton();
+})();
+</script>
+</body>
+</html>

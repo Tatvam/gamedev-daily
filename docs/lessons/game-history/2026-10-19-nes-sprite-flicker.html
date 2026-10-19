@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NES sprite flicker: eight sprites per line, shared out by turns · Game Dev Daily</title>
+<meta name="description" content="Why NES sprites flicker: the chip draws only the first 8 sprites on each line, so games reshuffle the list every frame and let everyone take turns.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-19">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>NES sprite flicker: eight sprites per line, shared out by turns</h1>
+  <p class="lede">Why NES sprites flicker: the chip draws only the first 8 sprites on each line, so games reshuffle the list every frame and let everyone take turns.</p>
+</header>
+
+<section data-section="hook">
+  <p>Play a busy Nintendo Entertainment System game and, when enemies and bullets line up across the screen, some of them start to shimmer as if they were half transparent. Nothing is wrong with your console or your television.</p>
+  <p>The flicker is a choice the programmers made. The hardware could not draw everything, and flickering was the least bad way to fail.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: eight sprites on any one line</h2>
+  <p>The NES (sold as the Famicom in Japan from 1983) draws its picture with a graphics chip called the <dfn>PPU</dfn>, the Picture Processing Unit. The picture is 256 pixels wide and is built one horizontal line at a time, a <dfn>scanline</dfn>, about 60 times a second on North American and Japanese televisions.</p>
+  <p>Moving objects are made of <dfn>sprites</dfn>: small 8 by 8 pixel pictures (or 8 by 16, one setting for all of them) that the PPU can place anywhere on top of the background. Their positions live in a 256-byte memory inside the PPU called <dfn>OAM</dfn>, Object Attribute Memory. Each entry takes 4 bytes (Y position, tile number, attributes such as palette and flipping, and X position), so OAM holds 64 sprites.</p>
+  <p>The catch is what happens on each line. While one scanline is drawn, the PPU searches OAM for sprites that cover the <em>next</em> line. It always starts at entry 0, walks forwards, and keeps the first 8 it finds: it has only enough time between lines to fetch 8 sprites' pictures. A ninth sprite is simply not drawn on that line.</p>
+  <p>Eight sprites of 8 pixels cover a quarter of the line. And a character is rarely one sprite: in 8 by 8 mode a 16 by 16 character is four sprites, two side by side, so four characters in a row fill the line.</p>
+
+  <h2>Why the same sprites vanish every frame</h2>
+  <p>If the game writes its objects into OAM in the same order every frame, the same 8 sprites win every frame, and the rest stay missing for as long as they share the line. A bullet becomes invisible. Because sprites are dropped line by line, an enemy can even lose just the rows that overlap a crowded line.</p>
+
+  <h2>The trick: change the order every frame</h2>
+  <p>The PPU does not decide the order. The game does. Games keep their sprite list in ordinary memory and have it copied into OAM once per frame, so they can write the objects in a different order each time. This is called <dfn>sprite cycling</dfn> or OAM cycling. Two simple ways:</p>
+  <ul>
+    <li><strong>Rotate the start.</strong> Frame 1 starts writing from object 0, frame 2 from object 1, and so on, wrapping round. Who lands past eighth place changes every frame.</li>
+    <li><strong>Reverse on alternate frames.</strong> Forwards on even frames, backwards on odd ones. With up to 16 sprites on a line, each is drawn at least every other frame; beyond 16, the middle ones never are.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Ten sprites on one scanline in OAM order. In frame 1, written from object 0, objects 0 to 7 are drawn and objects 8 and 9 are dropped. In frame 3, written starting from object 2, objects 2 to 9 are drawn and objects 0 and 1 are dropped.">
+      <text class="d-label" x="20" y="24">Ten sprites share one scanline. The PPU reads OAM left to right.</text>
+
+      <text class="d-text" x="20" y="72">Frame 1</text>
+      <text class="d-muted" x="20" y="90">start at 0</text>
+      <g transform="translate(110 50)">
+        <rect class="d-accent-soft" x="0" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="50" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="100" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="150" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="200" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="250" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="300" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="350" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-fill" x="400" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-bad" x="400" y="0" width="44" height="44" rx="4" stroke-dasharray="4 3"/>
+        <rect class="d-fill" x="450" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-bad" x="450" y="0" width="44" height="44" rx="4" stroke-dasharray="4 3"/>
+        <text class="d-mono" x="22" y="27" text-anchor="middle">0</text>
+        <text class="d-mono" x="72" y="27" text-anchor="middle">1</text>
+        <text class="d-mono" x="122" y="27" text-anchor="middle">2</text>
+        <text class="d-mono" x="172" y="27" text-anchor="middle">3</text>
+        <text class="d-mono" x="222" y="27" text-anchor="middle">4</text>
+        <text class="d-mono" x="272" y="27" text-anchor="middle">5</text>
+        <text class="d-mono" x="322" y="27" text-anchor="middle">6</text>
+        <text class="d-mono" x="372" y="27" text-anchor="middle">7</text>
+        <text class="d-mono" x="422" y="27" text-anchor="middle">8</text>
+        <text class="d-mono" x="472" y="27" text-anchor="middle">9</text>
+        <path class="d-thin" d="M0 54 V60 H394 V54"/>
+        <text class="d-muted" x="197" y="76" text-anchor="middle">first 8 found: drawn</text>
+        <path class="d-thin" d="M400 54 V60 H494 V54"/>
+        <text class="d-muted" x="447" y="76" text-anchor="middle">dropped</text>
+      </g>
+
+      <text class="d-text" x="20" y="172">Frame 3</text>
+      <text class="d-muted" x="20" y="190">start at 2</text>
+      <g transform="translate(110 150)">
+        <rect class="d-accent-soft" x="0" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="50" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="100" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="150" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="200" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="250" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="300" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-accent-soft" x="350" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-fill" x="400" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-bad" x="400" y="0" width="44" height="44" rx="4" stroke-dasharray="4 3"/>
+        <rect class="d-fill" x="450" y="0" width="44" height="44" rx="4"/>
+        <rect class="d-bad" x="450" y="0" width="44" height="44" rx="4" stroke-dasharray="4 3"/>
+        <text class="d-mono" x="22" y="27" text-anchor="middle">2</text>
+        <text class="d-mono" x="72" y="27" text-anchor="middle">3</text>
+        <text class="d-mono" x="122" y="27" text-anchor="middle">4</text>
+        <text class="d-mono" x="172" y="27" text-anchor="middle">5</text>
+        <text class="d-mono" x="222" y="27" text-anchor="middle">6</text>
+        <text class="d-mono" x="272" y="27" text-anchor="middle">7</text>
+        <text class="d-mono" x="322" y="27" text-anchor="middle">8</text>
+        <text class="d-mono" x="372" y="27" text-anchor="middle">9</text>
+        <text class="d-mono" x="422" y="27" text-anchor="middle">0</text>
+        <text class="d-mono" x="472" y="27" text-anchor="middle">1</text>
+        <path class="d-thin" d="M0 54 V60 H394 V54"/>
+        <text class="d-muted" x="197" y="76" text-anchor="middle">first 8 found: drawn</text>
+        <path class="d-thin" d="M400 54 V60 H494 V54"/>
+        <text class="d-muted" x="447" y="76" text-anchor="middle">dropped</text>
+      </g>
+
+      <text class="d-text" x="20" y="262">Same order every frame: 8 and 9 are missing for good.</text>
+      <text class="d-text" x="20" y="284">Rotated order: each sprite misses some frames, so all ten flicker but none vanishes.</text>
+    </svg>
+    <figcaption>The PPU's rule never changes: the first 8 in OAM order win. The game changes who is first.</figcaption>
+  </figure>
+
+  <p>Flicker is the visible result. At 60 frames a second the eye blends the frames, so a sprite drawn in half of them looks see-through rather than gone. "Some things are invisible" becomes "everything is a little faint", and a faint bullet is far better than an invisible one.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>When a fixed budget cannot fit everything, rotate who misses out, so the failure is shared, short and visible instead of permanent and silent.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Hard per-frame budgets are still everywhere: lights per object, shadow-casting lights, AI agents that think this frame, objects per network packet. Fill the budget from the front of the same list every time and the items at the back starve. Round-robin order, or a priority that grows the longer an item waits, shares the budget out as sprite cycling did.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A 256-pixel-wide screen holds 12 sprites, 10 on one row. With <strong>Same order every frame</strong>, sprites 8 and 9 are missing; dashed red outlines show where. The bars on the right count sprites per scanline (red is more than 8). Switch to <strong>Rotate the start each frame</strong> and watch the losses move along the row, then turn on <strong>Average 8 frames</strong> for roughly what the eye sees. Drag sprites, or click the screen and use <kbd>N</kbd> to select, arrow keys to move and <kbd>Space</kbd> to step. Try <strong>Reverse every other frame</strong> with more than 16 on a line.</p>
+  <p>The demo runs at 4 frames a second so each frame can be read; the console runs at about 60. If fast flashing bothers you, keep the speed low or use the averaged view.</p>
+
+  <figure class="demo wide" data-demo="nes-flicker">
+    <canvas id="nes-flicker"></canvas>
+    <figcaption>The strip below the screen is this frame's OAM in reading order; crossed-out slots lost at least one line. Turn off <strong>8 sprites per line limit</strong> to see the picture the game wanted.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same scene in LÖVE, with the same numbers: 12 sprites, 10 on the row at y = 40, and the rule "first 8 in OAM order per scanline". Sprites are solid squares here. <code>buildOam</code> is the game's job; <code>spritesOnLine</code> is the PPU's. Set <code>ROTATE</code> to <code>false</code> to see sprites vanish instead.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The NES rule: on each scanline only the first 8 sprites in OAM order are drawn.</span>
+local SCREEN_W, SCREEN_H, SCALE = 256, 96, 3
+local SIZE, MAX_PER_LINE = 8, 8
+local ROTATE = true
+local COLOURS = { {1, 0.42, 0.35}, {1, 0.7, 0.25}, {0.5, 0.88, 0.42}, {0.35, 0.66, 1} }
+local objects = {}
+local frame = 0
+
+function love.load()
+  love.window.setMode(SCREEN_W * SCALE, SCREEN_H * SCALE)
+  for i = 0, 9 do                                   <span class="c">-- ten on one row</span>
+    objects[#objects + 1] = { x = 12 + i * 24, y = 40, colour = COLOURS[i % 4 + 1] }
+  end
+  objects[#objects + 1] = { x = 40, y = 12, colour = COLOURS[3] }
+  objects[#objects + 1] = { x = 180, y = 70, colour = COLOURS[4] }
+end
+
+<span class="c">-- The game: copy objects into OAM, starting from a different one each frame.</span>
+local function buildOam()
+  local oam, n, start = {}, #objects, 0
+<span class="k">  if ROTATE then start = frame % n end</span>
+  for i = 0, n - 1 do
+    oam[i + 1] = objects[(start + i) % n + 1]
+  end
+  return oam
+end
+
+<span class="c">-- The PPU: search OAM from the start, keep the first 8 that cover line y.</span>
+local function spritesOnLine(oam, y)
+  local found = {}
+  for i = 1, #oam do
+    local s = oam[i]
+    if y &gt;= s.y and y &lt; s.y + SIZE then
+<span class="k">      if #found == MAX_PER_LINE then break end      -- the rest are dropped</span>
+      found[#found + 1] = s
+    end
+  end
+  return found
+end
+
+function love.update(dt)
+  frame = frame + 1                                 <span class="c">-- a new OAM order every frame</span>
+end
+
+function love.draw()
+  local oam = buildOam()
+  for y = 0, SCREEN_H - 1 do
+    local found = spritesOnLine(oam, y)
+    for i = #found, 1, -1 do                        <span class="c">-- lower OAM index ends on top</span>
+      love.graphics.setColor(found[i].colour)
+      love.graphics.rectangle("fill", found[i].x * SCALE, y * SCALE, SIZE * SCALE, SCALE)
+    end
+  end
+end</code></pre>
+  </div>
+  <p>With vertical sync on, one <code>love.update</code> is one displayed frame, so the order changes every frame. The drawing loop works scanline by scanline like the PPU, so a sprite partly over a crowded row loses only those rows.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Rotating by a step that matches the pattern.</strong> If the list has 10 objects and you rotate by 5, the start only ever takes two values, so the losses always fall on the same few sprites while the rest are never touched. Rotating by 1, or by a step that shares no factor with the list length, visits every starting point.</li>
+    <li><strong>Letting the player flicker too.</strong> Fair sharing is not always right. You can keep a few important sprites at the front of OAM every frame and cycle only the rest.</li>
+    <li><strong>Forgetting that metasprites multiply the count.</strong> One 16 by 16 character costs two sprites on each of its lines. Count hardware sprites per line, not objects.</li>
+    <li><strong>Flicker at a low frame rate.</strong> At 30 frames a second, a sprite shown in alternate frames blinks 15 times a second: hard to read and unpleasant for some players. Keep crowding rare.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Flicker is one of the most recognisable looks of NES games with crowded screens, and NES homebrew developers still write cycling routines today. Some emulators offer an option that removes the eight-per-line limit, which looks solid but is not how the console behaves.</p>
+  <p>The limit is not unique to the NES. The original Game Boy holds 40 sprites and draws at most 10 on one line, with the same choice between vanishing and flickering.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua above. Then add a field <code>pinned = true</code> to the second object and change <code>buildOam</code> so pinned objects are always written first and only the others are rotated. You are done when that object stays solid while its neighbours on the row flicker. For a bonus, count in a table how many of the last 60 frames each object was fully drawn, and print the lowest number.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The NES PPU holds 64 sprites in OAM but draws only the first 8 it finds on each scanline.</li>
+    <li>With a fixed OAM order, the same sprites lose every frame and simply vanish.</li>
+    <li>Games change the order every frame, by rotating the start or reversing it, so the losers change and sprites flicker instead.</li>
+    <li>Rotation must reach every starting point, and important sprites can be kept at the front.</li>
+    <li>Any hard per-frame budget, from lights to network updates, can share its shortfall the same way.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we stay on the NES and look at how Super Mario Bros. reuses one set of tiles for both clouds and bushes by changing only the palette.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: web pages could not be opened in this session, so no links are given. The OAM size and layout, the first-8-per-scanline rule, and flicker coming from games reordering OAM were checked against search summaries of the NESdev Wiki and forums. The Game Boy figures are widely documented but were not checked live. Look these up:</p>
+  <ul>
+    <li>NESdev Wiki, <cite>PPU sprite evaluation</cite>. How the PPU picks the 8 sprites for each line.</li>
+    <li>NESdev Wiki, <cite>PPU OAM</cite> and <cite>Sprite priority</cite>. The 4-byte sprite entry and how overlapping sprites are ordered.</li>
+    <li>NESdev forums, threads on "OAM cycling" and sprite flicker routines. Ways to reorder sprites each frame.</li>
+    <li>Nathan Altice, <cite>I Am Error: The Nintendo Family Computer / Entertainment System Platform</cite> (MIT Press). A study of the hardware and how games used it.</li>
+    <li>Pan Docs, <cite>Object Attribute Memory (OAM)</cite>. The Game Boy's 40-sprite, 10-per-line limit.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SW = 256, SH = 96, SZ = 8, MAX = 8, MAX_OBJECTS = 24, AVG = 8;
+  var PAL = ['#ff6b5a', '#ffb340', '#ffe45c', '#7ee06a', '#43d1c5', '#5aa8ff', '#9b8cff', '#ff7ad9',
+             '#f2f2f2', '#d79a62', '#5ce0a0', '#ff9e9e'];
+  var RGB = PAL.map(function (h) {
+    return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)];
+  });
+  var BG = [16, 24, 40];
+  // Original 8x8 shapes: diamond, ring, cross, framed block.
+  var PATTERNS = [
+    ['00011000', '00111100', '01111110', '11111111', '11111111', '01111110', '00111100', '00011000'],
+    ['00111100', '01111110', '11100111', '11000011', '11000011', '11100111', '01111110', '00111100'],
+    ['00011000', '00011000', '00011000', '11111111', '11111111', '00011000', '00011000', '00011000'],
+    ['11111111', '10000001', '10111101', '10100101', '10100101', '10111101', '10000001', '11111111']
+  ];
+
+  var objects = [];
+  function makeObject(i, x, y) {
+    return { x: x, y: y, c: i % PAL.length, p: i % PATTERNS.length };
+  }
+  function reset() {
+    objects = [];
+    for (var i = 0; i < 10; i++) objects.push(makeObject(i, 12 + i * 24, 40));
+    objects.push(makeObject(10, 40, 12));
+    objects.push(makeObject(11, 180, 70));
+  }
+  reset();
+
+  var frame = 0, acc = 0, selected = 0;
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="nes-flicker"]');
+  var mode = ui.select({ label: 'OAM order each frame', value: 'fixed', options: [
+    { value: 'fixed', label: 'Same order every frame' },
+    { value: 'rotate', label: 'Rotate the start each frame' },
+    { value: 'reverse', label: 'Reverse every other frame' }
+  ], onChange: redraw });
+  var limit = ui.toggle({ label: '8 sprites per line limit', value: true, onChange: redraw });
+  var average = ui.toggle({ label: 'Average 8 frames (what the eye sees)', value: false, onChange: redraw });
+  var ghosts = ui.toggle({ label: 'Show dropped sprites', value: true, onChange: redraw });
+  var speed = ui.slider({ label: 'Speed', min: 1, max: 60, step: 1, value: 4, unit: ' frames/s' });
+  ui.button({ label: 'Step one frame', onClick: function () { frame++; redraw(); } });
+  ui.button({ label: 'Add sprite', onClick: function () {
+    if (objects.length >= MAX_OBJECTS) return;
+    var i = objects.length;
+    objects.push(makeObject(i, (i * 21) % (SW - SZ - 8) + 4, 40));
+    selected = i;
+    redraw();
+  } });
+  ui.button({ label: 'Remove sprite', onClick: function () {
+    if (objects.length <= 1) return;
+    objects.pop();
+    selected = Math.min(selected, objects.length - 1);
+    redraw();
+  } });
+  ui.button({ label: 'All on one line', onClick: function () {
+    var n = objects.length;
+    for (var i = 0; i < n; i++) {
+      objects[i].y = 40;
+      objects[i].x = n > 1 ? Math.round(4 + i * (SW - SZ - 8) / (n - 1)) : 4;
+    }
+    redraw();
+  } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); selected = 0; frame = 0; redraw(); } });
+  var outFrame = ui.readout({ label: 'Frame' });
+  var outBusy = ui.readout({ label: 'Busiest scanline' });
+  var outLeast = ui.readout({ label: 'Least-seen sprite, last 8 frames' });
+
+  // ---- the game: OAM order for a frame ----
+  function oamOrder(f) {
+    var n = objects.length, order = [], i;
+    var m = mode.value;
+    if (m === 'rotate') {
+      var start = ((f % n) + n) % n;
+      for (i = 0; i < n; i++) order.push((start + i) % n);
+    } else if (m === 'reverse' && (((f % 2) + 2) % 2) === 1) {
+      for (i = n - 1; i >= 0; i--) order.push(i);
+    } else {
+      for (i = 0; i < n; i++) order.push(i);
+    }
+    return order;
+  }
+
+  // ---- the PPU: per scanline, the first 8 in OAM order ----
+  function evaluate(f) {
+    var order = oamOrder(f);
+    var lines = [], counts = [], dropped = [], k, y;
+    for (k = 0; k < objects.length; k++) dropped.push(0);
+    for (y = 0; y < SH; y++) {
+      var found = [], count = 0;
+      for (var j = 0; j < order.length; j++) {
+        var id = order[j], o = objects[id];
+        if (y >= o.y && y < o.y + SZ) {
+          count++;
+          if (limit.value && found.length === MAX) dropped[id]++;
+          else found.push(id);
+        }
+      }
+      lines.push(found);
+      counts.push(count);
+    }
+    return { order: order, lines: lines, counts: counts, dropped: dropped };
+  }
+
+  function render(ev, buf) {
+    for (var y = 0; y < SH; y++) {
+      var row = y * SW;
+      for (var x = 0; x < SW; x++) { buf[row + x] = -1; }
+      var found = ev.lines[y];
+      for (var j = found.length - 1; j >= 0; j--) {   // back to front: lowest OAM slot on top
+        var o = objects[found[j]];
+        var bits = PATTERNS[o.p][y - o.y];
+        for (var b = 0; b < SZ; b++) {
+          var px = o.x + b;
+          if (bits.charAt(b) === '1' && px < SW) buf[row + px] = o.c;
+        }
+      }
+    }
+  }
+
+  var off = document.createElement('canvas');
+  off.width = SW; off.height = SH;
+  var offCtx = off.getContext('2d');
+  var img = offCtx.createImageData(SW, SH);
+  var buf = new Int16Array(SW * SH);
+  var sum = new Float32Array(SW * SH * 3);
+
+  var layout = { ox: 12, oy: 12, S: 1 };
+
+  function draw(ctx, s) {
+    var col = s.colors, Wc = s.width;
+    var n = objects.length, i, k, y, x;
+    var BW = 60;
+    var S = Math.max(0.5, Math.min(2.5, (Wc - 24 - BW - 10) / SW));
+    var sw = SW * S, sh = SH * S;
+    var ox = Math.round((Wc - sw - BW - 10) / 2), oy = 12;
+    layout.ox = ox; layout.oy = oy; layout.S = S;
+
+    var ev = evaluate(frame);
+    var d = img.data;
+
+    // picture: one frame, or the average of the last AVG frames
+    if (average.value) {
+      for (i = 0; i < sum.length; i++) sum[i] = 0;
+      for (var f = frame - AVG + 1; f <= frame; f++) {
+        render(evaluate(f), buf);
+        for (i = 0; i < buf.length; i++) {
+          var c = buf[i] < 0 ? BG : RGB[buf[i]];
+          sum[i * 3] += c[0]; sum[i * 3 + 1] += c[1]; sum[i * 3 + 2] += c[2];
+        }
+      }
+      for (i = 0; i < buf.length; i++) {
+        d[i * 4] = sum[i * 3] / AVG; d[i * 4 + 1] = sum[i * 3 + 1] / AVG; d[i * 4 + 2] = sum[i * 3 + 2] / AVG; d[i * 4 + 3] = 255;
+      }
+    } else {
+      render(ev, buf);
+      for (i = 0; i < buf.length; i++) {
+        var cc = buf[i] < 0 ? BG : RGB[buf[i]];
+        d[i * 4] = cc[0]; d[i * 4 + 1] = cc[1]; d[i * 4 + 2] = cc[2]; d[i * 4 + 3] = 255;
+      }
+    }
+    offCtx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, ox, oy, sw, sh);
+
+    // dropped sprites as dashed outlines (what the player never saw)
+    if (ghosts.value && !average.value) {
+      ctx.setLineDash([3, 2]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ff4d4d';
+      for (k = 0; k < n; k++) {
+        if (ev.dropped[k] === 0) continue;
+        ctx.strokeRect(ox + objects[k].x * S + 0.75, oy + objects[k].y * S + 0.75, SZ * S - 1.5, SZ * S - 1.5);
+      }
+      ctx.setLineDash([]);
+    }
+    // selected sprite
+    if (selected < n) {
+      var so = objects[selected];
+      ctx.strokeStyle = col.topic;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox + so.x * S - 3, oy + so.y * S - 3, SZ * S + 6, SZ * S + 6);
+    }
+    ctx.strokeStyle = col.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox - 0.5, oy - 0.5, sw + 1, sh + 1);
+
+    // per-scanline counts
+    var bx = ox + sw + 10, unit = (BW - 6) / 16, busy = 0, busyLine = 0;
+    ctx.fillStyle = col.surface2;
+    ctx.fillRect(bx, oy, BW, sh);
+    for (y = 0; y < SH; y++) {
+      var cnt = ev.counts[y];
+      if (cnt > busy) { busy = cnt; busyLine = y; }
+      if (cnt === 0) continue;
+      ctx.fillStyle = cnt > MAX ? col.bad : col.ink3;
+      ctx.fillRect(bx, oy + y * S, Math.min(cnt, 16) * unit, Math.max(1, S));
+    }
+    ctx.strokeStyle = col.ink;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(bx + MAX * unit + 0.5, oy);
+    ctx.lineTo(bx + MAX * unit + 0.5, oy + sh);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('8', bx + MAX * unit, oy + sh + 3);
+    ctx.textAlign = 'left';
+    ctx.fillText('per line', bx, oy + sh + 18);
+
+    // OAM strip
+    var ty = oy + sh + 18;
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('OAM this frame (read left to right)', ox, ty);
+    var bs = 24, gap = 4, perRow = Math.max(1, Math.floor((sw + BW + 10 + gap) / (bs + gap)));
+    var sy0 = ty + 20;
+    ctx.font = 'bold 12px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    for (i = 0; i < ev.order.length; i++) {
+      var id = ev.order[i], o = objects[id];
+      var rx = ox + (i % perRow) * (bs + gap), ry = sy0 + Math.floor(i / perRow) * (bs + gap);
+      var lost = ev.dropped[id] > 0;
+      ctx.globalAlpha = lost ? 0.35 : 1;
+      ctx.fillStyle = PAL[o.c];
+      ctx.fillRect(rx, ry, bs, bs);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#111';
+      ctx.fillText(String(id), rx + bs / 2, ry + 6);
+      if (lost) {
+        ctx.strokeStyle = col.bad;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rx + 1, ry + 1, bs - 2, bs - 2);
+        ctx.beginPath();
+        ctx.moveTo(rx + 2, ry + bs - 2);
+        ctx.lineTo(rx + bs - 2, ry + 2);
+        ctx.stroke();
+      }
+    }
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+
+    // least-seen sprite over the last 8 frames
+    var seen = [];
+    for (k = 0; k < n; k++) seen.push(0);
+    for (var g = frame - AVG + 1; g <= frame; g++) {
+      var e2 = evaluate(g);
+      for (k = 0; k < n; k++) if (e2.dropped[k] === 0) seen[k]++;
+    }
+    var worst = 0;
+    for (k = 1; k < n; k++) if (seen[k] < seen[worst]) worst = k;
+
+    outFrame.set(String(frame));
+    outBusy.set('line ' + busyLine + ': ' + busy + ' sprite' + (busy === 1 ? '' : 's') + (busy > MAX ? ' (' + (limit.value ? busy - MAX + ' dropped' : 'limit off') + ')' : ''));
+    outLeast.set('#' + worst + ': fully drawn in ' + seen[worst] + ' of ' + AVG);
+  }
+
+  // ---- input ----
+  var dragging = false, grabX = 4, grabY = 4;
+  function toScreen(pt) {
+    return { x: (pt.x - layout.ox) / layout.S, y: (pt.y - layout.oy) / layout.S };
+  }
+  function hit(q) {
+    for (var k = objects.length - 1; k >= 0; k--) {
+      var o = objects[k];
+      if (q.x >= o.x - 2 && q.x < o.x + SZ + 2 && q.y >= o.y - 2 && q.y < o.y + SZ + 2) return k;
+    }
+    return -1;
+  }
+  function clampObj(o) {
+    o.x = DemoKit.clamp(Math.round(o.x), 0, SW - SZ);
+    o.y = DemoKit.clamp(Math.round(o.y), 0, SH - SZ);
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  handle = DemoKit.canvas('#nes-flicker', {
+    height: 360,
+    drag: true,
+    keys: true,
+    label: 'A 256 by 96 pixel screen with twelve small sprites, ten of them on one row. Only the first eight sprites in OAM order are drawn on each scanline. A bar chart beside the screen counts sprites per scanline, and a strip below shows the OAM order for the current frame with dropped sprites crossed out. Sprites can be dragged, or selected with N and moved with the arrow keys; Space steps one frame.',
+    update: function (dt) {
+      acc += dt;
+      var step = 1 / speed.value;
+      if (acc > 1) acc = step;
+      while (acc >= step) { frame++; acc -= step; }
+    },
+    onDown: function (pt) {
+      var q = toScreen(pt), k = hit(q);
+      if (k < 0) return;
+      selected = k;
+      grabX = q.x - objects[k].x; grabY = q.y - objects[k].y;
+      dragging = true;
+    },
+    onMove: function (pt) {
+      if (!dragging || !pt.down) return;
+      var q = toScreen(pt), o = objects[selected];
+      if (!o) return;
+      o.x = q.x - grabX; o.y = q.y - grabY;
+      clampObj(o);
+    },
+    onUp: function () { dragging = false; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var o = objects[selected];
+      if (key === 'n') { selected = (selected + 1) % objects.length; return; }
+      if (key === 'space') { frame++; return; }
+      if (!o) return;
+      if (key === 'arrowleft') o.x -= 1;
+      else if (key === 'arrowright') o.x += 1;
+      else if (key === 'arrowup') o.y -= 1;
+      else if (key === 'arrowdown') o.y += 1;
+      clampObj(o);
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>
