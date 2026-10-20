@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stripes and checkerboards: patterns from fract, step and mod · Game Dev Daily</title>
+<meta name="description" content="Rotate the UV, scale it, then fract and a threshold give stripes and grid lines, and mod of the cell id gives a checkerboard at any angle.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Stripes and checkerboards: patterns from fract, step and mod</h1>
+  <p class="lede">Rotate the UV, scale it, then fract and a threshold give stripes and grid lines, and mod of the cell id gives a checkerboard at any angle.</p>
+</header>
+
+<section data-section="hook">
+  <p>Hazard tape on a warning zone, a chequered finish line, the debug grid that shows where tiles snap. Each is usually a painted texture that blurs when you scale it.</p>
+  <p>A shader can draw all three from the pixel's position in a few lines, sharp at any size and angle. You already know every piece.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Four steps from position to pattern</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. The input today is the pixel's centred UV: (0, 0) in the middle of the picture, y running from -0.5 at the bottom to 0.5 at the top. The output is one of two colours. Between them sit four steps.</p>
+  <ol>
+    <li><strong>Rotate</strong> the coordinates, so the pattern can lean at any angle.</li>
+    <li><strong>Scale</strong> by the frequency, so there are that many lines per unit of height. Call the result <code>st</code>.</li>
+    <li><strong>Repeat</strong> with <code>fract</code>, as in the last lesson: <code>f = fract(st)</code> runs from 0.0 to 1.0 inside every cell, and <code>id = floor(st)</code> numbers the cells.</li>
+    <li><strong>Threshold</strong> the repeated value into a <dfn>mask</dfn>, a number that is 1.0 where the pattern is and 0.0 where it is not. Then <code>mix</code> the two colours with it.</li>
+  </ol>
+
+  <h3>Stripes: a sawtooth, folded, then cut</h3>
+  <p>Take only the x part of <code>f</code>. It is a <dfn>sawtooth</dfn>: it climbs from 0 to 1 across each cell, then drops back. To draw a line on every cell border we want to know how far each pixel is from the nearest border. That is the smaller of the distance to the left border, <code>f</code>, and to the right one, <code>1.0 - f</code>:</p>
+<pre><code>float d = min(f.x, 1.0 - f.x);   // 0.0 on a border, 0.5 halfway between</code></pre>
+  <p>This is a <dfn>triangle wave</dfn>. Now cut it with a threshold. A line of width <code>w</code>, measured as a fraction of a cell, covers every pixel with <code>d</code> less than <code>w / 2</code>. With <code>w</code> at 0.5 the stripes and the gaps are equal.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 310" role="img" aria-label="Left: three graphs for x from 0 to 3. The first, f equals fract of x, is a sawtooth. The second, d equals the minimum of f and 1 minus f, is a triangle wave that touches 0 at every whole number, with a dashed threshold line at width over 2. The third is the mask: short bars around every whole number where d is below the threshold. Right: a 4 by 4 grid of cells labelled with mod of id.x plus id.y, 2. The values alternate 0 and 1 like a checkerboard, with the 1 cells shaded.">
+      <!-- Row A: fract -->
+      <text class="d-label" x="40" y="26">f = fract(x)</text>
+      <path class="d-thin" d="M40 90H290"/>
+      <path class="d-accent" d="M40 90L118 42M120 90L198 42M200 90L278 42"/>
+      <!-- Row B: triangle wave -->
+      <text class="d-label" x="40" y="124">d = min(f, 1.0 - f)</text>
+      <path class="d-thin" d="M40 190H290"/>
+      <path class="d-stroke" d="M40 190L80 140L120 190L160 140L200 190L240 140L280 190"/>
+      <path class="d-dash" d="M40 175H284"/>
+      <text class="d-muted" x="292" y="179">w / 2</text>
+      <!-- Row C: mask -->
+      <text class="d-label" x="40" y="222">mask: 1 where d &lt; w / 2</text>
+      <path class="d-thin" d="M40 276H290"/>
+      <rect class="d-accent-fill" x="40" y="246" width="12" height="30"/>
+      <rect class="d-accent-fill" x="108" y="246" width="24" height="30"/>
+      <rect class="d-accent-fill" x="188" y="246" width="24" height="30"/>
+      <rect class="d-accent-fill" x="268" y="246" width="12" height="30"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="40" y="298">0</text>
+        <text class="d-muted" x="120" y="298">1</text>
+        <text class="d-muted" x="200" y="298">2</text>
+        <text class="d-muted" x="280" y="298">3</text>
+      </g>
+
+      <!-- Checker grid -->
+      <text class="d-mono" x="480" y="40" text-anchor="middle">mod(id.x + id.y, 2.0)</text>
+      <rect class="d-box" x="400" y="60" width="160" height="160"/>
+      <rect class="d-accent-soft" x="400" y="60" width="40" height="40"/>
+      <rect class="d-accent-soft" x="480" y="60" width="40" height="40"/>
+      <rect class="d-accent-soft" x="440" y="100" width="40" height="40"/>
+      <rect class="d-accent-soft" x="520" y="100" width="40" height="40"/>
+      <rect class="d-accent-soft" x="400" y="140" width="40" height="40"/>
+      <rect class="d-accent-soft" x="480" y="140" width="40" height="40"/>
+      <rect class="d-accent-soft" x="440" y="180" width="40" height="40"/>
+      <rect class="d-accent-soft" x="520" y="180" width="40" height="40"/>
+      <path class="d-thin" d="M440 60V220M480 60V220M520 60V220M400 100H560M400 140H560M400 180H560"/>
+      <g class="d-mono" text-anchor="middle">
+        <text x="420" y="85">1</text><text x="460" y="85">0</text><text x="500" y="85">1</text><text x="540" y="85">0</text>
+        <text x="420" y="125">0</text><text x="460" y="125">1</text><text x="500" y="125">0</text><text x="540" y="125">1</text>
+        <text x="420" y="165">1</text><text x="460" y="165">0</text><text x="500" y="165">1</text><text x="540" y="165">0</text>
+        <text x="420" y="205">0</text><text x="460" y="205">1</text><text x="500" y="205">0</text><text x="540" y="205">1</text>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="420" y="240">0</text>
+        <text class="d-muted" x="460" y="240">1</text>
+        <text class="d-muted" x="500" y="240">2</text>
+        <text class="d-muted" x="540" y="240">3</text>
+      </g>
+      <g text-anchor="end">
+        <text class="d-muted" x="390" y="205">0</text>
+        <text class="d-muted" x="390" y="165">1</text>
+        <text class="d-muted" x="390" y="125">2</text>
+        <text class="d-muted" x="390" y="85">3</text>
+      </g>
+      <text class="d-muted" x="480" y="266" text-anchor="middle">id.x across, id.y up</text>
+    </svg>
+    <figcaption>Left: fract makes a sawtooth, min folds it into a triangle wave (distance to the nearest line), and a threshold turns that into lines. Right: adding the two cell numbers and taking mod 2 alternates 0 and 1 in both directions, which is a checkerboard.</figcaption>
+  </figure>
+
+  <p>The threshold is <code>step</code> from two lessons ago. To keep the edges smooth we use <code>smoothstep</code> across about one pixel, called <code>aa</code> (for anti-aliasing) and measured in cell units:</p>
+<pre><code>float m = 1.0 - smoothstep(0.5 * w - aa, 0.5 * w + aa, d);</code></pre>
+
+  <h3>Grid lines: the same, on both axes</h3>
+  <p>A grid is stripes along x and stripes along y at once. Work out the distance for each axis, and keep the smaller one: a pixel is on a grid line if it is near a vertical line <em>or</em> a horizontal one.</p>
+<pre><code>vec2 d2 = min(f, 1.0 - f);       // distance to the nearest line, per axis
+float d = min(d2.x, d2.y);       // nearest line of either kind</code></pre>
+
+  <h3>Checkerboard: count the cells</h3>
+  <p>A checkerboard needs no distance at all. It only asks which cell the pixel is in. Moving one cell right adds 1 to <code>id.x</code>; moving one cell up adds 1 to <code>id.y</code>. Either move changes the sum <code>id.x + id.y</code> from odd to even or back. <code>mod(a, 2.0)</code>, the remainder after dividing by 2, turns that into 0.0 for even and 1.0 for odd, so neighbouring cells always differ:</p>
+<pre><code>float m = mod(id.x + id.y, 2.0); // 0.0 or 1.0, alternating</code></pre>
+
+  <h3>Rotation: turn the coordinates, not the pattern</h3>
+  <p>To tilt the pattern by an angle <code>a</code>, rotate each pixel's coordinates the opposite way before anything else. The pattern is drawn in the rotated coordinates, so it appears turned by <code>a</code> counter-clockwise:</p>
+<pre><code>vec2 r = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y);  // c = cos(a), s = sin(a)</code></pre>
+  <p>Because the UV is centred, the pattern turns around the middle of the picture. Track 2 covers rotating UV space in depth.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Lines come from the <em>position inside</em> a cell (<code>fract</code>, then a threshold). Alternating fills come from the <em>cell number</em> (<code>floor</code>, then <code>mod</code>).</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Start on <em>Stripes</em> and walk the <em>Stage</em> menu from 1 to 5. Stage 1 shows the rotated coordinates as red and green; drag <em>Angle</em> and watch the gradient turn. Stage 2 is <code>f = fract(st)</code>, the repeating sawtooth. Stage 3 is the triangle wave <code>d</code> shown as grey: black on each line, brightest halfway between. Stage 4 is the mask and stage 5 the colour.</p>
+  <p>Then switch to <em>Checkerboard</em> at stage 3. It shows <code>mod(id.x, 2.0)</code> as red and <code>mod(id.y, 2.0)</code> as green: red columns, green rows. Where exactly one of them is on, the sum is odd, and stage 4 lights up. Finally push <em>Frequency</em> to the top and watch the pattern break into ripples.</p>
+
+  <figure class="demo" data-demo="stripes-checkers">
+    <canvas id="stripes-checkers"></canvas>
+    <figcaption>Every stage is one line of the same shader. <em>Line width</em> applies to stripes and grid only; the checkerboard has no lines. The angle turns counter-clockwise around the centre.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the same <code>shade</code> function in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Up and down change the frequency, left and right the angle, <kbd>[</kbd> and <kbd>]</kbd> the line width, P cycles the pattern and S the stage. Clicking prints the cell under the mouse and its checker value, using the same maths in plain Lua.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values.</span>
+local freq = 6           <span class="c">-- cells per unit of height</span>
+local angle = 30         <span class="c">-- degrees, counter-clockwise</span>
+local width = 0.5        <span class="c">-- line width, as a fraction of a cell</span>
+local pattern = 0        <span class="c">-- 0 stripes, 1 grid, 2 checkerboard</span>
+local stage = 4          <span class="c">-- 0 rotated uv, 1 f, 2 wave, 3 mask, 4 final</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_freq;
+uniform float u_angle;
+uniform float u_width;
+uniform float u_pattern;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+vec3 shade(vec2 uv, float aa)
+{
+    float c = cos(u_angle);
+    float s = sin(u_angle);
+    vec2 r = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y); // 1. rotate
+    vec2 st = r * u_freq;                         // 2. scale
+    vec2 id = floor(st);                          //    which cell
+    vec2 f = fract(st);                           // 3. where in the cell
+    vec2 d2 = min(f, 1.0 - f);                    //    distance to a line, per axis
+    float d = d2.x;                               //    stripes: x only
+    if (u_pattern &gt; 0.5) d = min(d2.x, d2.y);     //    grid: either axis
+    float m = 1.0 - smoothstep(0.5 * u_width - aa, 0.5 * u_width + aa, d); // 4. mask
+    if (u_pattern &gt; 1.5) m = mod(id.x + id.y, 2.0);   //    checkerboard
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+    vec3 wave = vec3(2.0 * d);
+    if (u_pattern &gt; 1.5) wave = vec3(mod(id, 2.0), 0.0);
+    if (u_stage &lt; 3.5) col = vec3(m);
+    if (u_stage &lt; 2.5) col = wave;
+    if (u_stage &lt; 1.5) col = vec3(f, 0.0);
+    if (u_stage &lt; 0.5) col = vec3(r + 0.5, 0.0);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = u_freq / u_rect.w;     // one pixel, in cell units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "up" then freq = math.min(80, freq + 0.5) end
+  if key == "down" then freq = math.max(1, freq - 0.5) end
+  if key == "left" then angle = (angle + 5) % 180 end
+  if key == "right" then angle = (angle - 5) % 180 end
+  if key == "]" then width = math.min(0.95, width + 0.05) end
+  if key == "[" then width = math.max(0.05, width - 0.05) end
+  if key == "p" then pattern = (pattern + 1) % 3 end
+  if key == "s" then stage = (stage + 1) % 5 end
+end
+
+function love.mousepressed(x, y)
+  <span class="c">-- The same maths on the CPU. Lua's % works like GLSL's mod for negatives.</span>
+  local u = (x - rect[1] - rect[3] / 2) / rect[4]
+  local v = -(y - rect[2] - rect[4] / 2) / rect[4]
+  local a = math.rad(angle)
+  local c, s = math.cos(a), math.sin(a)
+  local idx = math.floor((c * u + s * v) * freq)
+  local idy = math.floor((-s * u + c * v) * freq)
+<span class="k">  print("cell", idx, idy, "checker", (idx + idy) % 2)</span>
+end
+
+function love.draw()
+  shader:send("u_freq", freq)
+  shader:send("u_angle", math.rad(angle))
+  shader:send("u_width", width)
+  shader:send("u_pattern", pattern)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_freq;
+uniform float u_angle;
+uniform float u_width;
+uniform float u_pattern;
+uniform float u_stage;
+
+vec3 shade(vec2 uv, float aa) {
+  float c = cos(u_angle);
+  float s = sin(u_angle);
+  vec2 r = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y); // 1. rotate
+  vec2 st = r * u_freq;                         // 2. scale
+  vec2 id = floor(st);                          //    which cell
+  vec2 f = fract(st);                           // 3. where in the cell
+  vec2 d2 = min(f, 1.0 - f);                    //    distance to a line, per axis
+  float d = d2.x;                               //    stripes: x only
+  if (u_pattern &gt; 0.5) d = min(d2.x, d2.y);     //    grid: either axis
+<span class="k">  float m = 1.0 - smoothstep(0.5 * u_width - aa, 0.5 * u_width + aa, d); // 4. mask</span>
+<span class="k">  if (u_pattern &gt; 1.5) m = mod(id.x + id.y, 2.0);   //    checkerboard</span>
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+  vec3 wave = vec3(2.0 * d);
+  if (u_pattern &gt; 1.5) wave = vec3(mod(id, 2.0), 0.0);
+  if (u_stage &lt; 3.5) col = vec3(m);
+  if (u_stage &lt; 2.5) col = wave;
+  if (u_stage &lt; 1.5) col = vec3(f, 0.0);
+  if (u_stage &lt; 0.5) col = vec3(r + 0.5, 0.0);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up
+  float aa = u_freq / u_resolution.y;           // one pixel, in cell units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float freq = 6.0;
+uniform float angle_deg = 30.0;
+uniform float width : hint_range(0.02, 0.95) = 0.5;
+uniform float pattern = 0.0;   // 0 stripes, 1 grid, 2 checkerboard
+uniform float aspect = 1.0;    // set to the ColorRect's width / height
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);
+    uv.y = -uv.y;              // UV (0, 0) is the top-left; make y point up
+    float a = radians(angle_deg);
+    float c = cos(a);
+    float s = sin(a);
+    vec2 r = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y);
+    vec2 st = r * freq;
+    vec2 id = floor(st);
+    vec2 f = fract(st);
+    vec2 d2 = min(f, 1.0 - f);
+    float d = d2.x;
+    if (pattern &gt; 0.5) d = min(d2.x, d2.y);
+    float aa = fwidth(uv.y) * freq;          // one pixel, in cell units
+<span class="k">    float m = 1.0 - smoothstep(0.5 * width - aa, 0.5 * width + aa, d);</span>
+<span class="k">    if (pattern &gt; 1.5) m = mod(id.x + id.y, 2.0);</span>
+    COLOR = vec4(mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/StripesCheckers"
+{
+    Properties
+    {
+        _Freq ("Frequency (cells per height)", Float) = 6
+        _Angle ("Angle (degrees)", Range(0, 180)) = 30
+        _Width ("Line width (fraction of a cell)", Range(0.02, 0.95)) = 0.5
+        _Pattern ("Pattern (0 stripes, 1 grid, 2 checker)", Float) = 0
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float _Freq, _Angle, _Width, _Pattern, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y already points up
+                float a = radians(_Angle);
+                float c = cos(a);
+                float s = sin(a);
+                float2 r = float2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y);
+                float2 st = r * _Freq;
+                float2 id = floor(st);
+                float2 f = frac(st);
+                float2 d2 = min(f, 1.0 - f);
+                float d = d2.x;
+                if (_Pattern &gt; 0.5) d = min(d2.x, d2.y);
+                float aa = fwidth(uv.y) * _Freq;
+<span class="k">                float m = 1.0 - smoothstep(0.5 * _Width - aa, 0.5 * _Width + aa, d);</span>
+<span class="k">                if (_Pattern &gt; 1.5) m = abs(fmod(id.x + id.y, 2.0));  // fmod keeps the sign</span>
+                return fixed4(lerp(float3(0.1, 0.12, 0.22), float3(1.0, 0.62, 0.2), m), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions leave out the stages and measure one pixel with <code>fwidth</code>, which WebGL 1 lacks without an extension. In URP Shader Graph, the <em>Rotate</em> node (unit set to degrees), <em>Multiply</em>, <em>Fraction</em>, <em>Floor</em> and <em>Modulo</em> nodes build the same chain, and the <em>Checkerboard</em> node draws a checkerboard directly.</p>
+  <p>Which way is up matters for the angle. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> have y pointing up. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> have y pointing down, so those two versions flip y first; without the flip, a positive angle would turn the pattern clockwise. The colours are hard-coded numbers, so a Unity project in Linear colour space treats them as linear values, and they will look lighter there than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A hard edge where fract wraps.</strong> The quick version, <code>step(fract(x), w)</code>, gives a stripe from 0 to <code>w</code> in each cell. Its far edge can be smoothed, but its near edge is the point where <code>fract</code> jumps from 1.0 back to 0.0, and that jump is always one pixel hard. Folding into a distance with <code>min(f, 1.0 - f)</code> gives both edges a value to smooth.</li>
+    <li><strong>Negative cell numbers.</strong> The centred UV makes half the cells negative. GLSL's <code>mod(-1.0, 2.0)</code> is 1.0, which is what a checkerboard needs. HLSL's <code>fmod(-1.0, 2.0)</code> is -1.0, so the Unity version takes <code>abs</code>. Lua's <code>%</code> works like GLSL's <code>mod</code>; <code>math.fmod</code> works like HLSL's.</li>
+    <li><strong>Jagged checker edges.</strong> The checker mask is pure 0 or 1, so a rotated board shows small steps along its edges. Unlike the lines, it gets no <code>smoothstep</code>. Smoothing it takes a few more instructions; see the filtering articles under Further reading.</li>
+    <li><strong>Moiré at high frequency.</strong> When a cell is only a few pixels across, pixels land on the pattern at uneven phases and wavy patterns appear that are not in the maths. Push <em>Frequency</em> to 80 to see it, and watch the <em>Cell on screen</em> readout. Keep cells several pixels wide, or fade the pattern out; the mipmaps lesson solves the same problem for textures.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Everything here is cheap on any GPU, including phones. <code>floor</code>, <code>fract</code>, <code>min</code> and <code>mod</code> are a few arithmetic instructions each. The only notable cost is the <code>cos</code> and <code>sin</code> for the rotation, and the angle is the same for every pixel, so in a real game work them out once in Lua and send the two numbers as uniforms. The demo computes them per pixel to keep the shader readable.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Prototype levels often put a checkerboard or grid material on everything, so that scale and texture stretching are easy to read. Unity's Shader Graph ships a <em>Checkerboard</em> node for exactly this.</p>
+  <p>Stripes moving along their own direction are hazard markings, conveyor belts and loading bars. Add time to <code>st.x</code> and they scroll, which is where the Track 2 lessons on time and scrolling UVs pick up.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into animated hazard tape:</p>
+  <ol>
+    <li>Set <code>angle</code> to 45, <code>width</code> to 0.5 and <code>pattern</code> to 0. Change the two colours in <code>mix</code> to yellow and near-black.</li>
+    <li>Add a uniform <code>u_time</code>, send <code>love.timer.getTime()</code> from <code>love.draw</code>, and add <code>u_time * 2.0</code> to <code>st.x</code> right after the scale line.</li>
+    <li>Change the rectangle to a long thin strip, for example 600 by 40 pixels.</li>
+  </ol>
+  <p>You are done when the stripes slide along the strip at a steady speed and stay crisp when you change <code>freq</code>.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Rotate, scale, repeat, threshold: four lines turn a position into a pattern.</li>
+    <li><code>min(f, 1.0 - f)</code> folds the fract sawtooth into a distance to the nearest line; a threshold on it draws stripes, and taking the smaller of the two axes draws a grid.</li>
+    <li><code>mod(id.x + id.y, 2.0)</code> alternates between neighbouring cells, which is a checkerboard.</li>
+    <li>Rotate the coordinates the opposite way to turn the pattern. Check which way y points in your engine.</li>
+    <li>Patterns are almost free to draw, but break into moiré when cells shrink to a few pixels.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson uses <code>length</code> to measure distance from a point, turning it into discs, rings and glows.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Patterns" and "2D Matrices".</li>
+    <li>Inigo Quilez, <cite>Filtering procedurals</cite> and <cite>Checkerboard filtering</cite>, articles on removing the aliasing from procedural patterns.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.3 "Common Functions". Defines fract, floor, min and mod.</li>
+    <li>Microsoft, <cite>HLSL intrinsic functions</cite> reference, entries for frac and fmod.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Unity Shader Graph documentation, <cite>Checkerboard Node</cite> and <cite>Rotate Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_freq;",
+    "uniform float u_angle;",
+    "uniform float u_width;",
+    "uniform float u_pattern;",
+    "uniform float u_stage;",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  float c = cos(u_angle);",
+    "  float s = sin(u_angle);",
+    "  vec2 r = vec2(c * uv.x + s * uv.y, -s * uv.x + c * uv.y); // 1. rotate",
+    "  vec2 st = r * u_freq;                         // 2. scale",
+    "  vec2 id = floor(st);                          //    which cell",
+    "  vec2 f = fract(st);                           // 3. where in the cell",
+    "  vec2 d2 = min(f, 1.0 - f);                    //    distance to a line, per axis",
+    "  float d = d2.x;                               //    stripes: x only",
+    "  if (u_pattern > 0.5) d = min(d2.x, d2.y);     //    grid: either axis",
+    "  float m = 1.0 - smoothstep(0.5 * u_width - aa, 0.5 * u_width + aa, d); // 4. mask",
+    "  if (u_pattern > 1.5) m = mod(id.x + id.y, 2.0);   //    checkerboard",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final",
+    "  vec3 wave = vec3(2.0 * d);",
+    "  if (u_pattern > 1.5) wave = vec3(mod(id, 2.0), 0.0);",
+    "  if (u_stage < 3.5) col = vec3(m);",
+    "  if (u_stage < 2.5) col = wave;",
+    "  if (u_stage < 1.5) col = vec3(f, 0.0);",
+    "  if (u_stage < 0.5) col = vec3(r + 0.5, 0.0);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up",
+    "  float aa = u_freq / u_resolution.y;           // one pixel, in cell units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var handle = null;
+  var cssHeight = 300;
+  var ui = DemoKit.controls('[data-demo="stripes-checkers"]');
+
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Rotated uv as red, green' },
+      { value: '1', label: '2. f = fract(st)' },
+      { value: '2', label: '3. Wave: d, or mod(id, 2.0) for checker' },
+      { value: '3', label: '4. Mask m' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var pattern = ui.select({
+    label: 'Pattern',
+    options: [
+      { value: '0', label: 'Stripes' },
+      { value: '1', label: 'Grid lines' },
+      { value: '2', label: 'Checkerboard' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_pattern', Number(v)); }
+  });
+  var freq = ui.slider({ label: 'Frequency (cells per height)', min: 1, max: 80, step: 0.5, value: 6,
+    onInput: function (v) { send('u_freq', v); } });
+  var angle = ui.slider({ label: 'Angle', min: 0, max: 180, step: 1, value: 30, unit: '°',
+    onInput: function (v) { send('u_angle', v * Math.PI / 180); } });
+  var width = ui.slider({ label: 'Line width (fraction of a cell)', min: 0.02, max: 0.95, step: 0.01, value: 0.5,
+    onInput: function (v) { send('u_width', v); } });
+
+  var cellOut = ui.readout({ label: 'Cell on screen' });
+
+  function updateReadout() {
+    var cell = cssHeight / freq.value;
+    var text = cell.toFixed(1) + ' px';
+    if (pattern.value !== '2') text += ', line ' + (cell * width.value).toFixed(1) + ' px';
+    cellOut.set(text);
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#stripes-checkers', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 260,
+    maxHeight: 400,
+    label: 'A live fragment shader that draws stripes, grid lines or a checkerboard from the pixel position, with controls for frequency, angle, line width and the intermediate stage shown.',
+    uniforms: {
+      u_freq: 6,
+      u_angle: 30 * Math.PI / 180,
+      u_width: 0.5,
+      u_pattern: 0,
+      u_stage: 4
+    },
+    onResize: function (s) {
+      if (s.height > 0) cssHeight = s.height;
+      updateReadout();
+    }
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

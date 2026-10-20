@@ -11,7 +11,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Step and smoothstep** — How thresholds create hard and soft edges. Demo: sliders for the edge position and softness draw the function as a graph and as a gradient. (published 2026-10-18, step-and-smoothstep)
 - [x] **Blending with mix** — How mix interpolates between colours using any value as a mask. Demo: choose two colours and a mask pattern with a slider for blend amount. (published 2026-10-18, blending-with-mix)
 - [x] **Repeating space with fract** — How fract and floor tile space into cells that each have their own local coordinates. Demo: a tile count slider repeats a simple motif with a toggle that shows cell coordinates. (published 2026-10-19, repeating-space-fract)
-- [ ] **Stripes and checkerboards** — How to combine fract, step and mod into basic patterns. Demo: sliders for frequency, angle and line width switch between stripes, grids and checkers.
+- [x] **Stripes and checkerboards** — How to combine fract, step and mod into basic patterns. Demo: sliders for frequency, angle and line width switch between stripes, grids and checkers. (published 2026-10-20, stripes-and-checkerboards)
 - [ ] **Circles from distance** — How the length function turns distance from a point into discs, rings and glows. Demo: sliders for radius, edge softness and ring thickness shape a circle.
 - [ ] **Alpha and blending** — How alpha combines a fragment with what is already on screen and why premultiplied alpha avoids dark fringes. Demo: toggle between straight and premultiplied alpha and between normal, additive and multiply blending on overlapping shapes.
 

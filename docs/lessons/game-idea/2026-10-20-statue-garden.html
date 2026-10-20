@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statue Garden: creep while the eyes are shut · Game Dev Daily</title>
+<meta name="description" content="A one-button stealth game where you hold to creep and let go to freeze as a statue, with a playable prototype and the eye timers in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-20">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Statue Garden: creep while the eyes are shut</h1>
+  <p class="lede">A one-button stealth game where you hold to creep and let go to freeze as a statue, with a playable prototype and the eye timers in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a garden statue that wants to get out of the garden. Three stone guards blink on their own slow rhythms, and the moment an eye opens you must be perfectly still, because a statue that moves while someone is watching is caught.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: read the eyes, creep, freeze</h2>
+  <p>Statue Garden is a <dfn>one-button stealth game</dfn>: the only input is a button you hold or release. Holding makes you creep along a garden path. Releasing freezes you, and a frozen statue is invisible to the guards. There is no hiding place and no other move.</p>
+  <p>Each guard's eye follows a fixed <dfn>rhythm</dfn>, a repeating cycle of shut and open, and watches only part of the path. Where two guards overlap, you must find moments when both eyes are shut.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read which eyes can see you, hold to creep while they are shut, then let go and freeze when one starts to open, and back to reading. Beside it, two longer loops: every stretch of path has a new mix of guards, and every run ends at the gate with a time to beat.">
+      <defs>
+        <marker id="sg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="100" y="16" width="200" height="54" rx="8"/>
+      <text class="d-text" x="200" y="39" text-anchor="middle">Read the eyes</text>
+      <text class="d-muted" x="200" y="57" text-anchor="middle">which ones can see me?</text>
+
+      <rect class="d-accent-soft" x="220" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="315" y="183" text-anchor="middle">Hold to creep</text>
+      <text class="d-muted" x="315" y="201" text-anchor="middle">while they are shut</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="170" height="54" rx="8"/>
+      <text class="d-text" x="95" y="183" text-anchor="middle">Let go, freeze</text>
+      <text class="d-muted" x="95" y="201" text-anchor="middle">as an eye flutters</text>
+
+      <path class="d-accent" d="M262 72 L300 156" marker-end="url(#sg-arrow)"/>
+      <path class="d-accent" d="M218 187 L184 187" marker-end="url(#sg-arrow)"/>
+      <path class="d-accent" d="M100 156 L140 74" marker-end="url(#sg-arrow)"/>
+      <text class="d-label" x="200" y="128" text-anchor="middle">every 1 to 3 seconds</text>
+
+      <path class="d-dash" d="M430 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every stretch</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one guard, then two,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">then one again</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every run</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">reach the gate,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">beat your best time</text>
+    </svg>
+    <figcaption>The short loop is one decision: move now or wait. A run is short enough to try again straight away.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <p>Distances are in <dfn>path units</dfn>: the path runs from 0 at the start to 100 at the gate.</p>
+  <ul>
+    <li><strong>Creeping.</strong> Holding moves you 12 path units per second. Release and you stop at once.</li>
+    <li><strong>Guards</strong> stand at 30, 62 and 90 and face the start. The first sees the path from 0 to 30, the second 18 to 62, the third 42 to 90. Once you pass a guard, it cannot see you.</li>
+    <li><strong>Eyes.</strong> The three eyes are shut then open for 2.4 + 1.6, 1.8 + 1.4 and 3.0 + 2.2 seconds, so they drift in and out of step.</li>
+    <li><strong>The warning.</strong> For the last 0.6 seconds before it opens, an eye flutters half open. It cannot see you yet, but it is your signal to let go.</li>
+    <li><strong>Caught.</strong> If you are moving while an open eye can see your spot, you are sent back to the start. Standing still is always safe, even under an open eye.</li>
+    <li><strong>Goal.</strong> Reach the gate. Your score is the total time taken.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A timeline of 8 seconds with three rows. The first row shows guard one shut, then fluttering, then open, repeating every 4 seconds. The second row shows guard two on a 3.2 second cycle. The third row marks the times when neither eye is open: 0 to 1.5 seconds, 4.0 to 4.7 seconds and 6.1 to 6.4 seconds.">
+      <text class="d-text" x="110" y="45" text-anchor="end">Guard 1</text>
+      <rect class="d-fill" x="120" y="28" width="108" height="26"/>
+      <rect class="d-accent-soft" x="228" y="28" width="36" height="26"/>
+      <rect class="d-bad-fill" x="264" y="28" width="96" height="26"/>
+      <rect class="d-fill" x="360" y="28" width="108" height="26"/>
+      <rect class="d-accent-soft" x="468" y="28" width="36" height="26"/>
+      <rect class="d-bad-fill" x="504" y="28" width="96" height="26"/>
+
+      <text class="d-text" x="110" y="91" text-anchor="end">Guard 2</text>
+      <rect class="d-fill" x="120" y="74" width="54" height="26"/>
+      <rect class="d-accent-soft" x="174" y="74" width="36" height="26"/>
+      <rect class="d-bad-fill" x="210" y="74" width="84" height="26"/>
+      <rect class="d-fill" x="294" y="74" width="72" height="26"/>
+      <rect class="d-accent-soft" x="366" y="74" width="36" height="26"/>
+      <rect class="d-bad-fill" x="402" y="74" width="84" height="26"/>
+      <rect class="d-fill" x="486" y="74" width="72" height="26"/>
+      <rect class="d-accent-soft" x="558" y="74" width="36" height="26"/>
+      <rect class="d-bad-fill" x="594" y="74" width="6" height="26"/>
+
+      <text class="d-text" x="110" y="137" text-anchor="end">Both shut</text>
+      <rect class="d-good-fill" x="120" y="122" width="90" height="22"/>
+      <rect class="d-good-fill" x="360" y="122" width="42" height="22"/>
+      <rect class="d-good-fill" x="486" y="122" width="18" height="22"/>
+
+      <path class="d-thin" d="M120 162 H600"/>
+      <path class="d-thin" d="M120 158 V166 M180 158 V166 M240 158 V166 M300 158 V166 M360 158 V166 M420 158 V166 M480 158 V166 M540 158 V166 M600 158 V166"/>
+      <text class="d-muted" x="120" y="182" text-anchor="middle">0 s</text>
+      <text class="d-muted" x="240" y="182" text-anchor="middle">2</text>
+      <text class="d-muted" x="360" y="182" text-anchor="middle">4</text>
+      <text class="d-muted" x="480" y="182" text-anchor="middle">6</text>
+      <text class="d-muted" x="600" y="182" text-anchor="middle">8 s</text>
+
+      <rect class="d-fill" x="120" y="202" width="16" height="12"/>
+      <text class="d-muted" x="142" y="212">shut</text>
+      <rect class="d-accent-soft" x="200" y="202" width="16" height="12"/>
+      <text class="d-muted" x="222" y="212">fluttering</text>
+      <rect class="d-bad-fill" x="310" y="202" width="16" height="12"/>
+      <text class="d-muted" x="332" y="212">open</text>
+      <rect class="d-good-fill" x="390" y="202" width="16" height="12"/>
+      <text class="d-muted" x="412" y="212">safe for both</text>
+    </svg>
+    <figcaption>Where guards 1 and 2 overlap (path 18 to 30), you may only move in the green gaps. Two simple rhythms make windows of very different lengths.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is a statue coming to life, the eerie thing that moves only when nobody is looking. The constraint is that you never steer and never hide: danger is in the moment, and the place only decides which moments count.</p>
+  <p>The guards are layered on purpose: one rhythm to learn, then a second on top, then the first falls behind you and the third joins. A level is a sequence of rhythm mixes that you can design on paper as a timeline.</p>
+  <p>The hardest part is not the code, which is small. It is tuning the rhythms so every overlap has windows short enough to be tense and long enough to be fair.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the canvas to focus it, then hold to start creeping. Watch the eyes, not your statue: let go as soon as an eye that can see you starts to flutter. Then set the warning to None and feel how the same garden goes from tense to unfair.</p>
+
+  <figure class="demo" data-demo="statues">
+    <canvas id="statues"></canvas>
+    <figcaption>Controls: hold <kbd>Space</kbd>, <kbd>Right arrow</kbd> or <kbd>D</kbd>, or press and hold on the canvas, to creep. Let go to freeze. The bars under the path show what each guard can see: grey while its eye is shut, amber while it flutters, red while open. An outlined bar is watching your spot.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the whole mechanic in LÖVE: the eye cycle, what each guard can see, creeping and getting caught. The names and numbers match the prototype. Drawing and the end screen are left out, and <code>won</code> is your own function. The prototype also pauses for a moment before sending you back; here the reset is instant.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED, EXIT, WARN = 12, 100, 0.6
+local guards = {
+  { x = 30, reach = 30, shut = 2.4, open = 1.6, offset = 0 },
+  { x = 62, reach = 44, shut = 1.8, open = 1.4, offset = 0.3 },
+  { x = 90, reach = 48, shut = 3.0, open = 2.2, offset = 1.0 },
+}
+local player = { x = 0, caught = 0, needRelease = false }
+local t = 0
+
+local function eyeState(g, time)
+<span class="k">  local p = (time + g.offset) % (g.shut + g.open)  <span class="c">-- where we are in the cycle</span></span>
+  if p &lt; g.shut - WARN then return "closed" end
+  if p &lt; g.shut then return "warning" end            <span class="c">-- fluttering: still safe</span>
+  return "open"
+end
+
+local function watching(g, x)
+  return x &gt;= g.x - g.reach and x &lt; g.x             <span class="c">-- guards face the start</span>
+end
+
+function love.update(dt)
+  t = t + dt
+  local held = love.keyboard.isDown("space") or love.mouse.isDown(1)
+  if not held then player.needRelease = false end
+  local moving = held and not player.needRelease
+  if moving then
+    player.x = math.min(EXIT, player.x + SPEED * dt)
+  end
+  for _, g in ipairs(guards) do
+<span class="k">    if moving and watching(g, player.x) and eyeState(g, t) == "open" then</span>
+      player.x, moving = 0, false                    <span class="c">-- back to the start</span>
+      player.caught = player.caught + 1
+      player.needRelease = true                      <span class="c">-- must let go before moving again</span>
+    end
+  end
+  if player.x &gt;= EXIT then won() end
+end</code></pre>
+  </div>
+  <p>The eyes need no timers of their own. The <code>%</code> operator wraps the shared clock into each guard's cycle, and <code>offset</code> shifts where it starts, so the whole garden is the table of numbers. Without <code>needRelease</code>, a player still holding the button would be caught again the moment they land back at the start.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Waiting is boring.</strong> If the best plan is always to wait for one huge safe window, the game becomes a slow walk with long pauses. Measure how long players stand still. If it is most of the run, shorten the open times or add a par time.</li>
+    <li><strong>No warning, no game.</strong> Without the flutter, getting caught feels like bad luck, because nobody can react to an eye that opens with no warning. Try the None setting in the demo. As the game gets harder, keep the warning readable.</li>
+    <li><strong>Too many eyes to read.</strong> Three rhythms at once is more than most people can track. Overlap at most two guards, and show which guards are watching the player.</li>
+    <li><strong>Rhythms that line up.</strong> If two cycles share a simple ratio, such as 2 and 4 seconds, the same windows repeat forever, and an overlap can have none. Draw the timeline to check every overlap has gaps.</li>
+    <li><strong>Back to the start is harsh.</strong> On a long path it feels cruel. Compare it with a checkpoint at each guard you pass, and keep whichever makes players want another try.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The core rule is a playground game. In Red Light, Green Light, and in the British version called Grandmother's Footsteps, players creep towards a caller and must freeze whenever the caller turns round. Anyone seen moving goes back to the start. Here the one caller becomes several watchers on their own clocks.</p>
+  <p>Video games often use the opposite side of the same idea. The Boo ghosts in the Super Mario games chase Mario while he faces away and stop to hide their faces when he turns to look. Here you play the thing that moves when unseen. Stealth games such as Metal Gear Solid (Konami, 1998) show guards' fields of view so the player can plan around them, as the sight bars do here. I have not searched for video games built on one held button and blinking watchers; some probably exist, so check before calling the idea new.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a rectangle for the statue, three circles for the eyes and a line for each guard's view. Print the run time, the catches and the time spent standing still.</p>
+  <p>Give it to someone and say only "get to the gate without being seen moving". The one question to answer: <strong>do players start moving <em>before</em> an eye shuts, because they have learned the rhythm?</strong> If they only react to what they see, the rhythms are too irregular or too fast to learn. If they start counting under their breath, the garden is working.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype above with three short gardens, a par time for each, and a stony scrape sound while you move that plays only after the player turns sound on.</li>
+    <li><strong>One-month version:</strong> twenty gardens built from overlapping rhythms, plus a few guard types that each change one rule, such as a guard who looks back the other way or one whose rhythm speeds up when you are close.</li>
+    <li><strong>Cut first:</strong> new guard types. Rhythm, reach and position are enough for many levels.</li>
+    <li>The hardest part is tuning the overlaps. Draw each one as a timeline before you play it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the statue also gather moss while it stands still, so each freeze makes you a little slower to move, and the player must choose between waiting for a perfect window and pushing on through a short one.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On how quickly a game must respond to input, which decides whether a freeze feels instant.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008). Its lenses on skill, chance and fairness help when tuning warnings and rhythms.</li>
+    <li>Tynan Sylvester, <cite>Designing Games: A Guide to Engineering Experiences</cite> (2013). On readable game mechanics and on giving the player decisions rather than tests of reaction.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPEED = 12, EXIT = 100, HUD = 44, CAUGHT_PAUSE = 0.9;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MOVE_KEYS = { space: true, arrowright: true, d: true };
+  var GUARDS = [
+    { x: 30, reach: 30, shut: 2.4, open: 1.6, offset: 0 },
+    { x: 62, reach: 44, shut: 1.8, open: 1.4, offset: 0.3 },
+    { x: 90, reach: 48, shut: 3.0, open: 2.2, offset: 1.0 }
+  ];
+  var WARN = 0.6;
+
+  var mode, px, t, caught, needRelease, timer, spotter, moving, walk, best = null;
+  var handle = null;
+  var W = 360, H = 320, ground = 224, left = 24, span = 312;
+
+  function layout(s) {
+    W = s.width; H = s.height;
+    ground = H - 96;
+    left = 24;
+    span = Math.max(100, W - 48);
+  }
+
+  function sx(u) { return left + u / EXIT * span; }
+
+  function eyeState(g, time) {
+    var p = (time + g.offset) % (g.shut + g.open);
+    if (p < g.shut - WARN) return 'closed';
+    if (p < g.shut) return 'warning';
+    return 'open';
+  }
+
+  function watching(g, x) { return x >= g.x - g.reach && x < g.x; }
+
+  function reset() {
+    mode = 'ready'; px = 0; t = 0; caught = 0; needRelease = false;
+    timer = 0; spotter = -1; moving = false; walk = 0;
+  }
+
+  function held(s) {
+    return s.keys.has('space') || s.keys.has('arrowright') || s.keys.has('d') || s.pointer.down;
+  }
+
+  function start() {
+    if (mode === 'ready') {
+      mode = 'play';
+      if (handle) handle.play();
+    } else if (mode === 'won' && timer <= 0) {
+      reset();
+      mode = 'play';
+    }
+  }
+
+  function update(dt, s) {
+    layout(s);
+    if (mode === 'ready') return;
+    if (mode === 'won') { timer -= dt; return; }
+    t += dt;
+    if (mode === 'caught') {
+      timer -= dt;
+      if (timer <= 0) { mode = 'play'; px = 0; needRelease = true; spotter = -1; }
+      return;
+    }
+    var h = held(s);
+    if (!h) needRelease = false;
+    moving = h && !needRelease;
+    if (moving) { px = Math.min(EXIT, px + SPEED * dt); walk += dt; }
+    for (var i = 0; i < GUARDS.length; i++) {
+      var g = GUARDS[i];
+      if (moving && watching(g, px) && eyeState(g, t) === 'open') {
+        mode = 'caught'; timer = CAUGHT_PAUSE; caught++; spotter = i; moving = false;
+        return;
+      }
+    }
+    if (px >= EXIT) {
+      mode = 'won'; timer = 0.8; moving = false;
+      if (best === null || t < best) best = t;
+    }
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT;
+    ctx.fillStyle = color;
+    ctx.textAlign = align || 'center';
+    ctx.fillText(str, x, y);
+  }
+
+  function drawFigure(ctx, x, color, bob, plinth, c) {
+    var y = ground + bob;
+    if (plinth) {
+      ctx.fillStyle = c.ink3;
+      ctx.fillRect(x - 9, ground - 4, 18, 4);
+      y = ground - 4;
+    }
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 5, y - 20, 10, 20);
+    ctx.beginPath(); ctx.arc(x, y - 27, 6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawGuard(ctx, c, g, i, st) {
+    var x = sx(g.x), headY = ground - 66;
+    // Stone body on a plinth.
+    ctx.fillStyle = c.line;
+    ctx.fillRect(x - 13, ground - 8, 26, 8);
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(x - 9, ground - 52, 18, 44);
+    ctx.beginPath(); ctx.arc(x, headY, 14, 0, Math.PI * 2); ctx.fill();
+    // The eye, looking towards the start (left).
+    var ex = x - 3, ey = headY, rx = 9, ry = 6;
+    if (st === 'closed') {
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(ex - rx, ey); ctx.quadraticCurveTo(ex, ey + 4, ex + rx, ey); ctx.stroke();
+    } else {
+      var open = st === 'open' ? 1 : 0.45 + 0.15 * Math.sin(t * 28);
+      ctx.fillStyle = c.surface;
+      ctx.beginPath(); ctx.ellipse(ex, ey, rx, ry * open, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = st === 'open' ? c.bad : c.warn;
+      ctx.beginPath(); ctx.arc(ex - 3, ey, Math.min(3.5, ry * open), 0, Math.PI * 2); ctx.fill();
+    }
+    text(ctx, 'G' + (i + 1), x, headY - 22, c.ink2, '600 12px');
+  }
+
+  function draw(ctx, s) {
+    layout(s);
+    var c = s.colors, i, g, st;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(0, ground, W, H - ground);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, ground, W, 2);
+
+    // Hedges for a garden feel.
+    ctx.fillStyle = c.line;
+    for (i = 0; i < 6; i++) {
+      var hx = sx(8 + i * 17);
+      ctx.beginPath(); ctx.arc(hx, ground - 8, 12, Math.PI, 0); ctx.fill();
+    }
+
+    // Gate at the exit.
+    var gx = sx(EXIT);
+    ctx.strokeStyle = c.good;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(gx - 10, ground); ctx.lineTo(gx - 10, ground - 44);
+    ctx.arc(gx, ground - 44, 10, Math.PI, 0);
+    ctx.lineTo(gx + 10, ground);
+    ctx.stroke();
+
+    // Sight cones above the path, sight bars under it.
+    for (i = 0; i < GUARDS.length; i++) {
+      g = GUARDS[i];
+      st = eyeState(g, t);
+      if (st !== 'closed') {
+        ctx.globalAlpha = st === 'open' ? 0.16 : 0.1;
+        ctx.fillStyle = st === 'open' ? c.bad : c.warn;
+        ctx.beginPath();
+        ctx.moveTo(sx(g.x) - 6, ground - 66);
+        ctx.lineTo(sx(g.x - g.reach), ground);
+        ctx.lineTo(sx(g.x), ground);
+        ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      var by = ground + 12 + i * 13, x0 = sx(g.x - g.reach), x1 = sx(g.x);
+      ctx.fillStyle = st === 'open' ? c.bad : st === 'warning' ? c.warn : c.line;
+      ctx.fillRect(x0, by, x1 - x0, 8);
+      if (mode !== 'ready' && watching(g, px)) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x0 - 0.5, by - 0.5, x1 - x0 + 1, 9);
+      }
+    }
+    for (i = 0; i < GUARDS.length; i++) drawGuard(ctx, c, GUARDS[i], i, eyeState(GUARDS[i], t));
+
+    // The player statue.
+    var pxs = sx(px);
+    if (mode === 'caught') {
+      drawFigure(ctx, pxs, c.bad, 0, false, c);
+      text(ctx, '!', pxs, ground - 40, c.bad, '700 16px');
+    } else if (moving) {
+      drawFigure(ctx, pxs, c.topic, -Math.abs(Math.sin(walk * 12)) * 2, false, c);
+    } else {
+      drawFigure(ctx, pxs, c.ink2, 0, true, c);
+    }
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(pxs - 1, ground + 4, 2, 6);
+
+    // HUD.
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(0, 0, W, HUD);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, HUD - 1, W, 1);
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(0, HUD - 4, W * px / EXIT, 3);
+    text(ctx, 'Time ' + t.toFixed(1) + ' s', 12, 26, c.ink, '600 13px', 'left');
+    text(ctx, 'Caught ' + caught, W / 2, 26, caught > 0 ? c.bad : c.ink, '600 13px');
+    text(ctx, 'Best ' + (best === null ? '-' : best.toFixed(1) + ' s'), W - 12, 26, c.ink2, '13px', 'right');
+
+    if (mode === 'caught') {
+      text(ctx, 'Seen by G' + (spotter + 1) + '! Back to the start', W / 2, HUD + 22, c.bad, '600 13px');
+      return;
+    }
+    if (mode === 'play') {
+      if (needRelease) text(ctx, 'Let go, then hold to creep again', W / 2, HUD + 22, c.ink2, '12px');
+      return;
+    }
+    var bw = Math.min(310, W - 20), by2 = HUD + 12;
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(W / 2 - bw / 2, by2, bw, 72);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(W / 2 - bw / 2 + 0.5, by2 + 0.5, bw - 1, 71);
+    if (mode === 'ready') {
+      text(ctx, 'Hold to creep. Let go to freeze.', W / 2, by2 + 22, c.ink, '600 13px');
+      text(ctx, 'Never move while an open eye sees you.', W / 2, by2 + 42, c.ink, '600 13px');
+      text(ctx, 'Press and hold to start', W / 2, by2 + 61, c.ink2, '12px');
+    } else {
+      text(ctx, 'Out of the garden in ' + t.toFixed(1) + ' s', W / 2, by2 + 26, c.ink, '600 14px');
+      text(ctx, 'Caught ' + caught + (caught === 1 ? ' time' : ' times'), W / 2, by2 + 46, c.ink2, '12px');
+      if (timer <= 0) text(ctx, 'Press for another run', W / 2, by2 + 63, c.ink2, '12px');
+    }
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="statues"]');
+  ui.select({
+    label: 'Warning before an eye opens',
+    options: [
+      { value: '0.6', label: 'Long (0.6 s)' },
+      { value: '0.3', label: 'Short (0.3 s)' },
+      { value: '0', label: 'None' }
+    ],
+    value: '0.6',
+    onChange: function (v) { WARN = parseFloat(v); if (handle) handle.redraw(); }
+  });
+  ui.button({ label: 'Restart', onClick: function () { reset(); if (handle) handle.redraw(); } });
+
+  handle = DemoKit.canvas('#statues', {
+    height: 320,
+    keys: true,
+    drag: true,
+    label: 'Statue Garden prototype. A statue on a garden path with three stone guards whose eyes open and close on their own rhythms. Hold Space, Right arrow, D or the canvas to creep towards the gate on the right; let go to freeze. Moving while an open eye can see you sends you back to the start.',
+    update: update,
+    draw: draw,
+    onDown: function () { start(); },
+    onKey: function (key, isDown) {
+      if (isDown && MOVE_KEYS[key]) start();
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -12,7 +12,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Verlet integration** — How storing the previous position instead of the velocity gives a stable integrator that is easy to constrain. Demo: choose between three integrators for a swinging pendulum and compare their energy graphs. (published 2026-10-18, verlet-integration)
 - [x] **Gravity and free fall** — How constant acceleration produces a parabola and how to choose a gravity value in pixels per second squared. Demo: drop and throw a ball with a gravity slider and see its trail and fall time. (published 2026-10-18, gravity-and-free-fall)
 - [x] **Jump arcs from height and time** — How to calculate gravity and launch speed from the jump height and time to peak that you want. Demo: sliders for height and time to peak redraw the jump arc and show the derived gravity and launch velocity. (published 2026-10-19, jump-arcs-height-time)
-- [ ] **Ground friction** — How friction slows a sliding object and how to bring it to a clean stop at zero instead of jittering back and forth. Demo: flick a box across the floor with a friction slider and a toggle between constant and proportional deceleration.
+- [x] **Ground friction** — How friction slows a sliding object and how to bring it to a clean stop at zero instead of jittering back and forth. Demo: flick a box across the floor with a friction slider and a toggle between constant and proportional deceleration. (published 2026-10-20, ground-friction)
 - [ ] **Drag and terminal velocity** — How air resistance grows with speed until it balances gravity. Demo: drop objects with a drag slider and a toggle between linear and quadratic drag while a speed graph levels off.
 
 ## Track 2: Collision detection

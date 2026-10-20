@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packed scenes in Godot, prefabs in Unity · Game Dev Daily</title>
+<meta name="description" content="How Godot and Unity store a reusable template object, why each instance saves only its overrides, and what happens when the game loads one.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Packed scenes in Godot, prefabs in Unity</h1>
+  <p class="lede">How Godot and Unity store a reusable template object, why each instance saves only its overrides, and what happens when the game loads one.</p>
+</header>
+
+<section data-section="hook">
+  <p>You built an enemy, copied it thirty times across five levels, and then decided it should be a little bigger. Now you have thirty edits to make, and you will miss one. Or you made all thirty enemies from one template, changed the template once, and one enemy stayed small anyway, because months ago someone nudged its size by hand.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A template and its instances</h2>
+  <p>A <dfn>template</dfn> is a saved object you can stamp out many times: its nodes or components, and the values on them. Godot calls it a <dfn>packed scene</dfn>: any scene saved as a <code>.tscn</code> file, loaded as a <code>PackedScene</code> resource. Unity calls it a <dfn>prefab</dfn>: a GameObject with its children and components, saved as a <code>.prefab</code> asset.</p>
+  <p>Each copy you place in a level is an <dfn>instance</dfn>: the template's whole tree, hung under one node of another tree.</p>
+
+  <h3>An instance stores only its differences</h3>
+  <p>The level file does not hold thirty full enemies. For each instance it holds a reference to the template plus the values that instance changed. A value an instance sets for itself is an <dfn>override</dfn>. Reading any property follows one rule:</p>
+  <ol>
+    <li>If the instance has an override for it, use that.</li>
+    <li>Otherwise use the template's value.</li>
+  </ol>
+  <p>That rule gives both behaviours from the hook. Change the template and every instance that does not override that property follows. An instance that overrides it keeps its own value, whether you meant it to or not. Position is the everyday override: each placed enemy has its own.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Three columns. A template asset holds hue 10 and size 1.0. A scene file holds three instance entries that refer to the template: Enemy1 with no overrides, Enemy2 overriding size to 1.6, Enemy3 overriding hue to 200. Arrows lead to the running game, where each enemy is a full copy with its final values. A timeline below separates edit time, files on disk, from run time, objects in memory.">
+      <defs>
+        <marker id="pf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <g text-anchor="middle">
+        <text class="d-text" x="106" y="24">Template asset</text>
+        <text class="d-text" x="325" y="24">Scene that uses it</text>
+        <text class="d-text" x="539" y="24">Running game</text>
+      </g>
+
+      <rect class="d-box" x="16" y="60" width="180" height="150" rx="8"/>
+      <text class="d-label" x="32" y="86">enemy</text>
+      <text class="d-mono" x="32" y="114">hue = 10</text>
+      <text class="d-mono" x="32" y="136">size = 1.0</text>
+      <text class="d-muted" x="32" y="166">plus its child nodes</text>
+      <text class="d-muted" x="32" y="184">or components</text>
+
+      <rect class="d-box" x="232" y="40" width="186" height="182" rx="8"/>
+      <rect class="d-fill" x="244" y="52" width="162" height="46" rx="4"/>
+      <rect class="d-fill" x="244" y="108" width="162" height="46" rx="4"/>
+      <rect class="d-fill" x="244" y="164" width="162" height="46" rx="4"/>
+      <text class="d-text" x="254" y="71">Enemy1</text>
+      <text class="d-mono" x="254" y="89">{ }</text>
+      <text class="d-text" x="254" y="127">Enemy2</text>
+      <text class="d-label" x="254" y="145">{ size = 1.6 }</text>
+      <text class="d-text" x="254" y="183">Enemy3</text>
+      <text class="d-label" x="254" y="201">{ hue = 200 }</text>
+
+      <path class="d-dash" d="M196 135 L244 75"/>
+      <path class="d-dash" d="M196 135 L244 131"/>
+      <path class="d-dash" d="M196 135 L244 187"/>
+
+      <rect class="d-accent-soft" x="454" y="52" width="170" height="46" rx="4"/>
+      <rect class="d-accent-soft" x="454" y="108" width="170" height="46" rx="4"/>
+      <rect class="d-accent-soft" x="454" y="164" width="170" height="46" rx="4"/>
+      <text class="d-text" x="466" y="71">Enemy1</text>
+      <text class="d-mono" x="466" y="89">hue 10, size 1.0</text>
+      <text class="d-text" x="466" y="127">Enemy2</text>
+      <text class="d-mono" x="466" y="145">hue 10, size 1.6</text>
+      <text class="d-text" x="466" y="183">Enemy3</text>
+      <text class="d-mono" x="466" y="201">hue 200, size 1.0</text>
+
+      <path class="d-accent" d="M408 75 H450" marker-end="url(#pf-arrow)"/>
+      <path class="d-accent" d="M408 131 H450" marker-end="url(#pf-arrow)"/>
+      <path class="d-accent" d="M408 187 H450" marker-end="url(#pf-arrow)"/>
+
+      <g text-anchor="middle">
+        <text class="d-muted" x="106" y="244">enemy.tscn or Enemy.prefab</text>
+        <text class="d-muted" x="325" y="244">level.tscn or Level.unity</text>
+        <text class="d-muted" x="539" y="244">nodes or GameObjects</text>
+      </g>
+      <path class="d-thin" d="M16 262 H624"/>
+      <path class="d-stroke" d="M436 254 V270"/>
+      <text class="d-muted" x="16" y="286">Edit time: files on disk</text>
+      <text class="d-muted" x="624" y="286" text-anchor="end">Run time: objects in memory</text>
+    </svg>
+    <figcaption>The dashed lines are references: the scene file points at the template and saves only the overrides. When the game loads, each instance becomes a full copy with the overrides applied, and the link to the template is no longer used.</figcaption>
+  </figure>
+
+  <h3>What happens when the game loads one</h3>
+  <p>When a level loads, or your code spawns an instance, the engine:</p>
+  <ol>
+    <li>reads the template,</li>
+    <li>builds a complete new copy of its objects with the template's values,</li>
+    <li>writes the overrides on top,</li>
+    <li>adds the copy to the running scene, and starts calling its scripts.</li>
+  </ol>
+  <p>Ownership changes along the way. On disk, the template owns the defaults and the level owns the overrides. In memory, every instance owns a full set of its own values, so changing one enemy while the game runs touches nothing else. The template link is what lets the editor push your edits into every level; it is not checked each frame.</p>
+  <p>The engines differ on step 4. In Godot, <code>instantiate()</code> returns the new nodes without adding them to the scene tree; their <code>_ready</code> runs only when you <code>add_child</code> them. In Unity, <code>Instantiate</code> adds the copy to the scene straight away, and an active copy's <code>Awake</code> has already run before the call returns. So in Godot you can set values before the instance's setup code runs; in Unity it has already run.</p>
+
+  <h3>Templates inside templates</h3>
+  <p>Both engines let a template contain instances of other templates, and let one template extend another: an <dfn>inherited scene</dfn> in Godot, a <dfn>prefab variant</dfn> in Unity. A variant is a reference to the base plus its overrides, the same rule again.</p>
+  <p>Both editors mark overrides. Unity shows them in bold with a blue bar in the margin, and the Overrides menu in the Inspector applies or reverts them. Godot shows a revert arrow next to a changed property, and Editable Children lets you change nodes inside an instance.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Put a value in the template if it should be the same everywhere. Override it only where one instance has a reason to differ.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A tiny model of the editor: one template, four instances. Drag the template's colour and size; every instance follows, except that Enemy3 already overrides its size. Select Enemy2 (or tap it) and move its own colour slider to create an override. Change the template colour again and Enemy2 stays put. Revert, and it rejoins the template.</p>
+
+  <figure class="demo" data-demo="prefab">
+    <canvas id="prefab"></canvas>
+    <figcaption>Overridden values are drawn in bold with a bar beside them, the way Unity marks them. The bottom panel is what the level file saves: only the overrides. The model leaves out nested templates, variants and child nodes.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no templates, so the Lua builds one with a <dfn>metatable</dfn>, which tells Lua where to look for keys a table lacks. An instance holds only its overrides, and <code>__index</code> sends every other lookup to the template: the override rule in one line. <code>instantiate</code> is steps 2 and 3 of loading. Keys: T edits the template, O overrides Enemy2, R reverts it, Space spawns a copy of Enemy3.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The template: the values every enemy starts from.</span>
+local enemy = { hue = 10, size = 1.0 }
+
+<span class="c">-- An instance stores only its overrides and asks the template for the rest.</span>
+local function place(template, overrides)
+<span class="k">  return setmetatable(overrides or {}, { __index = template })</span>
+end
+
+<span class="c">-- Loading: a full, independent copy with the overrides written on top.</span>
+local function instantiate(instance)
+  local copy = {}
+  for key, value in pairs(getmetatable(instance).__index) do copy[key] = value end
+  for key, value in pairs(instance) do copy[key] = value end
+  return copy
+end
+
+local level = { place(enemy), place(enemy), place(enemy, { size = 1.6 }), place(enemy) }
+
+local function hueToRgb(h)
+  local function f(n)
+    local k = (n + h / 60) % 6
+    return 1 - math.max(0, math.min(k, 4 - k, 1))
+  end
+  return f(5), f(3), f(1)
+end
+
+function love.keypressed(key)
+  if key == "t" then enemy.hue = (enemy.hue + 30) % 360 end  <span class="c">-- every instance follows</span>
+  if key == "o" then level[2].hue = 200 end                   <span class="c">-- Enemy2 stops following</span>
+  if key == "r" then level[2].hue = nil end                   <span class="c">-- revert: back to the template</span>
+  if key == "space" then
+    local spawned = instantiate(level[3])
+    print(spawned.hue, spawned.size, getmetatable(spawned))  <span class="c">-- 10 1.6 nil: no link left</span>
+  end
+end
+
+function love.draw()
+  for i, e in ipairs(level) do
+    love.graphics.setColor(hueToRgb(e.hue))
+    local half = 20 * e.size
+    love.graphics.rectangle("fill", 100 * i - half, 200 - half, half * 2, half * 2)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># level.gd (Godot 4). Attach to a Node2D in a new scene and run.</span>
+<span class="c"># The template is built in code so the script runs on its own. In a real project you</span>
+<span class="c"># save it as res://enemy.tscn and write: const ENEMY = preload("res://enemy.tscn")</span>
+extends Node2D
+
+func make_template() -&gt; PackedScene:
+    var root := Node2D.new()
+    root.name = "Enemy"
+    var body := Polygon2D.new()
+    body.name = "Body"
+    body.polygon = PackedVector2Array([Vector2(-20, -20), Vector2(20, -20), Vector2(20, 20), Vector2(-20, 20)])
+    body.color = Color.from_hsv(10.0 / 360.0, 0.65, 0.9)   <span class="c"># hue 10</span>
+    root.add_child(body)
+    body.owner = root            <span class="c"># only nodes owned by the root are packed</span>
+    var scene := PackedScene.new()
+    scene.pack(root)
+    root.free()
+    return scene
+
+func _ready() -&gt; void:
+    var enemy_scene := make_template()
+    for i in 4:
+<span class="k">        var enemy := enemy_scene.instantiate() as Node2D   <span class="c"># a full copy, not in the tree yet</span></span>
+        enemy.name = "Enemy%d" % (i + 1)
+        enemy.position = Vector2(100 * (i + 1), 200)
+        if i == 2:
+            enemy.scale = Vector2(1.6, 1.6)   <span class="c"># set before add_child, so its _ready sees it</span>
+<span class="k">        add_child(enemy)                       <span class="c"># _ready runs here</span></span>
+    <span class="c"># At run time there is no link: this recolours Enemy2 only.</span>
+    var body2 := get_node("Enemy2/Body") as Polygon2D
+    body2.color = Color.from_hsv(200.0 / 360.0, 0.65, 0.9)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Spawner.cs (Unity 6 or 2022 LTS). Setup: GameObject &gt; 3D Object &gt; Cube, drag the cube into</span>
+<span class="c">// the Project window to make a prefab, delete it from the scene. Add this script to an empty</span>
+<span class="c">// GameObject, drag the prefab into Enemy Prefab, press Play.</span>
+using UnityEngine;
+
+public class Spawner : MonoBehaviour
+{
+    public GameObject enemyPrefab;   <span class="c">// the template: an asset, not an object in the scene</span>
+    readonly GameObject[] enemies = new GameObject[4];
+
+    void Start()
+    {
+        for (int i = 0; i &lt; 4; i++)
+        {
+            <span class="c">// A full copy, already in the scene. Awake on its scripts has run by now.</span>
+<span class="k">            enemies[i] = Instantiate(enemyPrefab, new Vector3(1.5f * i, 0f, 0f), Quaternion.identity);</span>
+            enemies[i].name = "Enemy" + (i + 1);
+        }
+        enemies[2].transform.localScale = Vector3.one * 1.6f;   <span class="c">// this copy only</span>
+
+        <span class="c">// .material gives this renderer its own copy of the material, so only Enemy2 changes.</span>
+        enemies[1].GetComponent&lt;Renderer&gt;().material.color = Color.HSVToRGB(200f / 360f, 0.65f, 0.9f);
+
+        <span class="c">// Writing to enemyPrefab here would change the asset, not an instance.</span>
+    }
+}</code></pre>
+  </div>
+  <p>Godot 3 named this method <code>instance()</code>; Godot 4 renamed it <code>instantiate()</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Accidental overrides.</strong> Nudge a value on an instance and put it back by eye, and it may now be stored as an override that blocks template edits. Look for the bold property or the revert arrow.</li>
+    <li><strong>Shared sub-resources.</strong> A resource inside the template, such as a material or a collision shape, can be one object shared by all instances. In Godot it stays shared unless you enable Local to Scene on it or duplicate it. In Unity, <code>renderer.sharedMaterial</code> changes every enemy, while <code>renderer.material</code> makes a private copy that your code is responsible for destroying.</li>
+    <li><strong>Editing the template instead of the instance.</strong> In Unity, a prefab field points at the asset. Changing it at run time changes future spawns, and in the Editor the change can outlive Play mode. Change the object <code>Instantiate</code> returned.</li>
+    <li><strong>Setting values too late.</strong> In Unity, code in <code>Awake</code> sees the template's values, because it ran inside <code>Instantiate</code>. Read them in <code>Start</code> instead. In Godot, set values between <code>instantiate()</code> and <code>add_child</code>.</li>
+    <li><strong>Renaming inside a template.</strong> Rename a child node in a Godot scene, or a serialized field in a Unity script, and existing overrides can silently stop applying. Unity's <code>[FormerlySerializedAs]</code> attribute helps with fields.</li>
+    <li><strong>Spawning cost.</strong> Every instantiation builds a full copy. Spawning many bullets per second can cause hitches; object pooling, a later lesson, is the fix.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In both engines, almost everything spawned at run time comes from a template: bullets, pickups, enemies, damage numbers, menu rows. In Godot a level, a character and a menu are all scenes, so a game is scenes instancing scenes. Unity's current workflow, with nested prefabs and variants, arrived in Unity 2018.3.</p>
+  <p>The idea is older than both engines: the prototype pattern. Lua's metatables, used above, are the standard way Lua programs share defaults between tables.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own project, make a template for something you place more than twice, such as a coin or a crate. Place three instances. Override one property on one instance, then change that property and one other in the template.</p>
+  <p>Predict which instances change before you look, then revert the override. You are done when your predictions were right and you can point to where your engine shows the override.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A packed scene in Godot and a prefab in Unity are saved templates. Each placed copy is an instance.</li>
+    <li>A scene file stores each instance as a reference to its template plus its overrides. Anything not overridden comes from the template.</li>
+    <li>When the game runs, every instance is a full, independent copy. The template link is used by the editor and at load time, not every frame.</li>
+    <li>Godot runs <code>_ready</code> when you add the instance to the tree; Unity runs <code>Awake</code> inside <code>Instantiate</code>.</li>
+    <li>Watch for accidental overrides and for resources that are still shared between instances.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Instancing is the moment an object's scripts first run, so the next lesson walks through the lifecycle callbacks in order: <code>_ready</code> and <code>_process</code> in Godot, and <code>Awake</code>, <code>Start</code> and <code>Update</code> in Unity.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Creating instances</cite> (Getting started, Step by step), and the class reference for <cite>PackedScene</cite> (Godot 4).</li>
+    <li>Godot Engine documentation, <cite>Scene organization</cite>, on when to split a scene into instanced scenes.</li>
+    <li>Unity Manual, <cite>Prefabs</cite>, with its pages on <cite>Instance overrides</cite>, <cite>Nested Prefabs</cite> and <cite>Prefab Variants</cite>.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Prototype". Its last section uses prototypes to share data between monster definitions, the same idea as an override.</li>
+    <li>Roberto Ierusalimschy, <cite>Programming in Lua</cite>, chapters on metatables and object-oriented programming, for <code>__index</code>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var NAMES = ['Enemy1', 'Enemy2', 'Enemy3', 'Enemy4'];
+  var BASE = 14;                       // half the side of a size 1.0 square, in pixels
+  var template = { hue: 10, size: 1.0 };
+  var instances = NAMES.map(function (name) { return { name: name, ov: {} }; });
+  instances[2].ov.size = 1.6;          // Enemy3 starts with a size override, as in the Lua
+  var selected = 1;                    // Enemy2
+  var handle = null;
+
+  function has(inst, key) { return Object.prototype.hasOwnProperty.call(inst.ov, key); }
+  function get(inst, key) { return has(inst, key) ? inst.ov[key] : template[key]; }
+  function round1(v) { return Math.round(v * 10) / 10; }
+  function colour(h) { return 'hsl(' + h + ', 62%, 54%)'; }
+
+  function storedText(inst) {
+    var parts = [];
+    if (has(inst, 'hue')) parts.push('hue = ' + inst.ov.hue);
+    if (has(inst, 'size')) parts.push('size = ' + inst.ov.size.toFixed(1));
+    return parts.length ? '{ ' + parts.join(', ') + ' }' : '{ }';
+  }
+
+  var ui = DemoKit.controls('[data-demo="prefab"]');
+  ui.slider({ label: 'Template colour (hue)', min: 0, max: 350, step: 10, value: template.hue, unit: '°',
+    onInput: function (v) { template.hue = v; sync(); } });
+  ui.slider({ label: 'Template size', min: 0.5, max: 2, step: 0.1, value: template.size, unit: '×',
+    onInput: function (v) { template.size = round1(v); sync(); } });
+  var pick = ui.select({ label: 'Selected instance', options: NAMES, value: NAMES[selected],
+    onChange: function (v) { selected = Math.max(0, NAMES.indexOf(v)); sync(); } });
+  var iHue = ui.slider({ label: 'Selected colour (overrides)', min: 0, max: 350, step: 10, value: 10, unit: '°',
+    onInput: function (v) { instances[selected].ov.hue = v; sync(); } });
+  var iSize = ui.slider({ label: 'Selected size (overrides)', min: 0.5, max: 2, step: 0.1, value: 1, unit: '×',
+    onInput: function (v) { instances[selected].ov.size = round1(v); sync(); } });
+  ui.button({ label: 'Revert selected instance', onClick: function () { instances[selected].ov = {}; sync(); } });
+  var saved = ui.readout({ label: 'Saved for selected' });
+
+  function sync() {
+    var inst = instances[selected];
+    iHue.set(get(inst, 'hue'));
+    iSize.set(get(inst, 'size'));
+    saved.set(inst.name + ': ' + storedText(inst));
+    if (handle) handle.redraw();
+  }
+
+  function layout(s) {
+    var pad = 12, gap = 8;
+    var cardW = Math.min(130, (s.width - 2 * pad - 3 * gap) / 4);
+    var total = 4 * cardW + 3 * gap;
+    var x0 = (s.width - total) / 2;
+    var tw = Math.min(210, s.width - 2 * pad);
+    var cards = [];
+    for (var i = 0; i < 4; i++) cards.push({ x: x0 + i * (cardW + gap), y: 130, w: cardW, h: 128 });
+    return {
+      template: { x: (s.width - tw) / 2, y: 10, w: tw, h: 84 },
+      cards: cards,
+      fileY: 276,
+      base: Math.min(BASE, (cardW - 10) / 4)
+    };
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function square(ctx, cx, cy, half, h, c) {
+    ctx.fillStyle = colour(h);
+    ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - half + 0.5, cy - half + 0.5, half * 2 - 1, half * 2 - 1);
+  }
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var L = layout(s);
+    var t = L.template;
+
+    // Links from the template to each instance.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    L.cards.forEach(function (card) {
+      ctx.beginPath();
+      ctx.moveTo(t.x + t.w / 2, t.y + t.h);
+      ctx.lineTo(card.x + card.w / 2, card.y);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // Template card.
+    ctx.fillStyle = c.surface2;
+    roundRect(ctx, t.x, t.y, t.w, t.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    square(ctx, t.x + 42, t.y + t.h / 2, L.base * template.size, template.hue, c);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillText('Template: enemy', t.x + 84, t.y + 26);
+    ctx.font = '12px ' + MONO;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('hue ' + template.hue, t.x + 84, t.y + 48);
+    ctx.fillText('size ' + template.size.toFixed(1), t.x + 84, t.y + 66);
+
+    // Instance cards.
+    L.cards.forEach(function (card, i) {
+      var inst = instances[i];
+      var isSel = i === selected;
+      ctx.fillStyle = c.surface;
+      roundRect(ctx, card.x, card.y, card.w, card.h, 6);
+      ctx.fill();
+      ctx.strokeStyle = isSel ? c.topic : c.line;
+      ctx.lineWidth = isSel ? 2.5 : 1;
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = isSel ? c.topic : c.ink;
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillText(inst.name, card.x + card.w / 2, card.y + 18);
+
+      square(ctx, card.x + card.w / 2, card.y + 62, L.base * get(inst, 'size'), get(inst, 'hue'), c);
+
+      var rows = [
+        { key: 'hue', text: 'hue ' + get(inst, 'hue'), y: card.y + 104 },
+        { key: 'size', text: 'size ' + get(inst, 'size').toFixed(1), y: card.y + 120 }
+      ];
+      ctx.textAlign = 'left';
+      rows.forEach(function (row) {
+        var own = has(inst, row.key);
+        if (own) {
+          ctx.fillStyle = c.topic;
+          ctx.fillRect(card.x + 4, row.y - 10, 3, 13);
+        }
+        ctx.font = (own ? '700 ' : '') + '12px ' + MONO;
+        ctx.fillStyle = own ? c.topic : c.ink3;
+        ctx.fillText(row.text, card.x + 11, row.y);
+      });
+    });
+
+    // What the level file stores.
+    var fx = L.cards[0].x;
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px ' + FONT;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Saved in the level file: only the overrides', fx, L.fileY + 12);
+    ctx.font = '12px ' + MONO;
+    instances.forEach(function (inst, i) {
+      var any = has(inst, 'hue') || has(inst, 'size');
+      ctx.fillStyle = any ? c.ink : c.ink3;
+      ctx.fillText(inst.name + ': ' + storedText(inst), fx, L.fileY + 32 + i * 17);
+    });
+  }
+
+  handle = DemoKit.canvas('#prefab', {
+    height: 370,
+    animate: false,
+    label: 'A template square above four instance squares. Changing the template changes every instance except properties an instance overrides. A panel below lists what the level file saves for each instance.',
+    draw: draw,
+    onDown: function (p, s) {
+      var L = layout(s);
+      for (var i = 0; i < L.cards.length; i++) {
+        var card = L.cards[i];
+        if (p.x >= card.x && p.x <= card.x + card.w && p.y >= card.y && p.y <= card.y + card.h) {
+          selected = i;
+          pick.set(NAMES[i]);
+          sync();
+          return;
+        }
+      }
+    }
+  });
+  sync();
+})();
+</script>
+</body>
+</html>

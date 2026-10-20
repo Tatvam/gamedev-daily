@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground friction · Game Dev Daily</title>
+<meta name="description" content="How friction slows a sliding object, and how to bring it to a clean stop at zero instead of jittering back and forth around it.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-20">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Ground friction</h1>
+  <p class="lede">How friction slows a sliding object, and how to bring it to a clean stop at zero instead of jittering back and forth around it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You let go of the controls and the hero slides to a halt. Then the sprite flickers between facing left and right, the walk animation never switches to idle, and the hero slowly creeps. Nothing is pushing it. The friction code is.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Friction is a deceleration towards zero</h2>
+  <p><dfn>Ground friction</dfn> is the push from the floor that resists sliding. It always points against the direction of motion, so its only job is to take speed away.</p>
+  <p>For a box sliding across a floor, real friction is close to constant: it does not grow or shrink with speed. The deceleration it causes is</p>
+<pre><code>deceleration = mu * gravity</code></pre>
+  <p>In words: the box loses the same amount of speed every second, gravity scaled by <code>mu</code>, the <dfn>friction coefficient</dfn> (how grippy the surfaces are, near 0 for ice). Mass cancels out: a heavier box presses harder on the floor but is also harder to slow.</p>
+  <p>With the gravity of 1800 px/s² from earlier lessons and <code>mu = 0.5</code>, that is 900 px/s². At 60 steps per second each step removes 900 / 60 = 15 px/s of speed.</p>
+
+  <h3>The obvious code, and the bug</h3>
+  <p>The first version most people write subtracts the drop in the direction of motion:</p>
+<pre><code>local drop = FRICTION * dt
+if vx &gt; 0 then
+  vx = vx - drop
+elseif vx &lt; 0 then
+  vx = vx + drop
+end</code></pre>
+  <p>Flick a box at 640 px/s and follow the speed: 640, 625, 610, down to 25, then 10. The next step subtracts 15 from 10 and gets <strong>minus 5</strong>. Now the box moves backwards, so the next step adds 15 and gets 10 again. It never escapes:</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 170" role="img" aria-label="A number line of speed from minus 20 to plus 20. Without a clamp, a speed of 10 minus 15 lands at minus 5, then plus 15 returns to 10, looping forever. With a clamp, the step from 10 stops at zero.">
+      <path class="d-stroke" d="M30 80 H330"/>
+      <path class="d-thin" d="M80 74 V86 M130 74 V86 M180 70 V90 M230 74 V86 M280 74 V86"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="80" y="104">-20</text>
+        <text class="d-muted" x="130" y="104">-10</text>
+        <text class="d-text" x="180" y="108">0</text>
+        <text class="d-muted" x="230" y="104">10</text>
+        <text class="d-muted" x="280" y="104">20</text>
+      </g>
+      <circle class="d-accent-fill" cx="230" cy="80" r="5"/>
+      <circle class="d-bad-fill" cx="155" cy="80" r="5"/>
+      <path class="d-bad" d="M226 70 Q192 26 160 68"/>
+      <path class="d-bad" d="M160 68 l1 -9 M160 68 l8 -4"/>
+      <path class="d-thin" d="M159 92 Q192 132 226 92"/>
+      <path class="d-thin" d="M226 92 l-2 9 M226 92 l-8 3"/>
+      <text class="d-text" x="192" y="22" text-anchor="middle">10 - 15 = -5</text>
+      <text class="d-muted" x="192" y="146" text-anchor="middle">-5 + 15 = 10, and round again</text>
+      <text class="d-label" x="30" y="164">Clamped: 10 is less than 15, so set 0</text>
+    </svg>
+    <figcaption>Without a clamp, the last step jumps over zero, and the next step jumps back. The speed swaps between 10 and -5 forever.</figcaption>
+  </figure>
+
+  <p>Three symptoms follow. The facing, read from the sign of the speed, flips every step. A check for <code>vx == 0</code>, such as "play the idle animation", is never true. And since 10 and -5 average to 2.5, the box creeps at 2.5 px/s forever.</p>
+  <p>The bug hides in testing: if the speed is an exact multiple of the drop, such as 600 with a drop of 15, it lands exactly on zero.</p>
+
+  <h3>The fix: never cross zero</h3>
+  <p>If the speed left is no bigger than the drop, the box would stop during this step. So stop it:</p>
+<pre><code>if math.abs(vx) &lt;= drop then
+  vx = 0
+end</code></pre>
+  <p>This matches reality too. Friction can bring a box to rest but never push it backwards, and once it rests, <dfn>static friction</dfn> holds it still. The clamp is the game version of that.</p>
+
+  <h3>How far it slides</h3>
+  <p>Constant deceleration gives the same formulas as a ball thrown upward under gravity:</p>
+<pre><code>stop_time     = speed / FRICTION
+stop_distance = speed * speed / (2 * FRICTION)</code></pre>
+  <p>In words: the distance grows with the <em>square</em> of the speed, so a box flicked twice as fast slides four times as far. From 640 px/s at 900 px/s², that is 0.71 s and 227.6 px. With a 1/60 s step the box stops after 43 steps (0.72 s) at about 222 px, a little short, for the same reason the stepped jump in the last lesson was.</p>
+  <p>Turn it around to design friction from feel: to stop from 640 px/s in 200 px, use <code>FRICTION = 640 * 640 / (2 * 200)</code> = 1024 px/s².</p>
+
+  <h2>The other kind: proportional deceleration</h2>
+  <p>Many games instead remove a <em>fraction</em> of the speed each second, called <dfn>damping</dfn>:</p>
+<pre><code>vx = vx - DAMPING * vx * dt</code></pre>
+  <p>In words: the faster the box goes, the harder it is slowed. With <code>DAMPING = 3</code> per second at 60 steps per second, each step keeps 95 percent of the speed. It falls fast, then crawls, and never reaches zero: after four seconds the box still moves at about 0.003 px/s.</p>
+  <p>So damping needs a <dfn>stop speed</dfn> below which the speed is set to zero. With 5 px/s, the same flick stops after 1.58 s and 201 px.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Graph of speed against time after a flick. The constant deceleration line falls straight to zero at 0.71 seconds and stays there. The proportional curve falls steeply and then flattens into a long tail that approaches zero but never reaches it. The unclamped constant line reaches zero and then zigzags just above and below it.">
+      <path class="d-stroke" d="M80 30 V230 M80 200 H610"/>
+      <text class="d-muted" x="70" y="44" text-anchor="end">640</text>
+      <text class="d-muted" x="70" y="204" text-anchor="end">0</text>
+      <text class="d-muted" x="16" y="124">speed</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="80" y="252">0 s</text>
+        <text class="d-muted" x="265" y="252">0.71 s</text>
+        <text class="d-muted" x="340" y="252">1 s</text>
+        <text class="d-muted" x="600" y="252">2 s</text>
+      </g>
+      <path class="d-thin" d="M265 200 V236 M340 200 V236 M600 200 V236"/>
+      <polyline class="d-dash" points="80,40 145,124 210,164 275,183 340,192 405,196 470,198 535,199 600,200"/>
+      <polyline class="d-bad" points="265,200 275,186 285,214 295,186 305,214 315,186 325,214 335,186 345,214 355,186 365,214 375,186 385,214 395,186 405,214 415,186 425,214 435,186 445,214 455,186 465,214 475,186 485,214 495,186 505,214 515,186 525,214 535,186 545,214 555,186 565,214 575,186 585,214 595,186 605,214"/>
+      <path class="d-accent" d="M80 40 L265 200 H600"/>
+      <path class="d-accent" d="M380 40 H410"/>
+      <text class="d-text" x="420" y="44">Constant, stops at zero</text>
+      <path class="d-dash" d="M380 66 H410"/>
+      <text class="d-text" x="420" y="70">Proportional (damping)</text>
+      <path class="d-bad" d="M380 92 H410"/>
+      <text class="d-text" x="420" y="96">Constant, no clamp</text>
+      <text class="d-muted" x="420" y="114">(zigzag drawn larger than life)</text>
+    </svg>
+    <figcaption>The same flick of 640 px/s. Constant deceleration ends cleanly, damping has a long tail, and without the clamp the line never settles.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Real answer and game answer</p>
+    <p>Real sliding friction is the constant kind; damping is closer to air resistance. Games use both because they feel different: constant friction gives a firm stop, like a crate on carpet, and damping a soft glide, like a ship in space. Pick by feel, and clamp either way.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both boxes get the same flick; each lane has its own friction method. The top starts with the bug, the bottom with the clamp. Press Flick, or drag right on the canvas and let go to pick a speed.</p>
+  <p>Watch the eye on each box, which shows its facing. On the top lane it flickers once the box should stop, and the flip counter climbs. Lower the physics rate to 15 and raise friction to 1500 to see the shaking and the backwards creep plainly. Try "Proportional, no cutoff" for a box that never quite stops.</p>
+
+  <figure class="demo" data-demo="friction">
+    <canvas id="friction"></canvas>
+    <figcaption>The floor is 600 px long, scaled to fit. Debug drawing shows velocity (dark arrow), the friction of the last step (red arrow) and the previous position (outline). The graph uses a square-root scale so the zigzag near zero shows. On the canvas, Space or Enter flicks and R resets.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The bottom lane of the demo in LÖVE, same names and numbers, on the fixed timestep from the first lesson. Swap <code>applyFriction</code> for <code>applyDamping</code> in <code>step</code> for the gliding version.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local FRICTION = 900       <span class="c">-- px/s², 0.5 times a gravity of 1800</span>
+local DAMPING = 3          <span class="c">-- per second, for the proportional version</span>
+local STOP_SPEED = 5       <span class="c">-- px/s, a damped box slower than this stops</span>
+local FLICK_SPEED = 640    <span class="c">-- px/s</span>
+
+local box = { x = 40, vx = 0, facing = 1 }
+local accumulator = 0
+
+local function applyFriction(body, dt)
+  local drop = FRICTION * dt
+<span class="k">  if math.abs(body.vx) &lt;= drop then
+    body.vx = 0              <span class="c">-- would cross zero, so stop instead</span></span>
+  elseif body.vx &gt; 0 then
+    body.vx = body.vx - drop
+  else
+    body.vx = body.vx + drop
+  end
+end
+
+local function applyDamping(body, dt)
+  body.vx = body.vx - DAMPING * body.vx * dt
+<span class="k">  if math.abs(body.vx) &lt; STOP_SPEED then
+    body.vx = 0
+  end</span>
+end
+
+local function step(body, dt)
+  applyFriction(body, dt)    <span class="c">-- or applyDamping(body, dt)</span>
+  body.x = body.x + body.vx * dt
+  if body.vx &gt; 0 then
+    body.facing = 1
+  elseif body.vx &lt; 0 then
+    body.facing = -1
+  end                        <span class="c">-- at exactly 0, keep the old facing</span>
+end
+
+function love.keypressed(key)
+  if key == "space" then
+    box.x = 40
+    box.vx = FLICK_SPEED
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(box, STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", box.x, 300, 30, 30)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># On a CharacterBody2D. move_toward never steps past its target,</span>
+<span class="c"># so it is the clamped version in one call.</span>
+const FRICTION := 900.0
+
+func _physics_process(delta: float) -&gt; void:
+    var direction := Input.get_axis("ui_left", "ui_right")
+    if is_on_floor() and direction == 0.0:
+<span class="k">        velocity.x = move_toward(velocity.x, 0.0, FRICTION * delta)</span>
+    move_and_slide()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// On a Rigidbody2D. Unity works in metres, so 9 m/s² instead of 900 px/s².</span>
+<span class="c">// Mathf.MoveTowards never steps past its target either.</span>
+const float Friction = 9f;
+Rigidbody2D body;
+
+void Awake() { body = GetComponent&lt;Rigidbody2D&gt;(); }
+
+void FixedUpdate()
+{
+    Vector2 v = body.linearVelocity;   <span class="c">// body.velocity before Unity 6</span>
+<span class="k">    v.x = Mathf.MoveTowards(v.x, 0f, Friction * Time.fixedDeltaTime);</span>
+    body.linearVelocity = v;
+}</code></pre>
+  </div>
+  <p>Damping is built into both engines' rigid bodies: <code>linear_damp</code> on a Godot <code>RigidBody2D</code>, and linear damping on a Unity <code>Rigidbody2D</code> (Linear Drag before Unity 6). Physics-material friction is different: it acts where two bodies touch, and gets its own lesson later.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Subtracting without a clamp.</strong> The speed hops over zero and back forever. Clamp, or use <code>move_toward</code> or <code>Mathf.MoveTowards</code>, which clamp for you.</li>
+    <li><strong>Damping as a per-frame multiply.</strong> <code>vx = vx * 0.9</code> once per drawn frame stops a box faster at 120 frames per second than at 60. Multiply by <code>dt</code> inside the fixed step.</li>
+    <li><strong>Damping too strong for the step.</strong> If <code>DAMPING * dt</code> is above 1, one step reverses the speed. In the demo, set damping to 15 and the physics rate to 10.</li>
+    <li><strong>Fighting the player.</strong> Apply ground friction when the player is not pushing, or pushes against the motion. Otherwise tuning friction also changes top speed.</li>
+    <li><strong>Friction in the air.</strong> Use a separate, usually smaller, value in the air, or the hero stops dead mid-jump.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The basic movement template Godot 4 offers for a new <code>CharacterBody2D</code> script stops the character with <code>move_toward(velocity.x, 0, SPEED)</code> when no direction is held: the clamped constant version, strong enough to stop almost at once.</p>
+  <p>Rigid body engines such as Box2D, Godot physics and Unity physics offer linear damping per body, separate from the contact friction worked out at each touching point. Platformers commonly give ice floors a lower deceleration than normal ground.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In a project where something slides to a stop, print the horizontal speed every physics step after input is released. If the sign changes before it settles, you have the bug; replace the subtraction with the clamp or <code>move_toward</code>.</p>
+  <p>Then design the stop: choose how far the character should slide from full speed, set <code>FRICTION = speed * speed / (2 * distance)</code>, and print the real stopping distance. You are done when the speed reaches exactly zero within a few pixels of your target.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Ground friction removes a fixed amount of speed per second, <code>mu * gravity</code>, whatever the mass.</li>
+    <li>Without a clamp the speed hops over zero forever: facing flickers, idle never plays, the body creeps.</li>
+    <li>Clamp: if the speed left is no bigger than the drop, set it to zero.</li>
+    <li>Damping removes a fraction of the speed, feels like a glide, and needs a stop speed.</li>
+    <li>Stopping distance is <code>speed² / (2 * FRICTION)</code>, so choose friction from the slide you want.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Damping is a simple stand-in for air resistance; the next lesson looks at drag properly, and at how it balances gravity to give a falling object a top speed.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>David Halliday, Robert Resnick and Jearl Walker, <cite>Fundamentals of Physics</cite>, the chapter on friction and drag. Static and kinetic friction and the friction coefficient.</li>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> and <cite>@GlobalScope.move_toward</cite> class reference pages.</li>
+    <li>Unity Manual, <cite>Rigidbody 2D</cite>, and the scripting reference for <cite>Mathf.MoveTowards</cite>.</li>
+    <li>Earlier in this course: <cite><a href="2026-09-27-fix-your-timestep.html">Fix your timestep</a></cite> and <cite><a href="2026-10-19-jump-arcs-height-time.html">Jump arcs from height and time</a></cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var LENGTH = 600;      // floor length in world pixels
+  var BOX = 30;          // box size in world pixels
+  var START = 40;        // where a flick starts
+  var STOP_SPEED = 5;    // px/s, cut-off for the damped mode
+  var MAX_FRAME = 0.25;
+  var WINDOW = 3;        // seconds of graph
+  var VMAX = 1200;       // top of the graph and the fastest flick
+
+  var MODES = [
+    { value: 'naive', label: 'Constant, no clamp (bug)' },
+    { value: 'clamp', label: 'Constant, stops at zero' },
+    { value: 'prop', label: 'Proportional, no cutoff' },
+    { value: 'damp', label: 'Proportional with stop speed' }
+  ];
+  function modeLabel(v) {
+    for (var i = 0; i < MODES.length; i++) if (MODES[i].value === v) return MODES[i].label;
+    return v;
+  }
+
+  var ui = DemoKit.controls('[data-demo="friction"]');
+  var modeA = ui.select({ label: 'Top lane', options: MODES, value: 'naive', onChange: function () { flick(); } });
+  var modeB = ui.select({ label: 'Bottom lane', options: MODES, value: 'clamp', onChange: function () { flick(); } });
+  var flickSpeed = ui.slider({ label: 'Flick speed', min: 100, max: VMAX, step: 10, value: 640, unit: ' px/s' });
+  var friction = ui.slider({ label: 'Friction', min: 100, max: 3000, step: 50, value: 900, unit: ' px/s²' });
+  var damping = ui.slider({ label: 'Damping', min: 0.5, max: 20, step: 0.5, value: 3, unit: ' per s' });
+  var rate = ui.slider({ label: 'Physics rate', min: 10, max: 120, step: 1, value: 60, unit: ' steps/s' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Flick', onClick: function () { flick(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var outA = ui.readout({ label: 'Top result' });
+  var outB = ui.readout({ label: 'Bottom result' });
+
+  function makeBody(mode) {
+    return { mode: mode, x: START, prevX: START, vx: 0, facing: 1, flips: 0,
+             fric: 0, stopT: null, wall: false };
+  }
+
+  var A, B, accumulator, simTime, samples, drag;
+
+  function applyNaive(body, dt) {
+    var drop = friction.value * dt;
+    if (body.vx > 0) body.vx -= drop;
+    else if (body.vx < 0) body.vx += drop;
+  }
+  function applyFriction(body, dt) {
+    var drop = friction.value * dt;
+    if (Math.abs(body.vx) <= drop) body.vx = 0;
+    else if (body.vx > 0) body.vx -= drop;
+    else body.vx += drop;
+  }
+  function applyProportional(body, dt) {
+    body.vx -= damping.value * body.vx * dt;
+  }
+  function applyDamping(body, dt) {
+    body.vx -= damping.value * body.vx * dt;
+    if (Math.abs(body.vx) < STOP_SPEED) body.vx = 0;
+  }
+
+  function step(body, dt) {
+    body.prevX = body.x;
+    var before = body.vx;
+    if (body.mode === 'naive') applyNaive(body, dt);
+    else if (body.mode === 'clamp') applyFriction(body, dt);
+    else if (body.mode === 'prop') applyProportional(body, dt);
+    else applyDamping(body, dt);
+    body.fric = (body.vx - before) / dt;
+    body.x += body.vx * dt;
+    if (body.x > LENGTH - BOX) { body.x = LENGTH - BOX; body.vx = 0; body.wall = true; }
+    if (body.x < 0) { body.x = 0; body.vx = 0; body.wall = true; }
+    var face = body.vx > 0 ? 1 : (body.vx < 0 ? -1 : body.facing);
+    if (face !== body.facing) body.flips += 1;
+    body.facing = face;
+    if (body.vx === 0) {
+      if (body.stopT === null) body.stopT = simTime;
+    } else {
+      body.stopT = null;
+    }
+  }
+
+  function flick(speed) {
+    var v = typeof speed === 'number' ? speed : flickSpeed.value;
+    A = makeBody(modeA.value);
+    B = makeBody(modeB.value);
+    A.vx = v;
+    B.vx = v;
+    accumulator = 0;
+    simTime = 0;
+    samples = [{ t: 0, a: v, b: v }];
+    report();
+  }
+
+  function reset() {
+    modeA.set('naive');
+    modeB.set('clamp');
+    flickSpeed.set(640);
+    friction.set(900);
+    damping.set(3);
+    rate.set(60);
+    debug.set(true);
+    drag = null;
+    flick();
+  }
+
+  function describe(body) {
+    var dist = (body.x - START).toFixed(1) + ' px';
+    if (body.vx === 0 && body.stopT !== null) {
+      return (body.wall ? 'hit the wall' : 'stopped') + ' after ' + body.stopT.toFixed(2) + ' s at ' + dist +
+        ', facing flipped ' + body.flips + ' times';
+    }
+    return 'moving at ' + body.vx.toFixed(Math.abs(body.vx) < 1 ? 4 : 1) + ' px/s, ' + dist +
+      ', facing flipped ' + body.flips + ' times';
+  }
+  function report() {
+    outA.set(describe(A));
+    outB.set(describe(B));
+  }
+
+  drag = null;
+  flick();
+
+  // Layout helpers, all from the canvas size.
+  function layout(s) {
+    var pad = 14;
+    var scale = (s.width - pad * 2) / LENGTH;
+    return {
+      pad: pad,
+      scale: scale,
+      laneA: 100,
+      laneB: 212,
+      gTop: 244,
+      gBottom: s.height - 48
+    };
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function arrow(ctx, x, y, len, color) {
+    if (len === 0) return;
+    var dir = len > 0 ? 1 : -1;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    line(ctx, x, y, x + len - dir * 5, y);
+    ctx.beginPath();
+    ctx.moveTo(x + len, y);
+    ctx.lineTo(x + len - dir * 7, y - 4);
+    ctx.lineTo(x + len - dir * 7, y + 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function visibleLength(value, perUnit) {
+    if (value === 0) return 0;
+    var len = value * perUnit;
+    if (Math.abs(len) < 9) len = value > 0 ? 9 : -9;
+    return len;
+  }
+
+  function drawLane(ctx, c, L, floorY, title, body, boxColor) {
+    var pad = L.pad;
+    var sc = L.scale;
+    var size = Math.max(14, BOX * sc);
+    ctx.textAlign = 'left';
+    ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(title + ': ' + modeLabel(body.mode), pad, floorY - 80);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    var moving = body.vx !== 0;
+    ctx.fillStyle = moving ? c.ink2 : c.good;
+    ctx.fillText((moving ? 'moving' : 'stopped') + ', flips ' + body.flips, pad, floorY - 64);
+
+    // Floor and start mark.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    line(ctx, pad, floorY, pad + LENGTH * sc, floorY);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    line(ctx, pad + START * sc, floorY - size - 6, pad + START * sc, floorY);
+    ctx.setLineDash([]);
+
+    var bx = pad + body.x * sc;
+    if (debug.value) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad + body.prevX * sc + 0.5, floorY - size + 0.5, size - 1, size - 1);
+    }
+    ctx.fillStyle = boxColor;
+    ctx.fillRect(bx, floorY - size, size, size);
+    // The eye shows which way the box faces.
+    ctx.fillStyle = c.bg;
+    var eye = Math.max(3, size * 0.18);
+    var ex = body.facing > 0 ? bx + size * 0.72 : bx + size * 0.28;
+    ctx.beginPath();
+    ctx.arc(ex, floorY - size * 0.65, eye, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (debug.value) {
+      var cx = bx + size / 2;
+      arrow(ctx, cx, floorY - size - 10, visibleLength(body.vx, 0.15 * sc), c.ink);
+      arrow(ctx, cx, floorY + 12, visibleLength(body.fric, 0.05 * sc), c.bad);
+    }
+  }
+
+  function graphY(v, L) {
+    var h = L.gBottom - L.gTop;
+    var zero = L.gTop + h * 0.7;
+    var f = Math.sqrt(Math.min(Math.abs(v), VMAX) / VMAX);
+    return v >= 0 ? zero - f * h * 0.7 : zero + Math.min(f * h * 0.7, h * 0.3);
+  }
+
+  function drawGraph(ctx, c, s, L) {
+    var left = L.pad + 34;
+    var right = s.width - L.pad;
+    var t0 = Math.max(0, simTime - WINDOW);
+    function gx(t) { return left + (t - t0) / WINDOW * (right - left); }
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'right';
+    var marks = [100, 10, 0, -10];
+    for (var i = 0; i < marks.length; i++) {
+      var y = graphY(marks[i], L);
+      ctx.strokeStyle = marks[i] === 0 ? c.ink3 : c.line;
+      ctx.lineWidth = 1;
+      line(ctx, left, Math.round(y) + 0.5, right, Math.round(y) + 0.5);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(String(marks[i]), left - 6, y + 4);
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('speed in px/s, last ' + WINDOW + ' s', left, L.gTop - 8);
+
+    function plot(key, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.75;
+      ctx.beginPath();
+      for (var j = 0; j < samples.length; j++) {
+        var px = gx(samples[j].t);
+        var py = graphY(samples[j][key], L);
+        if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    plot('b', c.warn);
+    plot('a', c.topic);
+  }
+
+  DemoKit.canvas('#friction', {
+    height: 380,
+    drag: true,
+    keys: true,
+    label: 'Two boxes flicked along a floor with the same speed. Each lane uses a different friction method. A graph below shows both speeds over time.',
+    update: function (dt) {
+      var stepLen = 1 / rate.value;
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= stepLen && guard < 200) {
+        simTime += stepLen;
+        step(A, stepLen);
+        step(B, stepLen);
+        samples.push({ t: simTime, a: A.vx, b: B.vx });
+        accumulator -= stepLen;
+        guard += 1;
+      }
+      while (samples.length > 2 && samples[1].t < simTime - WINDOW) samples.shift();
+      report();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      drawLane(ctx, c, L, L.laneA, 'Top', A, c.topic);
+      drawLane(ctx, c, L, L.laneB, 'Bottom', B, c.warn);
+      drawGraph(ctx, c, s, L);
+
+      if (drag) {
+        var dx = drag.x - drag.startX;
+        if (dx > 0) {
+          arrow(ctx, drag.startX, drag.y, dx, c.ink2);
+          ctx.fillStyle = c.ink2;
+          ctx.textAlign = 'left';
+          ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillText(Math.round(dragSpeed(dx, L)) + ' px/s', drag.startX, drag.y - 10);
+        }
+      }
+    },
+    onDown: function (p) {
+      drag = { startX: p.x, x: p.x, y: p.y };
+    },
+    onMove: function (p) {
+      if (drag) drag.x = p.x;
+    },
+    onUp: function (p, s) {
+      if (!drag) return;
+      var dx = p.x - drag.startX;
+      var L = layout(s);
+      drag = null;
+      if (dx > 8) {
+        var v = Math.round(dragSpeed(dx, L) / 10) * 10;
+        flickSpeed.set(v);
+        flick(v);
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === ' ' || key === 'enter') flick();
+      if (key === 'r') reset();
+    }
+  });
+
+  // A drag of the whole floor length gives the fastest flick.
+  function dragSpeed(dxScreen, L) {
+    var world = dxScreen / L.scale;
+    return DemoKit.clamp(world / LENGTH * VMAX * 2, 100, VMAX);
+  }
+})();
+</script>
+</body>
+</html>

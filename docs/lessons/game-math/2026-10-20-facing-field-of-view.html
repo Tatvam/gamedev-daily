@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field of view: can the guard see the player? · Game Dev Daily</title>
+<meta name="description" content="How comparing the dot product of two unit vectors with the cosine of half the view angle, plus a range check, gives a guard a real view cone.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-20">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-a { color: var(--t-game-physics); font-weight: 650; }
+  .v-b { color: var(--warn); font-weight: 650; }
+  .v-pos { color: var(--good); font-weight: 650; }
+  .v-neg { color: var(--bad); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Field of view: can the guard see the player?</h1>
+  <p class="lede">How comparing the dot product of two unit vectors with the cosine of half the view angle, plus a range check, gives a guard a real view cone.</p>
+</header>
+
+<section data-section="hook">
+  <p>In the last lesson the guard could tell "in front" from "behind". But a guard that spots you anywhere in the front half of the map, even far off to its side or a whole level away, has eyes no stealth game wants. Real guards see a narrow wedge: perhaps 90 degrees wide and 6 squares deep.</p>
+  <p>That wedge is called a view cone, and it takes one dot product, one cosine and one distance check.</p>
+</section>
+
+<section data-section="concept">
+  <h2>What a view cone is</h2>
+  <p>A <dfn>view cone</dfn> is the slice of space a character can see. In 2D it is a pie slice with its point on the guard. Three numbers describe it:</p>
+  <ul>
+    <li><span class="v-a">f, the facing</span>: the direction down the middle of the slice.</li>
+    <li>The <dfn>field of view</dfn> (FOV): the full angle of the slice, from one edge to the other. We use 90°.</li>
+    <li>The <dfn>view range</dfn>: how far the guard can see. We use 6 squares.</li>
+  </ul>
+  <p>The key number is <strong>half</strong> the field of view. A 90° cone reaches 45° to each side of the facing. So the question "is the player inside the slice?" becomes "is the angle between <span class="v-a">f</span> and <span class="v-b">b</span>, the arrow from guard to player, at most 45°?"</p>
+  <p>As before, positions are in grid squares and <strong>y grows downwards</strong>, as on a screen and in LÖVE. Look at two players, both 5 squares away from a guard that faces straight along x:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 264" role="img" aria-label="Left: a guard faces right along a blue arrow f. A pie-slice view cone 90 degrees wide and 6 squares deep opens to the right, with the 45 degree half angle marked. Player A at (4, minus 3) is inside the cone, player B at (3, 4) is just outside its lower edge. Right: a number line from 0 to 1 with a green zone from cos 45 degrees, about 0.71, up to 1. A's value 0.80 falls in the green zone and is seen, B's value 0.60 falls below it and is not seen.">
+      <path style="stroke: var(--line); stroke-width: 1; fill: none" d="M16 32 V224 M40 32 V224 M64 32 V224 M88 32 V224 M112 32 V224 M136 32 V224 M160 32 V224 M184 32 V224 M208 32 V224 M10 32 H214 M10 56 H214 M10 80 H214 M10 104 H214 M10 128 H214 M10 152 H214 M10 176 H214 M10 200 H214 M10 224 H214"/>
+      <path class="d-accent-soft" style="stroke-dasharray: 5 4" d="M40 128 L141.8 26.2 A144 144 0 0 1 141.8 229.8 Z"/>
+      <path class="d-thin" d="M80 128 A40 40 0 0 0 68.3 99.7"/>
+      <text class="d-mono" x="88" y="112">45°</text>
+      <text class="d-muted" x="190" y="132">range 6</text>
+      <path class="d-dash" style="stroke: var(--warn)" d="M40 128 L136 56 M40 128 L112 224"/>
+      <path style="stroke: var(--t-game-physics); fill: none; stroke-width: 3.5" d="M40 128 L88 128 M79 132.3 L88 128 L79 123.7"/>
+      <text class="d-mono" style="fill: var(--t-game-physics)" x="60" y="148" text-anchor="middle">f</text>
+      <circle cx="40" cy="128" r="7" style="fill: var(--ink-2)"/>
+      <circle cx="136" cy="56" r="6" style="fill: var(--good)"/>
+      <text class="d-mono" style="fill: var(--good); font-weight: 650" x="146" y="60">A</text>
+      <circle cx="112" cy="224" r="6" style="fill: var(--bad)"/>
+      <text class="d-mono" style="fill: var(--bad); font-weight: 650" x="122" y="242">B</text>
+
+      <text class="d-text" x="330" y="28">unit f · unit b = cos θ</text>
+      <text class="d-mono" x="330" y="52">f = (1, 0), already length 1</text>
+      <text class="d-mono" x="330" y="72">A: (4, −3) ÷ 5 = (0.8, −0.6) → 0.80</text>
+      <text class="d-mono" x="330" y="92">B: (3, 4) ÷ 5 = (0.6, 0.8) → 0.60</text>
+      <rect x="520.9" y="152" width="79.1" height="16" style="fill: var(--good); fill-opacity: 0.25"/>
+      <path class="d-stroke" d="M330 160 H600 M330 153 V167 M600 153 V167"/>
+      <path class="d-stroke" style="stroke: var(--good)" d="M520.9 136 V172"/>
+      <text class="d-mono" x="520.9" y="128" text-anchor="middle">cos 45° ≈ 0.71</text>
+      <text class="d-muted" x="330" y="186" text-anchor="middle">0</text>
+      <text class="d-muted" x="600" y="186" text-anchor="middle">1</text>
+      <circle cx="546" cy="160" r="6" style="fill: var(--good)"/>
+      <circle cx="492" cy="160" r="6" style="fill: var(--bad)"/>
+      <text class="d-mono" x="555" y="206" text-anchor="middle" style="fill: var(--good)">A 0.80</text>
+      <text class="d-muted" x="555" y="224" text-anchor="middle">θ ≈ 37°, seen</text>
+      <text class="d-mono" x="470" y="206" text-anchor="middle" style="fill: var(--bad)">B 0.60</text>
+      <text class="d-muted" x="460" y="224" text-anchor="middle">θ ≈ 53°, not seen</text>
+      <text class="d-muted" x="10" y="258">Field of view 90°, range 6 squares. x right, y down, 1 square = 1 unit.</text>
+    </svg>
+    <figcaption>Left: the cone, with A inside and B just outside. Right: after normalising, each player becomes one number, and the cone becomes the green zone at the top end of the number line.</figcaption>
+  </figure>
+
+  <h2>Angles into cosines</h2>
+  <p>From the last lesson: when both arrows have length 1, their dot product <em>is</em> cos θ, the cosine of the angle between them. Making an arrow length 1 is <dfn>normalising</dfn> it: divide each part by the length.</p>
+  <p>Worked through for player A. The arrow from the guard is <span class="v-b">b</span> = (4, −3). Its length is √(4² + 3²) = √25 = 5, so the unit arrow is (4 ÷ 5, −3 ÷ 5) = (0.8, −0.6). The facing f = (1, 0) already has length 1. The dot product is 1 × 0.8 + 0 × (−0.6) = <span class="v-pos">0.8</span>.</p>
+  <p>For player B, b = (3, 4), also length 5, unit (0.6, 0.8), and the dot product is 1 × 0.6 + 0 × 0.8 = <span class="v-neg">0.6</span>.</p>
+  <p>Now the trick. The cosine gets <em>smaller</em> as the angle grows: 1 at 0°, about 0.71 at 45°, 0 at 90°, −1 at 180°. So "the angle is at most 45°" means exactly the same as "the cosine is at least cos 45°". Written as a test:</p>
+<pre><code>unit f · unit b  ≥  cos(FOV ÷ 2)</code></pre>
+  <p>Read it as: "the dot product of the two unit arrows is at least the cosine of half the field of view". The right-hand side is the <dfn>threshold</dfn>, the number the dot product has to reach. For a 90° cone it is cos 45° ≈ 0.71. A's 0.8 reaches it: seen. B's 0.6 does not. No arccos is needed, only one cosine for the cone itself.</p>
+  <p>Two thresholds to remember: FOV 180° gives cos 90° = 0, which is exactly yesterday's "dot product is positive" test, and FOV 360° gives cos 180° = −1, which every direction passes.</p>
+
+  <h2>Range comes first</h2>
+  <p>The angle test ignores distance: a player 50 squares away straight ahead passes it. So the guard also checks range, first, because it is cheaper. As in the length lesson, compare squared values and skip the square root. A's distance squared is 4² + 3² = 25, the range squared is 6² = 36, and 25 ≤ 36, so A is in range. Note that the dot product of a vector with itself, b · b, is its length squared; the code uses that.</p>
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Seen means two tests: distance squared ≤ range squared, and unit f · unit b ≥ cos(FOV ÷ 2). Use half the field of view, and give the cosine radians.</p>
+  </div>
+  <p>Flipping y in both arrows leaves their dot product unchanged, so the test works the same in a y-up world.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the orange player, or click to place it. Drag the blue tip to turn the guard; only its direction counts. With the canvas focused, the arrow keys move the chosen point and Space switches between them. Points snap to whole squares so you can check the numbers by hand.</p>
+  <p>Watch the gauge at the bottom: the green zone is the cone, the dot is the player. Narrow the field of view and the zone shrinks towards 1. Then try 180° and 360°.</p>
+  <figure class="demo" data-demo="view-cone">
+    <canvas id="view-cone"></canvas>
+    <figcaption>The cone turns green when the player is seen. The guard shows "!" when it sees the player and "?" when the player is inside the angle but out of range. The gauge shows unit f · unit b against the threshold cos(FOV ÷ 2).</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same guard and the same numbers. The player starts at guard + (4, −3), so the first frame says "Seen!"; then the player follows the mouse.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Positions are in grid squares. y grows downwards, like LÖVE's screen.</span>
+local UNIT = 40               <span class="c">-- pixels per grid square</span>
+local FOV_DEGREES = 90        <span class="c">-- the whole cone, edge to edge</span>
+local VIEW_RANGE = 6          <span class="c">-- in grid squares</span>
+local EDGE = 1e-9             <span class="c">-- lets points exactly on the edge count (see pitfalls)</span>
+
+local guard = { x = 5, y = 5, facing = { x = 2, y = 0 } }
+local player = { x = 9, y = 2 }   <span class="c">-- guard + (4, -3)</span>
+
+local function dot(a, b)
+  return a.x * b.x + a.y * b.y
+end
+
+local function normalise(v)
+  local len = math.sqrt(dot(v, v))
+  if len == 0 then
+    return nil                <span class="c">-- a zero vector has no direction</span>
+  end
+  return { x = v.x / len, y = v.y / len }
+end
+
+local function canSee(viewer, target, fovDegrees, range)
+  local toTarget = { x = target.x - viewer.x, y = target.y - viewer.y }
+<span class="k">  if dot(toTarget, toTarget) &gt; range * range then</span>
+<span class="k">    return false              -- too far: skip the angle test</span>
+<span class="k">  end</span>
+  local f = normalise(viewer.facing)
+  local b = normalise(toTarget)
+  if not b then
+    return true               <span class="c">-- standing on the viewer</span>
+  end
+  if not f then
+    return false              <span class="c">-- facing nowhere</span>
+  end
+  local fov = math.max(0, math.min(fovDegrees, 360))
+<span class="k">  local threshold = math.cos(math.rad(fov / 2))</span>
+<span class="k">  return dot(f, b) &gt;= threshold - EDGE</span>
+end
+
+function love.mousemoved(x, y)
+  player = { x = x / UNIT, y = y / UNIT }
+end
+
+function love.draw()
+  local gx, gy = guard.x * UNIT, guard.y * UNIT
+  local seen = canSee(guard, player, FOV_DEGREES, VIEW_RANGE)
+  local look = math.atan2(guard.facing.y, guard.facing.x)
+  local half = math.rad(FOV_DEGREES / 2)
+  if seen then
+    love.graphics.setColor(0.2, 0.8, 0.3)
+  else
+    love.graphics.setColor(0.6, 0.6, 0.6)
+  end
+  love.graphics.arc("line", gx, gy, VIEW_RANGE * UNIT, look - half, look + half)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.circle("fill", gx, gy, 12)
+  love.graphics.circle("line", player.x * UNIT, player.y * UNIT, 8)
+  love.graphics.print(seen and "Seen!" or "Not seen", 10, 10)
+end</code></pre>
+  </div>
+  <p>Check it by hand: the facing (2, 0) normalises to (1, 0), and the player at (9, 2) gives <code>toTarget</code> = (4, −3), 25 is under 36, and <code>dot(f, b)</code> = 0.8 is above 0.707. At (8, 9) the dot product is 0.6: not seen.</p>
+  <p>Built-in versions: Godot has <code>Vector2.normalized</code> and <code>Vector2.dot</code>, Unity has <code>Vector2.normalized</code> and <code>Vector2.Dot</code>. In Unity, <code>Vector2.Angle(facing, toTarget) &lt;= fov / 2</code> does the angle test in degrees.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the whole field of view.</strong> Forgetting the <code>/ 2</code> makes the cone twice as wide: a 90° setting sees 90° to each side.</li>
+    <li><strong>Degrees into <code>math.cos</code>.</strong> Lua's <code>math.cos</code> takes radians. <code>math.cos(45)</code> is about 0.53, not 0.71, and nothing warns you. Convert with <code>math.rad</code>.</li>
+    <li><strong>Forgetting to normalise.</strong> With f = (2, 0) and b = (4, −3), the raw dot product is 8, which passes any threshold. The comparison with a cosine only means something when both arrows have length 1.</li>
+    <li><strong>Zero-length vectors.</strong> A player standing on the guard gives b = (0, 0), which has no direction; normalising would divide by 0. The code counts it as seen, and a facing of (0, 0) as seeing nothing. Choose on purpose.</li>
+    <li><strong>Points exactly on the edge.</strong> Arithmetic rounds. At FOV 90° the player at (1, 1) is exactly on the edge, but its dot product comes out 0.7071067811865475, a hair under cos 45° = 0.7071067811865476. At 360° a player straight behind can score −1.0000000000000004. Subtracting the tiny <code>EDGE</code> lets the edge count as inside.</li>
+    <li><strong>A field of view above 360°.</strong> The cosine wraps round: FOV 400° gives a half angle of 200°, and cos 200° ≈ −0.94, which is a <em>narrower</em> cone than 360°. Clamp to 0 to 360, as the code does.</li>
+    <li><strong>Comparing angles from <code>atan2</code> instead.</strong> A guard at 170° and a player at −170° differ by 340° if you subtract, but the real gap is 20°. The dot product has no such wrap problem.</li>
+    <li><strong>The cone ignores walls.</strong> This test sees through rock. Games usually add a line-of-sight check (a ray cast against the level) only after the cone test passes, because ray casts cost more.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Stealth games are the obvious home: a guard that notices you only inside its cone, often drawn on screen, is this test plus a line-of-sight check. The same idea works unchanged in 3D with three-part vectors. An angle test like this one is also a common way to limit lock-on and aim assist to targets within some angle of where you are aiming, or to let a turret fire only once its target is nearly straight ahead.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into a new LÖVE project and give the guard a second, wider cone: a 160° "peripheral vision" cone with range 3, beside the 90° cone with range 6. Print "Seen!" when the player is in the main cone, "Heard something?" when the player is only in the peripheral cone, and "Not seen" otherwise. Draw both arcs.</p>
+  <p>You are done when walking from straight in front round to the guard's side switches the message at the two edges you drew, and a player behind the guard is never seen.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A view cone is a facing, a field of view and a range.</li>
+    <li>Inside the angle means unit f · unit b ≥ cos(FOV ÷ 2). Bigger dot product, smaller angle.</li>
+    <li>Use half the field of view, in radians, and normalise both arrows first.</li>
+    <li>Check range first with squared distances; it is cheaper and rules out most targets.</li>
+    <li>Decide what zero-length arrows mean, clamp the FOV to 360°, and allow a tiny tolerance at the edge.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we use the dot product to measure how much of one vector lies along another, and use that to bounce a direction off a wall.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on vectors and its section on the dot product.</li>
+    <li>Godot Engine documentation, the <cite>Vector2</cite> class reference, <cite>dot</cite> and <cite>normalized</cite>.</li>
+    <li>Unity Scripting API, <cite>Vector2.Dot</cite> and <cite>Vector2.Angle</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.arc</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua code. Grid squares relative to the guard, y grows downwards.
+  var START_F = { x: 2, y: 0 };
+  var START_B = { x: 4, y: -3 };
+  var EDGE = 1e-9;
+  var f = { x: START_F.x, y: START_F.y };   // facing tip (blue)
+  var b = { x: START_B.x, y: START_B.y };   // guard to player (orange)
+  var dragging = null;                      // 'f', 'b' or null
+  var L = { u: 28, cx: 160, cy: 240, hx: 5, hy: 5, top: 62, bottom: 62 };
+  var handle = null;
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="view-cone"]');
+  var fovSlider = ui.slider({ label: 'Field of view', min: 0, max: 360, step: 5, value: 90, unit: '°', onInput: redraw });
+  var rangeSlider = ui.slider({ label: 'View range', min: 1, max: 8, step: 1, value: 6, unit: ' squares', onInput: redraw });
+  var which = ui.select({
+    label: 'Arrow keys move',
+    options: [{ value: 'b', label: 'Player (b)' }, { value: 'f', label: 'Facing tip (f)' }],
+    value: 'b',
+    onChange: redraw
+  });
+  ui.button({ label: 'Reset', onClick: function () {
+    f = { x: START_F.x, y: START_F.y };
+    b = { x: START_B.x, y: START_B.y };
+    fovSlider.set(90);
+    rangeSlider.set(6);
+    redraw();
+  } });
+  var outF = ui.readout({ label: 'f, facing (blue)' });
+  var outB = ui.readout({ label: 'b, guard to player (orange)' });
+  var outDot = ui.readout({ label: 'unit f · unit b' });
+  var outCone = ui.readout({ label: 'Angle test' });
+  var outRange = ui.readout({ label: 'Range test' });
+
+  function dot(p, q) { return p.x * q.x + p.y * q.y; }
+  function len(v) { return Math.sqrt(dot(v, v)); }
+  function normalise(v) {
+    var l = len(v);
+    if (l === 0) return null;
+    return { x: v.x / l, y: v.y / l };
+  }
+  function num(n, digits) {
+    var p = Math.pow(10, digits === undefined ? 2 : digits);
+    n = Math.round(n * p) / p;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function fix(n) {
+    var t = n.toFixed(2);
+    if (t === '-0.00') t = '0.00';
+    return t.replace('-', '−');
+  }
+  function term(n) { return n < 0 ? '(' + num(n) + ')' : num(n); }
+  function pair(v) { return '(' + num(v.x) + ', ' + num(v.y) + ')'; }
+
+  // The same decision as canSee in the Lua code, with the pieces kept for display.
+  function evaluate() {
+    var R = rangeSlider.value;
+    var dist2 = dot(b, b);
+    var fov = DemoKit.clamp(fovSlider.value, 0, 360);
+    var r = {
+      dist2: dist2,
+      range2: R * R,
+      inRange: dist2 <= R * R,
+      fov: fov,
+      threshold: Math.cos(fov / 2 * Math.PI / 180),
+      fu: normalise(f),
+      bu: normalise(b),
+      cos: null,
+      inCone: false
+    };
+    if (!r.bu) r.inCone = true;            // standing on the guard
+    else if (!r.fu) r.inCone = false;      // facing nowhere
+    else {
+      r.cos = dot(r.fu, r.bu);
+      r.inCone = r.cos >= r.threshold - EDGE;
+    }
+    r.seen = r.inRange && r.inCone;
+    return r;
+  }
+
+  function layout(s) {
+    var usableH = s.height - L.top - L.bottom;
+    L.u = Math.max(20, Math.min(34, Math.floor(Math.min(s.width, usableH) / 13)));
+    L.cx = Math.round(s.width / 2);
+    L.cy = Math.round(L.top + usableH / 2);
+    L.hx = Math.max(3, Math.floor((s.width / 2 - 12) / L.u));
+    L.hy = Math.max(3, Math.floor((usableH / 2) / L.u));
+  }
+  function clampPoint(p) {
+    p.x = DemoKit.clamp(p.x, -L.hx, L.hx);
+    p.y = DemoKit.clamp(p.y, -L.hy, L.hy);
+  }
+  function toScreen(v) { return { x: L.cx + v.x * L.u, y: L.cy + v.y * L.u }; }
+  function fromScreen(p) {
+    var v = { x: Math.round((p.x - L.cx) / L.u), y: Math.round((p.y - L.cy) / L.u) };
+    clampPoint(v);
+    return v;
+  }
+  function setPoint(name, p) {
+    var v = fromScreen(p);
+    if (name === 'f') f = v; else b = v;
+    redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function arrow(ctx, x1, y1, x2, y2, size) {
+    var l = Math.hypot(x2 - x1, y2 - y1);
+    if (l < 1) return;
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var sz = Math.min(size, l);
+    line(ctx, x1, y1, x2 - Math.cos(ang) * sz * 0.6, y2 - Math.sin(ang) * sz * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - sz * Math.cos(ang - 0.45), y2 - sz * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - sz * Math.cos(ang + 0.45), y2 - sz * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var FONT = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BIG = '600 16px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#view-cone', {
+    height: 480,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A guard at the centre of a grid with y pointing down. A blue arrow f shows where the guard faces and an orange arrow b points from the guard to the player. A pie-slice view cone opens around the facing; its width and depth follow the Field of view and View range sliders. Both arrow tips can be dragged, or moved with the arrow keys; Space switches which one. The cone turns green when the player is seen. A gauge at the bottom compares the dot product of the unit arrows with the cosine of half the field of view.',
+    onResize: function (s) { layout(s); clampPoint(f); clampPoint(b); },
+    onDown: function (p) {
+      var sf = toScreen(f);
+      var sb = toScreen(b);
+      var df = Math.hypot(p.x - sf.x, p.y - sf.y);
+      var db = Math.hypot(p.x - sb.x, p.y - sb.y);
+      if (df < 24 && df <= db) dragging = 'f';
+      else dragging = 'b';
+      which.set(dragging);
+      setPoint(dragging, p);
+    },
+    onMove: function (p) { if (p.down && dragging) setPoint(dragging, p); },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var v = which.value === 'f' ? f : b;
+      if (key === ' ' || key === 'space' || key === 'spacebar') {
+        which.set(which.value === 'f' ? 'b' : 'f');
+      } else if (key === 'arrowleft') { v.x -= 1; }
+      else if (key === 'arrowright') { v.x += 1; }
+      else if (key === 'arrowup') { v.y -= 1; }
+      else if (key === 'arrowdown') { v.y += 1; }
+      else { return; }
+      clampPoint(v);
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var blue = getComputedStyle(document.documentElement).getPropertyValue('--t-game-physics').trim() || '#1f6fd6';
+      layout(s);
+      clampPoint(f);
+      clampPoint(b);
+      var u = L.u;
+      var gx0 = L.cx - L.hx * u, gx1 = L.cx + L.hx * u;
+      var gy0 = L.cy - L.hy * u, gy1 = L.cy + L.hy * u;
+      var r = evaluate();
+      var i;
+      var g = toScreen({ x: 0, y: 0 });
+      var pf = toScreen(f);
+      var pb = toScreen(b);
+
+      // Grid with axes through the guard.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = -L.hx; i <= L.hx; i++) line(ctx, L.cx + i * u + 0.5, gy0, L.cx + i * u + 0.5, gy1);
+      for (i = -L.hy; i <= L.hy; i++) line(ctx, gx0, L.cy + i * u + 0.5, gx1, L.cy + i * u + 0.5);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, gx0, L.cy + 0.5, gx1, L.cy + 0.5);
+      line(ctx, L.cx + 0.5, gy0, L.cx + 0.5, gy1);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('x →', gx1 - 2, L.cy - 6);
+      ctx.textAlign = 'left';
+      ctx.fillText('y ↓ (down)', L.cx + 6, gy1 - 6);
+
+      // View cone, clipped to the grid.
+      var rad = rangeSlider.value * u;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+      ctx.clip();
+      // Faint full range circle.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (r.fu) {
+        var look = Math.atan2(r.fu.y, r.fu.x);
+        var half = r.fov / 2 * Math.PI / 180;
+        ctx.beginPath();
+        if (r.fov >= 360) {
+          ctx.arc(g.x, g.y, rad, 0, Math.PI * 2);
+        } else {
+          ctx.moveTo(g.x, g.y);
+          ctx.arc(g.x, g.y, rad, look - half, look + half);
+          ctx.closePath();
+        }
+        ctx.globalAlpha = r.seen ? 0.22 : 0.12;
+        ctx.fillStyle = r.seen ? c.good : c.ink3;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = r.seen ? c.good : c.ink3;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+
+      // Angle arc between f and b, the short way round.
+      if (r.cos !== null) {
+        var angF = Math.atan2(f.y, f.x);
+        var angB = Math.atan2(b.y, b.x);
+        var diff = angB - angF;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        var ar = Math.min(0.9 * u, 26);
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, ar, angF, angF + diff, diff < 0);
+        ctx.stroke();
+        var mid = angF + diff / 2;
+        ctx.font = SMALL;
+        ctx.fillStyle = c.ink2;
+        ctx.textAlign = 'center';
+        ctx.fillText('θ', g.x + Math.cos(mid) * (ar + 11), g.y + Math.sin(mid) * (ar + 11) + 4);
+      }
+
+      // b: guard to player (orange).
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = c.warn;
+      ctx.fillStyle = c.warn;
+      arrow(ctx, g.x, g.y, pb.x, pb.y, 11);
+
+      // f: facing (blue).
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = blue;
+      ctx.fillStyle = blue;
+      arrow(ctx, g.x, g.y, pf.x, pf.y, 13);
+
+      // Guard.
+      ctx.fillStyle = c.ink2;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, 12, 0, Math.PI * 2);
+      ctx.fill();
+      if (r.fu) {
+        ctx.fillStyle = c.surface;
+        ctx.beginPath();
+        ctx.arc(g.x + r.fu.x * 6, g.y + r.fu.y * 6, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Player.
+      ctx.fillStyle = c.warn;
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pb.x, pb.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Handle on the tip of f.
+      ctx.fillStyle = c.surface;
+      ctx.strokeStyle = blue;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(pf.x, pf.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Ring around the point the arrow keys move.
+      var sel = which.value === 'f' ? pf : pb;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(sel.x, sel.y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Guard reaction.
+      ctx.textAlign = 'center';
+      ctx.font = '700 20px system-ui, -apple-system, "Segoe UI", sans-serif';
+      if (r.seen) {
+        ctx.fillStyle = c.good;
+        ctx.fillText('!', g.x - 18, g.y - 16);
+      } else if (r.inCone && r.fu && r.bu) {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('?', g.x - 18, g.y - 16);
+      }
+
+      // Summary box, top-left.
+      var verdict;
+      if (!r.bu) verdict = 'player on the guard: counted as seen';
+      else if (!r.fu) verdict = 'f is (0, 0): the guard faces nowhere';
+      else if (r.seen) verdict = 'inside the cone and in range';
+      else if (r.inCone) verdict = 'inside the angle but too far';
+      else if (r.inRange) verdict = 'in range but outside the angle';
+      else verdict = 'too far and outside the angle';
+      var line1 = r.seen ? 'Seen' : 'Not seen';
+      ctx.font = SMALL;
+      var w2 = ctx.measureText(verdict).width;
+      ctx.font = BIG;
+      var w1 = ctx.measureText(line1).width;
+      var bw = Math.max(w1, w2) + 20;
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(8, 8, bw, 46);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(8.5, 8.5, bw, 46);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = r.seen ? c.good : c.bad;
+      ctx.fillText(line1, 18, 28);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(verdict, 18, 46);
+
+      // Gauge, bottom: unit f · unit b against the threshold.
+      var gw = Math.min(300, s.width - 60);
+      var bx0 = Math.round(s.width / 2 - gw / 2);
+      var by = s.height - 26;
+      function gx(v) { return bx0 + gw * (v + 1) / 2; }
+      var tx = gx(r.threshold);
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = c.good;
+      ctx.fillRect(tx, by - 6, bx0 + gw - tx, 12);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 2;
+      line(ctx, bx0, by, bx0 + gw, by);
+      ctx.lineWidth = 1;
+      for (i = 0; i <= 2; i++) line(ctx, bx0 + gw * i / 2, by - 5, bx0 + gw * i / 2, by + 5);
+      ctx.strokeStyle = c.good;
+      ctx.lineWidth = 2;
+      line(ctx, tx, by - 10, tx, by + 8);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('−1', bx0 - 6, by + 4);
+      ctx.textAlign = 'left';
+      ctx.fillText('+1', bx0 + gw + 6, by + 4);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('cos(FOV ÷ 2) = ' + fix(r.threshold), DemoKit.clamp(tx, bx0 + 55, bx0 + gw - 55), by - 14);
+      ctx.font = FONT;
+      if (r.cos !== null) {
+        var mx = gx(r.cos);
+        ctx.fillStyle = r.inCone ? c.good : c.bad;
+        ctx.beginPath();
+        ctx.arc(mx, by, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillText('unit f · unit b = ' + fix(r.cos), DemoKit.clamp(mx, bx0 + 70, bx0 + gw - 70), by + 22);
+      } else {
+        ctx.fillStyle = c.ink2;
+        ctx.fillText('no angle: a zero-length arrow', bx0 + gw / 2, by + 22);
+      }
+
+      // Readouts beside the picture.
+      outF.set(pair(f) + (r.fu ? ' → unit ' + pair(r.fu) : ', no direction'));
+      outB.set(pair(b) + ', length ' + num(Math.sqrt(r.dist2)) + (r.bu ? ' → unit ' + pair(r.bu) : ''));
+      if (r.cos === null) {
+        outDot.set('none: a zero-length arrow has no direction');
+      } else {
+        var deg = Math.acos(DemoKit.clamp(r.cos, -1, 1)) * 180 / Math.PI;
+        outDot.set(term(r.fu.x) + ' × ' + term(r.bu.x) + ' + ' + term(r.fu.y) + ' × ' + term(r.bu.y) +
+          ' = ' + fix(r.cos) + ' (θ = ' + deg.toFixed(1) + '°)');
+      }
+      if (!r.bu) outCone.set('player on the guard: counted as inside');
+      else if (!r.fu) outCone.set('facing is (0, 0): sees nothing');
+      else outCone.set(fix(r.cos) + (r.inCone ? ' ≥ ' : ' < ') + 'cos(' + num(r.fov / 2, 1) + '°) = ' +
+        fix(r.threshold) + (r.inCone ? ': inside' : ': outside'));
+      outRange.set(num(r.dist2) + (r.inRange ? ' ≤ ' : ' > ') + rangeSlider.value + '² = ' + r.range2 +
+        (r.inRange ? ': in range' : ': too far'));
+    }
+  });
+})();
+</script>
+</body>
+</html>
