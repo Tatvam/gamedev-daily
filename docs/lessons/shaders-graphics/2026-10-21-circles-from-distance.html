@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circles from distance: discs, rings and glows · Game Dev Daily</title>
+<meta name="description" content="length(uv - centre) gives every pixel its distance to a point. Threshold it for a disc, fold it for a ring, and let it fade for a glow.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-21">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Circles from distance: discs, rings and glows</h1>
+  <p class="lede">length(uv - centre) gives every pixel its distance to a point. Threshold it for a disc, fold it for a ring, and let it fade for a glow.</p>
+</header>
+
+<section data-section="hook">
+  <p>A selection ring under a unit, the glowing orb of a pickup, the expanding shockwave of an explosion. A circle sprite works until it is scaled up and the edge goes blurry or blocky.</p>
+  <p>A shader draws all three from one number, the distance from the pixel to a centre point, and the edge stays sharp at any size.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One number per pixel: how far from the centre</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Today the input is the pixel's centred UV, with (0, 0) in the middle of the picture and y running from -0.5 at the bottom to 0.5 at the top. The output is a mix of two colours. Three lines sit in between.</p>
+
+  <h3>Step 1: position relative to the centre</h3>
+  <p>Subtract the centre of the circle from the pixel's UV. The result <code>p</code> is an arrow from the centre to this pixel:</p>
+<pre><code>vec2 p = uv - u_center;</code></pre>
+
+  <h3>Step 2: the length of that arrow</h3>
+  <p><code>length(p)</code> returns <code>sqrt(p.x * p.x + p.y * p.y)</code>, Pythagoras in one call. Call it <code>d</code>. It is 0.0 at the centre and grows by the same amount in every direction, so every set of pixels with equal <code>d</code> forms a circle around the centre.</p>
+<pre><code>float d = length(p);</code></pre>
+  <p>This is a <dfn>distance field</dfn>: a value at every pixel that says how far that pixel is from something. Shapes come from asking questions about it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 345" role="img" aria-label="Left: a dashed circle of radius r around a centre C. An arrow p runs from C to a pixel outside the circle, labelled outside, d greater than r. A second pixel inside the circle is labelled inside, d less than r. Right, top: a graph of d along a horizontal line through the centre, shaped like a V that touches zero at the centre, with a dashed threshold line at r and a bar below marking where d is less than r, which is the disc. Right, bottom: a graph of the absolute value of d minus r, shaped like a W that touches zero at the two edges of the circle, with a dashed threshold at t over 2 and two short bars marking the ring.">
+      <!-- Left: the circle -->
+      <text class="d-label" x="150" y="28" text-anchor="middle">centred uv</text>
+      <circle class="d-accent d-dash" cx="150" cy="170" r="90" fill="none"/>
+      <circle class="d-fill" cx="150" cy="170" r="4"/>
+      <text class="d-text" x="138" y="176" text-anchor="end">C</text>
+      <path class="d-accent" d="M150 170L235 100"/>
+      <circle class="d-accent-fill" cx="235" cy="100" r="5"/>
+      <text class="d-mono" x="204" y="152">p, d</text>
+      <text class="d-muted" x="246" y="96">outside: d &gt; r</text>
+      <path class="d-stroke" d="M150 170L120 200"/>
+      <circle class="d-fill" cx="120" cy="200" r="5"/>
+      <text class="d-muted" x="138" y="232" text-anchor="middle">inside: d &lt; r</text>
+      <text class="d-muted" x="150" y="290" text-anchor="middle">dashed circle: d = r</text>
+
+      <!-- Right top: d along a line -->
+      <text class="d-label" x="360" y="22">d along a line through C</text>
+      <path class="d-thin" d="M360 130H620"/>
+      <path class="d-stroke" d="M360 30L490 130L620 30"/>
+      <path class="d-dash" d="M360 84H600"/>
+      <text class="d-muted" x="608" y="88">r</text>
+      <rect class="d-accent-fill" x="430" y="140" width="120" height="12"/>
+      <text class="d-muted" x="490" y="172" text-anchor="middle">disc: 1 where d &lt; r</text>
+
+      <!-- Right bottom: |d - r| -->
+      <text class="d-label" x="360" y="200">|d - r| along the same line</text>
+      <path class="d-thin" d="M360 290H620"/>
+      <path class="d-stroke" d="M360 236L430 290L490 244L550 290L620 236"/>
+      <path class="d-dash" d="M360 278H596"/>
+      <text class="d-muted" x="602" y="282">t/2</text>
+      <rect class="d-accent-fill" x="414" y="300" width="32" height="12"/>
+      <rect class="d-accent-fill" x="534" y="300" width="32" height="12"/>
+      <text class="d-muted" x="490" y="334" text-anchor="middle">ring: 1 where |d - r| &lt; t/2</text>
+    </svg>
+    <figcaption>Left: d is the length of the arrow from the centre to the pixel, and the circle is every pixel where d equals r. Right: along one line, d is a V; cutting it at r gives the disc. Folding it with abs(d - r) gives a W that touches zero on the circle's edge; cutting that at half the thickness gives the ring.</figcaption>
+  </figure>
+
+  <h3>Step 3: ask a question about d</h3>
+  <p><strong>Disc.</strong> Is the pixel closer than the radius <code>r</code>? That is a threshold, and <code>smoothstep</code> from three lessons ago draws it with a soft edge. The edge spans from <code>r - e</code> to <code>r + e</code>, where <code>e</code> is one pixel (<code>aa</code>, for anti-aliasing) plus any extra softness:</p>
+<pre><code>float m = 1.0 - smoothstep(r - e, r + e, d);   // 1.0 inside, 0.0 outside</code></pre>
+  <p><strong>Ring.</strong> A ring is the pixels close to the circle's edge. <code>abs(d - r)</code> is the distance from the pixel to that edge, from either side. This is the same fold as yesterday's stripes, where <code>min(f, 1.0 - f)</code> turned a position into a distance to the nearest line. Cut it at half the thickness <code>t</code>:</p>
+<pre><code>float m = 1.0 - smoothstep(0.5 * t - e, 0.5 * t + e, abs(d - r));</code></pre>
+  <p><strong>Glow.</strong> A glow never has a hard edge. It is bright inside the disc and fades with distance outside it. <code>max(d - r, 0.0)</code> is 0.0 inside and grows outside; <code>exp</code> turns that into a value that starts at 1.0 and halves again and again as you move out. Here <code>e</code> sets how far the glow reaches:</p>
+<pre><code>float m = exp(-max(d - r, 0.0) / e);</code></pre>
+  <p>Each mask then goes into <code>mix(background, colour, m)</code>.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Get a distance, then shape it. <code>d</code> threshold is a disc, <code>abs(d - r)</code> threshold is a ring, a falloff on <code>d - r</code> is a glow. Every shape in the next track works the same way with a different distance.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag on the picture (or focus it and press the arrow keys) to move the centre. Walk the <em>Stage</em> menu from 1 to 5. Stage 1 is <code>p</code> as red and green: just the UV, shifted to your centre. Stage 2 is <code>d</code> as grey, with an orange contour every 0.1 units; the contours are perfect circles. Stage 3 is the value the mask thresholds. For <em>Disc</em> it is <code>d</code> again; switch to <em>Ring</em> and watch it go black along the circle, which is <code>abs(d - r)</code> reaching zero.</p>
+  <p>Then try the edges. With <em>Edge softness</em> at 0 the edge is still one pixel soft, never jagged. Choose <em>Glow</em> and raise the softness to about 0.08. Hover to read <code>d</code> and the mask under the pointer.</p>
+
+  <figure class="demo" data-demo="circle-distance">
+    <canvas id="circle-distance"></canvas>
+    <figcaption>Every stage is one line of the same shader. <em>Ring thickness</em> applies to the ring only. Stages 2 and 3 show values twice as bright as they are, so 0.5 is white.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the same <code>shade</code> function in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Drag with the left mouse button to move the centre. Up and down change the radius, <kbd>[</kbd> and <kbd>]</kbd> the softness, <kbd>,</kbd> and <kbd>.</kbd> the ring thickness, 1, 2 and 3 pick disc, ring or glow, and S cycles the stage. A right click prints the distance and the disc mask under the mouse, worked out with the same maths in plain Lua.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local center = { 0, 0 }
+local radius = 0.25
+local soft = 0           <span class="c">-- extra edge softness, in uv units</span>
+local thick = 0.04       <span class="c">-- ring thickness, in uv units</span>
+local shape = 0          <span class="c">-- 0 disc, 1 ring, 2 glow</span>
+local stage = 4          <span class="c">-- 0 p, 1 d, 2 field, 3 mask, 4 final</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_center;
+uniform float u_radius;
+uniform float u_soft;
+uniform float u_thick;
+uniform float u_shape;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+vec3 shade(vec2 uv, float aa)
+{
+    vec2 p = uv - u_center;                       // 1. relative to the centre
+    float d = length(p);                          // 2. distance to the centre
+    float e = u_soft + aa;                        //    half-width of the edge
+    float field = d;                              // 3. disc: d
+    if (u_shape &gt; 0.5) field = abs(d - u_radius);     //    ring: distance to the edge
+    if (u_shape &gt; 1.5) field = max(d - u_radius, 0.0); //    glow: distance outside
+    float edge = u_radius;
+    if (u_shape &gt; 0.5) edge = 0.5 * u_thick;
+    float m = 1.0 - smoothstep(edge - e, edge + e, field); // 4. mask
+    if (u_shape &gt; 1.5) m = exp(-field / e);
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+    float iso = abs(fract(d * 10.0 + 0.5) - 0.5) / 10.0;  // distance to a 0.1 contour
+    vec3 rings = mix(vec3(2.0 * d), vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso));
+    if (u_stage &lt; 3.5) col = vec3(m);
+    if (u_stage &lt; 2.5) col = vec3(2.0 * field);
+    if (u_stage &lt; 1.5) col = rings;
+    if (u_stage &lt; 0.5) col = vec3(p + 0.5, 0.0);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+local function toUV(x, y)
+  local u = (x - rect[1] - rect[3] / 2) / rect[4]
+  local v = -(y - rect[2] - rect[4] / 2) / rect[4]
+  return u, v
+end
+
+local function smoothstep(e0, e1, x)
+  local t = math.min(math.max((x - e0) / (e1 - e0), 0), 1)
+  return t * t * (3 - 2 * t)
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "up" then radius = math.min(0.5, radius + 0.01) end
+  if key == "down" then radius = math.max(0.02, radius - 0.01) end
+  if key == "]" then soft = math.min(0.2, soft + 0.005) end
+  if key == "[" then soft = math.max(0, soft - 0.005) end
+  if key == "." then thick = math.min(0.3, thick + 0.005) end
+  if key == "," then thick = math.max(0.005, thick - 0.005) end
+  if key == "1" then shape = 0 end
+  if key == "2" then shape = 1 end
+  if key == "3" then shape = 2 end
+  if key == "s" then stage = (stage + 1) % 5 end
+end
+
+function love.mousepressed(x, y, button)
+  if button == 1 then
+    center[1], center[2] = toUV(x, y)
+  elseif button == 2 then
+    local u, v = toUV(x, y)
+<span class="k">    local d = math.sqrt((u - center[1]) ^ 2 + (v - center[2]) ^ 2)</span>
+    local e = soft + 1 / rect[4]
+<span class="k">    local m = 1 - smoothstep(radius - e, radius + e, d)</span>
+    print(string.format("d = %.3f, disc mask = %.2f", d, m))
+  end
+end
+
+function love.mousemoved(x, y)
+  if love.mouse.isDown(1) then
+    center[1], center[2] = toUV(x, y)
+  end
+end
+
+function love.draw()
+  shader:send("u_center", center)
+  shader:send("u_radius", radius)
+  shader:send("u_soft", soft)
+  shader:send("u_thick", thick)
+  shader:send("u_shape", shape)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_center;
+uniform float u_radius;
+uniform float u_soft;
+uniform float u_thick;
+uniform float u_shape;
+uniform float u_stage;
+
+vec3 shade(vec2 uv, float aa) {
+  vec2 p = uv - u_center;                       // 1. relative to the centre
+<span class="k">  float d = length(p);                          // 2. distance to the centre</span>
+  float e = u_soft + aa;                        //    half-width of the edge
+  float field = d;                              // 3. disc: d
+  if (u_shape &gt; 0.5) field = abs(d - u_radius);     //    ring: distance to the edge
+  if (u_shape &gt; 1.5) field = max(d - u_radius, 0.0); //    glow: distance outside
+  float edge = u_radius;
+  if (u_shape &gt; 0.5) edge = 0.5 * u_thick;
+<span class="k">  float m = 1.0 - smoothstep(edge - e, edge + e, field); // 4. mask</span>
+  if (u_shape &gt; 1.5) m = exp(-field / e);
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+  float iso = abs(fract(d * 10.0 + 0.5) - 0.5) / 10.0;  // distance to a 0.1 contour
+  vec3 rings = mix(vec3(2.0 * d), vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso));
+  if (u_stage &lt; 3.5) col = vec3(m);
+  if (u_stage &lt; 2.5) col = vec3(2.0 * field);
+  if (u_stage &lt; 1.5) col = rings;
+  if (u_stage &lt; 0.5) col = vec3(p + 0.5, 0.0);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up
+  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 center = vec2(0.0, 0.0);   // centred uv, y up
+uniform float radius = 0.25;
+uniform float soft : hint_range(0.0, 0.2) = 0.0;
+uniform float thick = 0.04;
+uniform float shape = 0.0;     // 0 disc, 1 ring, 2 glow
+uniform float aspect = 1.0;    // set to the ColorRect's width / height
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);
+    uv.y = -uv.y;              // UV (0, 0) is the top-left; make y point up
+<span class="k">    float d = length(uv - center);</span>
+    float e = soft + fwidth(uv.y);           // one pixel, in uv units
+    float field = d;
+    if (shape &gt; 0.5) field = abs(d - radius);
+    if (shape &gt; 1.5) field = max(d - radius, 0.0);
+    float edge = radius;
+    if (shape &gt; 0.5) edge = 0.5 * thick;
+<span class="k">    float m = 1.0 - smoothstep(edge - e, edge + e, field);</span>
+    if (shape &gt; 1.5) m = exp(-field / e);
+    COLOR = vec4(mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/CircleFromDistance"
+{
+    Properties
+    {
+        _Center ("Centre (xy, centred uv)", Vector) = (0, 0, 0, 0)
+        _Radius ("Radius", Range(0.02, 0.5)) = 0.25
+        _Soft ("Edge softness", Range(0, 0.2)) = 0
+        _Thick ("Ring thickness", Range(0.005, 0.3)) = 0.04
+        _Shape ("Shape (0 disc, 1 ring, 2 glow)", Float) = 0
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float4 _Center;
+            float _Radius, _Soft, _Thick, _Shape, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y already points up
+<span class="k">                float d = length(uv - _Center.xy);</span>
+                float e = _Soft + fwidth(uv.y);
+                float field = d;
+                if (_Shape &gt; 0.5) field = abs(d - _Radius);
+                if (_Shape &gt; 1.5) field = max(d - _Radius, 0.0);
+                float edge = _Radius;
+                if (_Shape &gt; 0.5) edge = 0.5 * _Thick;
+<span class="k">                float m = 1.0 - smoothstep(edge - e, edge + e, field);</span>
+                if (_Shape &gt; 1.5) m = exp(-field / e);
+                return fixed4(lerp(float3(0.1, 0.12, 0.22), float3(1.0, 0.62, 0.2), m), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions leave out the stages and measure one pixel with <code>fwidth</code>, which WebGL 1 lacks without an extension. In URP Shader Graph, <em>Subtract</em> the centre from the UV, feed it to a <em>Length</em> node, then <em>Smoothstep</em> or <em>Absolute</em> as above. The ready-made <em>Ellipse</em> node also draws a disc, but you cannot get at the distance inside it, so you cannot turn it into a ring or a glow.</p>
+  <p>Which way is up matters as soon as you place the centre with the mouse. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> have y pointing up. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> have y pointing down, so those two versions flip y first; without the flip, moving the centre up would move the circle down. The colours are hard-coded numbers, so a Unity project in Linear colour space treats them as linear values, and they will look lighter there than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Ellipses instead of circles.</strong> If the UV is divided by width on x and height on y, one unit is a different number of pixels on each axis and the circle stretches. Divide both by the height, as the UV lesson showed, or multiply x by the aspect ratio as the Godot and Unity versions do.</li>
+    <li><strong>Jagged edges from step.</strong> <code>step(d, r)</code> gives a hard 0 or 1, and a curved hard edge shows stair steps. Spread the edge over about one pixel with <code>smoothstep</code>. The width of a pixel in UV units is <code>1.0 / u_resolution.y</code> here, or <code>fwidth</code> where it is available.</li>
+    <li><strong>A glow that never ends.</strong> The popular <code>0.02 / d</code> glow looks nice but never reaches zero, and it divides by zero at the centre. The <code>exp</code> falloff here also never quite reaches zero; if you add many glows together, the whole screen slowly lifts. Clamp the result, or subtract a small floor value.</li>
+    <li><strong>Squared distance as a shortcut.</strong> Comparing <code>dot(p, p)</code> with <code>r * r</code> skips the square root and gives the same hard disc. But a soft edge on squared distance is not even: it gets thinner as the radius grows. Use <code>length</code> whenever the edge is soft.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>A disc is a subtraction, a <code>length</code> (a multiply-add and a square root) and a <code>smoothstep</code>. That is a handful of instructions, cheap even on a phone. <code>exp</code> is a little more but still cheap. On mobile the real cost of a glow is its area: a large transparent quad shades every pixel it covers, even the nearly invisible ones. Keep glow quads only as large as the visible fade.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Circular masks from distance are everywhere in effects work: selection rings and range indicators under units, ripples and shockwaves that grow by animating the radius, soft round particles drawn on plain quads instead of with textures, and radial fades such as a vignette. Unity's Shader Graph ships an <em>Ellipse</em> node for the simple disc case.</p>
+  <p>The same distance-to-an-edge idea, stored in a texture rather than computed, is how many engines render sharp text at any size: signed distance field fonts. Track 2 builds the computed version for boxes and lines.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a shockwave:</p>
+  <ol>
+    <li>Set <code>shape</code> to 1 (ring) and <code>soft</code> to 0.01.</li>
+    <li>Add a variable <code>age</code>. In <code>love.mousepressed</code>, for the left button, set <code>age = 0</code>. In <code>love.update(dt)</code>, add <code>dt</code> to it.</li>
+    <li>Each frame set <code>radius = 0.02 + age * 0.6</code> and <code>thick = math.max(0.005, 0.08 * (1 - age))</code>.</li>
+  </ol>
+  <p>You are done when every click sends out a ring from the click point that grows, thins and disappears in about a second, with a clean edge the whole way.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>length(uv - centre)</code> gives each pixel its distance to a point; pixels with equal distance form circles.</li>
+    <li>Threshold the distance for a disc, threshold <code>abs(d - r)</code> for a ring, apply a falloff to <code>d - r</code> for a glow.</li>
+    <li>Use <code>smoothstep</code> across about one pixel for an edge that is smooth at every size.</li>
+    <li>Divide both UV axes by the same length, or the circle becomes an ellipse.</li>
+    <li>The maths is cheap; large soft glows cost because of how many pixels they cover.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson looks at alpha: how a soft-edged circle like this one combines with what is already on screen, and why premultiplied alpha avoids dark fringes.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Shapes", section on circles.</li>
+    <li>Inigo Quilez, <cite>2D distance functions</cite>, a catalogue of distance functions for 2D shapes, starting with the circle.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.3 "Common Functions" and 8.4 "Geometric Functions". Defines smoothstep, abs, max and length.</li>
+    <li>Chris Green (Valve), <cite>Improved Alpha-Tested Magnification for Vector Textures and Special Effects</cite>, SIGGRAPH 2007. The paper behind distance field text.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Unity Shader Graph documentation, <cite>Ellipse Node</cite> and <cite>Length Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_center;",
+    "uniform float u_radius;",
+    "uniform float u_soft;",
+    "uniform float u_thick;",
+    "uniform float u_shape;",
+    "uniform float u_stage;",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  vec2 p = uv - u_center;                       // 1. relative to the centre",
+    "  float d = length(p);                          // 2. distance to the centre",
+    "  float e = u_soft + aa;                        //    half-width of the edge",
+    "  float field = d;                              // 3. disc: d",
+    "  if (u_shape > 0.5) field = abs(d - u_radius);     //    ring: distance to the edge",
+    "  if (u_shape > 1.5) field = max(d - u_radius, 0.0); //    glow: distance outside",
+    "  float edge = u_radius;",
+    "  if (u_shape > 0.5) edge = 0.5 * u_thick;",
+    "  float m = 1.0 - smoothstep(edge - e, edge + e, field); // 4. mask",
+    "  if (u_shape > 1.5) m = exp(-field / e);",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final",
+    "  float iso = abs(fract(d * 10.0 + 0.5) - 0.5) / 10.0;  // distance to a 0.1 contour",
+    "  vec3 rings = mix(vec3(2.0 * d), vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso));",
+    "  if (u_stage < 3.5) col = vec3(m);",
+    "  if (u_stage < 2.5) col = vec3(2.0 * field);",
+    "  if (u_stage < 1.5) col = rings;",
+    "  if (u_stage < 0.5) col = vec3(p + 0.5, 0.0);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var handle = null;
+  var center = [0, 0];
+  var size = { w: 16, h: 9, dpr: 1 };
+  var hover = null;
+  var ui = DemoKit.controls('[data-demo="circle-distance"]');
+
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. p = uv - centre as red, green' },
+      { value: '1', label: '2. d = length(p), contours every 0.1' },
+      { value: '2', label: '3. Field: d, |d - r| or d - r' },
+      { value: '3', label: '4. Mask m' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var shape = ui.select({
+    label: 'Shape',
+    options: [
+      { value: '0', label: 'Disc' },
+      { value: '1', label: 'Ring' },
+      { value: '2', label: 'Glow' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_shape', Number(v)); }
+  });
+  var radius = ui.slider({ label: 'Radius (uv units)', min: 0.02, max: 0.5, step: 0.01, value: 0.25,
+    onInput: function (v) { send('u_radius', v); } });
+  var soft = ui.slider({ label: 'Edge softness', min: 0, max: 0.2, step: 0.005, value: 0,
+    onInput: function (v) { send('u_soft', v); } });
+  var thick = ui.slider({ label: 'Ring thickness', min: 0.005, max: 0.3, step: 0.005, value: 0.04,
+    onInput: function (v) { send('u_thick', v); } });
+  ui.button({ label: 'Centre the circle', onClick: function () { setCenter(0, 0); } });
+
+  var centerOut = ui.readout({ label: 'Centre' });
+  var pointerOut = ui.readout({ label: 'At pointer' });
+
+  function smoothstep(e0, e1, x) {
+    var t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  // The same mask as the shader, for the readout.
+  function maskAt(d) {
+    var aa = 1 / Math.max(1, size.h * size.dpr);
+    var e = soft.value + aa;
+    var r = radius.value;
+    if (shape.value === '2') return Math.exp(-Math.max(d - r, 0) / e);
+    if (shape.value === '1') return 1 - smoothstep(0.5 * thick.value - e, 0.5 * thick.value + e, Math.abs(d - r));
+    return 1 - smoothstep(r - e, r + e, d);
+  }
+
+  function updateReadout() {
+    centerOut.set('(' + center[0].toFixed(2) + ', ' + center[1].toFixed(2) + ')');
+    if (!hover) {
+      pointerOut.set('hover over the picture');
+      return;
+    }
+    var dx = hover[0] - center[0];
+    var dy = hover[1] - center[1];
+    var d = Math.sqrt(dx * dx + dy * dy);
+    pointerOut.set('d = ' + d.toFixed(3) + ', mask = ' + maskAt(d).toFixed(2));
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function halfWidth() {
+    return 0.5 * size.w / Math.max(1, size.h);
+  }
+
+  function setCenter(x, y) {
+    var hw = halfWidth();
+    center = [Math.min(Math.max(x, -hw), hw), Math.min(Math.max(y, -0.5), 0.5)];
+    send('u_center', center.slice());
+  }
+
+  // Pointer position in CSS pixels to centred uv, y up. Same formula as the shader.
+  function toUV(p, s) {
+    var h = Math.max(1, s.height);
+    return [(p.x - 0.5 * s.width) / h, (0.5 * s.height - p.y) / h];
+  }
+
+  handle = DemoKit.shader('#circle-distance', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader that draws a disc, ring or glow from each pixel\'s distance to a centre point. Drag or use the arrow keys to move the centre.',
+    uniforms: {
+      u_center: [0, 0],
+      u_radius: 0.25,
+      u_soft: 0,
+      u_thick: 0.04,
+      u_shape: 0,
+      u_stage: 4
+    },
+    onDown: function (p, s) {
+      var q = toUV(p, s);
+      hover = q;
+      setCenter(q[0], q[1]);
+    },
+    onMove: function (p, s) {
+      var q = toUV(p, s);
+      hover = q;
+      if (p.down) setCenter(q[0], q[1]);
+      else updateReadout();
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.05;
+      if (key === 'arrowleft') setCenter(center[0] - step, center[1]);
+      if (key === 'arrowright') setCenter(center[0] + step, center[1]);
+      if (key === 'arrowup') setCenter(center[0], center[1] + step);
+      if (key === 'arrowdown') setCenter(center[0], center[1] - step);
+    },
+    onResize: function (s) {
+      size = { w: s.width, h: s.height, dpr: s.dpr || 1 };
+      updateReadout();
+    }
+  });
+
+  var cv = document.getElementById('circle-distance');
+  cv.addEventListener('pointerleave', function () {
+    hover = null;
+    updateReadout();
+  });
+  updateReadout();
+})();
+</script>
+</body>
+</html>

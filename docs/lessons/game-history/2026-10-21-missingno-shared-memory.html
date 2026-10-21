@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokémon Red and Blue: MissingNo. and one block of memory with two jobs · Game Dev Daily</title>
+<meta name="description" content="Why MissingNo. appears: the old man's tutorial parks your name in the wild Pokémon table, and one stretch of shore reads that leftover list.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-21">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pokémon Red and Blue: MissingNo. and one block of memory with two jobs</h1>
+  <p class="lede">Why MissingNo. appears: the old man's tutorial parks your name in the wild Pokémon table, and one stretch of shore reads that leftover list.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Pokémon Red and Blue, players found a strange routine: watch the old man in Viridian City demonstrate catching, fly to Cinnabar Island, and surf up and down its east shore. Sooner or later a scrambled creature called MissingNo. appears, often above level 100.</p>
+  <p>What you meet depends on your character's name. That is the clue: two parts of the game share the same bytes of memory, and one of them does not clean up.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: 8 KB of working memory</h2>
+  <p>The Game Boy gives a game 8 KB of <dfn>work RAM</dfn>: party, bag, map, battle state, everything that changes while you play. Every variable of the game (Japan 1996, English versions 1998) had to fit.</p>
+  <p>One way to save room is an <dfn>overlay</dfn>: one block of memory with two owners that should never need it at the same time. The fan project pret has rebuilt the code as a <dfn>disassembly</dfn>, readable source that assembles back into the original game, and its memory layout marks 19 such blocks. One of them, 293 bytes long, holds the wild Pokémon table while you walk around. During a battle, the same bytes hold the opponent's team, and in a link cable battle the other player's name.</p>
+
+  <h2>How a wild encounter table is stored</h2>
+  <p>The table is 21 bytes. The first byte is the <dfn>encounter rate</dfn>: the chance, out of 256, that a step in tall grass starts a battle. Then come 10 <dfn>slots</dfn>, two bytes each: a level, then a species. The first two slots each come up 51 times in 256, the last only 3 times.</p>
+  <p>The species byte is an <dfn>internal index</dfn>, not the Pokédex number. Between 1 and 190, 39 values do not belong to a normal species: 36 are unused and 3 are kept for fossil and ghost pictures. When the game is asked to show one of those, you get MissingNo. ("missing number").</p>
+  <p>When you enter a new area, the game loads that area's grass rate. If the rate is not zero, it also copies the area's 10 slots. If the rate is zero, as in a town, it skips the copy and leaves the old slots where they are. That is <dfn>stale data</dfn>: values left over from an earlier job that nobody cleared.</p>
+
+  <h2>The old man borrows the bytes</h2>
+  <p>In the tutorial the battle text should say OLD MAN, so the game saves your name, writes "OLD MAN" in its place, and restores it afterwards. It saves the name in the link opponent's name, which, because of the overlay, starts at the grass rate byte.</p>
+  <p>A name is 11 bytes: up to 7 letters, an end marker, and spare bytes. So the copy covers the rate byte and the first five slots. When the battle ends, the town is reloaded. Its grass rate (zero) overwrites the first letter, and the copy of the slots is skipped. Letters 2, 4 and 6 of your name are now levels. Letters 3, 5 and 7 are species.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Top: the 11 bytes of a saved name, T A S H M I R, an end marker and three unknown bytes. Lines show they are the same addresses as the first 11 of 21 wild table bytes, labelled rate, level 1, species 1, through species 5, followed by 10 untouched bytes. Bottom: a 2 by 2 tile square with land on the left and water on the right. The water tile decides the encounter chance, the land tile decides that the grass list is used.">
+      <text class="d-label" x="26" y="30">Saved player name: the 11 bytes the lesson copies</text>
+      <g class="d-mono" text-anchor="middle">
+        <rect class="d-accent-soft" x="26" y="50" width="28" height="30"/><text x="40" y="70">T</text>
+        <rect class="d-accent-soft" x="54" y="50" width="28" height="30"/><text x="68" y="70">A</text>
+        <rect class="d-accent-soft" x="82" y="50" width="28" height="30"/><text x="96" y="70">S</text>
+        <rect class="d-accent-soft" x="110" y="50" width="28" height="30"/><text x="124" y="70">H</text>
+        <rect class="d-accent-soft" x="138" y="50" width="28" height="30"/><text x="152" y="70">M</text>
+        <rect class="d-accent-soft" x="166" y="50" width="28" height="30"/><text x="180" y="70">I</text>
+        <rect class="d-accent-soft" x="194" y="50" width="28" height="30"/><text x="208" y="70">R</text>
+        <rect class="d-accent-soft" x="222" y="50" width="28" height="30"/><text x="236" y="70">@</text>
+        <rect class="d-box" x="250" y="50" width="28" height="30"/><text x="264" y="70">?</text>
+        <rect class="d-box" x="278" y="50" width="28" height="30"/><text x="292" y="70">?</text>
+        <rect class="d-box" x="306" y="50" width="28" height="30"/><text x="320" y="70">?</text>
+      </g>
+      <path class="d-thin" d="M40 80 V124 M68 80 V124 M96 80 V124 M124 80 V124 M152 80 V124 M180 80 V124 M208 80 V124 M236 80 V124 M264 80 V124 M292 80 V124 M320 80 V124"/>
+      <text class="d-muted" x="350" y="68">@ = end of name</text>
+      <text class="d-muted" x="350" y="84">? = leftover bytes</text>
+      <text class="d-text" x="350" y="104">same 11 addresses as the</text>
+      <text class="d-text" x="350" y="120">start of the wild table</text>
+      <g class="d-mono" text-anchor="middle">
+        <rect class="d-fill" x="26" y="124" width="28" height="30"/><text x="40" y="144">R</text>
+        <rect class="d-accent-soft" x="54" y="124" width="28" height="30"/><text x="68" y="144">L1</text>
+        <rect class="d-accent-soft" x="82" y="124" width="28" height="30"/><text x="96" y="144">S1</text>
+        <rect class="d-accent-soft" x="110" y="124" width="28" height="30"/><text x="124" y="144">L2</text>
+        <rect class="d-accent-soft" x="138" y="124" width="28" height="30"/><text x="152" y="144">S2</text>
+        <rect class="d-accent-soft" x="166" y="124" width="28" height="30"/><text x="180" y="144">L3</text>
+        <rect class="d-accent-soft" x="194" y="124" width="28" height="30"/><text x="208" y="144">S3</text>
+        <rect class="d-accent-soft" x="222" y="124" width="28" height="30"/><text x="236" y="144">L4</text>
+        <rect class="d-box" x="250" y="124" width="28" height="30"/><text x="264" y="144">S4</text>
+        <rect class="d-box" x="278" y="124" width="28" height="30"/><text x="292" y="144">L5</text>
+        <rect class="d-box" x="306" y="124" width="28" height="30"/><text x="320" y="144">S5</text>
+        <rect class="d-fill" x="334" y="124" width="28" height="30"/><text x="348" y="144">L6</text>
+        <rect class="d-fill" x="362" y="124" width="28" height="30"/><text x="376" y="144">S6</text>
+        <rect class="d-fill" x="390" y="124" width="28" height="30"/><text x="404" y="144">L7</text>
+        <rect class="d-fill" x="418" y="124" width="28" height="30"/><text x="432" y="144">S7</text>
+        <rect class="d-fill" x="446" y="124" width="28" height="30"/><text x="460" y="144">L8</text>
+        <rect class="d-fill" x="474" y="124" width="28" height="30"/><text x="488" y="144">S8</text>
+        <rect class="d-fill" x="502" y="124" width="28" height="30"/><text x="516" y="144">L9</text>
+        <rect class="d-fill" x="530" y="124" width="28" height="30"/><text x="544" y="144">S9</text>
+        <rect class="d-fill" x="558" y="124" width="28" height="30"/><text x="572" y="144">L10</text>
+        <rect class="d-fill" x="586" y="124" width="28" height="30"/><text x="600" y="144">S10</text>
+      </g>
+      <text class="d-muted" x="26" y="174">R = rate (reset to 0 by the town), L = level, S = species. Grey: the old area's data.</text>
+
+      <rect class="d-fill" x="26" y="200" width="40" height="40"/>
+      <rect class="d-fill" x="26" y="240" width="40" height="40"/>
+      <rect class="d-accent-soft" x="66" y="200" width="40" height="40"/>
+      <rect class="d-accent-soft" x="66" y="240" width="40" height="40"/>
+      <text class="d-muted" x="46" y="264" text-anchor="middle">land</text>
+      <text class="d-muted" x="86" y="264" text-anchor="middle">sea</text>
+      <text class="d-label" x="126" y="214">A "left shore" square: the 16 by 16 pixels the player stands on</text>
+      <text class="d-text" x="126" y="240">Bottom-right tile is water: the encounter chance is the water rate.</text>
+      <text class="d-text" x="126" y="262">Bottom-left tile is land: the species come from the grass list.</text>
+      <text class="d-muted" x="126" y="284">Two checks, two different tiles, two different answers.</text>
+    </svg>
+    <figcaption>Top: the saved name and the wild table are the same bytes. Bottom: why the shore reads the grass list at all.</figcaption>
+  </figure>
+
+  <h2>The shore that reads the wrong list</h2>
+  <p>A town has no grass, so the stale list does nothing yet. The second half of the bug is the step check, which looks at two different tiles of the square you stand on. The bottom-right tile decides whether an encounter can happen and at what rate. The bottom-left tile decides which list to use: water if that tile is water, otherwise grass. On a <dfn>left shore</dfn> square, land on the left and sea on the right, those two answers disagree. You get the water encounter chance with the grass species list. A comment in the disassembly names the east coast of Cinnabar as an example.</p>
+  <p>The flight matters too. Reach the shore through any area that has grass, such as Route 21 south of Pallet Town, and its slots overwrite your name. Flying straight from Viridian City passes through no area with grass.</p>
+
+  <h3>Fact and legend</h3>
+  <ul>
+    <li><strong>Where exactly?</strong> Retellings say Cinnabar, and that is what players see. Reading the map data in the disassembly, this page found that those left shore squares are the first column of Route 20, the sea route east of the island. Cinnabar's own wild data has a rate of zero for grass and for water. Route 20 has no grass list, so it leaves yours alone, and its water rate is 5 in 256, about 2 percent a step. This is our reading of the source, not a claim from a published analysis.</li>
+    <li><strong>"It ruins your save."</strong> Widely reported effects are that the sixth item in your bag gains 128 and that the Hall of Fame records come out garbled. This page did not check those against the code.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Sharing memory is safe only if every new owner rewrites all of it, or clears it, before anyone reads it.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Today the overlay is a <dfn>union</dfn> in C, a reused buffer, or an <dfn>object pool</dfn>, where a game reuses dead bullets or enemies instead of creating new ones, which still matters on phones and the web. MissingNo. is the classic pool bug: a reused enemy keeps last life's poison timer because the spawn code set only the fields it cared about.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Type a name, press <strong>Watch the old man's lesson</strong>, then <strong>Go to the shore</strong> and <strong>Surf until something appears</strong>. In the table, blue cells came from your name, orange cells are unpredictable leftovers, and grey cells are the last grassy area's data (here Route 1). G, H, J, M or S in positions 3, 5 or 7 land on unused indexes.</p>
+  <p>Then <strong>Reset</strong>, choose <strong>Walk through Route 21</strong>, and repeat. Same shore, but the grass list now belongs to Route 21.</p>
+
+  <figure class="demo wide" data-demo="missingno">
+    <canvas id="missingno"></canvas>
+    <figcaption>Top: your name, one byte per letter. Table: the same bytes read as wild data; the outlined row is the last encounter's slot. Leftover bytes stay "?" on purpose.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The mechanism in plain Lua (runs in LÖVE or any Lua 5.1). <code>loadWildData</code> skips the copy when an area has no grass, <code>oldManLesson</code> parks the name in the same bytes, and <code>surfLeftShore</code> rolls the water rate but reads the grass list. With <code>TASHMIR</code>, slots 1 and 2 become MissingNo. (<code>$92</code> and <code>$8C</code>) at levels 128 and 135.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- MissingNo. in miniature: one block of memory, two meanings.</span>
+local memory = {}                      <span class="c">-- [1] grass rate, then 10 slots of level, species</span>
+for i = 1, 21 do memory[i] = 0 end
+local CHANCES = {51, 51, 39, 25, 25, 25, 13, 13, 11, 3}   <span class="c">-- out of 256</span>
+
+local function encode(ch)              <span class="c">-- Game Boy text code for one letter</span>
+  local b = string.byte(ch)
+  if b &gt;= 97 then return 0xA0 + b - 97 end                <span class="c">-- a to z</span>
+  return 0x80 + b - 65                                     <span class="c">-- A to Z</span>
+end
+
+local function loadWildData(area)      <span class="c">-- runs every time an area loads</span>
+  memory[1] = area.grassRate
+<span class="k">  if area.grassRate == 0 then return end                   -- no grass: old slots stay</span>
+  for i = 1, 20 do memory[i + 1] = area.grassMons[i] end
+end
+
+local function oldManLesson(name)      <span class="c">-- save the name in the same bytes</span>
+<span class="k">  for i = 1, #name do memory[i] = encode(name:sub(i, i)) end</span>
+  memory[#name + 1] = 0x50             <span class="c">-- end marker (the real copy also moves leftover bytes)</span>
+end
+
+local function surfLeftShore(waterRate)
+  if math.random(0, 255) &gt;= waterRate then return nil end  <span class="c">-- no encounter this step</span>
+  local roll, total = math.random(0, 255), 0
+  for slot = 1, 10 do
+    total = total + CHANCES[slot]
+<span class="k">    if roll &lt; total then return memory[slot * 2], memory[slot * 2 + 1] end  -- the GRASS list</span>
+  end
+end
+
+local ROUTE_1 = { grassRate = 25, grassMons = { 3,0x24, 3,0xA5, 3,0xA5, 2,0xA5, 2,0x24,
+                                                3,0x24, 3,0x24, 4,0xA5, 4,0x24, 5,0x24 } }
+local NO_GRASS = { grassRate = 0 }
+
+loadWildData(ROUTE_1)                  <span class="c">-- walked through Route 1 earlier</span>
+oldManLesson("TASHMIR")
+loadWildData(NO_GRASS)                 <span class="c">-- battle over: Viridian City reloads</span>
+loadWildData(NO_GRASS)                 <span class="c">-- fly to Cinnabar Island</span>
+loadWildData(NO_GRASS)                 <span class="c">-- surf onto the shore (Route 20: water only)</span>
+local level, species
+for step = 1, 2000 do
+  level, species = surfLeftShore(5)
+  if level then break end
+end
+if level then print(string.format("Wild Pokemon: index $%02X at level %d", species, level))
+else print("No encounter in 2000 steps") end</code></pre>
+  </div>
+  <p>About 40 percent of runs print <code>$92</code> or <code>$8C</code>. Slots 6 to 10 still print Route 1's data, because nothing overwrote them.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Stale data looks valid.</strong> Nothing marks the leftover slots as old. If a loader can skip writing, readers cannot trust what they find.</li>
+    <li><strong>"Nothing to load" should still clear.</strong> Writing zeros or an "empty" flag for areas without grass would have closed the bug.</li>
+    <li><strong>Two checks that should agree.</strong> Decide "grass or water" once and use that answer for both the rate and the list.</li>
+    <li><strong>Lookup tables with holes.</strong> Check that an index points at a real entry before using it, especially when it comes from saved or shared data.</li>
+    <li><strong>Pools need a full reset.</strong> When you reuse an object, reset every field, not only the ones the new owner sets.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The Red and Blue disassembly marks 19 shared blocks in work RAM. Most never cause trouble, because their owners really never meet.</p>
+  <p>Object pools are standard in modern engines: Unity ships an object pool class, and pooling bullets and particles is common advice for mobile and web games.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the Lua above and fix the bug in two different ways. First, change <code>loadWildData</code> so that an area with no grass writes zeros into all 20 slot bytes, and make <code>surfLeftShore</code> return <code>nil</code> when the species byte is 0. Second, undo that and instead make <code>oldManLesson</code> save the 11 original bytes and write them back when the lesson ends. You are done when, after either fix, every run prints Route 1's indexes <code>$24</code> or <code>$A5</code>, or no encounter at all, and never <code>$92</code> or <code>$8C</code>. Then decide which fix you would ship, and why.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Pokémon Red and Blue had 8 KB of work RAM and reused blocks of it for jobs that should never overlap.</li>
+    <li>The old man's tutorial saves your name in bytes shared with the wild encounter table, and nothing restores the table.</li>
+    <li>Areas without grass skip loading the list, so the name survives as levels (letters 2, 4, 6) and species (letters 3, 5, 7).</li>
+    <li>On left shore squares, the game rolls the water rate but reads the grass list. That is where your name turns into MissingNo.</li>
+    <li>Today: unions, buffers and object pools are still worth it. Reset everything when the owner changes.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we move to the 16-bit era and the Amiga's copper, a coprocessor that rewrote colours partway down the screen to paint smooth sky gradients.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The mechanism was checked against the pret disassembly source, opened in this session. Fan wikis did not load here, so they are named without links. The Route 20 claim is this page's own reading of <code>maps/CinnabarIsland.blk</code> and <code>maps/Route20.blk</code>; it is unconfirmed by other sources.</p>
+  <ul>
+    <li>pret, <cite>pokered: Disassembly of Pokémon Red/Blue</cite>, <a href="https://github.com/pret/pokered">github.com/pret/pokered</a>.</li>
+    <li>pret, <a href="https://raw.githubusercontent.com/pret/pokered/master/engine/battle/core.asm"><cite>engine/battle/core.asm</cite></a>: the tutorial saving your name, with a comment on the overlap.</li>
+    <li>pret, <a href="https://raw.githubusercontent.com/pret/pokered/master/engine/battle/wild_encounters.asm"><cite>engine/battle/wild_encounters.asm</cite></a>: the two tile checks and the "left shore" comment.</li>
+    <li>pret, <a href="https://raw.githubusercontent.com/pret/pokered/master/engine/overworld/wild_mons.asm"><cite>engine/overworld/wild_mons.asm</cite></a>: the loader that skips the copy.</li>
+    <li>pret, <a href="https://raw.githubusercontent.com/pret/pokered/master/ram/wram.asm"><cite>ram/wram.asm</cite></a>, <a href="https://raw.githubusercontent.com/pret/pokered/master/data/wild/probabilities.asm"><cite>data/wild/probabilities.asm</cite></a>, <a href="https://raw.githubusercontent.com/pret/pokered/master/constants/pokemon_constants.asm"><cite>constants/pokemon_constants.asm</cite></a>, <a href="https://raw.githubusercontent.com/pret/pokered/master/constants/charmap.asm"><cite>constants/charmap.asm</cite></a>: memory layout, slot chances, species indexes, letter codes.</li>
+    <li>Bulbapedia, <cite>Old man glitch</cite> and <cite>MissingNo.</cite> (fan wiki; not opened).</li>
+    <li>The Cutting Room Floor, <cite>Pokémon Red and Blue/MissingNo.</cite> (not opened).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Internal species index list, $00 to $BE, from the pret disassembly. '' = unused index.
+  var NAMES = ('NO_MON,RHYDON,KANGASKHAN,NIDORAN_M,CLEFAIRY,SPEAROW,VOLTORB,NIDOKING,SLOWBRO,IVYSAUR,EXEGGUTOR,LICKITUNG,EXEGGCUTE,GRIMER,GENGAR,NIDORAN_F,NIDOQUEEN,CUBONE,RHYHORN,LAPRAS,ARCANINE,MEW,GYARADOS,SHELLDER,TENTACOOL,GASTLY,SCYTHER,STARYU,BLASTOISE,PINSIR,TANGELA,,,GROWLITHE,ONIX,FEAROW,PIDGEY,SLOWPOKE,KADABRA,GRAVELER,CHANSEY,MACHOKE,MR_MIME,HITMONLEE,HITMONCHAN,ARBOK,PARASECT,PSYDUCK,DROWZEE,GOLEM,,MAGMAR,,ELECTABUZZ,MAGNETON,KOFFING,,MANKEY,SEEL,DIGLETT,TAUROS,,,,FARFETCHD,VENONAT,DRAGONITE,,,,DODUO,POLIWAG,JYNX,MOLTRES,ARTICUNO,ZAPDOS,DITTO,MEOWTH,KRABBY,,,,VULPIX,NINETALES,PIKACHU,RAICHU,,,DRATINI,DRAGONAIR,KABUTO,KABUTOPS,HORSEA,SEADRA,,,SANDSHREW,SANDSLASH,OMANYTE,OMASTAR,JIGGLYPUFF,WIGGLYTUFF,EEVEE,FLAREON,JOLTEON,VAPOREON,MACHOP,ZUBAT,EKANS,PARAS,POLIWHIRL,POLIWRATH,WEEDLE,KAKUNA,BEEDRILL,,DODRIO,PRIMEAPE,DUGTRIO,VENOMOTH,DEWGONG,,,CATERPIE,METAPOD,BUTTERFREE,MACHAMP,,GOLDUCK,HYPNO,GOLBAT,MEWTWO,SNORLAX,MAGIKARP,,,MUK,,KINGLER,CLOYSTER,,ELECTRODE,CLEFABLE,WEEZING,PERSIAN,MAROWAK,,HAUNTER,ABRA,ALAKAZAM,PIDGEOTTO,PIDGEOT,STARMIE,BULBASAUR,VENUSAUR,TENTACRUEL,,GOLDEEN,SEAKING,,,,,PONYTA,RAPIDASH,RATTATA,RATICATE,NIDORINO,NIDORINA,GEODUDE,PORYGON,AERODACTYL,,MAGNEMITE,,,CHARMANDER,SQUIRTLE,CHARMELEON,WARTORTLE,CHARIZARD,,FOSSIL_KABUTOPS,FOSSIL_AERODACTYL,MON_GHOST,ODDISH,GLOOM,VILEPLUME,BELLSPROUT,WEEPINBELL,VICTREEBEL').split(',');
+  var CHANCES = [51, 51, 39, 25, 25, 25, 13, 13, 11, 3];   // out of 256
+  var END = 0x50;                                          // end-of-name marker
+  var ROUTE1 = { name: 'Route 1', rate: 25,
+    mons: [3, 0x24, 3, 0xA5, 3, 0xA5, 2, 0xA5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xA5, 4, 0x24, 5, 0x24] };
+  var ROUTE21 = { name: 'Route 21', rate: 25,
+    mons: [21, 0xA5, 23, 0x24, 30, 0xA6, 23, 0xA5, 21, 0x24, 30, 0x96, 32, 0x96, 28, 0x1E, 30, 0x1E, 32, 0x1E] };
+  var VIRIDIAN = { name: 'Viridian City', rate: 0 };
+  var PALLET = { name: 'Pallet Town', rate: 0 };
+  var CINNABAR = { name: 'Cinnabar Island', rate: 0 };
+  var SEA = { name: 'Route 20', rate: 0, water: 5 };
+
+  function pretty(id) {
+    if (id === 'MR_MIME') return 'Mr. Mime';
+    if (id === 'FARFETCHD') return 'Farfetch’d';
+    if (id === 'NIDORAN_M') return 'Nidoran ♂';
+    if (id === 'NIDORAN_F') return 'Nidoran ♀';
+    return id.charAt(0) + id.slice(1).toLowerCase();
+  }
+  function species(v) {
+    if (v === null) return { text: 'unknown', note: 'leftover byte', bad: false, unknown: true };
+    if (v === 0) return { text: 'no species', note: 'index 0', bad: true };
+    if (v > 0xBE) return { text: 'glitch', note: 'past end of list', bad: true };
+    if (v >= 0xB6 && v <= 0xB8) return { text: 'MissingNo.', note: 'fossil/ghost index', bad: true };
+    if (NAMES[v] === '') return { text: 'MissingNo.', note: 'unused index', bad: true };
+    return { text: pretty(NAMES[v]), note: '', bad: false };
+  }
+  function hex(v) { return v === null ? '??' : (v < 16 ? '0' : '') + v.toString(16).toUpperCase(); }
+  function encode(ch) {
+    var b = ch.charCodeAt(0);
+    return b >= 97 ? 0xA0 + b - 97 : 0x80 + b - 65;
+  }
+  function charOf(v) {
+    if (v === null) return '?';
+    if (v === END) return '@';
+    if (v >= 0x80 && v <= 0x99) return String.fromCharCode(65 + v - 0x80);
+    if (v >= 0xA0 && v <= 0xB9) return String.fromCharCode(97 + v - 0xA0);
+    return '';
+  }
+  function nameBytes(name) {               // the 11 bytes the lesson copies
+    var out = [], i;
+    for (i = 0; i < 11; i++) {
+      if (i < name.length) out.push({ v: encode(name.charAt(i)), src: 'name', pos: i + 1 });
+      else if (i === name.length) out.push({ v: END, src: 'name', pos: i + 1 });
+      else out.push({ v: null, src: 'leftover', pos: i + 1 });
+    }
+    return out;
+  }
+
+  // ---- state ----
+  var mem, where, waterRate, lastSlot, rng, history;
+  function fillArea(area) {
+    mem[0] = { v: area.rate, src: 'map', area: area.name };
+    for (var i = 0; i < 20; i++) mem[i + 1] = { v: area.mons[i], src: 'area', area: area.name };
+  }
+  function loadWild(area) {                 // same rule as the game's loader
+    mem[0] = { v: area.rate, src: 'map', area: area.name };
+    if (area.rate !== 0) {
+      for (var i = 0; i < 20; i++) mem[i + 1] = { v: area.mons[i], src: 'area', area: area.name };
+    }
+    waterRate = area.water || 0;
+  }
+  function reset() {
+    mem = [];
+    fillArea(ROUTE1);
+    loadWild(VIRIDIAN);                     // standing in Viridian City
+    where = 'viridian';
+    lastSlot = -1;
+    rng = DemoKit.rng(21);
+  }
+  reset();
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="missingno"]');
+  var nameWrap = document.createElement('label');
+  nameWrap.className = 'control';
+  var nameLabel = document.createElement('span');
+  nameLabel.className = 'control-name';
+  nameLabel.textContent = 'Player name (up to 7 letters)';
+  var nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.maxLength = 7;
+  nameInput.value = 'TASHMIR';
+  nameInput.autocomplete = 'off';
+  nameInput.spellcheck = false;
+  nameInput.style.cssText = 'font:inherit;font-family:var(--font-mono);color:var(--ink);background:var(--surface);' +
+    'border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:36px;width:100%;box-sizing:border-box;';
+  nameWrap.appendChild(nameLabel);
+  nameWrap.appendChild(nameInput);
+  ui.el.appendChild(nameWrap);
+  function currentName() { return nameInput.value; }
+  nameInput.addEventListener('input', function () {
+    var clean = nameInput.value.replace(/[^A-Za-z]/g, '').slice(0, 7);
+    if (clean !== nameInput.value) nameInput.value = clean;
+    redraw();
+  });
+
+  ui.button({ label: 'Watch the old man’s lesson', onClick: function () {
+    if (where !== 'viridian') { say('The old man is in Viridian City. Press Reset to go back.'); return; }
+    var name = currentName();
+    if (name.length === 0) { say('Type a name first.'); return; }
+    var bytes = nameBytes(name);
+    for (var i = 0; i < 11; i++) mem[i] = bytes[i];
+    loadWild(VIRIDIAN);                     // battle over: Viridian City reloads
+    lastSlot = -1;
+    say('Name "' + name + '" copied over the rate byte and slots 1 to 5. Viridian City then reloaded: rate set to 0, slots left alone.');
+  } });
+  var route = ui.select({ label: 'Route to the shore', value: 'fly', options: [
+    { value: 'fly', label: 'Fly to Cinnabar Island' },
+    { value: 'walk', label: 'Walk through Route 21' }
+  ] });
+  ui.button({ label: 'Go to the shore', onClick: function () {
+    if (where === 'shore') { say('You are already on the shore.'); return; }
+    if (route.value === 'fly') {
+      loadWild(CINNABAR);
+      loadWild(SEA);                        // the shore squares (Route 20)
+      say('Flew to Cinnabar (no wild data), then surfed onto the shore (Route 20: water rate 5, no grass list). The slots were never touched.');
+    } else {
+      loadWild(PALLET);
+      loadWild(ROUTE21);                    // Route 21 has grass: slots overwritten
+      loadWild(CINNABAR);
+      loadWild(SEA);
+      say('Walked through Pallet Town and Route 21. Route 21 has grass, so its slots replaced whatever was there.');
+    }
+    where = 'shore';
+    lastSlot = -1;
+  } });
+  ui.button({ label: 'Surf until something appears', onClick: function () {
+    if (where !== 'shore' || waterRate === 0) { say('There is no water here. Go to the shore first.'); return; }
+    var steps = 0, roll;
+    do { steps++; roll = Math.floor(rng() * 256); } while (roll >= waterRate && steps < 100000);
+    var pick = Math.floor(rng() * 256), total = 0, slot = 9;
+    for (var i = 0; i < 10; i++) { total += CHANCES[i]; if (pick < total) { slot = i; break; } }
+    lastSlot = slot;
+    var L = mem[1 + slot * 2], S = mem[2 + slot * 2], sp = species(S.v);
+    var lvText = L.v === null ? 'an unknown level' : 'level ' + L.v;
+    outEnc.set('slot ' + (slot + 1) + ': ' + (sp.unknown ? 'depends on leftover memory' : sp.text) + ', ' + lvText);
+    say('After ' + steps + ' step' + (steps === 1 ? '' : 's') + ' a battle starts. The rate came from the water tile, the species from the grass list.');
+  } });
+  ui.button({ label: 'Reset', onClick: function () {
+    reset();
+    outEnc.set('none yet');
+    say('Back in Viridian City. The slots hold Route 1 data from your last walk through grass.');
+  } });
+  var outWhere = ui.readout({ label: 'Where you are' });
+  var outMsg = ui.readout({ label: 'What happened' });
+  var outEnc = ui.readout({ label: 'Last encounter' });
+  outEnc.set('none yet');
+  var message = 'Back in Viridian City. The slots hold Route 1 data from your last walk through grass.';
+  function say(text) { message = text; redraw(); }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  function softFill(ctx, colour, x, y, w, h, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colour;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+  }
+  function srcColour(c, src) {
+    if (src === 'name') return c.topic;
+    if (src === 'leftover') return c.warn;
+    if (src === 'map') return c.good;
+    return c.ink3;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, W = s.width, pad = 12, i;
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+
+    // ---- the name strip ----
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Your name as stored: the 11 bytes the lesson copies', pad, 18);
+    var bytes = nameBytes(currentName());
+    var cw = Math.min(48, Math.floor((W - 2 * pad) / 11)), sx = pad, sy = 28, sh = 42;
+    for (i = 0; i < 11; i++) {
+      var b = bytes[i], x = sx + i * cw;
+      softFill(ctx, srcColour(c, b.src), x, sy, cw - 2, sh, 0.16);
+      ctx.strokeStyle = srcColour(c, b.src);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, sy + 0.5, cw - 3, sh - 1);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink;
+      ctx.font = '600 14px ui-monospace, monospace';
+      ctx.fillText(charOf(b.v), x + (cw - 2) / 2, sy + 18);
+      ctx.fillStyle = c.ink2;
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText(hex(b.v), x + (cw - 2) / 2, sy + 35);
+    }
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('byte 1 → rate, bytes 2 to 11 → slots 1 to 5 (level, species)', pad, sy + sh + 16);
+
+    // ---- the wild table ----
+    var ty = sy + sh + 38;
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('The same memory read as the wild encounter table', pad, ty);
+    var wide = W >= 560;
+    var slotW = wide ? 110 : 66, lvW = wide ? 96 : 58, spW = wide ? 96 : 56;
+    var xSlot = pad, xLv = xSlot + slotW, xSp = xLv + lvW, xMean = xSp + spW + 8;
+    var hy = ty + 20;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText(wide ? 'Slot (chance)' : 'Slot', xSlot, hy);
+    ctx.fillText('Level', xLv + 4, hy);
+    ctx.fillText('Species', xSp + 4, hy);
+    ctx.fillText('Reads as', xMean, hy);
+    var rowH = 36, y0 = hy + 8;
+
+    function cell(entry, x, w, y, line1, line2) {
+      softFill(ctx, srcColour(c, entry.src), x, y + 2, w - 4, rowH - 4, entry.src === 'area' ? 0.10 : 0.18);
+      ctx.strokeStyle = srcColour(c, entry.src);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 2.5, w - 5, rowH - 5);
+      ctx.fillStyle = c.ink;
+      ctx.font = '13px ui-monospace, monospace';
+      ctx.fillText(line1, x + 5, y + 17);
+      ctx.fillStyle = c.ink2;
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText(line2, x + 5, y + 31);
+    }
+    function srcNote(entry) {
+      if (entry.src === 'name') return 'name letter ' + entry.pos;
+      if (entry.src === 'leftover') return 'leftover byte';
+      if (entry.src === 'map') return 'written by ' + entry.area;
+      return 'from ' + entry.area;
+    }
+
+    // rate row
+    var r = mem[0];
+    ctx.fillStyle = c.ink;
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Rate', xSlot, y0 + 22);
+    cell(r, xLv, lvW, y0, String(r.v), '$' + hex(r.v));
+    ctx.fillStyle = c.ink;
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('grass rate ' + r.v + '/256', xMean, y0 + 17);
+    ctx.fillStyle = c.ink3;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText(wide ? 'set by the last area loaded (' + r.area + ')' : 'set by area load', xMean, y0 + 31);
+
+    for (i = 0; i < 10; i++) {
+      var y = y0 + (i + 1) * rowH;
+      var L = mem[1 + i * 2], S = mem[2 + i * 2];
+      ctx.fillStyle = c.ink;
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.fillText(String(i + 1), xSlot, y + 17);
+      ctx.fillStyle = c.ink3;
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText(Math.round(CHANCES[i] / 256 * 1000) / 10 + '%', xSlot + (wide ? 26 : 18), y + 17);
+      var lc = charOf(L.v), scr = charOf(S.v);
+      cell(L, xLv, lvW, y, L.v === null ? '?' : 'Lv ' + L.v, '$' + hex(L.v) + (lc && L.src === 'name' ? ' ' + lc : ''));
+      cell(S, xSp, spW, y, '$' + hex(S.v), scr && S.src === 'name' ? scr : (S.v === null ? '?' : ''));
+      var sp = species(S.v);
+      ctx.font = '600 13px system-ui, sans-serif';
+      ctx.fillStyle = sp.bad ? c.bad : (sp.unknown ? c.warn : c.ink);
+      ctx.fillText(sp.text, xMean, y + 17);
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink3;
+      var note = sp.note || srcNote(S);
+      if (wide && sp.note) note += ', ' + srcNote(S);
+      ctx.fillText(note, xMean, y + 31);
+      if (i === lastSlot) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(pad - 4, y, W - 2 * pad + 8, rowH);
+      }
+    }
+
+    // legend
+    var ly = y0 + 11 * rowH + 18, lx = pad;
+    var legend = [['name', 'from your name'], ['leftover', 'leftover'], ['area', 'old area data'], ['map', 'written on load']];
+    ctx.font = '12px system-ui, sans-serif';
+    for (i = 0; i < legend.length; i++) {
+      var tw = ctx.measureText(legend[i][1]).width + 26;
+      if (lx + tw > W - pad) { lx = pad; ly += 18; }
+      softFill(ctx, srcColour(c, legend[i][0]), lx, ly - 10, 12, 12, 0.35);
+      ctx.strokeStyle = srcColour(c, legend[i][0]);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(lx + 0.5, ly - 9.5, 11, 11);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(legend[i][1], lx + 17, ly);
+      lx += tw;
+    }
+
+    outWhere.set(where === 'viridian' ? 'Viridian City (no wild data)' :
+      'shore east of Cinnabar (water rate ' + waterRate + '/256, list from grass)');
+    outMsg.set(message);
+  }
+
+  handle = DemoKit.canvas('#missingno', {
+    height: 600,
+    animate: false,
+    label: 'A strip shows the 11 bytes of the player name as letters and hex codes. Below it, a table reads the same memory as a wild encounter table: a rate byte and ten slots, each with a level and a species index and what that index means. Cells are coloured by where the byte came from: the name, leftover memory, or the last area with grass. Use the buttons below to run the old man lesson, travel to the shore and surf.',
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

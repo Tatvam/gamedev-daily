@@ -12,7 +12,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Moving towards a target** — How direction multiplied by speed and delta time moves an object and how to avoid overshooting. Demo: click to set a target for a chaser with a speed slider and a toggle for overshoot protection. (published 2026-10-18, moving-towards-target)
 - [x] **The dot product** — How the dot product measures how much two vectors point the same way. Demo: drag two vectors and watch the dot value and the angle update while the sign changes colour. (published 2026-10-19, dot-product)
 - [x] **Facing and field of view** — How a dot product test tells whether a target is in front of a character and inside its view cone. Demo: drag a player around a guard with a view angle slider and see the guard react. (published 2026-10-20, facing-field-of-view)
-- [ ] **Projection and reflection** — How to project one vector onto another and how to bounce a direction off a surface normal. Demo: drag an incoming arrow towards a rotatable wall and see its projection and reflection.
+- [x] **Projection and reflection** — How to project one vector onto another and how to bounce a direction off a surface normal. Demo: drag an incoming arrow towards a rotatable wall and see its projection and reflection. (published 2026-10-21, projection-reflection-bounce)
 - [ ] **The 2D cross product** — How the perp-dot product tells whether a target is to the left or right and how it relates to perpendicular vectors. Demo: drag a target around a ship and watch the sign decide which way it turns.
 
 ## Track 2: Angles and interpolation

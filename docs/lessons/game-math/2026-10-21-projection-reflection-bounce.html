@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projection and reflection: which way does the ball bounce? · Game Dev Daily</title>
+<meta name="description" content="How the dot product splits a movement into the part going into a wall and the part along it, and how flipping or dropping one part gives bounce and slide.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-21">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-d { color: var(--warn); font-weight: 650; }
+  .v-n { color: var(--t-game-physics); font-weight: 650; }
+  .v-along { color: var(--bad); font-weight: 650; }
+  .v-across { color: var(--good); font-weight: 650; }
+  .v-r { color: var(--t-game-idea); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Projection and reflection: which way does the ball bounce?</h1>
+  <p class="lede">How the dot product splits a movement into the part going into a wall and the part along it, and how flipping or dropping one part gives bounce and slide.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your ball bounces off the screen edges by flipping the x speed at the sides and the y speed at the floor. Then you add a slanted bumper, and there is nothing to flip: neither x nor y is "the part that hits the wall" any more.</p>
+  <p>A character that stops dead against a slanted wall instead of sliding along it has the same problem. Both are fixed by splitting the movement into the part that goes into the wall and the part that runs along it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two parts of one movement</h2>
+  <p>Every wall has a <dfn>normal</dfn>: an arrow of length 1 sticking straight out of the wall's front face, at a right angle to it. Collision code usually hands you this arrow. We call it <span class="v-n">n</span>.</p>
+  <p>Call the ball's movement per second (its velocity) <span class="v-d">d</span>. Any <span class="v-d">d</span> is the sum of two arrows:</p>
+  <ul>
+    <li><span class="v-along">along</span>: the part in line with n, straight into or out of the wall.</li>
+    <li><span class="v-across">across</span>: the part parallel to the wall.</li>
+  </ul>
+  <p>A bounce keeps <span class="v-across">across</span> and flips <span class="v-along">along</span>. A slide keeps <span class="v-across">across</span> and throws <span class="v-along">along</span> away.</p>
+  <p>Positions are in grid squares and <strong>y grows downwards</strong>, as on a screen and in LÖVE. Here is a ball falling onto a flat floor:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a flat floor with its normal n pointing up. An orange arrow d = (3, 4) comes down from the upper left and hits the floor. It is split into a green across part (3, 0) and a red along part (0, 4). On the right of the hit point the purple bounced arrow r = (3, minus 4) leaves upwards, built from the same green across part and the red part flipped to (0, minus 4). Right: the arithmetic in five lines.">
+      <path style="stroke: var(--line); stroke-width: 1; fill: none" d="M30 40 V220 M60 40 V220 M90 40 V220 M120 40 V220 M150 40 V220 M180 40 V220 M210 40 V220 M240 40 V220 M270 40 V220 M300 40 V220 M330 40 V220 M24 40 H336 M24 70 H336 M24 100 H336 M24 130 H336 M24 160 H336 M24 190 H336 M24 220 H336"/>
+      <path class="d-stroke" style="stroke-width: 3" d="M24 190 H336"/>
+      <path class="d-thin" d="M34 190 l-8 10 M54 190 l-8 10 M74 190 l-8 10 M94 190 l-8 10 M114 190 l-8 10 M134 190 l-8 10 M154 190 l-8 10 M174 190 l-8 10 M194 190 l-8 10 M214 190 l-8 10 M234 190 l-8 10 M254 190 l-8 10 M274 190 l-8 10 M294 190 l-8 10 M314 190 l-8 10 M334 190 l-8 10"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 3; fill: none" d="M45 190 V162 M40.5 170 L45 161 L49.5 170"/>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="54" y="172">n</text>
+      <path class="d-dash" style="stroke: var(--good); stroke-width: 2" d="M90 70 H180 M180 186 H270"/>
+      <path class="d-dash" style="stroke: var(--bad); stroke-width: 2" d="M180 70 V190 M270 186 V70"/>
+      <path style="stroke: var(--warn); stroke-width: 3.5; fill: none" d="M90 70 L174 182 M166.8 182.4 L180 190 L176.4 175.2"/>
+      <path style="stroke: var(--t-game-idea); stroke-width: 3.5; fill: none" d="M180 190 L264 78 M266.4 84.8 L270 70 L256.8 77.6"/>
+      <circle cx="90" cy="70" r="6" style="fill: var(--warn)"/>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="112" y="136">d</text>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="238" y="136">r</text>
+      <text class="d-mono" style="fill: var(--good)" x="135" y="60" text-anchor="middle">across (3, 0)</text>
+      <text class="d-mono" style="fill: var(--bad)" x="186" y="112">along</text>
+      <text class="d-mono" style="fill: var(--bad)" x="186" y="128">(0, 4)</text>
+      <text class="d-mono" style="fill: var(--bad)" x="276" y="112">−along</text>
+      <text class="d-mono" style="fill: var(--bad)" x="276" y="128">(0, −4)</text>
+      <text class="d-mono" style="fill: var(--good)" x="225" y="212" text-anchor="middle">across</text>
+      <text class="d-muted" x="24" y="252">Floor normal n = (0, −1). x right, y down, 1 square = 1 unit.</text>
+
+      <text class="d-mono" style="fill: var(--warn)" x="370" y="60">d = (3, 4)</text>
+      <text class="d-mono" x="370" y="88">d · n = 3×0 + 4×(−1) = −4</text>
+      <text class="d-mono" style="fill: var(--bad)" x="370" y="116">along = −4 × n = (0, 4)</text>
+      <text class="d-mono" style="fill: var(--good)" x="370" y="144">across = d − along = (3, 0)</text>
+      <text class="d-mono" style="fill: var(--t-game-idea)" x="370" y="172">r = across − along = (3, −4)</text>
+      <text class="d-muted" x="370" y="206">Same across part, along part flipped.</text>
+      <text class="d-muted" x="370" y="224">Same speed: both have length 5.</text>
+    </svg>
+    <figcaption>d split into an across part and an along part. The bounce r keeps across and flips along.</figcaption>
+  </figure>
+
+  <h2>Projection: the shadow of one arrow on another</h2>
+  <p>From the dot product lesson: when n has length 1, d · n says how far d reaches in n's direction. Here it is −4, negative because d goes <em>into</em> the floor while n points out.</p>
+  <p>Multiply n by that number to get the <span class="v-along">along</span> arrow: (d · n) n = −4 × (0, −1) = (0, 4). This is the <dfn>projection</dfn> of d onto n: d's shadow on the line of n, with the light shining at a right angle to that line.</p>
+  <p>The <span class="v-across">across</span> part is what is left: (3, 4) − (0, 4) = (3, 0). Check: across · n = 3 × 0 + 0 × (−1) = 0, so it has nothing in n's direction.</p>
+  <p>To project v onto an arrow a that is not length 1, divide by a's length squared:</p>
+<pre><code>projection of v onto a  =  (v · a ÷ a · a) × a</code></pre>
+  <p>Read it as "v dot a, divided by a dot a, times a". For v = (3, 4) and a = (2, 0): v · a = 6, a · a = 4, so the projection is 1.5 × (2, 0) = (3, 0). With a unit arrow, a · a is 1 and the division disappears.</p>
+
+  <h2>Reflection: flip the part that hits</h2>
+  <p>The bounced movement is <span class="v-r">r</span> = across − along. Since across = d − along, that is d − 2 × along, which gives the usual formula:</p>
+<pre><code>r  =  d − 2 (d · n) n</code></pre>
+  <p>Read it as "d, minus twice the projection of d onto n". Subtracting the along part once cancels it: a slide. Twice flips it: a bounce. This is a <dfn>reflection</dfn>, the path out mirroring the path in.</p>
+  <p>Now a slanted wall with direction (4, −3). Its normal is n = (−0.6, −0.8), pointing up and left. (Swap the parts and negate one, (x, y) to (y, −x), then divide by the length 5; the next lesson explains why.) The ball moves right, d = (5, 0):</p>
+  <ul>
+    <li>d · n = 5 × (−0.6) + 0 × (−0.8) = −3</li>
+    <li><span class="v-along">along</span> = −3 × (−0.6, −0.8) = (1.8, 2.4)</li>
+    <li><span class="v-across">across</span> = (5, 0) − (1.8, 2.4) = (3.2, −2.4)</li>
+    <li><span class="v-r">r</span> = (3.2, −2.4) − (1.8, 2.4) = (1.4, −4.8)</li>
+  </ul>
+  <p>The ball leaves steeply up and right, with length √(1.4² + 4.8²) = √25 = 5: the same speed it came in with.</p>
+
+  <h2>Bounciness</h2>
+  <p>Between flipping and dropping there is a dial: multiply the flipped part by a <dfn>bounciness</dfn> e from 0 to 1, so r = across − e × along. e = 1 is the mirror bounce; e = 0 is the slide, (3.2, −2.4) on the slanted wall. On the floor with e = 0.5, r = (3, −2): same sideways speed, half the upward speed.</p>
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Project onto the normal to get the part that hits. Keep the rest. Flip the hitting part to bounce, drop it to slide, scale it for anything in between. Only do this when d · n is negative.</p>
+  </div>
+  <p>Nothing here depends on which way y points: the same formulas work in a y-up world.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the orange dot to change where the ball comes from; it always travels to the centre of the wall. Drag the grey handle to turn the wall. With the canvas focused, the arrow keys move the chosen point and Space switches between them. Points snap to whole squares; the demo starts on the slanted wall above.</p>
+  <p>Watch the green across part stay the same on both sides of the hit while the red along part flips. Set Bounciness to 0 and the red part on the way out vanishes. Then drag the orange dot to the hatched back of the wall.</p>
+  <figure class="demo" data-demo="bounce-wall">
+    <canvas id="bounce-wall"></canvas>
+    <figcaption>Orange d comes in, purple r goes out, blue n is the normal. Dashed green and red are the across and along parts. A ball coming from the hatched back does not bounce.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The slanted wall and ball from the worked example, named as in the demo. <code>bounce</code> uses <code>project</code>, so it still works if the normal is not length 1.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Vectors are tables { x, y }. y grows downwards, like LÖVE's screen.</span>
+local function vec(x, y) return { x = x, y = y } end
+local function dot(a, b) return a.x * b.x + a.y * b.y end
+local function scale(v, s) return vec(v.x * s, v.y * s) end
+local function sub(a, b) return vec(a.x - b.x, a.y - b.y) end
+
+<span class="c">-- The part of v that points along a. a can be any length.</span>
+local function project(v, a)
+  local aa = dot(a, a)
+  if aa == 0 then
+    return vec(0, 0)                  <span class="c">-- a has no direction</span>
+  end
+<span class="k">  return scale(a, dot(v, a) / aa)</span>
+end
+
+<span class="c">-- n: the wall's normal, out of its front face.</span>
+<span class="c">-- e: bounciness. 1 = mirror bounce, 0 = slide.</span>
+local function bounce(d, n, e)
+  if dot(d, n) &gt;= 0 then
+    return d                          <span class="c">-- not moving into the front face</span>
+  end
+<span class="k">  local along = project(d, n)</span>
+<span class="k">  local across = sub(d, along)</span>
+<span class="k">  return sub(across, scale(along, e))</span>
+end
+
+local function reflect(d, n) return bounce(d, n, 1) end
+local function slide(d, n) return bounce(d, n, 0) end
+
+local wall = vec(4, -3)               <span class="c">-- the wall's direction</span>
+local n = scale(vec(wall.y, -wall.x), 1 / math.sqrt(dot(wall, wall)))
+local d = vec(5, 0)                   <span class="c">-- n is (-0.6, -0.8)</span>
+
+function love.draw()
+  local r = reflect(d, n)             <span class="c">-- (1.4, -4.8)</span>
+  local s = slide(d, n)               <span class="c">-- (3.2, -2.4)</span>
+  love.graphics.print(string.format("reflect: (%.1f, %.1f)", r.x, r.y), 10, 10)
+  love.graphics.print(string.format("slide:   (%.1f, %.1f)", s.x, s.y), 10, 30)
+end</code></pre>
+  </div>
+  <p>In a game, call <code>bounce</code> on the ball's velocity in <code>love.update(dt)</code> on the frame it touches the wall, with the normal your collision check found.</p>
+  <p>Built-in versions: Unity has <code>Vector2.Reflect(inDirection, inNormal)</code>, matching <code>reflect</code> here. Godot has <code>Vector2.project</code>, <code>slide</code> and <code>bounce</code>; <code>bounce(n)</code> is this lesson's reflect, while Godot 4's own <code>reflect</code> mirrors across a line and gives the opposite sign.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A normal that is not length 1.</strong> d − 2(d · n)n assumes it. With n = (0, −2) on the floor, d = (3, 4) becomes (3, −12), four times too fast. Normalise n, or use <code>project</code>, which divides by n · n.</li>
+    <li><strong>Bouncing when moving away.</strong> If d · n is positive, the ball is already leaving, and reflecting sends it back into the wall. A ball still overlapping the wall next frame then bounces in, out, in, and looks stuck. Only bounce when d · n is negative, and push the ball out of the wall on a hit.</li>
+    <li><strong>A normal facing the wrong way.</strong> Flipping n does not change the reflection (the two minus signs cancel), but it flips the "moving into the wall?" test, so balls pass through. Check which side your normals face.</li>
+    <li><strong>Zero-length vectors.</strong> Projecting onto (0, 0) would divide by zero; <code>project</code> returns (0, 0) instead. A ball with d = (0, 0) has d · n = 0 and does not bounce. A grazing ball moving exactly along the wall also has d · n = 0 and keeps going.</li>
+    <li><strong>Sliding loses speed.</strong> On the slanted wall the slide has length 4, down from 5. That usually feels right for a character walking into a wall at an angle. For full speed, normalise the slide and multiply by the old speed, but guard against a slide of (0, 0) when walking straight in.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Balls, bullets and pucks that ricochet off angled walls use this reflection; "flip the x speed" is the same formula with the normal (1, 0) or (−1, 0). Character controllers slide along walls by removing the along part; Godot's <code>CharacterBody2D.move_and_slide</code>, for example, slides a character along the surfaces it touches. Physics engines expose bounciness as a material setting, often called restitution, which plays the role of e here.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into a LÖVE project and bounce a ball around the window. The edge normals are left (1, 0), right (−1, 0), top (0, 1), bottom (0, −1). In <code>love.update(dt)</code>, move the ball; when it crosses an edge, put it back inside and set its velocity to <code>reflect(velocity, n)</code>. Add a key that switches to <code>bounce(velocity, n, 0.6)</code>.</p>
+  <p>You are done when the ball bounces forever with e = 1, and with e = 0.6 loses height on every floor hit while keeping its sideways speed.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>With a unit normal n, the projection (d · n) n is the part of d going into the wall; the rest runs along it.</li>
+    <li>Bounce: r = d − 2(d · n)n. Slide: d − (d · n)n. Bounciness e scales the flipped part.</li>
+    <li>Only respond when d · n is negative, and normalise n or divide by n · n.</li>
+    <li>A mirror bounce keeps the speed; a slide usually loses some.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the 2D cross product: is the target to the left or the right, and why does the quarter-turn trick give a wall's normal?</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on vectors, the section on projecting one vector onto another.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite>, the chapter on math and geometry primers.</li>
+    <li>Godot Engine documentation, the <cite>Vector2</cite> class reference: <cite>project</cite>, <cite>slide</cite>, <cite>bounce</cite> and <cite>reflect</cite>.</li>
+    <li>Unity Scripting API, <cite>Vector2.Reflect</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua code. Grid squares relative to the hit point H at the centre of
+  // the wall. y grows downwards.
+  var START_T = { x: -5, y: 0 };   // where the ball starts (orange), so d = H - T = (5, 0)
+  var START_W = { x: 4, y: -3 };   // wall handle (grey), the wall's direction
+  var T = { x: START_T.x, y: START_T.y };
+  var W = { x: START_W.x, y: START_W.y };
+  var dragging = null;             // 't', 'w' or null
+  var L = { u: 28, cx: 160, cy: 240, hx: 5, hy: 5, top: 62, bottom: 44 };
+  var handle = null;
+  var outCache = {};
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="bounce-wall"]');
+  var eSlider = ui.slider({ label: 'Bounciness e', min: 0, max: 1, step: 0.1, value: 1, onInput: redraw });
+  var which = ui.select({
+    label: 'Arrow keys move',
+    options: [{ value: 't', label: 'Ball start (d)' }, { value: 'w', label: 'Wall handle' }],
+    value: 't',
+    onChange: redraw
+  });
+  ui.button({ label: 'Reset', onClick: function () {
+    T = { x: START_T.x, y: START_T.y };
+    W = { x: START_W.x, y: START_W.y };
+    eSlider.set(1);
+    redraw();
+  } });
+  var outD = ui.readout({ label: 'd, incoming (orange)' });
+  var outN = ui.readout({ label: 'Wall direction → normal n (blue)' });
+  var outDot = ui.readout({ label: 'd · n' });
+  var outAlong = ui.readout({ label: 'along = (d · n) n (red)' });
+  var outAcross = ui.readout({ label: 'across = d − along (green)' });
+  var outR = ui.readout({ label: 'r, outgoing (purple)' });
+
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+
+  function dot(p, q) { return p.x * q.x + p.y * q.y; }
+  function len(v) { return Math.sqrt(dot(v, v)); }
+  function num(n, digits) {
+    var p = Math.pow(10, digits === undefined ? 2 : digits);
+    n = Math.round(n * p) / p;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function term(n) { return n < 0 ? '(' + num(n) + ')' : num(n); }
+  function pair(v) { return '(' + num(v.x) + ', ' + num(v.y) + ')'; }
+
+  // The same decision as bounce() in the Lua code, with the pieces kept for display.
+  function evaluate() {
+    var e = DemoKit.clamp(eSlider.value, 0, 1);
+    var d = { x: -T.x, y: -T.y };
+    var wl = len(W);
+    var n = wl > 0 ? { x: W.y / wl, y: -W.x / wl } : { x: 0, y: -1 };
+    var dn = dot(d, n);
+    var along = { x: n.x * dn, y: n.y * dn };
+    var across = { x: d.x - along.x, y: d.y - along.y };
+    var hit = dn < 0;
+    var r = hit ? { x: across.x - e * along.x, y: across.y - e * along.y } : { x: d.x, y: d.y };
+    return { e: e, d: d, n: n, dn: dn, along: along, across: across, hit: hit, r: r, moving: len(d) > 0 };
+  }
+
+  function layout(s) {
+    var usableH = s.height - L.top - L.bottom;
+    L.u = Math.max(20, Math.min(34, Math.floor(Math.min(s.width, usableH) / 13)));
+    L.cx = Math.round(s.width / 2);
+    L.cy = Math.round(L.top + usableH / 2);
+    L.hx = Math.max(3, Math.floor((s.width / 2 - 12) / L.u));
+    L.hy = Math.max(3, Math.floor((usableH / 2) / L.u));
+  }
+  function clampPoint(p) {
+    p.x = DemoKit.clamp(p.x, -L.hx, L.hx);
+    p.y = DemoKit.clamp(p.y, -L.hy, L.hy);
+  }
+  function toScreen(v) { return { x: L.cx + v.x * L.u, y: L.cy + v.y * L.u }; }
+  function fromScreen(p) {
+    var v = { x: Math.round((p.x - L.cx) / L.u), y: Math.round((p.y - L.cy) / L.u) };
+    clampPoint(v);
+    return v;
+  }
+  function setPoint(name, p) {
+    var v = fromScreen(p);
+    if (name === 'w') {
+      if (v.x !== 0 || v.y !== 0) W = v;   // the wall needs a direction
+    } else {
+      T = v;
+    }
+    redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function arrow(ctx, x1, y1, x2, y2, size) {
+    var l = Math.hypot(x2 - x1, y2 - y1);
+    if (l < 1) return;
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var sz = Math.min(size, l);
+    line(ctx, x1, y1, x2 - Math.cos(ang) * sz * 0.6, y2 - Math.sin(ang) * sz * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - sz * Math.cos(ang - 0.45), y2 - sz * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - sz * Math.cos(ang + 0.45), y2 - sz * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+  function label(ctx, text, x, y, color, bg) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - w / 2 - 3, y - 11, w + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(text, x, y);
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 13px ui-monospace, Menlo, Consolas, monospace';
+  var BIG = '600 16px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var SPEED = 4;     // ball speed in squares per second, for the animation only
+
+  handle = DemoKit.canvas('#bounce-wall', {
+    height: 480,
+    drag: true,
+    keys: true,
+    label: 'A wall through the centre of a grid with y pointing down. An orange arrow d runs from a draggable ball start to the middle of the wall. A blue arrow n is the wall normal; a grey handle on the wall turns it. A purple arrow r shows the movement after the hit, and dashed green and red lines split d and r into the parts across the wall and along the normal. A ball travels along d and then r. Arrow keys move the chosen point and Space switches between the ball start and the wall handle.',
+    onResize: function (s) { layout(s); clampPoint(T); clampPoint(W); },
+    onDown: function (p) {
+      var st = toScreen(T);
+      var sw = toScreen(W);
+      var dt = Math.hypot(p.x - st.x, p.y - st.y);
+      var dw = Math.hypot(p.x - sw.x, p.y - sw.y);
+      if (dw < 24 && dw <= dt) dragging = 'w';
+      else dragging = 't';
+      which.set(dragging);
+      setPoint(dragging, p);
+    },
+    onMove: function (p) { if (p.down && dragging) setPoint(dragging, p); },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var v = which.value === 'w' ? { x: W.x, y: W.y } : T;
+      if (key === ' ' || key === 'space' || key === 'spacebar') {
+        which.set(which.value === 'w' ? 't' : 'w');
+        redraw();
+        return;
+      } else if (key === 'arrowleft') { v.x -= 1; }
+      else if (key === 'arrowright') { v.x += 1; }
+      else if (key === 'arrowup') { v.y -= 1; }
+      else if (key === 'arrowdown') { v.y += 1; }
+      else { return; }
+      clampPoint(v);
+      if (which.value === 'w' && (v.x !== 0 || v.y !== 0)) W = v;
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      layout(s);
+      clampPoint(T);
+      clampPoint(W);
+      var u = L.u;
+      var gx0 = L.cx - L.hx * u, gx1 = L.cx + L.hx * u;
+      var gy0 = L.cy - L.hy * u, gy1 = L.cy + L.hy * u;
+      var r = evaluate();
+      var i;
+      var H = toScreen({ x: 0, y: 0 });
+      var pT = toScreen(T);
+      var pW = toScreen(W);
+      var wl = len(W);
+      var wu = { x: W.x / wl, y: W.y / wl };
+
+      // Grid with axes through the hit point.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = -L.hx; i <= L.hx; i++) line(ctx, L.cx + i * u + 0.5, gy0, L.cx + i * u + 0.5, gy1);
+      for (i = -L.hy; i <= L.hy; i++) line(ctx, gx0, L.cy + i * u + 0.5, gx1, L.cy + i * u + 0.5);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, gx0, L.cy + 0.5, gx1, L.cy + 0.5);
+      line(ctx, L.cx + 0.5, gy0, L.cx + 0.5, gy1);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('x →', gx1 - 2, L.cy - 6);
+      ctx.textAlign = 'left';
+      ctx.fillText('y ↓ (down)', L.cx + 6, gy1 - 6);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+      ctx.clip();
+
+      // Wall: a long line through H, hatched on its back (the side n points away from).
+      var far = (gx1 - gx0) + (gy1 - gy0);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 4;
+      line(ctx, H.x - wu.x * far, H.y - wu.y * far, H.x + wu.x * far, H.y + wu.y * far);
+      ctx.lineWidth = 1;
+      for (i = -Math.ceil(far / 14); i <= Math.ceil(far / 14); i++) {
+        var hx = H.x + wu.x * i * 14, hy = H.y + wu.y * i * 14;
+        line(ctx, hx, hy, hx - r.n.x * 9 - wu.x * 6, hy - r.n.y * 9 - wu.y * 6);
+      }
+
+      // Parts of d: T -> T + across (green), then -> H (red).
+      var pA = { x: pT.x + r.across.x * u, y: pT.y + r.across.y * u };
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      if (r.moving) {
+        ctx.strokeStyle = c.good;
+        line(ctx, pT.x, pT.y, pA.x, pA.y);
+        ctx.strokeStyle = c.bad;
+        line(ctx, pA.x, pA.y, H.x, H.y);
+      }
+      // Parts of r: H -> H + across (green), then -> H + r (red, flipped and scaled).
+      var pR = { x: H.x + r.r.x * u, y: H.y + r.r.y * u };
+      var pB = { x: H.x + r.across.x * u, y: H.y + r.across.y * u };
+      if (r.hit) {
+        ctx.strokeStyle = c.good;
+        line(ctx, H.x, H.y, pB.x, pB.y);
+        ctx.strokeStyle = c.bad;
+        line(ctx, pB.x, pB.y, pR.x, pR.y);
+      } else if (r.moving) {
+        ctx.strokeStyle = c.ink3;
+        line(ctx, H.x, H.y, pR.x, pR.y);
+      }
+      ctx.setLineDash([]);
+
+      // n: blue unit arrow, drawn on the wall away from the handle.
+      var nb = { x: H.x - wu.x * 2.5 * u, y: H.y - wu.y * 2.5 * u };
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = blue;
+      ctx.fillStyle = blue;
+      arrow(ctx, nb.x, nb.y, nb.x + r.n.x * u, nb.y + r.n.y * u, 10);
+
+      // d: orange, r: purple.
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = c.warn;
+      ctx.fillStyle = c.warn;
+      arrow(ctx, pT.x, pT.y, H.x, H.y, 12);
+      if (r.hit) {
+        ctx.strokeStyle = purple;
+        ctx.fillStyle = purple;
+        arrow(ctx, H.x, H.y, pR.x, pR.y, 12);
+      }
+
+      // The ball: travels along d to the wall, then along r, then waits and repeats.
+      var t1 = len(r.d) / SPEED, t2 = len(r.r) / SPEED;
+      var ball;
+      if (!r.moving) {
+        ball = H;
+      } else {
+        var phase = s.time % (t1 + t2 + 0.6);
+        if (phase < t1) ball = { x: pT.x + (H.x - pT.x) * phase / t1, y: pT.y + (H.y - pT.y) * phase / t1 };
+        else if (phase < t1 + t2 && t2 > 0) ball = { x: H.x + (pR.x - H.x) * (phase - t1) / t2, y: H.y + (pR.y - H.y) * (phase - t1) / t2 };
+        else ball = pR;
+      }
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Labels.
+      label(ctx, 'n', nb.x + r.n.x * u * 0.5 + r.n.y * 12, nb.y + r.n.y * u * 0.5 - r.n.x * 12 + 4, blue, c.surface);
+      if (r.moving) label(ctx, 'd', (pT.x + H.x) / 2 - r.d.y / len(r.d) * 14, (pT.y + H.y) / 2 + r.d.x / len(r.d) * 14 + 4, c.warn, c.surface);
+      if (r.hit && len(r.r) > 0.3) label(ctx, 'r', (H.x + pR.x) / 2 + r.r.y / len(r.r) * 14, (H.y + pR.y) / 2 - r.r.x / len(r.r) * 14 + 4, purple, c.surface);
+      ctx.restore();
+
+      // Handles: ball start (orange) and wall handle (grey).
+      ctx.fillStyle = c.warn;
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pT.x, pT.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = c.surface;
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(pW.x, pW.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Ring around the point the arrow keys move.
+      var sel = which.value === 'w' ? pW : pT;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(sel.x, sel.y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Summary box, top-left.
+      var line1, line2;
+      if (!r.moving) { line1 = 'No bounce'; line2 = 'd is (0, 0): the ball is not moving'; }
+      else if (!r.hit) { line1 = 'No bounce'; line2 = 'd · n ≥ 0: not moving into the front'; }
+      else {
+        line1 = r.e === 1 ? 'Mirror bounce' : (r.e === 0 ? 'Slide' : 'Soft bounce, e = ' + num(r.e, 1));
+        line2 = 'd · n = ' + num(r.dn) + ' < 0: hitting the front';
+      }
+      ctx.font = SMALL;
+      var w2 = ctx.measureText(line2).width;
+      ctx.font = BIG;
+      var w1 = ctx.measureText(line1).width;
+      var bw = Math.max(w1, w2) + 20;
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(8, 8, bw, 46);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(8.5, 8.5, bw, 46);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = r.hit ? purple : c.ink2;
+      ctx.fillText(line1, 18, 28);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(line2, 18, 46);
+
+      // Readouts beside the picture.
+      setOut(outD, 'd', pair(r.d) + ', length ' + num(len(r.d)));
+      setOut(outN, 'n', pair(W) + ' → n = ' + pair(r.n));
+      setOut(outDot, 'dot', term(r.d.x) + ' × ' + term(r.n.x) + ' + ' + term(r.d.y) + ' × ' + term(r.n.y) + ' = ' + num(r.dn));
+      setOut(outAlong, 'along', num(r.dn) + ' × ' + pair(r.n) + ' = ' + pair(r.along));
+      setOut(outAcross, 'across', pair(r.d) + ' − ' + pair(r.along) + ' = ' + pair(r.across));
+      if (r.hit) {
+        setOut(outR, 'r', 'across − ' + num(r.e, 1) + ' × along = ' + pair(r.r) + ', length ' + num(len(r.r)));
+      } else {
+        setOut(outR, 'r', 'no hit, so r = d = ' + pair(r.r));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

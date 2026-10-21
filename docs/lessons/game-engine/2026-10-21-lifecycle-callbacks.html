@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifecycle callbacks: _ready and _process, Awake, Start and Update · Game Dev Daily</title>
+<meta name="description" content="The order in which Godot and Unity call your code when an object is created, added, updated and removed, and which data is safe to touch in each call.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-21">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Lifecycle callbacks: _ready and _process, Awake, Start and Update</h1>
+  <p class="lede">The order in which Godot and Unity call your code when an object is created, added, updated and removed, and which data is safe to touch in each call.</p>
+</header>
+
+<section data-section="hook">
+  <p>You spawn an enemy and set its speed straight after, but the enemy prints the old speed when it starts. Or a parent script reaches for a child and gets null. The code is correct line by line. It just runs at a moment you did not expect.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The engine calls you</h2>
+  <p>A <dfn>lifecycle callback</dfn> is a function you write and the engine calls at a particular moment in an object's life. The engine owns the timing; your script owns the data. The question in every callback is which data already exists at that moment: your own fields, your children, other objects, values set by the code that spawned you.</p>
+  <p>Every engine has the same four moments, under different names:</p>
+  <ol>
+    <li><strong>Create.</strong> The object exists in memory but may not be part of the running world yet.</li>
+    <li><strong>Enter the world.</strong> It joins the scene and can find its neighbours.</li>
+    <li><strong>Tick.</strong> It is updated once per frame until it goes away.</li>
+    <li><strong>Leave.</strong> It is removed, and gets one last chance to clean up.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 276" role="img" aria-label="Timeline with five columns: create, add to scene, first frame, later frames, remove. The Godot lane shows _init, then _enter_tree top-down and _ready bottom-up, then _process, then _exit_tree. The Unity lane shows Awake and OnEnable, nothing for add to scene, Start and Update, Update, then OnDisable and OnDestroy. A dashed line between create and add to scene marks where spawn code runs.">
+      <g text-anchor="middle">
+        <text class="d-label" x="146" y="24">Create</text>
+        <text class="d-label" x="254" y="24">Add to scene</text>
+        <text class="d-label" x="362" y="24">First frame</text>
+        <text class="d-label" x="470" y="24">Later frames</text>
+        <text class="d-label" x="578" y="24">Remove</text>
+      </g>
+      <path class="d-accent" d="M96 36 H626"/>
+      <path class="d-accent" d="M618 31 L628 36 L618 41"/>
+      <text class="d-muted" x="12" y="40">time</text>
+
+      <text class="d-text" x="12" y="88">Godot</text>
+      <rect class="d-box" x="96" y="52" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="204" y="52" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="312" y="52" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="420" y="52" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="528" y="52" width="100" height="84" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="146" y="99">_init</text>
+        <text class="d-mono" x="254" y="72">_enter_tree</text>
+        <text class="d-muted" x="254" y="89">top-down</text>
+        <text class="d-mono" x="254" y="110">_ready</text>
+        <text class="d-muted" x="254" y="127">bottom-up</text>
+        <text class="d-mono" x="362" y="99">_process</text>
+        <text class="d-mono" x="470" y="99">_process</text>
+        <text class="d-mono" x="578" y="80">_exit_tree</text>
+        <text class="d-muted" x="578" y="100">children first</text>
+        <text class="d-muted" x="578" y="118">at end of frame</text>
+      </g>
+
+      <text class="d-text" x="12" y="190">Unity</text>
+      <rect class="d-box" x="96" y="152" width="100" height="84" rx="6"/>
+      <rect class="d-fill" x="204" y="152" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="312" y="152" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="420" y="152" width="100" height="84" rx="6"/>
+      <rect class="d-box" x="528" y="152" width="100" height="84" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="146" y="186">Awake</text>
+        <text class="d-mono" x="146" y="210">OnEnable</text>
+        <text class="d-muted" x="254" y="186">already in</text>
+        <text class="d-muted" x="254" y="210">the scene</text>
+        <text class="d-mono" x="362" y="186">Start</text>
+        <text class="d-mono" x="362" y="210">Update</text>
+        <text class="d-mono" x="470" y="199">Update</text>
+        <text class="d-mono" x="578" y="186">OnDisable</text>
+        <text class="d-mono" x="578" y="210">OnDestroy</text>
+      </g>
+
+      <path class="d-accent d-dash" d="M200 46 V248"/>
+      <text class="d-text" x="200" y="266" text-anchor="middle">spawn code that sets values runs here</text>
+    </svg>
+    <figcaption>The same four moments in both engines. The dashed line is where your own code runs between creating an object and the engine's next callback: Godot has not called <code>_ready</code> yet, Unity has already called <code>Awake</code>.</figcaption>
+  </figure>
+
+  <h3>Godot: the tree decides the order</h3>
+  <p><code>_init</code> runs when the node object is constructed, for example inside <code>instantiate()</code>. The node is not in the scene tree yet, so it cannot look anything up.</p>
+  <p>When you call <code>add_child</code> on a parent that is already in the running tree, two passes run before <code>add_child</code> returns. First <code>_enter_tree</code> walks the new branch <em>top-down</em>: the parent, then its children. Then <code>_ready</code> walks it <em>bottom-up</em>: every child is ready before its parent. That second rule is deliberate. When a parent's <code>_ready</code> runs, all its children are already set up, so the parent can safely configure them. Variables marked <code>@onready</code> are filled in just before that node's <code>_ready</code>.</p>
+  <p>Each frame, <code>_process</code> runs in tree order, top to bottom as the editor shows it (a <dfn>pre-order traversal</dfn>: a node, then each of its children's branches in turn). You can change this with the node's <code>process_priority</code>: lower values run first, whatever the tree says. When a branch is removed, <code>_exit_tree</code> runs children first and the parent last. The Godot 4 source visits the children last child first.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Node</th><th class="num">_enter_tree</th><th class="num">_ready</th><th class="num">_process</th><th class="num">_exit_tree</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Player (parent)</td><td class="num">1</td><td class="num">3</td><td class="num">1</td><td class="num">3</td></tr>
+      <tr><td>Sprite (first child)</td><td class="num">2</td><td class="num">1</td><td class="num">2</td><td class="num">2</td></tr>
+      <tr><td>Weapon (second child)</td><td class="num">3</td><td class="num">2</td><td class="num">3</td><td class="num">1</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><code>_ready</code> runs once per node. Removing a node and adding it again calls <code>_enter_tree</code> again but not <code>_ready</code>, unless you call <code>request_ready()</code> first.</p>
+
+  <h3>Unity: two phases instead of a tree</h3>
+  <p>Unity's rules are the same in Unity 6 and 2022 LTS. <code>Awake</code> runs when the script instance is created: when the scene loads, or inside <code>Instantiate</code> before it returns. It runs even if the component itself is disabled, but not while its GameObject is inactive. <code>OnEnable</code> follows straight after, and runs again every time the component is re-enabled.</p>
+  <p><code>Start</code> runs later, just before that script's first <code>Update</code>, and only if the component is enabled. Then <code>Update</code> runs every frame, and <code>LateUpdate</code> runs after all the <code>Update</code> calls of that frame.</p>
+  <p>The big difference from Godot: <strong>Unity does not promise an order between GameObjects.</strong> Its documentation says you cannot rely on one object's <code>Awake</code> running before another's, and parent and child get no special treatment. What Unity does promise for objects loaded with a scene is that every <code>Awake</code> has run before any <code>Start</code>. That gives the standard rule: set up your own references in <code>Awake</code>, talk to other objects in <code>Start</code>. When you really need an order, the Script Execution Order page in Project Settings sets it per script class, not per object.</p>
+  <p>When an object is destroyed, each script gets <code>OnDisable</code> and then <code>OnDestroy</code>. Like Godot, Unity delays the removal until later in the frame. The next lesson is about why.</p>
+
+  <div class="callout">
+    <p class="callout-title">The gap where spawn code runs</p>
+    <p>In Godot, <code>instantiate()</code>, then your code sets <code>speed</code>, then <code>add_child()</code> runs <code>_ready</code>, which sees your value. In Unity, <code>Instantiate()</code> has already run <code>Awake</code> and <code>OnEnable</code> by the time your next line sets <code>speed</code>, so only <code>Start</code> sees it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both panels spawn the same Player with two children, Sprite and Weapon, set its speed from 100 to 300, run two frames and remove it. Press <strong>Next</strong> (or tap a panel, or use the arrow keys on a focused panel) to advance one callback at a time in both engines.</p>
+  <p>Watch which callbacks print <em>sees speed 100</em> and which print <em>sees speed 300</em>. Then turn on the shuffle and step through again: the Unity order between objects changes, the Godot order never does.</p>
+
+  <figure class="demo wide" data-demo="lifecycle">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="lifecycle-godot"></canvas><span class="demo-label">Godot 4</span></div>
+      <div class="demo-stage"><canvas id="lifecycle-unity"></canvas><span class="demo-label">Unity 6</span></div>
+    </div>
+    <figcaption>The highlighted box is the object whose callback is running now. The shuffle shows orders Unity is allowed to use, not orders it is known to use. The model leaves out <code>_physics_process</code>, <code>FixedUpdate</code>, <code>LateUpdate</code>, signals and the moment the memory is actually released.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE there is no scene tree, so you would build the lifecycle yourself. This small model calls hooks in Godot's order, with the same names and numbers as the demo: create, set <code>speed</code> to 300, enter top-down, ready bottom-up, process two frames, then exit children first.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local log = {}
+local function newNode(name)
+  return { name = name, children = {}, speed = 100 }
+end
+local function call(node, hook, ...)
+  log[#log + 1] = node.name .. "." .. hook
+  if node[hook] then node[hook](node, ...) end
+end
+
+local function enterTree(node)    <span class="c">-- parent first, then children</span>
+  call(node, "enter_tree")
+  for i = 1, #node.children do enterTree(node.children[i]) end
+end
+
+local function ready(node)        <span class="c">-- children first, then parent</span>
+<span class="k">  for i = 1, #node.children do ready(node.children[i]) end
+  call(node, "ready")</span>
+end
+
+local function process(node, dt)  <span class="c">-- tree order, every frame</span>
+  call(node, "process", dt)
+  for i = 1, #node.children do process(node.children[i], dt) end
+end
+
+local function exitTree(node)     <span class="c">-- last child first, parent last</span>
+  for i = #node.children, 1, -1 do exitTree(node.children[i]) end
+  call(node, "exit_tree")
+end
+
+local player = newNode("Player")  <span class="c">-- created, not in the tree yet</span>
+player.children = { newNode("Sprite"), newNode("Weapon") }
+player.speed = 300                <span class="c">-- spawn code runs before ready</span>
+function player:ready() log[#log + 1] = "  sees speed " .. self.speed end
+
+local frames = 0
+function love.load() enterTree(player); ready(player) end
+
+function love.update(dt)
+  if not player then return end
+  process(player, dt)
+  frames = frames + 1
+  if frames == 2 then exitTree(player); player = nil end  <span class="c">-- end of frame</span>
+end
+
+function love.draw() love.graphics.print(table.concat(log, "\n"), 10, 10) end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># player.gd on the root of player.tscn (children: Sprite, Weapon). Godot 4.</span>
+extends Node2D
+
+@export var speed := 100.0
+@onready var weapon := $Weapon     <span class="c"># filled in just before _ready</span>
+
+func _init() -&gt; void:
+    print("Player._init")          <span class="c"># not in the tree, Inspector values not applied yet</span>
+
+func _enter_tree() -&gt; void:
+    print("Player._enter_tree")    <span class="c"># children have not entered yet</span>
+
+func _ready() -&gt; void:
+<span class="k">    print("Player._ready sees speed ", speed)   <span class="c"># 300: children are ready too</span></span>
+
+func _process(delta: float) -&gt; void:
+    position.x += speed * delta
+
+func _exit_tree() -&gt; void:
+    print("Player._exit_tree")     <span class="c"># children have already left</span>
+
+
+<span class="c"># spawner.gd on any node in the main scene.</span>
+extends Node2D
+
+const PLAYER := preload("res://player.tscn")
+
+func _ready() -&gt; void:
+    var p = PLAYER.instantiate()   <span class="c"># _init runs for each node</span>
+    p.speed = 300.0                <span class="c"># _ready has not run yet</span>
+    add_child(p)                   <span class="c"># _enter_tree down, then _ready up</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Player.cs on the root of the Player prefab. Unity 6 and 2022 LTS.</span>
+using UnityEngine;
+
+public class Player : MonoBehaviour
+{
+    public float speed = 100f;
+
+    void Awake()     { Debug.Log("Player.Awake sees speed " + speed); }  <span class="c">// 100</span>
+    void OnEnable()  { Debug.Log("Player.OnEnable"); }
+<span class="k">    void Start()     { Debug.Log("Player.Start sees speed " + speed); }  <span class="c">// 300</span></span>
+    void Update()    { transform.position += Vector3.right * speed * Time.deltaTime; }
+    void OnDisable() { Debug.Log("Player.OnDisable"); }
+    void OnDestroy() { Debug.Log("Player.OnDestroy"); }
+}
+
+
+<span class="c">// Spawner.cs on any GameObject in the scene. Drag the prefab onto Player Prefab.</span>
+using UnityEngine;
+
+public class Spawner : MonoBehaviour
+{
+    public Player playerPrefab;
+
+    void Start()
+    {
+        Player p = Instantiate(playerPrefab);  <span class="c">// Awake and OnEnable run in here</span>
+        p.speed = 300f;                        <span class="c">// too late for Awake, in time for Start</span>
+    }
+}</code></pre>
+  </div>
+  <p>Godot prints <code>_ready sees speed 300</code>. Unity prints <code>Awake sees speed 100</code>, then <code>Start sees speed 300</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A Godot child reaching up to its parent in <code>_ready</code>.</strong> The parent is in the tree, but its <code>_ready</code> has not run, so its <code>@onready</code> variables are still null. Let the parent configure its children in its own <code>_ready</code>, or have the child wait for the parent's <code>ready</code> signal.</li>
+    <li><strong>A Unity script reading another object in <code>Awake</code>.</strong> That object's <code>Awake</code> may not have run. Find your own components in <code>Awake</code>, and read other objects in <code>Start</code>.</li>
+    <li><strong>Expecting <code>Awake</code> to see values set after <code>Instantiate</code>.</strong> It has already run. Read them in <code>Start</code>, or pass them in through a method you call yourself.</li>
+    <li><strong>Reading Inspector values in Godot's <code>_init</code>.</strong> Exported values from the scene file are applied after construction. Use <code>_ready</code>.</li>
+    <li><strong>Relying on Update order between objects.</strong> Unity does not define it, and in Godot it changes when someone drags a node in the editor. If A must run before B, say so on purpose: <code>process_priority</code> in Godot, Script Execution Order in Unity, or one manager that updates both in a fixed order.</li>
+    <li><strong>Expecting <code>_ready</code> or <code>Start</code> to run again.</strong> Both run once per object. Re-entering the tree or re-enabling a component calls <code>_enter_tree</code> or <code>OnEnable</code> again, which is where re-arming code belongs.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every Godot and Unity game runs through these callbacks, and the same four moments appear in other engines. LÖVE gives you <code>love.load</code>, <code>love.update</code>, <code>love.draw</code> and <code>love.quit</code> for the whole game and leaves per-object lifecycles to you, which is what the Lua model builds. Unreal Engine actors have <code>BeginPlay</code>, <code>Tick</code> and <code>EndPlay</code>.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your engine, make a parent object with two children. Give each a script that prints its name and the callback name in every lifecycle callback from this lesson. Spawn the parent from another script, set a value straight after spawning, and print that value in the first callback that runs and in <code>_ready</code> or <code>Start</code>.</p>
+  <p>Write down the order you expect before pressing play. You are done when you can explain every line of the console that surprised you.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The engine owns the timing of every callback. Ask what data already exists at that moment.</li>
+    <li>Godot follows the tree: <code>_enter_tree</code> top-down, <code>_ready</code> bottom-up, <code>_process</code> in tree order, <code>_exit_tree</code> children first.</li>
+    <li>Unity uses two phases: every scene object's <code>Awake</code> runs before any <code>Start</code>, but the order between objects is not promised.</li>
+    <li>Values set right after spawning reach Godot's <code>_ready</code> and Unity's <code>Start</code>, but not Unity's <code>Awake</code>.</li>
+    <li>When order matters, set it on purpose instead of relying on what happens to work today.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The last moment of the lifecycle gets its own lesson: why <code>queue_free</code> and <code>Destroy</code> wait until the end of the frame, and what breaks when an object vanishes in the middle of an update.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, class reference for <cite>Node</cite> (Godot 4), entries for <code>_enter_tree</code>, <code>_ready</code>, <code>_process</code>, <code>_exit_tree</code>, <code>process_priority</code> and <code>request_ready</code>. Read from the source file <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Node.xml">doc/classes/Node.xml</a></cite> in the Godot repository.</li>
+    <li>Godot Engine source, <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/scene/main/node.cpp">scene/main/node.cpp</a></cite> (4.5-stable), functions <code>_propagate_ready</code>, <code>_propagate_exit_tree</code> and <code>_set_tree</code>, for the exact traversal order.</li>
+    <li>Unity Manual, <cite>Order of execution for event functions</cite>, and the Scripting API pages for <cite>MonoBehaviour.Awake</cite> and <cite>MonoBehaviour.Start</cite>.</li>
+    <li>Unity Manual, <cite>Script Execution Order</cite> settings reference.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Update Method", on objects that update themselves and the ordering problems that come with it.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var OBJS = ['Player', 'Sprite', 'Weapon'];
+  var P = 0, S = 1, W = 2;
+
+  var MOMENTS = [
+    { title: 'Create', g: 'var p = PLAYER.instantiate()', u: 'var p = Instantiate(prefab);' },
+    { title: 'Set a value', g: 'p.speed = 300', u: 'p.speed = 300;' },
+    { title: 'Add to scene', g: 'add_child(p)', u: '(Instantiate already did this)' },
+    { title: 'Frame 1', g: 'engine runs frame 1', u: 'engine runs frame 1' },
+    { title: 'Frame 2', g: 'engine runs frame 2', u: 'engine runs frame 2' },
+    { title: 'Remove', g: 'p.queue_free()', u: 'Destroy(p.gameObject);' }
+  ];
+
+  var HINTS = {
+    _init: 'object exists, not in the tree yet',
+    _enter_tree: 'parent first, then children',
+    _ready: 'children first, then parent',
+    _process: 'every frame, in tree order',
+    _exit_tree: 'children first, parent last',
+    Awake: 'runs inside Instantiate',
+    OnEnable: 'right after this script\'s Awake',
+    Start: 'just before this script\'s first Update',
+    Update: 'every frame, object order not promised',
+    OnDisable: 'first call of removal',
+    OnDestroy: 'last call before it is gone'
+  };
+
+  // Callbacks on Player that print the speed they see.
+  var SHOWS_SPEED = { _init: 1, _enter_tree: 1, _ready: 1, Awake: 1, OnEnable: 1, Start: 1 };
+
+  function ev(obj, cb, state) { return { obj: obj, cb: cb, state: state }; }
+  function note(text, setSpeed) { return { obj: -1, note: text, setSpeed: !!setSpeed }; }
+
+  function godotEvents() {
+    return [
+      [ev(P, '_init', 'created'), ev(S, '_init', 'created'), ev(W, '_init', 'created')],
+      [note('your code: p.speed = 300', true)],
+      [ev(P, '_enter_tree', 'in tree'), ev(S, '_enter_tree', 'in tree'), ev(W, '_enter_tree', 'in tree'),
+       ev(S, '_ready', 'ready'), ev(W, '_ready', 'ready'), ev(P, '_ready', 'ready')],
+      [ev(P, '_process', 'processing'), ev(S, '_process', 'processing'), ev(W, '_process', 'processing')],
+      [ev(P, '_process', 'processing'), ev(S, '_process', 'processing'), ev(W, '_process', 'processing')],
+      [ev(W, '_exit_tree', 'freed'), ev(S, '_exit_tree', 'freed'), ev(P, '_exit_tree', 'freed')]
+    ];
+  }
+
+  function permutation(random) {
+    var a = [P, S, W];
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function unityEvents(shuffled, seed) {
+    var random = DemoKit.rng(seed);
+    function order() { return shuffled ? permutation(random) : [P, S, W]; }
+    var create = [], start = [], up2 = [], remove = [];
+    order().forEach(function (o) { create.push(ev(o, 'Awake', 'awake')); create.push(ev(o, 'OnEnable', 'enabled')); });
+    order().forEach(function (o) { start.push(ev(o, 'Start', 'started')); });
+    order().forEach(function (o) { start.push(ev(o, 'Update', 'updating')); });
+    order().forEach(function (o) { up2.push(ev(o, 'Update', 'updating')); });
+    order().forEach(function (o) { remove.push(ev(o, 'OnDisable', 'disabled')); remove.push(ev(o, 'OnDestroy', 'destroyed')); });
+    return [create, [note('your code: p.speed = 300', true)], [note('nothing: already in the scene')], start, up2, remove];
+  }
+
+  var shuffleOn = false;
+  var seed = 1;
+  var steps = [];
+  var cur = -1;
+
+  function build() {
+    var g = godotEvents();
+    var u = unityEvents(shuffleOn, seed);
+    steps = [];
+    for (var m = 0; m < MOMENTS.length; m++) {
+      var n = Math.max(g[m].length, u[m].length, 1);
+      for (var i = 0; i < n; i++) {
+        steps.push({ m: m, g: g[m][i] || null, u: u[m][i] || null });
+      }
+    }
+    if (cur > steps.length - 1) cur = steps.length - 1;
+  }
+  build();
+
+  // Replay the steps up to cur and work out what one engine looks like now.
+  function engineState(side) {
+    var status = ['not created', 'not created', 'not created'];
+    var speed = 100;
+    var log = [];
+    var count = 0;
+    for (var i = 0; i <= cur; i++) {
+      var e = steps[i][side];
+      if (!e) continue;
+      if (e.obj < 0) {
+        if (e.setSpeed) speed = 300;
+        log.push({ text: e.note, isNote: true, step: i });
+      } else {
+        status[e.obj] = e.state;
+        count += 1;
+        var text = count + '  ' + OBJS[e.obj] + '.' + e.cb + '()';
+        if (e.obj === P && SHOWS_SPEED[e.cb]) text += '  sees speed ' + speed;
+        log.push({ text: text, isNote: false, step: i });
+      }
+    }
+    var active = cur >= 0 ? steps[cur][side] : null;
+    return { status: status, speed: speed, log: log, active: active };
+  }
+
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '12px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxW) {
+    if (ctx.measureText(text).width <= maxW) return text;
+    var t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+
+  function drawPanel(side, ctx, s) {
+    var c = s.colors;
+    var w = s.width, h = s.height;
+    var st = engineState(side);
+    var pad = 12;
+    var m = cur >= 0 ? steps[cur].m : -1;
+
+    // Moment and the line of game code that triggers it.
+    ctx.textAlign = 'right';
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText(m >= 0 ? 'moment ' + (m + 1) + ' of 6: ' + MOMENTS[m].title : 'press Next to start', w - pad, 20);
+    ctx.textAlign = 'left';
+    ctx.font = MONO;
+    ctx.fillStyle = c.ink2;
+    if (m >= 0) ctx.fillText(fit(ctx, MOMENTS[m][side], w - 2 * pad), pad, 44);
+
+    // The tree: Player above, Sprite and Weapon below.
+    var bw = Math.min(124, w * 0.34);
+    var bh = 42;
+    var boxes = [
+      { x: w / 2 - bw / 2, y: 58 },
+      { x: w * 0.27 - bw / 2, y: 128 },
+      { x: w * 0.73 - bw / 2, y: 128 }
+    ];
+    boxes[1].x = Math.max(pad, boxes[1].x);
+    boxes[2].x = Math.min(w - pad - bw, boxes[2].x);
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    for (var k = 1; k < 3; k++) {
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 58 + bh);
+      ctx.lineTo(boxes[k].x + bw / 2, 128);
+      ctx.stroke();
+    }
+
+    for (var i = 0; i < 3; i++) {
+      var b = boxes[i];
+      var status = st.status[i];
+      var isActive = st.active && st.active.obj === i;
+      var gone = status === 'not created' || status === 'freed' || status === 'destroyed';
+      roundRect(ctx, b.x, b.y, bw, bh, 6);
+      ctx.fillStyle = isActive ? c.topic : c.surface2;
+      ctx.fill();
+      ctx.setLineDash(gone && !isActive ? [4, 4] : []);
+      ctx.strokeStyle = isActive ? c.topic : c.line;
+      ctx.lineWidth = isActive ? 2 : 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.textAlign = 'center';
+      ctx.font = BOLD;
+      ctx.fillStyle = isActive ? c.bg : (gone ? c.ink3 : c.ink);
+      ctx.fillText(OBJS[i], b.x + bw / 2, b.y + 18);
+      ctx.font = FONT;
+      ctx.fillStyle = isActive ? c.bg : c.ink2;
+      ctx.fillText(status, b.x + bw / 2, b.y + 34);
+    }
+
+    // Player's speed, beside its box when there is room, otherwise under the code line.
+    ctx.font = MONO;
+    ctx.fillStyle = st.speed === 300 ? c.good : c.ink2;
+    var speedText = 'speed = ' + st.speed;
+    var room = w - (boxes[0].x + bw) - pad;
+    if (room >= ctx.measureText(speedText).width + 8) {
+      ctx.textAlign = 'right';
+      ctx.fillText(speedText, w - pad, 84);
+    } else {
+      ctx.textAlign = 'left';
+      ctx.fillText(speedText, pad, 84);
+    }
+
+    // What is running now.
+    var nowY = 194;
+    ctx.textAlign = 'left';
+    if (st.active && st.active.obj >= 0) {
+      ctx.font = BOLD;
+      ctx.fillStyle = c.topic;
+      ctx.fillText(fit(ctx, 'Now: ' + OBJS[st.active.obj] + '.' + st.active.cb + '()', w - 2 * pad), pad, nowY);
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(fit(ctx, HINTS[st.active.cb], w - 2 * pad), pad, nowY + 18);
+    } else if (st.active) {
+      ctx.font = BOLD;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(fit(ctx, st.active.note, w - 2 * pad), pad, nowY);
+    } else if (cur >= 0) {
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('(no more calls in this moment)', pad, nowY);
+    }
+
+    // The console log: the most recent lines that fit.
+    var top = 236, row = 18;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad, top - 12);
+    ctx.lineTo(w - pad, top - 12);
+    ctx.stroke();
+    var rows = Math.max(1, Math.floor((h - top - 4) / row));
+    var first = Math.max(0, st.log.length - rows);
+    ctx.font = MONO;
+    for (var r = first; r < st.log.length; r++) {
+      var line = st.log[r];
+      var y = top + (r - first) * row + 4;
+      var latest = line.step === cur;
+      ctx.fillStyle = latest ? c.topic : (line.isNote ? c.ink3 : c.ink2);
+      ctx.fillText(fit(ctx, line.text, w - 2 * pad), pad, y);
+    }
+    if (st.log.length === 0) {
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('console is empty', pad, top + 4);
+    }
+  }
+
+  var ui = DemoKit.controls('[data-demo="lifecycle"]');
+  var back = ui.button({ label: 'Back', onClick: function () { go(-1); } });
+  ui.button({ label: 'Next', onClick: function () { go(1); } });
+  ui.button({ label: 'Reset', onClick: function () {
+    cur = -1;
+    if (shuffleOn) { seed += 1; build(); }
+    refresh();
+  } });
+  ui.toggle({ label: 'Shuffle Unity\'s order between objects', value: false, onChange: function (v) {
+    shuffleOn = v;
+    if (v) seed += 1;
+    build();
+    refresh();
+  } });
+  var readout = ui.readout({ label: 'Step' });
+
+  var handles = [];
+
+  function go(d) {
+    cur = Math.max(-1, Math.min(steps.length - 1, cur + d));
+    refresh();
+  }
+
+  function refresh() {
+    var m = cur >= 0 ? steps[cur].m : -1;
+    readout.set((cur + 1) + ' of ' + steps.length + (m >= 0 ? ', ' + MOMENTS[m].title : ''));
+    if (back && back.el) back.el.disabled = cur < 0;
+    for (var i = 0; i < handles.length; i++) handles[i].redraw();
+  }
+
+  function makePanel(id, side, label) {
+    return DemoKit.canvas('#' + id, {
+      height: 400,
+      animate: false,
+      keys: true,
+      label: label,
+      draw: function (ctx, s) { drawPanel(side, ctx, s); },
+      onDown: function () { go(1); },
+      onKey: function (key, isDown) {
+        if (!isDown) return;
+        if (key === 'arrowright' || key === 'space' || key === 'enter') go(1);
+        if (key === 'arrowleft') go(-1);
+      }
+    });
+  }
+
+  handles.push(makePanel('lifecycle-godot', 'g',
+    'Godot panel: a Player node with children Sprite and Weapon, showing each lifecycle callback as it runs and a console log of calls so far.'));
+  handles.push(makePanel('lifecycle-unity', 'u',
+    'Unity panel: a Player GameObject with children Sprite and Weapon, showing each lifecycle callback as it runs and a console log of calls so far.'));
+  refresh();
+})();
+</script>
+</body>
+</html>

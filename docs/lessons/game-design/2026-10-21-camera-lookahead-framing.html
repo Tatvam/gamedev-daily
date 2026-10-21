@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera lookahead and platform snapping · Game Dev Daily</title>
+<meta name="description" content="How shifting the camera ahead of the player and moving it vertically only on landing shows players where they are going instead of where they have been.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-21">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Camera lookahead and platform snapping</h1>
+  <p class="lede">How shifting the camera ahead of the player and moving it vertically only on landing shows players where they are going instead of where they have been.</p>
+</header>
+
+<section data-section="hook">
+  <p>You sprint right and a spike pit appears at the edge of the screen with no time to react. Half the picture was showing ground you had already crossed. Then you hop up a staircase and the whole level lurches up and down with every jump.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Where the camera points is a design decision</h2>
+  <p>The last lesson's camera still aimed at the player, so half the screen showed the past. A player running right needs to see what is to the right; the ground behind them rarely matters.</p>
+  <p>This lesson adds two ideas to the follow camera. <dfn>Lookahead</dfn> moves the camera's aim point ahead of the player in the direction they face. <dfn>Platform snapping</dfn> changes the camera's height only when the player lands, so jumps do not move the screen.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Left: two screens. In the first the player is centred, with equal space ahead and behind. In the second, lookahead shifts the camera centre ahead of the player, so three quarters of the screen is ahead. Right: a side view of three jumps, one onto a higher step. The camera height line stays flat during jumps and steps up only after the landing.">
+      <text class="d-label" x="20" y="20">Lookahead</text>
+      <rect class="d-box" x="20" y="30" width="280" height="64" rx="6"/>
+      <rect class="d-accent-fill" x="152" y="56" width="16" height="22" rx="2"/>
+      <path class="d-thin" d="M176 67 H196 M190 61 L196 67 L190 73"/>
+      <text class="d-muted" x="160" y="114" text-anchor="middle">centred: half the view is behind you</text>
+
+      <rect class="d-box" x="20" y="136" width="280" height="64" rx="6"/>
+      <rect class="d-accent-fill" x="82" y="162" width="16" height="22" rx="2"/>
+      <path class="d-accent" d="M100 173 H160"/>
+      <path class="d-thin" d="M154 173 H166 M160 167 V179"/>
+      <text class="d-text" x="130" y="158" text-anchor="middle">offset</text>
+      <text class="d-muted" x="160" y="220" text-anchor="middle">lookahead: three quarters ahead</text>
+
+      <text class="d-label" x="340" y="20">Platform snap</text>
+      <path class="d-stroke" d="M340 200 H450 V160 H624"/>
+      <path class="d-dash" d="M370 200 Q395 120 420 200"/>
+      <path class="d-dash" d="M425 200 Q457 100 490 160"/>
+      <path class="d-dash" d="M540 160 Q565 80 590 160"/>
+      <path class="d-accent" d="M340 186 H492 L506 146 H624"/>
+      <text class="d-muted" x="345" y="222">camera height moves only after a landing</text>
+    </svg>
+    <figcaption>Left: lookahead adds an offset between the player and the camera centre (the cross), so more of the view lies ahead. Right: dashed arcs are the player's jumps; the solid line is the camera's height. Hops leave it alone. Landing on the higher step moves it up once.</figcaption>
+  </figure>
+
+  <h2>Lookahead in three steps</h2>
+  <p>First, decide which way is "ahead". The simplest choice is the direction the player last pressed, which this lesson calls <code>facing</code>. Velocity also works, but it drops to zero at every pause and pulls the camera back.</p>
+  <p>Second, compute a <dfn>look target</dfn>: <code>facing * LOOK_DIST</code>, for example 100 pixels to the right. The camera aims at the player's position plus this offset.</p>
+  <p>Third, and this is the step people skip, ease the offset itself. If the offset flips from +100 to −100 the moment the player taps left, the camera swings 200 pixels for a two-frame correction. Easing the offset with its own slow <dfn>half-life</dfn> (the time to cover half the remaining distance) means a short tap barely moves it, while a real change of direction swings it across in under a second.</p>
+<pre><code>local k = 1 - 2 ^ (-dt / LOOK_HALF_LIFE)
+cam.look = cam.look + (facing * LOOK_DIST - cam.look) * k</code></pre>
+  <p>Lookahead also cancels the lag that smoothing causes. A smoothed camera trails a running player by about <code>speed × half-life ÷ 0.69</code>: 38 pixels at the demo's 220 pixels per second and 120 ms half-life. Without lookahead that lag means the player sees <em>less</em> ahead than behind. With a 100 pixel lookahead the net view ahead is about 60 pixels more than centred.</p>
+
+  <h2>Platform snapping</h2>
+  <p>Vertically the question is different. Players need a steady horizon to judge jumps, so the camera remembers the height of the last surface the player stood on, the <dfn>ground line</dfn>, and aims at that instead of at the player.</p>
+  <ul>
+    <li>While grounded, the ground line is the player's height.</li>
+    <li>While in the air, it does not change, so a jump does not move the screen.</li>
+    <li>If the player falls below the ground line, follow them down at once. Falls are where the player most needs to see what is below.</li>
+    <li>If a very high jump carries the player more than a margin above the ground line, follow them up by the amount past the margin, so they never leave the screen.</li>
+  </ul>
+  <p>Ease the vertical move too, so the view glides up after a landing.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points, not rules</p>
+    <p>Lookahead distance: about 15 to 25 percent of the view width (the demo uses 100 pixels and limits it to 30 percent of the width on narrow screens). Look half-life: 300 to 600 ms. Vertical half-life: 100 to 200 ms. Air margin: a little more than a normal jump height (the demo's jump is 122 pixels and its margin 130).</p>
+  </div>
+
+  <h3>When not to use it</h3>
+  <p>Lookahead assumes danger comes from the front. In a brawler or an arena game where enemies surround the player and they turn constantly, a swinging camera tends to be tiring and hides threats behind them; keep the player centred or frame the group of fighters instead. Platform snapping is wrong for levels built around vertical movement, such as tower climbs, swimming or flying, where height changes all the time and there is no ground to snap to. And in a single-screen game neither applies.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The autopilot runs a level with steps and quick turn-arounds. Start with both toggles off: the player trails behind centre while running, and the screen bobs with every hop. Switch on <strong>Lookahead</strong> and watch the bar at the top fill up on the side the player is heading. Then switch on <strong>Platform snap</strong> and watch the camera line in the graph go flat during jumps and step only on landings.</p>
+  <p>Then drag <strong>Look swing half-life</strong> to 50 ms and watch short taps swing the level.</p>
+
+  <figure class="demo wide" data-demo="lookahead">
+    <canvas id="lookahead"></canvas>
+    <figcaption>Controls: click the level, then use the arrow keys or A and D to run and Space, W or Up to jump. On a phone, use the Hold left, Hold right and Jump buttons, or tap the level to jump. Any input switches the autopilot off. Guides: the cross is the camera centre, the ring is its target, the arrow is the look offset, and the dashed line is the ground line.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>One function with the demo's names and numbers. It takes the player's centre, whether they are grounded, and their facing (1 or −1).</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local LOOK_DIST = 100        <span class="c">-- pixels shown ahead of the player</span>
+local LOOK_HALF_LIFE = 0.4   <span class="c">-- seconds for the offset to swing half way</span>
+local CAM_HALF_LIFE = 0.12   <span class="c">-- horizontal smoothing (last lesson)</span>
+local Y_HALF_LIFE = 0.15     <span class="c">-- vertical smoothing</span>
+local AIR_MARGIN = 130       <span class="c">-- follow up only past this height</span>
+local cam = { x = 0, y = 0, look = 0, groundY = 0 }
+
+local function ease(dt, halfLife)
+  return 1 - 2 ^ (-dt / halfLife)
+end
+
+<span class="c">-- p.x, p.y: player centre (y grows downwards)</span>
+local function updateCamera(dt, p, viewW)
+  <span class="c">-- 1. lookahead: ease the offset towards the facing side</span>
+  local dist = math.min(LOOK_DIST, viewW * 0.3)
+<span class="k">  cam.look = cam.look + (p.facing * dist - cam.look) * ease(dt, LOOK_HALF_LIFE)</span>
+  local tx = p.x + cam.look
+
+  <span class="c">-- 2. platform snap: aim at the last ground height</span>
+<span class="k">  if p.grounded then cam.groundY = p.y end</span>
+  local ty = cam.groundY
+  if p.y &gt; cam.groundY then
+    ty = p.y                             <span class="c">-- falling below: follow</span>
+  elseif p.y &lt; cam.groundY - AIR_MARGIN then
+    ty = p.y + AIR_MARGIN                <span class="c">-- very high: keep on screen</span>
+  end
+
+  cam.x = cam.x + (tx - cam.x) * ease(dt, CAM_HALF_LIFE)
+  cam.y = cam.y + (ty - cam.y) * ease(dt, Y_HALF_LIFE)
+end
+
+function love.update(dt)
+  updatePlayer(dt)     <span class="c">-- your movement code sets player.facing</span>
+  updateCamera(dt, player, love.graphics.getWidth())
+end</code></pre>
+  </div>
+  <p>Draw with the same <code>love.graphics.translate</code> offset as in the last lesson. If you keep a dead zone, apply it to the aim point, not the raw player position.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>An unsmoothed offset.</strong> Flipping the offset instantly on every turn makes the screen whip back and forth. Ease it, and slower than the camera itself.</li>
+    <li><strong>Losing the player on small screens.</strong> Lookahead plus lag plus any dead zone must leave the player well inside the view. Limit the distance to a fraction of the view width, as the code does.</li>
+    <li><strong>Snapping to thin air.</strong> Update the ground line only when the player is really standing, not on the first frame of a ledge grab or while sliding down a wall, or the view jumps to odd heights.</li>
+    <li><strong>Hiding the fall.</strong> If the camera stays on the ground line while the player drops into a pit, they fall blind. Always follow downward at once.</li>
+    <li><strong>Easing after a respawn.</strong> Set <code>cam.look</code> and <code>cam.groundY</code> directly instead of gliding across the level.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Showing more of the level in the direction of travel, and holding the vertical view steady until a landing, are both common in 2D platformers. Itay Keren's essay <cite>Scroll Back</cite>, adapted from his GDC 2015 Independent Games Summit talk, catalogues many variations of both ideas across side-scrolling games.</p>
+  <p>Unity's Cinemachine package has a lookahead setting on its 2D follow camera that predicts where the target is heading and leads it. Setting names have changed between versions, so check the documentation for yours.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add <code>cam.look</code> and <code>updateCamera</code> to your camera. Start with <code>LOOK_DIST</code> at a fifth of your view width. Run at top speed and check that more of the screen lies ahead than behind. Then tap the opposite direction for a moment and raise <code>LOOK_HALF_LIFE</code> until the tap barely moves the view. Finally, hop up a staircase and confirm the camera only rises after each landing. You are done when running, turning and hopping all leave the screen calm and the road ahead visible.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A centred camera spends half the screen on ground the player has already crossed.</li>
+    <li>Lookahead aims the camera ahead of the facing direction. Ease the offset slowly so short taps do not swing the view.</li>
+    <li>Lookahead also cancels the lag a smoothed camera adds while running.</li>
+    <li>Platform snapping keeps the camera at the last ground height during jumps, follows falls immediately and follows very high jumps past a margin.</li>
+    <li>Skip both where danger comes from every side or where vertical movement is constant.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson stacks shake, particles, easing and sound onto a plain brick-breaking game one effect at a time, to see when polish helps and when it starts to hide the action.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Itay Keren, <cite>Scroll Back: The Theory and Practice of Cameras in Side-Scrollers</cite> (2015), first published on the Gamasutra blogs and adapted from his GDC 2015 Independent Games Summit talk.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). A wider look at how control, response and polish combine into feel.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;          // fixed simulation step
+  var PW = 20, PH = 28;       // player size in pixels
+  var RUN = 220;              // run speed, px/s
+  var ACCEL = 2000, DECEL = 2400;
+  var GRAVITY = 2000;         // px/s^2
+  var JUMP = 700;             // launch speed, gives a 122 px jump
+  var MAX_FALL = 900;
+  var WORLD_W = 3200;
+  var GAME_H = 260;           // height of the level view
+  var GRAPH_H = 76;           // height of the graph strip under it
+  var FOCUS_Y = 0.6;          // camera centre sits 60% down the view
+  var CAM_HALF_LIFE = 0.12;   // horizontal smoothing, always on
+  var Y_HALF_LIFE = 0.15;     // vertical smoothing
+  var AIR_MARGIN = 130;       // follow up only past this height
+  var TRACE = 240;            // graph length in steps (4 s)
+
+  // Solid rectangles [x, y, w, h]. y grows downwards; the floor surface is y = 0.
+  var SOLIDS = [
+    [-400, 0, 4000, 400],
+    [-400, -1000, 400, 1000],
+    [3200, -1000, 400, 1000],
+    [300, -60, 200, 60],
+    [500, -120, 200, 120],
+    [700, -180, 160, 180],
+    [860, -120, 120, 120],
+    [980, -60, 100, 60],
+    [1200, -100, 140, 16],
+    [1440, -80, 160, 80],
+    [1600, -150, 160, 150],
+    [1760, -80, 100, 80],
+    [2000, -60, 300, 60],
+    [2300, -120, 200, 120],
+    [2500, -60, 100, 60],
+    [2750, -100, 150, 16]
+  ];
+
+  function overlaps(x, y, w, h, r) {
+    return x < r[0] + r[2] && x + w > r[0] && y < r[1] + r[3] && y + h > r[1];
+  }
+  function approach(v, target, amount) {
+    if (v < target) return Math.min(v + amount, target);
+    return Math.max(v - amount, target);
+  }
+  function ease(dt, halfLife) {
+    return halfLife > 0 ? 1 - Math.pow(2, -dt / halfLife) : 1;
+  }
+
+  var ui = DemoKit.controls('[data-demo="lookahead"]');
+  var lookOn = ui.toggle({ label: 'Lookahead', value: false });
+  var lookDist = ui.slider({ label: 'Lookahead distance', min: 0, max: 240, step: 10, value: 100, unit: ' px' });
+  var lookHL = ui.slider({ label: 'Look swing half-life', min: 50, max: 1000, step: 50, value: 400, unit: ' ms' });
+  var snapOn = ui.toggle({ label: 'Platform snap', value: false });
+  var guides = ui.toggle({ label: 'Show camera guides', value: true });
+  var auto = ui.toggle({ label: 'Autopilot', value: true });
+
+  var holdLeft = false, holdRight = false, jumpQueued = false;
+
+  function manual() { if (auto.value) auto.set(false); }
+
+  function holdButton(label, setHeld) {
+    var b = ui.button({ label: label, onClick: function () {} });
+    var el = b.el;
+    el.style.touchAction = 'none';
+    el.style.userSelect = 'none';
+    el.style.webkitUserSelect = 'none';
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      manual();
+      setHeld(true);
+      if (el.setPointerCapture) {
+        try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
+    });
+    el.addEventListener('pointerup', function () { setHeld(false); });
+    el.addEventListener('pointercancel', function () { setHeld(false); });
+    el.addEventListener('lostpointercapture', function () { setHeld(false); });
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); manual(); setHeld(true); }
+    });
+    el.addEventListener('keyup', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') setHeld(false);
+    });
+    el.addEventListener('blur', function () { setHeld(false); });
+  }
+  holdButton('Hold left', function (v) { holdLeft = v; });
+  holdButton('Hold right', function (v) { holdRight = v; });
+  ui.button({ label: 'Jump', onClick: function () { manual(); jumpQueued = true; } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var viewOut = ui.readout({ label: 'View ahead / behind the player' });
+  var bobOut = ui.readout({ label: 'Camera height change, last 4 s' });
+
+  var px, py, vx, vy, grounded, facing, cam, target, acc, viewW;
+  var aiDir, aiTimer, aiHold, aiInput, random, stuck;
+  var traceP, traceC;
+
+  function lookDistance() {
+    return lookOn.value ? Math.min(lookDist.value, viewW * 0.3) : 0;
+  }
+
+  function reset() {
+    px = 120; py = -PH; vx = 0; vy = 0; grounded = true; facing = 1;
+    if (!viewW) viewW = 640;
+    cam = { x: px + PW / 2, y: py + PH / 2, look: 0, groundY: py + PH / 2 };
+    cam.look = lookDistance();
+    cam.x += cam.look;
+    target = { x: cam.x, y: cam.y };
+    acc = 0;
+    aiDir = 1; aiTimer = 1.2; aiHold = 0; aiInput = 0;
+    random = DemoKit.rng(7);
+    traceP = []; traceC = [];
+    jumpQueued = false;
+    stuck = 0;
+    showReadouts();
+  }
+  reset();
+
+  function wallAhead(dir) {
+    var front = dir > 0 ? px + PW : px - 30;
+    for (var i = 0; i < SOLIDS.length; i++) {
+      if (overlaps(front, py, 30, PH - 1, SOLIDS[i])) return true;
+    }
+    return false;
+  }
+
+  // The autopilot: runs to the end and back, jumps over steps, and makes the small hops,
+  // short opposite taps and pauses that real players make.
+  function autopilot() {
+    if (px + PW > WORLD_W - 40) aiDir = -1;
+    if (px < 40) aiDir = 1;
+    var input = aiDir;
+    var jump = false;
+    if (aiHold > 0) {
+      aiHold -= STEP;
+      input = aiInput;
+    }
+    aiTimer -= STEP;
+    if (aiTimer <= 0) {
+      var r = random();
+      if (r < 0.45) {
+        jump = true;
+      } else if (r < 0.8) {
+        aiHold = 0.12 + random() * 0.12; aiInput = -aiDir;
+      } else {
+        aiHold = 0.35 + random() * 0.3; aiInput = 0;
+      }
+      aiTimer = 0.8 + random() * 1.4;
+    }
+    if (input !== 0 && grounded && wallAhead(input)) jump = true;
+    // Safety net: if a wall cannot be climbed, turn around.
+    if (input !== 0 && grounded && Math.abs(vx) < 1) stuck += STEP; else stuck = 0;
+    if (stuck > 1) { aiDir = -aiDir; stuck = 0; }
+    return { move: input, jump: jump };
+  }
+
+  function stepPlayer(move, jump) {
+    var rate = (move !== 0 && vx * move >= 0) ? ACCEL : DECEL;
+    vx = approach(vx, move * RUN, rate * STEP);
+    if (move !== 0) facing = move;
+    if (jump && grounded) { vy = -JUMP; grounded = false; }
+    vy = Math.min(vy + GRAVITY * STEP, MAX_FALL);
+
+    px += vx * STEP;
+    var i, r;
+    for (i = 0; i < SOLIDS.length; i++) {
+      r = SOLIDS[i];
+      if (overlaps(px, py, PW, PH, r)) {
+        if (vx > 0) px = r[0] - PW; else if (vx < 0) px = r[0] + r[2];
+        vx = 0;
+      }
+    }
+    py += vy * STEP;
+    grounded = false;
+    for (i = 0; i < SOLIDS.length; i++) {
+      r = SOLIDS[i];
+      if (overlaps(px, py, PW, PH, r)) {
+        if (vy > 0) { py = r[1] - PH; grounded = true; } else { py = r[1] + r[3]; }
+        vy = 0;
+      }
+    }
+  }
+
+  // Same logic as updateCamera in the Lua code.
+  function stepCamera() {
+    var cx = px + PW / 2, cy = py + PH / 2;
+    cam.look += (facing * lookDistance() - cam.look) * ease(STEP, lookHL.value / 1000);
+    var tx = cx + cam.look;
+    var ty;
+    if (snapOn.value) {
+      if (grounded) cam.groundY = cy;
+      ty = cam.groundY;
+      if (cy > cam.groundY) ty = cy;
+      else if (cy < cam.groundY - AIR_MARGIN) ty = cy + AIR_MARGIN;
+    } else {
+      cam.groundY = cy;
+      ty = cy;
+    }
+    cam.x += (tx - cam.x) * ease(STEP, CAM_HALF_LIFE);
+    cam.y += (ty - cam.y) * ease(STEP, Y_HALF_LIFE);
+    target.x = tx; target.y = ty;
+    traceP.push(cy); traceC.push(cam.y);
+    if (traceP.length > TRACE) { traceP.shift(); traceC.shift(); }
+  }
+
+  function readInput(s) {
+    var k = s.keys;
+    var left = k.has('arrowleft') || k.has('a') || holdLeft;
+    var right = k.has('arrowright') || k.has('d') || holdRight;
+    return (right ? 1 : 0) - (left ? 1 : 0);
+  }
+
+  function aheadBehind() {
+    var screenX = viewW / 2 + (px + PW / 2 - cam.x);
+    var right = Math.max(0, viewW - screenX), left = Math.max(0, screenX);
+    return facing > 0 ? { ahead: right, behind: left, sx: screenX } : { ahead: left, behind: right, sx: screenX };
+  }
+
+  function showReadouts() {
+    var v = aheadBehind();
+    viewOut.set(Math.round(v.ahead) + ' px / ' + Math.round(v.behind) + ' px');
+    var sum = 0;
+    for (var i = 1; i < traceC.length; i++) sum += Math.abs(traceC[i] - traceC[i - 1]);
+    bobOut.set(Math.round(sum) + ' px');
+  }
+
+  function rect(ctx, x, y, w, h) { ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+
+  function drawGraph(ctx, s, c) {
+    var top = GAME_H;
+    var h = GRAPH_H;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, top, s.width, h);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(s.width, top + 0.5); ctx.stroke();
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Height, last 4 s:', 10, top + 16);
+    var lw = ctx.measureText('Height, last 4 s: ').width;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('player', 10 + lw, top + 16);
+    var pw = ctx.measureText('player  ').width;
+    ctx.fillStyle = c.topic;
+    ctx.fillText('camera', 10 + lw + pw, top + 16);
+
+    var n = traceP.length;
+    if (n < 2) return;
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < n; i++) {
+      lo = Math.min(lo, traceP[i], traceC[i]);
+      hi = Math.max(hi, traceP[i], traceC[i]);
+    }
+    var mid = (lo + hi) / 2;
+    var range = Math.max(hi - lo, 160);
+    lo = mid - range / 2;
+    var gTop = top + 24, gH = h - 30;
+    var right = s.width - 92;   // keep the pause button corner free
+    var left = 10;
+    var span = Math.max(1, right - left);
+    function line(arr, colour, width) {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      for (var j = 0; j < n; j++) {
+        var x = left + span * (j + TRACE - n) / (TRACE - 1);
+        var y = gTop + (arr[j] - lo) / range * gH;
+        if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    line(traceP, c.ink3, 1.5);
+    line(traceC, c.topic, 2.5);
+  }
+
+  function drawViewBar(ctx, c, w) {
+    var v = aheadBehind();
+    var x0 = 10, x1 = w - 10, y = 46, h = 6;
+    var sx = DemoKit.clamp(v.sx, x0, x1);
+    ctx.fillStyle = c.line;
+    rect(ctx, x0, y, x1 - x0, h);
+    ctx.fillStyle = c.topic;
+    if (facing > 0) rect(ctx, sx, y, x1 - sx, h); else rect(ctx, x0, y, sx - x0, h);
+    ctx.fillStyle = c.ink;
+    rect(ctx, sx - 1, y - 3, 2, h + 6);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink2;
+    var pct = Math.round(100 * v.ahead / Math.max(1, v.ahead + v.behind));
+    ctx.textAlign = 'right';
+    ctx.fillText(pct + '% of the view is ahead', x1, 37);
+  }
+
+  DemoKit.canvas('#lookahead', {
+    height: GAME_H + GRAPH_H,
+    keys: true,
+    label: 'A side-scrolling level with a running player and a following camera. Toggles add lookahead and platform snapping. A bar shows how much of the view lies ahead of the player, and a graph compares the height of the player and of the camera.',
+    onResize: function (s) { viewW = s.width; },
+    onKey: function (key, down) {
+      if (!down) return;
+      if (key === 'space' || key === 'w' || key === 'arrowup' || key === 'z') { manual(); jumpQueued = true; }
+      if (key === 'arrowleft' || key === 'arrowright' || key === 'a' || key === 'd') manual();
+    },
+    onDown: function (p) {
+      if (p.y < GAME_H) { manual(); jumpQueued = true; }
+    },
+    update: function (dt, s) {
+      viewW = s.width;
+      acc += dt;
+      var guard = 0;
+      while (acc >= STEP && guard < 8) {
+        acc -= STEP;
+        guard += 1;
+        var move, jump;
+        if (auto.value) {
+          var a = autopilot();
+          move = a.move; jump = a.jump;
+          jumpQueued = false;
+        } else {
+          move = readInput(s);
+          jump = jumpQueued;
+          jumpQueued = false;
+        }
+        stepPlayer(move, jump);
+        stepCamera();
+      }
+      if (guard === 8) acc = 0;
+      showReadouts();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width;
+      viewW = w;
+      var focusX = w / 2;
+      var focusY = GAME_H * FOCUS_Y;
+      var ox = Math.round(focusX - cam.x);
+      var oy = Math.round(focusY - cam.y);
+      var i;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, GAME_H);
+      ctx.clip();
+
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(0, 0, w, GAME_H);
+
+      // Distant pillars at half speed, so camera motion is easy to see.
+      ctx.fillStyle = c.surface2;
+      var bx = ox * 0.5, by = oy * 0.5;
+      var first = Math.floor((-bx - 200) / 140);
+      for (i = first; i < first + Math.ceil(w / 140) + 4; i++) {
+        var hgt = 60 + ((i * 37) % 5 + 5) % 5 * 22;
+        rect(ctx, bx + i * 140, by + 60 - hgt, 70, hgt + 400);
+      }
+
+      // Solids, with marks every 40 px on the floor.
+      for (i = 0; i < SOLIDS.length; i++) {
+        var r = SOLIDS[i];
+        ctx.fillStyle = c.line;
+        rect(ctx, ox + r[0], oy + r[1], r[2], r[3]);
+        ctx.fillStyle = c.ink3;
+        rect(ctx, ox + r[0], oy + r[1], r[2], 2);
+      }
+      ctx.fillStyle = c.ink3;
+      var firstMark = Math.floor((-ox) / 40) * 40;
+      for (var m = firstMark; m < -ox + w + 40; m += 40) {
+        if (m < 0 || m > WORLD_W) continue;
+        rect(ctx, ox + m, oy + 8, 2, 6);
+      }
+
+      // Player.
+      ctx.fillStyle = c.topic;
+      rect(ctx, ox + px, oy + py, PW, PH);
+      ctx.fillStyle = c.surface;
+      rect(ctx, ox + px + (facing > 0 ? 12 : 4), oy + py + 7, 4, 5);
+
+      if (guides.value) {
+        var pcx = ox + px + PW / 2, pcy = oy + py + PH / 2;
+        // Ground line.
+        if (snapOn.value) {
+          var gy = Math.round(oy + cam.groundY) + 0.5;
+          ctx.strokeStyle = c.good;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([8, 6]);
+          ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // Look offset arrow from the player centre.
+        if (Math.abs(cam.look) > 2) {
+          var ax = pcx + cam.look;
+          var dir = cam.look > 0 ? 1 : -1;
+          ctx.strokeStyle = c.warn;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(pcx + dir * (PW / 2 + 2), pcy);
+          ctx.lineTo(ax, pcy);
+          ctx.moveTo(ax - dir * 6, pcy - 5); ctx.lineTo(ax, pcy); ctx.lineTo(ax - dir * 6, pcy + 5);
+          ctx.stroke();
+        }
+        // Target ring and camera centre cross.
+        var tsx = focusX + (target.x - cam.x);
+        var tsy = focusY + (target.y - cam.y);
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(tsx, tsy, 6, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(focusX - 7, focusY); ctx.lineTo(focusX + 7, focusY);
+        ctx.moveTo(focusX, focusY - 7); ctx.lineTo(focusX, focusY + 7);
+        ctx.stroke();
+      }
+
+      // Mode label and view bar.
+      var mode = lookOn.value ? (snapOn.value ? 'Lookahead + platform snap' : 'Lookahead') :
+        (snapOn.value ? 'Platform snap' : 'Smoothed follow');
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.fillText(mode, 10, 20);
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(auto.value ? 'autopilot' : 'you are playing', 10, 37);
+      drawViewBar(ctx, c, w);
+      ctx.restore();
+
+      drawGraph(ctx, s, c);
+    }
+  });
+})();
+</script>
+</body>
+</html>
