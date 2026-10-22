@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amiga copper gradients: a new colour on every line · Game Dev Daily</title>
+<meta name="description" content="How Amiga skies got dozens of shades from a tiny palette: a coprocessor rewrites one colour register as the screen is drawn, line by line.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-22">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Amiga copper gradients: a new colour on every line</h1>
+  <p class="lede">How Amiga skies got dozens of shades from a tiny palette: a coprocessor rewrites one colour register as the screen is drawn, line by line.</p>
+</header>
+
+<section data-section="hook">
+  <p>Many Amiga games show a sky that fades smoothly from deep blue to a glowing horizon, above a scene with only a handful of colours. Count the shades and you get more than the screen mode is supposed to hold. A small helper chip is changing what one colour means while the picture is drawn.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: a picture made of colour numbers</h2>
+  <p>The Amiga (1985) stores its screen as <dfn>bitplanes</dfn>: separate layers of one bit per pixel. Stack the bits for one pixel and you get a <dfn>colour number</dfn>. Two planes give numbers 0 to 3, five planes give 0 to 31. A low-resolution screen of 320 by 200 pixels costs 8,000 bytes per plane, and every extra plane also costs time on the memory bus that the processor and the other chips share.</p>
+  <p>The colour number picks one of 32 <dfn>colour registers</dfn>, <code>COLOR00</code> to <code>COLOR31</code>. Each holds a 12-bit colour, 4 bits each of red, green and blue: any of 4,096 colours. But a 4-colour screen can only address 4 registers, so it shows 4 colours. (Special modes such as Hold-And-Modify show more, with their own restrictions.) Paying for a smooth sky with extra bitplanes would cost memory, bus time and colours the rest of the scene needs.</p>
+
+  <h2>The copper: a chip that waits and writes</h2>
+  <p>The Amiga's custom chips include a tiny coprocessor, the <dfn>copper</dfn>, that runs in step with the video beam drawing the picture line by line. Every frame it runs a short program, the <dfn>copper list</dfn>, from the top.</p>
+  <p>It knows only three instructions, each stored as two 16-bit words (4 bytes):</p>
+  <ul>
+    <li><strong>WAIT</strong> stops until the beam reaches a given line and position. While it waits it does not use the memory bus.</li>
+    <li><strong>MOVE</strong> writes a value into one of the chips' hardware registers. The colour registers are among them.</li>
+    <li><strong>SKIP</strong> jumps over the next instruction if the beam has passed a position. Gradients do not need it.</li>
+  </ul>
+  <p>The list ends with a WAIT for a position the beam never reaches.</p>
+
+  <h2>The trick: change the meaning of colour 0 as the beam goes down</h2>
+  <p>Paint every sky pixel with colour number 0. Then write a copper list: wait for line 0, set <code>COLOR00</code> to dark blue; wait for line 26, set it lighter; and so on. The video chip looks up each pixel's register at the moment the beam draws it, so each line of sky shows whatever <code>COLOR00</code> holds then.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Left, a screen whose sky pixels all store colour number 0, drawn in five bands of increasing strength, with a hill at the bottom. Middle, a copper list of five WAIT and MOVE pairs at lines 0, 26, 52, 78 and 104, each writing a new value into COLOR00. Right, the value of COLOR00 as the beam moves down: five different colours from one register.">
+      <text class="d-label" x="30" y="24">Screen</text>
+      <rect class="d-accent-fill" fill-opacity="0.12" x="30" y="40" width="160" height="34"/>
+      <rect class="d-accent-fill" fill-opacity="0.28" x="30" y="74" width="160" height="34"/>
+      <rect class="d-accent-fill" fill-opacity="0.44" x="30" y="108" width="160" height="34"/>
+      <rect class="d-accent-fill" fill-opacity="0.60" x="30" y="142" width="160" height="34"/>
+      <rect class="d-accent-fill" fill-opacity="0.76" x="30" y="176" width="160" height="64"/>
+      <path class="d-fill" d="M30 240 L30 206 Q70 186 110 204 Q150 222 190 196 L190 240 Z"/>
+      <rect class="d-stroke" fill="none" x="30" y="40" width="160" height="200"/>
+      <text class="d-muted" x="30" y="262">every sky pixel stores</text>
+      <text class="d-muted" x="30" y="280">colour number 0</text>
+
+      <text class="d-label" x="228" y="24">Copper list</text>
+      <text class="d-mono" x="228" y="61">WAIT 0    MOVE $115</text>
+      <text class="d-mono" x="228" y="95">WAIT 26   MOVE $535</text>
+      <text class="d-mono" x="228" y="129">WAIT 52   MOVE $854</text>
+      <text class="d-mono" x="228" y="163">WAIT 78   MOVE $C64</text>
+      <text class="d-mono" x="228" y="197">WAIT 104  MOVE $F83</text>
+      <text class="d-muted" x="228" y="231">WAIT never (end of list)</text>
+      <text class="d-muted" x="228" y="262">every MOVE writes COLOR00</text>
+      <text class="d-muted" x="228" y="280">each instruction is 4 bytes</text>
+      <path class="d-thin" d="M196 57 H220 M196 91 H220 M196 125 H220 M196 159 H220 M196 193 H220"/>
+
+      <text class="d-label" x="470" y="24">COLOR00 over time</text>
+      <path class="d-accent" d="M440 57 H458 M452 52 L458 57 L452 62"/>
+      <path class="d-accent" d="M440 91 H458 M452 86 L458 91 L452 96"/>
+      <path class="d-accent" d="M440 125 H458 M452 120 L458 125 L452 130"/>
+      <path class="d-accent" d="M440 159 H458 M452 154 L458 159 L452 164"/>
+      <path class="d-accent" d="M440 193 H458 M452 188 L458 193 L452 198"/>
+      <rect class="d-accent-fill" fill-opacity="0.12" x="470" y="44" width="40" height="26"/>
+      <rect class="d-accent-fill" fill-opacity="0.28" x="470" y="78" width="40" height="26"/>
+      <rect class="d-accent-fill" fill-opacity="0.44" x="470" y="112" width="40" height="26"/>
+      <rect class="d-accent-fill" fill-opacity="0.60" x="470" y="146" width="40" height="26"/>
+      <rect class="d-accent-fill" fill-opacity="0.76" x="470" y="180" width="40" height="26"/>
+      <text class="d-muted" x="520" y="61">lines 0-25</text>
+      <text class="d-muted" x="520" y="95">lines 26-51</text>
+      <text class="d-muted" x="520" y="129">lines 52-77</text>
+      <text class="d-muted" x="520" y="163">lines 78-103</text>
+      <text class="d-muted" x="520" y="197">line 104 down</text>
+      <text class="d-text" x="470" y="262">one register,</text>
+      <text class="d-text" x="470" y="280">five sky colours</text>
+    </svg>
+    <figcaption>The bitmap never changes; the copper changes what colour 0 means at five lines. Values are 12-bit colours in three hex digits: red, green, blue.</figcaption>
+  </figure>
+
+  <p>You can rewrite a register on every line: 200 changes cost 200 WAIT and MOVE pairs, 1,600 bytes, and no work from the main processor. Several registers can change per line, so ground and water can get gradients too.</p>
+
+  <h3>Fact and legend</h3>
+  <p>You will read that the copper let the Amiga "show more colours than it had". True for the whole screen, not for one line: each line still uses only the registers it can address. The copper changes them between lines (mid-line changes exist but are coarse), which is why copper effects are horizontal stripes. Also, real WAIT line numbers count from the top of the beam's path, above the visible picture; in the rebuild, line 0 is the first visible line.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>If colour is looked up when a pixel is drawn, change the lookup table while drawing, and one stored number can mean many colours.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Modern graphics cards do not draw in beam order, but the idea survives as small data looked up at draw time. A sky needs no full-screen image: a texture one pixel wide and a few hundred tall, stretched across the screen, gives the same gradient for a tiny fraction of the memory and download, which still matters on phones and the web. A <dfn>gradient ramp</dfn>, a strip of colours a shader indexes by height, is a direct descendant of the copper list.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The scene is 320 by 200 pixels with four colour registers: sky, far hills, near hills and sun. Turn <strong>Copper on</strong> off and the sky is flat. Turn it on and the copper list beside the screen rewrites <code>COLOR00</code> at the marked lines. Move <strong>Colour changes</strong> from 1 to 64, and drag the <strong>start</strong> and <strong>end</strong> handles (or use the sliders). Then turn on <strong>Show what the bitplanes store</strong>: the stored picture never changes.</p>
+
+  <figure class="demo wide" data-demo="copper-sky">
+    <canvas id="copper-sky"></canvas>
+    <figcaption>Watch the <strong>Colours on screen</strong> readout. With the dusk sky it climbs from 19 at 16 changes to 25 at about 30, then stops: with 4 bits per channel there are only so many steps between two colours, so extra bands repeat values.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's scene and default numbers, in LÖVE. <code>buildCopperList</code> makes one WAIT and MOVE pair per band, rounding colours to 4 bits per channel. <code>render</code> plays the beam: load the palette at the top, then on each line do any MOVE whose WAIT has been reached before drawing the line.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Copper-style sky: rewrite one colour register at chosen lines.</span>
+local W, H, SCALE = 320, 200, 3
+local palette = {                          <span class="c">-- 4 registers, 0..15 per channel</span>
+  [0] = {6, 4, 7}, [1] = {6, 3, 6},        <span class="c">-- COLOR00 sky, COLOR01 far hills</span>
+  [2] = {2, 1, 3}, [3] = {15, 13, 6},      <span class="c">-- COLOR02 near hills, COLOR03 sun</span>
+}
+local TOP, HORIZON = {1, 1, 5}, {15, 8, 3}
+local BANDS, START, STOP = 16, 0, 130
+local image
+
+local function colourNumber(x, y)          <span class="c">-- what the bitplanes store</span>
+  if y &gt;= 150 + 10 * math.sin(x * 0.05 + 1) then return 2 end
+  if y &gt;= 120 - 14 * math.sin(x * 0.03) then return 1 end
+  if (x - 230) ^ 2 + (y - 95) ^ 2 &lt;= 18 * 18 then return 3 end
+  return 0
+end
+
+local function buildCopperList()
+  local list = {}
+  for i = 0, BANDS - 1 do
+    local t = 0
+    if BANDS &gt; 1 then t = i / (BANDS - 1) end
+    local c = {}
+    for k = 1, 3 do c[k] = math.floor(TOP[k] + (HORIZON[k] - TOP[k]) * t + 0.5) end
+<span class="k">    list[#list + 1] = { wait = START + math.floor(i * (STOP - START) / BANDS), reg = 0, value = c }</span>
+  end
+  return list
+end
+
+local function render(list)
+  local data, regs, seen, count, nextOp = love.image.newImageData(W, H), {}, {}, 0, 1
+  for r = 0, 3 do regs[r] = palette[r] end                  <span class="c">-- top of frame</span>
+  for y = 0, H - 1 do
+    while list[nextOp] and list[nextOp].wait &lt;= y do         <span class="c">-- WAIT reached...</span>
+<span class="k">      regs[list[nextOp].reg] = list[nextOp].value            -- ...so MOVE</span>
+      nextOp = nextOp + 1
+    end
+    for x = 0, W - 1 do
+      local c = regs[colourNumber(x, y)]
+      local key = c[1] * 256 + c[2] * 16 + c[3]
+      if not seen[key] then seen[key] = true; count = count + 1 end
+      data:setPixel(x, y, c[1] / 15, c[2] / 15, c[3] / 15, 1)
+    end
+  end
+  print(count .. " colours on screen from 4 registers")
+  return love.graphics.newImage(data)
+end
+
+function love.load()
+  love.graphics.setDefaultFilter("nearest", "nearest")
+  love.window.setMode(W * SCALE, H * SCALE)
+  image = render(buildCopperList())
+end
+
+function love.draw()
+  love.graphics.draw(image, 0, 0, 0, SCALE, SCALE)
+end</code></pre>
+  </div>
+  <p>With these numbers it prints <code>19 colours on screen from 4 registers</code>, the same figure the demo shows with its default settings. Notice that <code>colourNumber</code> never mentions a colour, and the copper list never mentions a pixel.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting the top of the frame.</strong> A register keeps its last value. If the list does not reset the sky colour each frame, the horizon colour leaks into the top of the next frame. The Lua reloads the palette for this reason.</li>
+    <li><strong>Every pixel on the line shares the register.</strong> Anything else drawn with colour 0 changes too, such as a hole in a tree. Reserve the rewritten colour number for the sky.</li>
+    <li><strong>More bands than colour steps.</strong> With 4 bits per channel a fade has at most 16 steps per channel. Extra bands repeat values and only lengthen the list.</li>
+    <li><strong>The Lua is slow on purpose.</strong> It builds the picture pixel by pixel to show the mechanism. In a real game, draw a stretched gradient image or use a shader.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Copper skies were common in Amiga games, and in the demo scene full-width stripes of changing colour, called raster bars or copper bars, became a signature effect. The Workbench used the copper too: drag one screen down and another, with a different resolution and palette, shows above it on the same display.</p>
+  <p>Other machines did it by other means. The Commodore 64 used raster interrupts, where the processor is told when the beam reaches a line. The Super Nintendo's HDMA writes a table of values into registers line by line, used for gradients and for Mode 7 floors.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Shade the ground: after the sky entries, make <code>buildCopperList</code> add 8 entries with <code>reg = 2</code> that fade the near hills from <code>{2, 1, 3}</code> at line 150 to <code>{6, 3, 5}</code> at line 199. Keep the list sorted by <code>wait</code>. You are done when the near hills lighten towards the bottom and the printed count rises, with <code>colourNumber</code> untouched.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Amiga bitplanes store colour numbers; 32 colour registers turn them into 12-bit colours from 4,096.</li>
+    <li>The copper is a coprocessor with three instructions, WAIT, MOVE and SKIP, that runs in step with the beam every frame.</li>
+    <li>Rewriting a colour register at chosen lines gives a gradient with many colours from one palette entry, at no cost to the main processor.</li>
+    <li>The extra colours are spread down the screen; each line still uses only the registers it can address.</li>
+    <li>Today the same idea is a small gradient ramp or palette looked up at draw time instead of a big image.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Out Run (1986) builds a convincing 3D road by shifting and scaling the picture one scanline at a time.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: searches worked, but no source page could be opened, so no links are given. The copper's three instructions, their 4-byte size and WAIT staying off the bus come from search excerpts of the Amiga Hardware Reference Manual; the 12-bit colour registers and bitplane sizes are widely documented. Look these up:</p>
+  <ul>
+    <li>Commodore-Amiga, <cite>Amiga Hardware Reference Manual</cite> (Addison-Wesley). The chapters on the Copper and on playfield hardware and colour registers.</li>
+    <li>Jimmy Maher, <cite>The Future Was Here: The Commodore Amiga</cite> (MIT Press). A history of the machine and how its custom chips were used.</li>
+    <li>Codetapper, <cite>Amiga sprite tricks</cite> articles, such as the pages on Shadow of the Beast and Agony. How specific games used the copper.</li>
+    <li>Amiga Graphics Archive, <cite>Copper</cite> special page. Games that change palette registers on different rows.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SW = 320, SH = 200;
+  var PRESETS = {
+    dusk:  { top: [1, 1, 5],  hor: [15, 8, 3],   pal: [[6, 4, 7], [6, 3, 6], [2, 1, 3], [15, 13, 6]] },
+    day:   { top: [2, 5, 13], hor: [11, 14, 15], pal: [[7, 10, 15], [4, 9, 5], [1, 5, 2], [15, 15, 10]] },
+    night: { top: [0, 0, 2],  hor: [4, 3, 9],    pal: [[1, 1, 4], [2, 2, 5], [1, 1, 2], [14, 14, 12]] }
+  };
+  var GREYS = [[30, 30, 34], [100, 100, 110], [170, 170, 178], [240, 240, 244]];
+
+  // What the bitplanes store: a colour number 0..3. Same as colourNumber in the Lua.
+  var numbers = new Uint8Array(SW * SH);
+  (function () {
+    for (var y = 0; y < SH; y++) {
+      for (var x = 0; x < SW; x++) {
+        var n = 0;
+        if (y >= 150 + 10 * Math.sin(x * 0.05 + 1)) n = 2;
+        else if (y >= 120 - 14 * Math.sin(x * 0.03)) n = 1;
+        else if ((x - 230) * (x - 230) + (y - 95) * (y - 95) <= 18 * 18) n = 3;
+        numbers[y * SW + x] = n;
+      }
+    }
+  })();
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="copper-sky"]');
+  var copper = ui.toggle({ label: 'Copper on (rewrite COLOR00 down the screen)', value: true, onChange: redraw });
+  var bands = ui.slider({ label: 'Colour changes (bands)', min: 1, max: 64, step: 1, value: 16, onInput: redraw });
+  var start = ui.slider({ label: 'Gradient starts at line', min: 0, max: 198, step: 1, value: 0, onInput: function (v) {
+    if (v >= stop.value) stop.set(v + 1);
+    redraw();
+  } });
+  var stop = ui.slider({ label: 'Gradient ends at line', min: 1, max: 199, step: 1, value: 130, onInput: function (v) {
+    if (v <= start.value) start.set(v - 1);
+    redraw();
+  } });
+  var preset = ui.select({ label: 'Sky', value: 'dusk', options: [
+    { value: 'dusk', label: 'Dusk' }, { value: 'day', label: 'Day' }, { value: 'night', label: 'Night' }
+  ], onChange: redraw });
+  var showNums = ui.toggle({ label: 'Show what the bitplanes store (colour numbers 0 to 3)', value: false, onChange: redraw });
+  var marks = ui.toggle({ label: 'Mark each WAIT line', value: true, onChange: redraw });
+  var outColours = ui.readout({ label: 'Colours on screen' });
+  var outList = ui.readout({ label: 'Copper list' });
+
+  function buildCopperList() {
+    var p = PRESETS[preset.value], list = [], n = bands.value, i, k;
+    if (!copper.value) return list;
+    for (i = 0; i < n; i++) {
+      var t = n > 1 ? i / (n - 1) : 0, c = [];
+      for (k = 0; k < 3; k++) c.push(Math.floor(p.top[k] + (p.hor[k] - p.top[k]) * t + 0.5));
+      list.push({ wait: start.value + Math.floor(i * (stop.value - start.value) / n), reg: 0, value: c });
+    }
+    return list;
+  }
+
+  function hex(c) { return '$' + (c[0].toString(16) + c[1].toString(16) + c[2].toString(16)).toUpperCase(); }
+  function to8(v) { return v * 17; }
+  function rgb(c) { return 'rgb(' + to8(c[0]) + ',' + to8(c[1]) + ',' + to8(c[2]) + ')'; }
+
+  var off = document.createElement('canvas');
+  off.width = SW; off.height = SH;
+  var offCtx = off.getContext('2d');
+  var img = offCtx.createImageData(SW, SH);
+  var layout = { ox: 0, oy: 0, S: 1, sw: SW, sh: SH };
+  var list = [], dragging = null;
+
+  function render() {
+    var pal = PRESETS[preset.value].pal, d = img.data, seen = {}, count = 0, next = 0, y, x, r;
+    var regs = [];
+    for (r = 0; r < 4; r++) regs.push(pal[r]);               // top of frame: load the palette
+    for (y = 0; y < SH; y++) {
+      while (next < list.length && list[next].wait <= y) {   // WAIT reached, so MOVE
+        regs[list[next].reg] = list[next].value;
+        next++;
+      }
+      for (x = 0; x < SW; x++) {
+        var num = numbers[y * SW + x], c = regs[num], i = (y * SW + x) * 4;
+        var key = c[0] * 256 + c[1] * 16 + c[2];
+        if (!seen[key]) { seen[key] = true; count++; }
+        if (showNums.value) { var g = GREYS[num]; d[i] = g[0]; d[i + 1] = g[1]; d[i + 2] = g[2]; }
+        else { d[i] = to8(c[0]); d[i + 1] = to8(c[1]); d[i + 2] = to8(c[2]); }
+        d[i + 3] = 255;
+      }
+    }
+    offCtx.putImageData(img, 0, 0);
+    return count;
+  }
+
+  function draw(ctx, s) {
+    var col = s.colors, W = s.width, H = s.height, pad = 12, i;
+    list = buildCopperList();
+    var count = render();
+
+    var wide = W >= 620, panelW = 230;
+    var S = wide ? Math.min((W - panelW - 3 * pad) / SW, (H - 2 * pad) / SH)
+                 : Math.min((W - 2 * pad) / SW, (H - pad - 150) / SH);
+    S = Math.max(0.5, S);
+    var sw = Math.round(SW * S), sh = Math.round(SH * S);
+    var ox = wide ? pad : Math.round((W - sw) / 2), oy = pad;
+    layout.ox = ox; layout.oy = oy; layout.S = S; layout.sw = sw; layout.sh = sh;
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, ox, oy, sw, sh);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = col.line;
+    ctx.strokeRect(ox - 0.5, oy - 0.5, sw + 1, sh + 1);
+
+    // ---- WAIT markers on the left edge ----
+    if (marks.value) {
+      for (i = 0; i < list.length; i++) {
+        var my = Math.round(oy + list[i].wait * S) + 0.5;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(ox, my); ctx.lineTo(ox + 14, my); ctx.stroke();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(ox, my); ctx.lineTo(ox + 14, my); ctx.stroke();
+      }
+    }
+
+    // ---- start and end handles ----
+    function handle(line, text, active) {
+      var hy = Math.round(oy + line * S) + 0.5;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ox + 18, hy); ctx.lineTo(ox + sw - 48, hy); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox + 18, hy); ctx.lineTo(ox + sw - 48, hy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = active ? col.topic : 'rgba(0,0,0,0.75)';
+      ctx.fillRect(ox + sw - 46, hy - 9, 44, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, ox + sw - 24, hy);
+    }
+    if (copper.value) {
+      handle(start.value, 'start', dragging === 'start');
+      handle(stop.value, 'end', dragging === 'stop');
+    }
+
+    // ---- copper list panel ----
+    var px = wide ? ox + sw + 2 * pad : pad;
+    var py = wide ? oy : oy + sh + 12;
+    var bottom = H - pad;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = col.ink;
+    ctx.fillText('Copper list (runs every frame)', px, py);
+
+    // palette swatches at the bottom of the panel
+    var pal = PRESETS[preset.value].pal, swY = bottom - 16;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('Palette: 4 registers', px, swY - 18);
+    for (i = 0; i < 4; i++) {
+      ctx.fillStyle = showNums.value ? 'rgb(' + GREYS[i].join(',') + ')' : rgb(pal[i]);
+      ctx.fillRect(px + i * 30, swY, 24, 16);
+      ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+      ctx.strokeRect(px + i * 30 - 0.5, swY - 0.5, 25, 17);
+    }
+
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+    var rowH = 15, ry = py + 22;
+    var rows = Math.max(2, Math.floor((swY - 24 - ry) / rowH));
+    var lines = ['top: MOVE COLOR00-03 (palette)'];
+    for (i = 0; i < list.length; i++) {
+      var w = String(list[i].wait);
+      while (w.length < 3) w += ' ';
+      lines.push('WAIT ' + w + ' MOVE COLOR00,' + hex(list[i].value));
+    }
+    lines.push('WAIT never (end)');
+    if (!copper.value) lines = ['top: MOVE COLOR00-03 (palette)', '(copper gradient off)', 'WAIT never (end)'];
+    var shown = lines.length <= rows ? lines : lines.slice(0, rows - 2)
+      .concat(['... ' + (lines.length - rows + 1) + ' more lines', lines[lines.length - 1]]);
+    for (i = 0; i < shown.length; i++) {
+      ctx.fillStyle = i === 0 || i === shown.length - 1 ? col.ink3 : col.ink;
+      ctx.fillText(shown[i], px, ry + i * rowH);
+    }
+
+    // ---- readouts ----
+    var instr = 4 + 2 * list.length + 1;
+    outColours.set(count + ' from 4 registers');
+    outList.set(instr + ' instructions, ' + instr * 4 + ' bytes');
+  }
+
+  var handleObj = null;
+  function redraw() { if (handleObj) handleObj.redraw(); }
+
+  function lineAt(p) {
+    return Math.round((p.y - layout.oy) / layout.S);
+  }
+
+  handleObj = DemoKit.canvas('#copper-sky', {
+    aspect: 1.7,
+    minHeight: 360,
+    maxHeight: 460,
+    animate: false,
+    drag: true,
+    label: 'A 320 by 200 pixel dusk scene with hills and a sun, built from four colour registers. Beside it, the copper list of WAIT and MOVE instructions that rewrite the sky colour register at chosen lines. Drag the start and end handles on the screen to move the gradient, or use the sliders below.',
+    onDown: function (p) {
+      if (!copper.value) return;
+      var L = layout;
+      if (p.x < L.ox - 10 || p.x > L.ox + L.sw + 10 || p.y < L.oy - 10 || p.y > L.oy + L.sh + 10) return;
+      var line = lineAt(p);
+      dragging = Math.abs(line - start.value) <= Math.abs(line - stop.value) ? 'start' : 'stop';
+      moveHandle(p);
+    },
+    onMove: moveHandle,
+    onUp: function () { dragging = null; },
+    draw: draw
+  });
+
+  function moveHandle(p) {
+    if (!dragging || !p.down) return;
+    var line = DemoKit.clamp(lineAt(p), 0, SH - 1);
+    if (dragging === 'start') {
+      line = Math.min(line, 198);
+      start.set(line);
+      if (stop.value <= line) stop.set(line + 1);
+    } else {
+      line = Math.max(line, 1);
+      stop.set(line);
+      if (start.value >= line) start.set(line - 1);
+    }
+  }
+})();
+</script>
+</body>
+</html>

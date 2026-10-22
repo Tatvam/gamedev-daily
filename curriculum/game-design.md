@@ -13,7 +13,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 - [x] **Sound timing and variation** — How the timing, pitch and variety of sound effects change the feel of the same action. Demo: A hit button plays generated tones with a slider that delays the sound after the impact and toggles for pitch variation and layering. (published 2026-10-19, sound-timing-variation)
 - [x] **Camera smoothing and dead zones** — How easing and a dead zone stop the camera from copying every small movement of the player. Demo: A platformer camera with a smoothing slider and a visible dead zone box that can be resized or switched off. (published 2026-10-20, camera-smoothing-dead-zones)
 - [x] **Camera lookahead and framing** — How shifting the camera toward where the player is heading shows them what matters next. Demo: A side-scrolling run with toggles for horizontal lookahead and vertical snapping to platforms, and a slider for lookahead distance. (published 2026-10-21, camera-lookahead-framing)
-- [ ] **Layering juice on a plain game** — How small effects add up, and how to tell when polish starts to hide the action. Demo: A plain brick-breaking game with a checklist of effects such as shake, particles, easing and sound that can be switched on one by one.
+- [x] **Layering juice on a plain game** — How small effects add up, and how to tell when polish starts to hide the action. Demo: A plain brick-breaking game with a checklist of effects such as shake, particles, easing and sound that can be switched on one by one. (published 2026-10-22, layering-juice)
 
 ## Track 2: Forgiveness mechanics
 

@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The 2D cross product: is the target to my left or my right? · Game Dev Daily</title>
+<meta name="description" content="How one subtraction, f.x × t.y − f.y × t.x, tells a ship which way to turn towards a target, and how it relates to perpendicular vectors.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-22">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-f { color: var(--t-game-physics); font-weight: 650; }
+  .v-t { color: var(--warn); font-weight: 650; }
+  .v-p { color: var(--t-game-idea); font-weight: 650; }
+  .v-pos { color: var(--good); font-weight: 650; }
+  .v-neg { color: var(--bad); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The 2D cross product: is the target to my left or my right?</h1>
+  <p class="lede">How one subtraction, f.x × t.y − f.y × t.x, tells a ship which way to turn towards a target, and how it relates to perpendicular vectors.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your homing missile can only turn so fast. Each frame it must decide: steer left or steer right? The dot product cannot answer, because a target 30 degrees to the left and one 30 degrees to the right give the same dot product.</p>
+  <p>You need a number that is positive on one side and negative on the other: the 2D cross product.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One line splits the world in two</h2>
+  <p>Extend the ship's nose arrow forwards and backwards into a long line. Every point is on one side of it, or exactly on it. "Left or right?" means "which side of the line?"</p>
+  <p>We need two arrows, both starting at the ship:</p>
+  <ul>
+    <li><span class="v-f">f</span>, the <dfn>facing</dfn> arrow: the way the nose points.</li>
+    <li><span class="v-t">t</span>, the arrow from the ship to the target: target position minus ship position, as in the subtraction lesson.</li>
+  </ul>
+  <p>Positions are in grid squares and <strong>y grows downwards</strong>, as on a screen and in LÖVE. Here the ship faces <span class="v-f">f = (2, 1)</span>, right and a little down, and the target is at <span class="v-t">t = (1, 3)</span>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="A grid with y pointing down and the ship at the origin. A blue facing arrow f = (2, 1) is extended into a dashed line that splits the grid in two. The half below the line is tinted green and labelled cross greater than 0, right side. The half above is tinted red and labelled cross less than 0, left side. An orange arrow t = (1, 3) points into the green half, and the parallelogram spanned by f and t is shaded green with area 5. A second orange arrow t2 = (3, minus 2) points into the red half. A purple dashed arrow p = (minus 1, 2) is f turned a quarter turn clockwise. On the right, the arithmetic: cross of f and t is 2 times 3 minus 1 times 1, which is 5; cross of f and t2 is 2 times minus 2 minus 1 times 3, which is minus 7; p dot t is also 5.">
+      <path style="fill: var(--good); opacity: 0.12" d="M60 65 L270 170 L270 260 L60 260 Z"/>
+      <path style="fill: var(--bad); opacity: 0.12" d="M60 20 L270 20 L270 170 L60 65 Z"/>
+      <path style="stroke: var(--line); stroke-width: 1; fill: none" d="M60 20 V260 M90 20 V260 M120 20 V260 M150 20 V260 M180 20 V260 M210 20 V260 M240 20 V260 M270 20 V260 M60 20 H270 M60 50 H270 M60 80 H270 M60 110 H270 M60 140 H270 M60 170 H270 M60 200 H270 M60 230 H270 M60 260 H270"/>
+      <path class="d-thin" d="M60 110 H270 M150 20 V260"/>
+      <path class="d-dash" d="M60 65 L270 170"/>
+      <path style="fill: var(--good); opacity: 0.3; stroke: var(--good); stroke-width: 1.5" d="M150 110 L210 140 L240 230 L180 200 Z"/>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2.5; fill: none; stroke-dasharray: 6 4" d="M150 110 L124.5 161"/>
+      <path style="fill: var(--t-game-idea)" d="M120 170 L119 157.5 L130 162.5 Z"/>
+      <path style="stroke: var(--warn); stroke-width: 3.5; fill: none" d="M150 110 L176.5 179.5 M171.4 176.6 L180 190 L181.3 172.9"/>
+      <path style="stroke: var(--warn); stroke-width: 3.5; fill: none" d="M150 110 L231.6 55.6 M224.2 54 L240 50 L230.9 63.4"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 3.5; fill: none" d="M150 110 L201 135.5 M198.4 128.8 L210 140 L193.7 138.2"/>
+      <circle cx="150" cy="110" r="5" class="d-fill"/>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="214" y="132">f</text>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="166" y="186" text-anchor="end">t</text>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="244" y="46">t₂</text>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="114" y="186" text-anchor="middle">p</text>
+      <text class="d-mono" style="fill: var(--good); font-weight: 650" x="206" y="190" text-anchor="middle">5</text>
+      <text class="d-mono" style="fill: var(--good)" x="66" y="252">cross &gt; 0: right</text>
+      <text class="d-mono" style="fill: var(--bad)" x="66" y="38">cross &lt; 0: left</text>
+      <text class="d-muted" x="60" y="288">x right, y down, 1 square = 1 unit.</text>
+
+      <text class="d-mono" style="fill: var(--t-game-physics)" x="310" y="40">f  = (2, 1)</text>
+      <text class="d-mono" style="fill: var(--warn)" x="310" y="64">t  = (1, 3)</text>
+      <text class="d-mono" x="310" y="92">cross(f, t)</text>
+      <text class="d-mono" style="fill: var(--good)" x="330" y="112">= 2×3 − 1×1 = 5</text>
+      <text class="d-muted" x="330" y="132">positive: right of the ship</text>
+      <text class="d-mono" style="fill: var(--warn)" x="310" y="164">t₂ = (3, −2)</text>
+      <text class="d-mono" x="310" y="188">cross(f, t₂)</text>
+      <text class="d-mono" style="fill: var(--bad)" x="330" y="208">= 2×(−2) − 1×3 = −7</text>
+      <text class="d-muted" x="330" y="228">negative: left of the ship</text>
+      <text class="d-mono" style="fill: var(--t-game-idea)" x="310" y="260">p = perp(f) = (−1, 2)</text>
+      <text class="d-mono" style="fill: var(--t-game-idea)" x="310" y="282">p · t = −1×1 + 2×3 = 5</text>
+    </svg>
+    <figcaption>The facing line splits the grid. Targets below it (with y down) give a positive cross product, targets above it a negative one. The shaded parallelogram has area 5, the size of the cross product.</figcaption>
+  </figure>
+
+  <h2>The formula</h2>
+  <p>The <dfn>2D cross product</dfn> of two arrows a and b is one number:</p>
+<pre><code>cross(a, b)  =  a.x × b.y  −  a.y × b.x</code></pre>
+  <p>Read it as "a's x times b's y, minus a's y times b's x". Each x pairs with the other arrow's y.</p>
+  <p>For the ship: cross(<span class="v-f">f</span>, <span class="v-t">t</span>) = 2 × 3 − 1 × 1 = <span class="v-pos">5</span>. Positive. A second target at t₂ = (3, −2), up and to the right on screen, gives 2 × (−2) − 1 × 3 = <span class="v-neg">−7</span>. Negative. A target straight ahead at (4, 2) gives 2 × 2 − 1 × 4 = 0: it sits on the line.</p>
+  <p>With y pointing down, <span class="v-pos">positive means the target is clockwise from the nose: on the ship's right</span>. <span class="v-neg">Negative means anticlockwise: on its left</span>. Zero means on the line, straight ahead or straight behind.</p>
+  <p>The size of the number is the area of the parallelogram the two arrows make, the shaded shape above. For turning we only need the sign.</p>
+
+  <h2>Where it comes from: a dot product with a side arrow</h2>
+  <p>Turn <span class="v-f">f</span> a quarter turn by swapping its parts and negating the new x:</p>
+<pre><code>perp(f)  =  (−f.y, f.x)        (2, 1)  becomes  (−1, 2)</code></pre>
+  <p>Call this <span class="v-p">p</span>, the <dfn>perpendicular</dfn> of f: an arrow at a right angle to it. Check with the dot product: (2, 1) · (−1, 2) = −2 + 2 = 0, and a dot product of zero means a right angle. With y down, this quarter turn is clockwise on screen, so <span class="v-p">p</span> points out of the ship's right side.</p>
+  <p>Now ask the dot product question "does t point the same way as p?": <span class="v-p">p</span> · <span class="v-t">t</span> = −1 × 1 + 2 × 3 = 5. The same 5 as before. Write it out with letters and you get −f.y × t.x + f.x × t.y, which is the cross product formula rearranged. That is why it is also called the <dfn>perp-dot product</dfn>: the dot product of the perpendicular.</p>
+  <p>So the dot product with f says "in front or behind?" and the dot product with p, the cross product, says "right or left?"</p>
+  <p>The other quarter turn, (f.y, −f.x), points out of the other side. The last lesson used it for a wall's normal: (4, −3) became (−3, −4), then n = (−0.6, −0.8) after dividing by 5. Choosing between the two picks which face is the front.</p>
+
+  <h2>Turning towards the target</h2>
+  <p>Store the ship's heading as an angle. With y down, adding to it turns clockwise on screen. Each frame:</p>
+  <ol>
+    <li>Work out c = cross(f, t).</li>
+    <li>If c is positive, add turn speed × dt to the angle. If negative, subtract it.</li>
+    <li>If the sign of the cross product flipped after turning, the nose swung past the target. Point it straight at the target instead.</li>
+  </ol>
+  <p>No angles are subtracted, so nothing goes wrong when an angle passes 180 degrees. The sign always picks the shorter turn.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>cross(facing, toTarget) &gt; 0 means "turn the way positive angles go". With y down that is clockwise, to the right. With y up, as in maths books and Unity, the same positive number means anticlockwise, to the left. The arithmetic never changes; only the picture is mirrored.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the orange target around the ship and watch the parallelogram change colour as it crosses the dashed facing line. Drag the blue dot to aim the nose. Then switch on <strong>Ship turns</strong>: the ship steers by the sign alone until the cross product reaches zero. Arrow keys move the chosen point; Space switches between them.</p>
+  <p>Finally set <strong>Y axis</strong> to up. The numbers stay the same, the picture flips, and "right" becomes "left".</p>
+  <figure class="demo" data-demo="cross-turn">
+    <canvas id="cross-turn"></canvas>
+    <figcaption>Blue f is the facing, orange t runs from the ship to the target, dashed purple p is f turned a quarter turn. Green tint: cross &gt; 0. Red tint: cross &lt; 0. The demo starts on the worked example, with y pointing down.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A ship that turns at 90 degrees per second towards a fixed target. With 30 pixels per grid square, the target sits at (1, 3) squares from the ship and the ship starts facing (2, 1), as in the worked example and the demo.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Vectors are tables { x, y }. y grows downwards, like LÖVE's screen.</span>
+local function vec(x, y) return { x = x, y = y } end
+local function dot(a, b) return a.x * b.x + a.y * b.y end
+local function sub(a, b) return vec(a.x - b.x, a.y - b.y) end
+
+<span class="c">-- 2D cross product. With y down: positive = b is clockwise from a</span>
+<span class="c">-- (to a's right), negative = anticlockwise (to its left), 0 = in line.</span>
+local function cross(a, b)
+<span class="k">  return a.x * b.y - a.y * b.x</span>
+end
+
+<span class="c">-- a turned a quarter turn clockwise on screen: (2, 1) becomes (-1, 2).</span>
+<span class="c">-- cross(a, b) is the same number as dot(perp(a), b).</span>
+local function perp(a) return vec(-a.y, a.x) end
+
+local ship = { pos = vec(400, 300), angle = math.atan2(1, 2) } <span class="c">-- faces (2, 1)</span>
+local target = vec(430, 390)          <span class="c">-- (1, 3) squares away, 30 px each</span>
+local turnSpeed = math.rad(90)        <span class="c">-- 90 degrees per second</span>
+
+local function facing(s)
+  return vec(math.cos(s.angle), math.sin(s.angle))
+end
+
+function love.update(dt)
+  local to = sub(target, ship.pos)
+<span class="k">  local c = cross(facing(ship), to)</span>
+  if c == 0 and dot(facing(ship), to) &lt; 0 then
+    c = 1                             <span class="c">-- directly behind: pick a side</span>
+  end
+  if c &gt; 0 then
+    ship.angle = ship.angle + turnSpeed * dt  <span class="c">-- clockwise, right</span>
+  elseif c &lt; 0 then
+    ship.angle = ship.angle - turnSpeed * dt  <span class="c">-- anticlockwise, left</span>
+  end
+  <span class="c">-- If the sign flipped, we turned past the target: face it exactly.</span>
+  local after = cross(facing(ship), to)
+  if (c &gt; 0 and after &lt; 0) or (c &lt; 0 and after &gt; 0) then
+    ship.angle = math.atan2(to.y, to.x)
+  end
+end
+
+function love.draw()
+  local f = facing(ship)
+  local p = perp(f)
+  local side = cross(f, sub(target, ship.pos))
+  love.graphics.circle("fill", target.x, target.y, 6)
+  love.graphics.line(ship.pos.x, ship.pos.y, ship.pos.x + f.x * 40, ship.pos.y + f.y * 40)
+  love.graphics.line(ship.pos.x, ship.pos.y, ship.pos.x + p.x * 20, ship.pos.y + p.y * 20)
+  love.graphics.print(string.format("cross: %.1f", side), 10, 10)
+end</code></pre>
+  </div>
+  <p>Here the facing has length 1 and the target is in pixels, so the printed number starts at 67.1, not 5. The sign is the same, and the sign is all the turning uses. <code>math.cos</code>, <code>math.sin</code> and <code>math.atan2</code> convert between angles and arrows; Track 2 explains them.</p>
+  <p>Built-in versions: Godot has <code>Vector2.cross</code>, which returns this number. Unity has no 2D version; <code>Vector3.Cross(a, b).z</code> gives the same value for arrows with z = 0. Remember that Unity's y points up.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Mixing up which way y points.</strong> The same positive number is "right" with y down and "left" with y up. If your ship turns away from the target, check this before anything else.</li>
+    <li><strong>Swapping the order.</strong> cross(t, f) is minus cross(f, t): (1, 3) and (2, 1) give 1 × 1 − 3 × 2 = −5. Always put the facing first and the target second, and keep it that way everywhere.</li>
+    <li><strong>Directly behind.</strong> A target exactly behind the ship gives 0, just like one dead ahead: with f = (2, 1), the target (−4, −2) gives 2 × (−2) − 1 × (−4) = 0. A ship that only turns on a non-zero sign will fly away from it forever. Use the dot product to tell the two apart (negative means behind) and pick a side.</li>
+    <li><strong>Zero-length arrows.</strong> A target on the ship gives t = (0, 0), so both products are 0 and the code does nothing, which is right. A facing of (0, 0) would also give 0 for every target, so never let it shrink to nothing.</li>
+    <li><strong>Wiggling on arrival.</strong> If the ship turns by a full turn speed × dt when it is almost lined up, it overshoots, then overshoots back, and the nose shakes. Snapping to the target when the sign flips stops it.</li>
+    <li><strong>Reading the size as an angle.</strong> A far target gives a bigger number than a near one at the same angle, and even with arrows of length 1, targets 30 and 150 degrees off give the same value. Use the sign for the side and the dot product for front or back.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Anything that turns at a limited rate needs a left-or-right decision every frame: homing missiles, turrets, computer-driven cars. The cross product sign is a common way to make it, because it needs no angle wrapping.</p>
+  <p>The same "which side of this line?" test is a building block of geometry code: checking whether two segments cross and whether a polygon's corners run clockwise both use it, and both come later in this course. In 3D, the cross product of two arrows is a third arrow; the 2D number is that arrow's z part.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into a LÖVE project. In <code>love.update(dt)</code>, set the target to the mouse with <code>target = vec(love.mouse.getPosition())</code>. Draw the ship as a line or triangle along the facing arrow, and print "left", "right" or "ahead" from the sign of the cross product.</p>
+  <p>You are done when the ship always turns the short way towards the mouse, the nose does not shake once it is lined up, and swapping the arguments to <code>cross</code> makes it turn away instead.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>cross(a, b) = a.x × b.y − a.y × b.x is one number whose sign says which side of a the arrow b is on.</li>
+    <li>With y down, positive is clockwise (right); with y up, positive is anticlockwise (left).</li>
+    <li>It equals the dot product of perp(a) = (−a.y, a.x) with b, so it is a "left or right?" dot product.</li>
+    <li>Turn by the sign each frame, snap when the sign flips, and use the dot product to break the tie when the target is directly behind.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Track 2 begins with radians, degrees and the unit circle, where the cos and sin used in today's code come from.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on vectors, the section on the cross product.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite>, the chapter on math and geometry primers.</li>
+    <li>Godot Engine documentation, the <cite>Vector2</cite> class reference, <cite>cross</cite>.</li>
+    <li>Unity Scripting API, <cite>Vector3.Cross</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the worked example: facing F = (2, 1) and target offset T = (1, 3), in grid
+  // squares from the ship at the centre. Coordinates are kept in the chosen y convention; only
+  // the drawing flips when the Y axis control changes.
+  var START_F = { x: 2, y: 1 };
+  var START_T = { x: 1, y: 3 };
+  var F = { x: START_F.x, y: START_F.y };
+  var T = { x: START_T.x, y: START_T.y };
+  var dragging = null;               // 't', 'f' or null
+  var L = { u: 28, cx: 160, cy: 240, hx: 5, hy: 5, top: 62, bottom: 44 };
+  var handle = null;
+  var outCache = {};
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="cross-turn"]');
+  var turning = ui.toggle({ label: 'Ship turns', value: false, onChange: redraw });
+  var speed = ui.slider({ label: 'Turn speed', min: 30, max: 360, step: 10, value: 90, unit: '°/s', onInput: redraw });
+  var yAxis = ui.select({
+    label: 'Y axis',
+    options: [{ value: 'down', label: 'Down (screen, LÖVE, Godot)' }, { value: 'up', label: 'Up (maths books, Unity)' }],
+    value: 'down',
+    onChange: redraw
+  });
+  var which = ui.select({
+    label: 'Arrow keys move',
+    options: [{ value: 't', label: 'Target (t)' }, { value: 'f', label: 'Ship nose (f)' }],
+    value: 't',
+    onChange: redraw
+  });
+  ui.button({ label: 'Reset', onClick: function () {
+    F = { x: START_F.x, y: START_F.y };
+    T = { x: START_T.x, y: START_T.y };
+    turning.set(false);
+    redraw();
+  } });
+  var outF = ui.readout({ label: 'f, facing (blue)' });
+  var outT = ui.readout({ label: 't, ship to target (orange)' });
+  var outC = ui.readout({ label: 'cross(f, t) = f.x × t.y − f.y × t.x' });
+  var outP = ui.readout({ label: 'p = perp(f) = (−f.y, f.x) (purple)' });
+  var outPT = ui.readout({ label: 'p · t' });
+  var outD = ui.readout({ label: 'f · t (front or behind)' });
+
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+
+  function dot(a, b) { return a.x * b.x + a.y * b.y; }
+  function cross(a, b) { return a.x * b.y - a.y * b.x; }
+  function len(v) { return Math.sqrt(dot(v, v)); }
+  function num(n, digits) {
+    var p = Math.pow(10, digits === undefined ? 2 : digits);
+    n = Math.round(n * p) / p;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function term(n) { return Math.round(n * 100) / 100 < 0 ? '(' + num(n) + ')' : num(n); }
+  function pair(v) { return '(' + num(v.x) + ', ' + num(v.y) + ')'; }
+
+  // Cross product with tiny float noise treated as zero.
+  function sideOf(f, t) {
+    var c = cross(f, t);
+    var eps = 1e-9 * Math.max(1, len(f) * len(t));
+    return Math.abs(c) < eps ? 0 : c;
+  }
+
+  function yDown() { return yAxis.value === 'down'; }
+
+  function layout(s) {
+    var usableH = s.height - L.top - L.bottom;
+    L.u = Math.max(20, Math.min(34, Math.floor(Math.min(s.width, usableH) / 11)));
+    L.cx = Math.round(s.width / 2);
+    L.cy = Math.round(L.top + usableH / 2);
+    L.hx = Math.max(3, Math.floor((s.width / 2 - 12) / L.u));
+    L.hy = Math.max(3, Math.floor((usableH / 2) / L.u));
+  }
+  function clampPoint(p) {
+    p.x = DemoKit.clamp(p.x, -L.hx, L.hx);
+    p.y = DemoKit.clamp(p.y, -L.hy, L.hy);
+  }
+  function sy() { return yDown() ? 1 : -1; }
+  function toScreen(v) { return { x: L.cx + v.x * L.u, y: L.cy + sy() * v.y * L.u }; }
+  function dirToScreen(v) { return { x: v.x, y: sy() * v.y }; }
+  function fromScreen(p) {
+    var v = { x: Math.round((p.x - L.cx) / L.u), y: Math.round(sy() * (p.y - L.cy) / L.u) };
+    if (v.y === 0) v.y = 0;
+    clampPoint(v);
+    return v;
+  }
+  function setPoint(name, p) {
+    var v = fromScreen(p);
+    if (name === 'f') {
+      if (v.x !== 0 || v.y !== 0) F = v;   // the ship needs a facing
+    } else {
+      T = v;
+    }
+    redraw();
+  }
+
+  // The same steps as love.update in the Lua code.
+  function turnStep(dt) {
+    if (!turning.value) return;
+    var c = sideOf(F, T);
+    if (c === 0 && dot(F, T) < 0) c = 1;   // directly behind: pick a side
+    if (c === 0) return;
+    var a = (c > 0 ? 1 : -1) * speed.value * Math.PI / 180 * dt;
+    var cs = Math.cos(a), sn = Math.sin(a);
+    F = { x: F.x * cs - F.y * sn, y: F.x * sn + F.y * cs };
+    var after = sideOf(F, T);
+    if ((c > 0 && after < 0) || (c < 0 && after > 0)) {
+      var k = len(F) / len(T);
+      F = { x: T.x * k, y: T.y * k };
+    }
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function arrow(ctx, x1, y1, x2, y2, size) {
+    var l = Math.hypot(x2 - x1, y2 - y1);
+    if (l < 1) return;
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var sz = Math.min(size, l);
+    line(ctx, x1, y1, x2 - Math.cos(ang) * sz * 0.6, y2 - Math.sin(ang) * sz * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - sz * Math.cos(ang - 0.45), y2 - sz * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - sz * Math.cos(ang + 0.45), y2 - sz * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+  function label(ctx, text, x, y, color, bg) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - w / 2 - 3, y - 11, w + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(text, x, y);
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 13px ui-monospace, Menlo, Consolas, monospace';
+  var BIG = '600 16px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#cross-turn', {
+    height: 480,
+    drag: true,
+    keys: true,
+    label: 'A ship at the centre of a grid. A blue arrow f shows where it faces and a draggable blue dot sets it. An orange arrow t runs to a draggable target. The facing line splits the grid into a green half where the cross product is positive and a red half where it is negative, and the parallelogram of f and t is shaded in the matching colour. A purple dashed arrow is f turned a quarter turn. When Ship turns is on, the ship rotates towards the target. Arrow keys move the chosen point and Space switches between the target and the nose.',
+    onResize: function (s) { layout(s); clampPoint(T); },
+    onDown: function (p) {
+      var st = toScreen(T);
+      var sf = toScreen(F);
+      var dt = Math.hypot(p.x - st.x, p.y - st.y);
+      var df = Math.hypot(p.x - sf.x, p.y - sf.y);
+      if (df < 24 && df <= dt) dragging = 'f';
+      else dragging = 't';
+      which.set(dragging);
+      setPoint(dragging, p);
+    },
+    onMove: function (p) { if (p.down && dragging) setPoint(dragging, p); },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === ' ' || key === 'space' || key === 'spacebar') {
+        which.set(which.value === 'f' ? 't' : 'f');
+        redraw();
+        return;
+      }
+      var v = which.value === 'f' ? { x: Math.round(F.x), y: Math.round(F.y) } : { x: T.x, y: T.y };
+      var up = yDown() ? -1 : 1;           // the arrow keys move on screen
+      if (key === 'arrowleft') v.x -= 1;
+      else if (key === 'arrowright') v.x += 1;
+      else if (key === 'arrowup') v.y += up;
+      else if (key === 'arrowdown') v.y -= up;
+      else return;
+      clampPoint(v);
+      if (which.value === 'f') {
+        if (v.x !== 0 || v.y !== 0) F = v;
+      } else {
+        T = v;
+      }
+      redraw();
+    },
+    update: function (dt) { turnStep(dt); },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      layout(s);
+      clampPoint(T);
+      var u = L.u;
+      var gx0 = L.cx - L.hx * u, gx1 = L.cx + L.hx * u;
+      var gy0 = L.cy - L.hy * u, gy1 = L.cy + L.hy * u;
+      var i;
+      var O = { x: L.cx, y: L.cy };
+      var pF = toScreen(F);
+      var pT = toScreen(T);
+      var P = { x: -F.y, y: F.x };
+      var pP = toScreen(P);
+      var cr = sideOf(F, T);
+      var dp = dot(F, T);
+      var fl = len(F);
+      var fs = dirToScreen({ x: F.x / fl, y: F.y / fl });   // facing, on screen, length 1
+      var ps = dirToScreen({ x: P.x / fl, y: P.y / fl });   // positive side, on screen
+      var down = yDown();
+
+      // Grid with axes through the ship.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = -L.hx; i <= L.hx; i++) line(ctx, L.cx + i * u + 0.5, gy0, L.cx + i * u + 0.5, gy1);
+      for (i = -L.hy; i <= L.hy; i++) line(ctx, gx0, L.cy + i * u + 0.5, gx1, L.cy + i * u + 0.5);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, gx0, L.cy + 0.5, gx1, L.cy + 0.5);
+      line(ctx, L.cx + 0.5, gy0, L.cx + 0.5, gy1);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('x →', gx1 - 2, L.cy - 6);
+      ctx.textAlign = 'left';
+      if (down) ctx.fillText('y ↓ (down)', L.cx + 6, gy1 - 6);
+      else ctx.fillText('y ↑ (up)', L.cx + 6, gy0 + 14);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+      ctx.clip();
+
+      // The two halves: green where cross(F, point) > 0, red where < 0.
+      var far = (gx1 - gx0) + (gy1 - gy0);
+      var a1 = { x: O.x - fs.x * far, y: O.y - fs.y * far };
+      var a2 = { x: O.x + fs.x * far, y: O.y + fs.y * far };
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = c.good;
+      ctx.beginPath();
+      ctx.moveTo(a1.x, a1.y); ctx.lineTo(a2.x, a2.y);
+      ctx.lineTo(a2.x + ps.x * far, a2.y + ps.y * far); ctx.lineTo(a1.x + ps.x * far, a1.y + ps.y * far);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = c.bad;
+      ctx.beginPath();
+      ctx.moveTo(a1.x, a1.y); ctx.lineTo(a2.x, a2.y);
+      ctx.lineTo(a2.x - ps.x * far, a2.y - ps.y * far); ctx.lineTo(a1.x - ps.x * far, a1.y - ps.y * far);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 5]);
+      line(ctx, a1.x, a1.y, a2.x, a2.y);
+      ctx.setLineDash([]);
+
+      // Parallelogram of F and T, in the sign colour.
+      var pFT = toScreen({ x: F.x + T.x, y: F.y + T.y });
+      if (cr !== 0) {
+        ctx.fillStyle = cr > 0 ? c.good : c.bad;
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.globalAlpha = 0.28;
+        ctx.beginPath();
+        ctx.moveTo(O.x, O.y); ctx.lineTo(pF.x, pF.y); ctx.lineTo(pFT.x, pFT.y); ctx.lineTo(pT.x, pT.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Side labels, behind the ship and out to each side.
+      var reach = Math.min(L.hx, L.hy) * u * 0.7;
+      var back = 1.5 * u;
+      var posName = down ? 'cross > 0: right' : 'cross > 0: left';
+      var negName = down ? 'cross < 0: left' : 'cross < 0: right';
+      label(ctx, posName, O.x + ps.x * reach - fs.x * back, O.y + ps.y * reach - fs.y * back + 4, c.good, c.surface);
+      label(ctx, negName, O.x - ps.x * reach - fs.x * back, O.y - ps.y * reach - fs.y * back + 4, c.bad, c.surface);
+
+      // The ship: a small triangle along F.
+      var sz = 13;
+      var sx = -fs.y, syy = fs.x;   // screen perpendicular for the ship's width
+      ctx.fillStyle = c.ink2;
+      ctx.beginPath();
+      ctx.moveTo(O.x + fs.x * sz, O.y + fs.y * sz);
+      ctx.lineTo(O.x - fs.x * sz * 0.7 + sx * sz * 0.7, O.y - fs.y * sz * 0.7 + syy * sz * 0.7);
+      ctx.lineTo(O.x - fs.x * sz * 0.35, O.y - fs.y * sz * 0.35);
+      ctx.lineTo(O.x - fs.x * sz * 0.7 - sx * sz * 0.7, O.y - fs.y * sz * 0.7 - syy * sz * 0.7);
+      ctx.closePath();
+      ctx.fill();
+
+      // p: purple dashed, F: blue, T: orange.
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = purple;
+      ctx.fillStyle = purple;
+      ctx.setLineDash([6, 4]);
+      var pl = Math.hypot(pP.x - O.x, pP.y - O.y);
+      if (pl > 12) line(ctx, O.x, O.y, pP.x - (pP.x - O.x) / pl * 8, pP.y - (pP.y - O.y) / pl * 8);
+      ctx.setLineDash([]);
+      if (pl > 1) {
+        var ang = Math.atan2(pP.y - O.y, pP.x - O.x);
+        ctx.beginPath();
+        ctx.moveTo(pP.x, pP.y);
+        ctx.lineTo(pP.x - 10 * Math.cos(ang - 0.45), pP.y - 10 * Math.sin(ang - 0.45));
+        ctx.lineTo(pP.x - 10 * Math.cos(ang + 0.45), pP.y - 10 * Math.sin(ang + 0.45));
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = c.warn;
+      ctx.fillStyle = c.warn;
+      arrow(ctx, O.x, O.y, pT.x, pT.y, 12);
+      ctx.strokeStyle = blue;
+      ctx.fillStyle = blue;
+      arrow(ctx, O.x, O.y, pF.x, pF.y, 12);
+
+      // Arrow labels, beside the middle of each arrow.
+      label(ctx, 'f', (O.x + pF.x) / 2 - fs.y * 14, (O.y + pF.y) / 2 + fs.x * 14 + 4, blue, c.surface);
+      var tl = Math.hypot(pT.x - O.x, pT.y - O.y);
+      if (tl > 20) label(ctx, 't', (O.x + pT.x) / 2 + (pT.y - O.y) / tl * 14, (O.y + pT.y) / 2 - (pT.x - O.x) / tl * 14 + 4, c.warn, c.surface);
+      if (pl > 20) label(ctx, 'p', pP.x + (pP.x - O.x) / pl * 14, pP.y + (pP.y - O.y) / pl * 14 + 4, purple, c.surface);
+      ctx.restore();
+
+      // Handles: target (orange) and nose (blue).
+      ctx.lineWidth = 2;
+      ctx.fillStyle = c.warn;
+      ctx.strokeStyle = c.surface;
+      ctx.beginPath();
+      ctx.arc(pT.x, pT.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = blue;
+      ctx.beginPath();
+      ctx.arc(pF.x, pF.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      var sel = which.value === 'f' ? pF : pT;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(sel.x, sel.y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Summary box, top-left.
+      var line1, line2;
+      var cw = down ? 'clockwise' : 'anticlockwise';
+      var acw = down ? 'anticlockwise' : 'clockwise';
+      if (T.x === 0 && T.y === 0) { line1 = 'Target on the ship'; line2 = 't is (0, 0): cross = 0, nothing to turn to'; }
+      else if (cr > 0) { line1 = 'Target on the ' + (down ? 'right' : 'left'); line2 = 'cross = ' + num(cr) + ' > 0: turn ' + cw + ' on screen'; }
+      else if (cr < 0) { line1 = 'Target on the ' + (down ? 'left' : 'right'); line2 = 'cross = ' + num(cr) + ' < 0: turn ' + acw + ' on screen'; }
+      else if (dp > 0) { line1 = 'Straight ahead'; line2 = 'cross = 0 and f · t > 0: on target'; }
+      else { line1 = 'Directly behind'; line2 = 'cross = 0 but f · t < 0: pick a side'; }
+      ctx.font = SMALL;
+      var w2 = ctx.measureText(line2).width;
+      ctx.font = BIG;
+      var w1 = ctx.measureText(line1).width;
+      var bw = Math.min(s.width - 16, Math.max(w1, w2) + 20);
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(8, 8, bw, 46);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(8.5, 8.5, bw, 46);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = cr > 0 ? c.good : (cr < 0 ? c.bad : c.ink2);
+      ctx.fillText(line1, 18, 28);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(line2, 18, 46);
+
+      // Readouts beside the picture.
+      setOut(outF, 'f', pair(F));
+      setOut(outT, 't', pair(T));
+      setOut(outC, 'c', term(F.x) + ' × ' + term(T.y) + ' − ' + term(F.y) + ' × ' + term(T.x) + ' = ' + num(cr));
+      setOut(outP, 'p', pair(P));
+      setOut(outPT, 'pt', term(P.x) + ' × ' + term(T.x) + ' + ' + term(P.y) + ' × ' + term(T.y) + ' = ' + num(sideOf(F, T)));
+      setOut(outD, 'd', num(dp) + (dp > 0 ? ', in front' : (dp < 0 ? ', behind' : ', level with the ship')));
+    }
+  });
+})();
+</script>
+</body>
+</html>

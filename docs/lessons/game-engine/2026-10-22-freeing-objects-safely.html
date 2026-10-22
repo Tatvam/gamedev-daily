@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freeing objects safely: queue_free in Godot, Destroy in Unity · Game Dev Daily</title>
+<meta name="description" content="Why queue_free and Destroy wait until the end of the frame, and what breaks when an object is removed in the middle of a loop or while others still point at it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Freeing objects safely: queue_free in Godot, Destroy in Unity</h1>
+  <p class="lede">Why queue_free and Destroy wait until the end of the frame, and what breaks when an object is removed in the middle of a loop or while others still point at it.</p>
+</header>
+
+<section data-section="hook">
+  <p>A grenade goes off in a crowd. Most enemies die, but two standing next to a dying one walk away unhurt, and the console fills with errors about a turret aiming at something that no longer exists. The damage code is fine. The enemies were removed at the wrong moment.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Removing something while someone is looking at it</h2>
+  <p>To <dfn>free</dfn> an object means to remove it from the game and give its memory back. The trouble is everyone else still using the object at that moment. Two kinds of user get hurt.</p>
+
+  <h3>1. A loop walking over a list</h3>
+  <p>The explosion walks over an array of enemies with an index <code>i</code>. Enemy B in slot 2 dies and is removed on the spot, so every enemy after it slides down one slot. C is now in slot 2, but the loop has finished slot 2 and moves on to slot 3. C is never visited.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 214" role="img" aria-label="Before: slots 1 to 4 hold A, B, C and D, and the loop is at slot 2, where B dies. After removing B, slots 1 to 3 hold A, C and D, slot 4 is empty, and the loop has moved on to slot 3, which holds D. C was never visited.">
+      <text class="d-label" x="12" y="20">Before: i = 2, B dies</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="74" y="44">1</text><text class="d-muted" x="146" y="44">2</text>
+        <text class="d-muted" x="218" y="44">3</text><text class="d-muted" x="290" y="44">4</text>
+      </g>
+      <rect class="d-box" x="44" y="52" width="60" height="36" rx="6"/>
+      <rect class="d-accent-soft" x="116" y="52" width="60" height="36" rx="6"/>
+      <rect class="d-box" x="188" y="52" width="60" height="36" rx="6"/>
+      <rect class="d-box" x="260" y="52" width="60" height="36" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="74" y="75">A</text><text class="d-text" x="146" y="75">B</text>
+        <text class="d-text" x="218" y="75">C</text><text class="d-text" x="290" y="75">D</text>
+      </g>
+
+      <text class="d-label" x="12" y="122">After removing B: i = 3</text>
+      <rect class="d-box" x="44" y="138" width="60" height="36" rx="6"/>
+      <rect class="d-box" x="116" y="138" width="60" height="36" rx="6"/>
+      <rect class="d-accent-soft" x="188" y="138" width="60" height="36" rx="6"/>
+      <rect class="d-dash" x="260" y="138" width="60" height="36" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="74" y="161">A</text><text class="d-text" x="146" y="161">C</text>
+        <text class="d-text" x="218" y="161">D</text><text class="d-muted" x="290" y="161">nil</text>
+        <text class="d-label" x="146" y="198">C: never visited</text>
+      </g>
+    </svg>
+    <figcaption>Removing from the middle of an array shifts everything after it. The loop's index does not know that.</figcaption>
+  </figure>
+
+  <p>It gets worse at the end of the list. In Lua, <code>for i = 1, #enemies do</code> reads <code>#enemies</code> once, before the first pass. Remove three enemies and the loop still runs to 8 and crashes on <code>nil</code>. A C# <code>foreach</code> over a <code>List</code> throws an exception instead.</p>
+
+  <h3>2. Anyone holding a reference</h3>
+  <p>A <dfn>reference</dfn> is a stored pointer to an object, such as a turret's <code>target</code>. When the target is freed, the turret's variable still points to where it was. What happens next depends on who owns the memory:</p>
+  <ul>
+    <li><strong>Godot</strong> frees the node for real. Using the old reference is a runtime error, and <code>is_instance_valid(target)</code> returns <code>false</code>.</li>
+    <li><strong>Unity</strong> destroys the engine side of the object, but your C# object stays around until the garbage collector takes it. Unity overrides <code>==</code> so that <code>target == null</code> is <code>true</code>. Touching its engine data, such as <code>target.transform</code>, throws a <code>MissingReferenceException</code>.</li>
+    <li><strong>Plain Lua</strong> has no "free". The turret's reference keeps the removed enemy alive, and the turret shoots a <dfn>zombie</dfn>: an object the game thinks is gone but is still using.</li>
+  </ul>
+
+  <h3>The engine's answer: free it later</h3>
+  <p>Engines have both problems at a larger scale: they walk lists of nodes, bodies and signals, and any script can point at any object. So neither engine frees an object when you ask. They <dfn>defer</dfn> it: the object is marked, stays valid, and is freed at a safe point when no loop is running.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Two timelines through one frame: update loop, other scripts, end of frame, render. In the immediate lane enemy B disappears in the middle of the update loop and later code finds a hole and a dangling reference. In the deferred lane B is marked dying, stays valid through the rest of the frame, and is freed at the end of frame before render.">
+      <g text-anchor="middle">
+        <text class="d-label" x="187" y="24">Update loop</text>
+        <text class="d-label" x="337" y="24">Other scripts</text>
+        <text class="d-label" x="469" y="24">End of frame</text>
+        <text class="d-label" x="577" y="24">Render</text>
+      </g>
+      <path class="d-accent" d="M112 36 H630"/>
+      <path class="d-accent" d="M622 31 L632 36 L622 41"/>
+      <text class="d-muted" x="12" y="40">time</text>
+
+      <text class="d-text" x="12" y="96">Immediate</text>
+      <rect class="d-box" x="112" y="60" width="150" height="70" rx="6"/>
+      <rect class="d-box" x="270" y="60" width="134" height="70" rx="6"/>
+      <rect class="d-box" x="412" y="60" width="114" height="70" rx="6"/>
+      <rect class="d-box" x="534" y="60" width="86" height="70" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="187" y="88">free(B)</text>
+        <text class="d-text" style="fill: var(--bad)" x="187" y="110">next enemy skipped</text>
+        <text class="d-text" style="fill: var(--bad)" x="337" y="88">turret.target</text>
+        <text class="d-text" style="fill: var(--bad)" x="337" y="110">points at nothing</text>
+        <text class="d-muted" x="469" y="99">nothing to do</text>
+        <text class="d-muted" x="577" y="99">draw</text>
+      </g>
+
+      <text class="d-text" x="12" y="188">Deferred</text>
+      <rect class="d-box" x="112" y="152" width="150" height="70" rx="6"/>
+      <rect class="d-box" x="270" y="152" width="134" height="70" rx="6"/>
+      <rect class="d-accent-soft" x="412" y="152" width="114" height="70" rx="6"/>
+      <rect class="d-box" x="534" y="152" width="86" height="70" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="187" y="180">queue_free(B)</text>
+        <text class="d-text" style="fill: var(--good)" x="187" y="202">B marked, stays</text>
+        <text class="d-text" style="fill: var(--good)" x="337" y="180">B still valid,</text>
+        <text class="d-text" style="fill: var(--good)" x="337" y="202">check the mark</text>
+        <text class="d-text" x="469" y="180">free all</text>
+        <text class="d-text" x="469" y="202">marked</text>
+        <text class="d-muted" x="577" y="191">draw</text>
+      </g>
+      <text class="d-muted" x="112" y="244">Godot also flushes its queue after each physics step.</text>
+    </svg>
+    <figcaption>Freeing immediately makes a hole in the middle of the frame. Deferring keeps every object whole until a point where no loop is running.</figcaption>
+  </figure>
+
+  <h3>Godot 4</h3>
+  <p><code>queue_free()</code> marks the node and all its children for deletion "at the end of the current frame", in the words of the documentation. In the Godot 4.5 source the delete queue is emptied after each physics step and after each process step. Until then the node is still in the tree and usable, and <code>is_queued_for_deletion()</code> returns <code>true</code>. Calling <code>queue_free()</code> twice is safe. <code>free()</code> deletes on the spot.</p>
+
+  <h3>Unity 6 and 2022 LTS</h3>
+  <p><code>Destroy(obj)</code> does the same job. The Unity scripting reference says the actual destruction is delayed until after the current Update loop and always happens before rendering. Destroying a GameObject also destroys its components and its child objects. Until then it still compares as not null. <code>DestroyImmediate</code> is meant for editor code. We know of no public Unity method like <code>is_queued_for_deletion</code>, so the usual approach is your own flag.</p>
+
+  <div class="callout">
+    <p class="callout-title">Who owns what</p>
+    <p>You own the decision that an object should die. The engine owns the moment its memory goes away. Between the two, the object is still valid but dying, and code that might meet it should check.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>An explosion loop deals the same damage to eight enemies in turn; those at 0 hp or below die. Then the turret updates, aiming at the enemy that had the lowest hp when the frame began. Press <strong>Next</strong> (or tap the canvas, or use the arrow keys on a focused canvas) to step through one frame.</p>
+  <p>Start with <em>Free now, loop forwards</em> and watch C and F get skipped before the loop runs off the end. Switch to <em>loop backwards</em>: the array is fine now, but the turret's target is gone. Then try <em>Queue, free at end of frame</em>.</p>
+
+  <figure class="demo" data-demo="freeing">
+    <canvas id="freeing"></canvas>
+    <figcaption>The filled slot is the loop's current index. The ring marks the turret's target. "skip" means the explosion never reached that enemy. The model leaves out signals, children, physics and the engine's own lists, which both engines already protect.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no scene tree, so you build the delete queue yourself. Mark during the loop, act on the mark, and remove marked objects in one pass at the end of <code>love.update</code>. Press space to set off the explosion. The names and numbers match the demo's first wave: C dies, and the turret switches to A.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local damage, exploding = 3, false
+local hps = { 5, 2, 1, 6, 3, 2, 8, 1 }
+local enemies = {}
+for i = 1, #hps do
+  enemies[i] = { name = string.char(64 + i), hp = hps[i], dead = false }
+end
+
+local function lowestHp()               <span class="c">-- lowest hp wins, first on a tie</span>
+  local best = nil
+  for i = 1, #enemies do
+    local e = enemies[i]
+    if not e.dead and (best == nil or e.hp &lt; best.hp) then best = e end
+  end
+  return best
+end
+local turret = { target = lowestHp() }  <span class="c">-- C</span>
+
+function love.keypressed(key) if key == "space" then exploding = true end end
+
+function love.update(dt)
+  if exploding then
+    for i = 1, #enemies do              <span class="c">-- nothing moves, every enemy is visited</span>
+      local e = enemies[i]
+      e.hp = e.hp - damage
+<span class="k">      if e.hp &lt;= 0 then e.dead = true end  -- queue it, do not remove it</span>
+    end
+    exploding = false
+  end
+  if turret.target == nil or turret.target.dead then
+    turret.target = lowestHp()          <span class="c">-- A</span>
+  end
+  for i = #enemies, 1, -1 do            <span class="c">-- end of frame: flush the queue</span>
+<span class="k">    if enemies[i].dead then table.remove(enemies, i) end</span>
+  end
+end
+
+function love.draw()
+  for i = 1, #enemies do
+    love.graphics.print(enemies[i].name .. " " .. enemies[i].hp, 10, i * 20)
+  end
+  if turret.target then love.graphics.print("target " .. turret.target.name, 120, 20) end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># enemy.gd on each enemy. Add the node to the "enemies" group. Godot 4.</span>
+class_name Enemy
+extends Node2D
+
+@export var hp := 5
+
+func take_damage(amount: int) -&gt; void:
+    hp -= amount
+<span class="k">    if hp &lt;= 0:
+        queue_free()        <span class="c"># still in the tree until the frame ends</span></span>
+
+
+<span class="c"># explosion.gd</span>
+extends Node2D
+
+@export var damage := 3
+
+func explode() -&gt; void:
+    <span class="c"># get_nodes_in_group returns a new array, and nothing is freed yet.</span>
+    for enemy in get_tree().get_nodes_in_group("enemies"):
+        enemy.take_damage(damage)
+
+
+<span class="c"># turret.gd</span>
+extends Node2D
+
+var target: Enemy
+
+func _process(_delta: float) -&gt; void:
+<span class="k">    if not is_instance_valid(target) or target.is_queued_for_deletion():</span>
+        target = _lowest_hp()
+
+func _lowest_hp() -&gt; Enemy:
+    var best: Enemy = null
+    for enemy in get_tree().get_nodes_in_group("enemies"):
+        if enemy.is_queued_for_deletion():
+            continue
+        if best == null or enemy.hp &lt; best.hp:
+            best = enemy
+    return best</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Enemy.cs. Unity 6 and 2022 LTS.</span>
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Enemy : MonoBehaviour
+{
+    public static readonly List&lt;Enemy&gt; All = new List&lt;Enemy&gt;();
+    public int hp = 5;
+    public bool IsDying { get; private set; }
+
+    void OnEnable()  { All.Add(this); }
+    void OnDisable() { All.Remove(this); }
+
+    public void TakeDamage(int amount)
+    {
+        hp -= amount;
+        if (hp &lt;= 0 &amp;&amp; !IsDying)
+        {
+            IsDying = true;          <span class="c">// Unity has no public "queued" check</span>
+<span class="k">            Destroy(gameObject);     <span class="c">// really destroyed after this Update loop</span></span>
+        }
+    }
+}
+
+
+<span class="c">// Explosion.cs</span>
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Explosion : MonoBehaviour
+{
+    public int damage = 3;
+
+    public void Explode()
+    {
+        <span class="c">// Loop over a copy, so no change to Enemy.All can break this loop.</span>
+        foreach (Enemy e in new List&lt;Enemy&gt;(Enemy.All)) e.TakeDamage(damage);
+    }
+}
+
+
+<span class="c">// Turret.cs</span>
+using UnityEngine;
+
+public class Turret : MonoBehaviour
+{
+    public Enemy target;
+
+    void Update()
+    {
+<span class="k">        if (target == null || target.IsDying) target = LowestHp();  <span class="c">// == null is true once destroyed</span></span>
+    }
+
+    Enemy LowestHp()
+    {
+        Enemy best = null;
+        foreach (Enemy e in Enemy.All)
+            if (!e.IsDying &amp;&amp; (best == null || e.hp &lt; best.hp)) best = e;
+        return best;
+    }
+}</code></pre>
+  </div>
+  <p>The Lua flush loop runs backwards on purpose. Removing slot <code>i</code> only shifts the slots after it, and those have already been checked.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Dying objects still act this frame.</strong> A coin queued by one player can be collected by a second player later in the same frame, giving double points. Check <code>is_queued_for_deletion()</code> or your own flag before you act on an object that might be dying.</li>
+    <li><strong>Removing inside a forward loop.</strong> If you must remove immediately, loop backwards. Better, mark now and sweep after the loop.</li>
+    <li><strong>Using <code>?.</code> or <code>is null</code> on Unity objects.</strong> These skip Unity's custom <code>==</code>, so a destroyed object counts as not null. Use <code>== null</code> or plain <code>if (target)</code>.</li>
+    <li><strong><code>Destroy(this)</code> instead of <code>Destroy(gameObject)</code>.</strong> The first removes only the script component and leaves the enemy standing.</li>
+    <li><strong><code>remove_child</code> without freeing.</strong> In Godot the node leaves the tree but stays in memory. If nothing adds it back, that is a leak.</li>
+    <li><strong>Reaching for <code>free()</code> or <code>DestroyImmediate</code>.</strong> They bring back exactly the problems deferral solves.</li>
+    <li><strong>Performance.</strong> Creating and freeing hundreds of bullets per second is costly. Object pooling, later in this course, avoids it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every Godot game that calls <code>queue_free</code> and every Unity game that calls <code>Destroy</code> relies on this deferral. Godot's own process loop also guards itself: the 4.5 source copies the node list before processing and skips nodes removed along the way. Unity's Entities package uses the same idea: changes such as destroying an entity are usually recorded in an entity command buffer and played back later, when no system is iterating.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Put eight enemies in your own array with the demo's hp values (5, 2, 1, 6, 3, 2, 8, 1). Write an explosion that loops forwards and removes and frees dead enemies immediately, printing each enemy it damages. Then switch to <code>queue_free</code> or <code>Destroy</code>, leave the array alone during the loop, and clean it afterwards. You are done when every enemy is damaged exactly once and the turret never logs an error.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Removing from a list while looping over it skips entries or runs past the end.</li>
+    <li>Freeing an object breaks everyone who still holds a reference to it.</li>
+    <li>Engines defer: <code>queue_free</code> and <code>Destroy</code> mark the object now and free it later, after the update and before rendering.</li>
+    <li>Between the call and the actual free, the object is valid but dying. Check for that.</li>
+    <li>Use <code>is_instance_valid</code> in Godot and <code>== null</code> in Unity for references that may outlive their target.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next track starts with input: the difference between asking every frame whether a key is down and being told the moment it changes.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, class reference for <cite>Node</cite> (Godot 4.5), entries for <code>queue_free</code> and <code>remove_child</code>. Read from the source file <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Node.xml">doc/classes/Node.xml</a></cite>.</li>
+    <li>Godot Engine documentation, class reference for <cite>Object</cite>, entries for <code>free</code> and <code>is_queued_for_deletion</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Object.xml">doc/classes/Object.xml</a></cite>; and <cite>@GlobalScope</cite>, entry for <code>is_instance_valid</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/@GlobalScope.xml">doc/classes/@GlobalScope.xml</a></cite>.</li>
+    <li>Godot Engine source, <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/scene/main/scene_tree.cpp">scene/main/scene_tree.cpp</a></cite> (4.5-stable), functions <code>_flush_delete_queue</code>, <code>process</code>, <code>physics_process</code> and <code>_process_group</code>.</li>
+    <li>Unity Scripting API, <cite>Object.Destroy</cite> and <cite>Object.DestroyImmediate</cite>.</li>
+    <li>Lucas Meijer, <cite>Custom == operator, should we keep it?</cite>, Unity blog, on why destroyed objects compare equal to null.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Update Method", which discusses adding and removing objects while the update loop runs.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  var FIRST_WAVE = [5, 2, 1, 6, 3, 2, 8, 1];
+  var MODES = {
+    forward: { label: 'Free now, loop forwards', loop: 'for i = 1, #enemies do', act: 'on death: table.remove(enemies, i)' },
+    backward: { label: 'Free now, loop backwards', loop: 'for i = #enemies, 1, -1 do', act: 'on death: table.remove(enemies, i)' },
+    deferred: { label: 'Queue, free at end of frame', loop: 'for i = 1, #enemies do', act: 'on death: e.dead = true' }
+  };
+  var PHASES = {
+    start: 'Frame starts',
+    loop: 'Explosion loop',
+    error: 'Error: update stopped',
+    turret: 'Turret update',
+    end: 'End of frame'
+  };
+
+  var mode = 'forward';
+  var damage = 3;
+  var waveSeed = 0;
+  var wave = FIRST_WAVE.slice();
+  var snaps = [];
+  var cur = 0;
+
+  function makeWave(seed) {
+    if (seed === 0) return FIRST_WAVE.slice();
+    var random = DemoKit.rng(seed * 7919);
+    var out = [];
+    for (var k = 0; k < NAMES.length; k++) out.push(1 + Math.floor(random() * 8));
+    return out;
+  }
+
+  function lowest(list) {
+    var best = null;
+    for (var k = 0; k < list.length; k++) {
+      var e = list[k];
+      if (!e.dead && !e.freed && (best === null || e.hp < best.hp)) best = e;
+    }
+    return best;
+  }
+
+  function simulate() {
+    var list = wave.map(function (hp, k) {
+      return { name: NAMES[k], hp: hp, visited: false, dead: false, freed: false, skip: false };
+    });
+    var freed = [];
+    var turret = { target: lowest(list), state: 'locked' };
+    var hits = 0, errors = 0;
+    var out = [];
+
+    function push(phase, cursor, msg, nilSlot) {
+      out.push({
+        phase: phase,
+        cursor: cursor,
+        msg: msg,
+        nilSlot: nilSlot || 0,
+        slots: list.map(function (e) {
+          return { name: e.name, hp: e.hp, visited: e.visited, dead: e.dead, skip: e.skip };
+        }),
+        freed: freed.slice(),
+        target: turret.target ? turret.target.name : '',
+        turretState: turret.state,
+        hits: hits,
+        errors: errors
+      });
+    }
+
+    push('start', 0, 'The turret kept its target from last frame: ' + turret.target.name +
+      ', the enemy with the lowest hp. Press Next to run the explosion loop.');
+
+    var n = list.length;
+    var crashed = false;
+    for (var k = 0; k < n; k++) {
+      var i = mode === 'backward' ? n - k : k + 1;
+      var e = list[i - 1];
+      if (!e) {
+        errors += 1;
+        crashed = true;
+        push('loop', i, 'enemies[' + i + '] is nil. The loop counted ' + n +
+          ' enemies before any were removed, so it ran past the end of the shorter list. Error.', i);
+        break;
+      }
+      e.hp -= damage;
+      e.visited = true;
+      hits += 1;
+      if (e.hp > 0) {
+        push('loop', i, e.name + ' takes ' + damage + ' damage and has ' + e.hp + ' hp left.');
+      } else if (mode === 'deferred') {
+        e.dead = true;
+        push('loop', i, e.name + ' drops to ' + e.hp + ' hp and is queued for deletion. It stays in slot ' + i +
+          ', so nothing moves.');
+      } else {
+        list.splice(i - 1, 1);
+        e.freed = true;
+        freed.push(e.name);
+        var next = list[i - 1];
+        var tail;
+        if (mode === 'forward') {
+          tail = next ? next.name + ' slides into slot ' + i + ', but the loop moves on to slot ' + (i + 1) + '.' :
+            'Nothing slides in.';
+        } else {
+          tail = 'Only slots after it move, and the backwards loop has already visited those.';
+        }
+        push('loop', i, e.name + ' drops to ' + e.hp + ' hp and is freed now. ' + tail);
+      }
+    }
+
+    var skipped = [];
+    list.forEach(function (x) {
+      if (!x.visited) { x.skip = true; skipped.push(x.name); }
+    });
+    var skipText = skipped.length ? ' Never damaged: ' + skipped.join(', ') + '.' : ' Every enemy was damaged once.';
+
+    if (crashed) {
+      push('error', 0, 'The error ends love.update for this frame, so the turret never runs.' + skipText);
+      return out;
+    }
+
+    var t = turret.target;
+    if (t.freed) {
+      errors += 1;
+      turret.state = 'freed';
+      push('turret', 0, 'The turret reads its target ' + t.name + ', but ' + t.name +
+        ' was freed during the loop. Using a freed object is an error.' + skipText);
+    } else if (t.dead) {
+      var nt = lowest(list);
+      turret.target = nt;
+      turret.state = nt ? 'switched' : 'none';
+      push('turret', 0, 'Target ' + t.name + ' is queued but still valid. The turret checks the mark and ' +
+        (nt ? 'switches to ' + nt.name + '.' : 'finds nothing left to shoot.'));
+    } else {
+      turret.state = 'firing';
+      push('turret', 0, 'The turret fires at ' + t.name + ', which is still alive with ' + t.hp + ' hp.');
+    }
+
+    if (mode === 'deferred') {
+      var gone = [];
+      list = list.filter(function (x) {
+        if (x.dead) { x.freed = true; gone.push(x.name); freed.push(x.name); return false; }
+        return true;
+      });
+      push('end', 0, gone.length ? 'End of frame: the engine frees ' + gone.join(', ') +
+        ' in one pass and the list closes up. No loop is running, so nothing breaks.' + skipText :
+        'End of frame: nothing was queued.' + skipText);
+    } else {
+      push('end', 0, 'End of frame: nothing is waiting to be freed.' + skipText);
+    }
+    return out;
+  }
+
+  // ---- drawing ---------------------------------------------------------------------------
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var SMALL = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '12px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxW) {
+    if (ctx.measureText(text).width <= maxW) return text;
+    var t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+
+  function wrap(ctx, text, maxW) {
+    var words = text.split(' ');
+    var lines = [];
+    var line = '';
+    for (var k = 0; k < words.length; k++) {
+      var test = line ? line + ' ' + words[k] : words[k];
+      if (line && ctx.measureText(test).width > maxW) {
+        lines.push(line);
+        line = words[k];
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var w = s.width;
+    var pad = 12;
+    var sn = snaps[cur];
+    if (!sn) return;
+    var m = MODES[mode];
+
+    // Phase title and the code being modelled.
+    ctx.textAlign = 'left';
+    ctx.font = BOLD;
+    ctx.fillStyle = sn.phase === 'error' ? c.bad : c.ink;
+    ctx.fillText(fit(ctx, PHASES[sn.phase] + (sn.cursor ? ': i = ' + sn.cursor : ''), w - 2 * pad), pad, 20);
+    ctx.font = MONO;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(fit(ctx, m.loop, w - 2 * pad), pad, 42);
+    ctx.fillText(fit(ctx, m.act, w - 2 * pad), pad, 60);
+
+    // Slots.
+    var count = NAMES.length;
+    var sw = (w - 2 * pad) / count;
+    var bw = Math.max(20, sw - 6);
+    var by = 94, bh = 46;
+    for (var p = 1; p <= count; p++) {
+      var x = pad + (p - 1) * sw + (sw - bw) / 2;
+      var cx = x + bw / 2;
+      var e = sn.slots[p - 1];
+      var isCursor = sn.cursor === p;
+
+      ctx.textAlign = 'center';
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(String(p), cx, by - 8);
+
+      if (!e) {
+        roundRect(ctx, x, by, bw, bh, 6);
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = sn.nilSlot === p ? c.bad : c.line;
+        ctx.lineWidth = sn.nilSlot === p ? 2 : 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (sn.nilSlot === p) {
+          ctx.font = MONO;
+          ctx.fillStyle = c.bad;
+          ctx.fillText('nil', cx, by + 28);
+        }
+      } else {
+        roundRect(ctx, x, by, bw, bh, 6);
+        ctx.fillStyle = isCursor ? c.topic : c.surface2;
+        ctx.fill();
+        if (e.dead && !isCursor) ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = isCursor ? c.topic : (e.dead ? c.bad : (e.skip ? c.warn : c.line));
+        ctx.lineWidth = (e.dead || e.skip || isCursor) ? 2 : 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = BOLD;
+        ctx.fillStyle = isCursor ? c.bg : c.ink;
+        ctx.fillText(e.name, cx, by + 19);
+        ctx.font = MONO;
+        ctx.fillStyle = isCursor ? c.bg : (e.dead ? c.bad : c.ink2);
+        ctx.fillText(String(e.hp), cx, by + 37);
+
+        // Turret target ring.
+        if (sn.target === e.name) {
+          ctx.beginPath();
+          ctx.arc(x + bw - 1, by + 1, 6, 0, Math.PI * 2);
+          ctx.fillStyle = c.bg;
+          ctx.fill();
+          ctx.strokeStyle = sn.turretState === 'freed' ? c.bad : c.ink;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
+        // Tag under the box.
+        var tag = '', tagColor = c.ink3;
+        if (e.dead) { tag = 'dead'; tagColor = c.bad; }
+        else if (e.skip) { tag = 'skip'; tagColor = c.warn; }
+        else if (e.visited) { tag = 'hit'; tagColor = c.ink3; }
+        if (tag) {
+          ctx.font = SMALL;
+          ctx.fillStyle = tagColor;
+          ctx.fillText(tag, cx, by + bh + 15);
+        }
+      }
+
+      // Cursor arrow.
+      if (isCursor) {
+        var ay = by + bh + 22;
+        ctx.beginPath();
+        ctx.moveTo(cx, ay);
+        ctx.lineTo(cx - 6, ay + 9);
+        ctx.lineTo(cx + 6, ay + 9);
+        ctx.closePath();
+        ctx.fillStyle = sn.nilSlot === p ? c.bad : c.topic;
+        ctx.fill();
+        ctx.font = MONO;
+        var label = 'i = ' + p;
+        var lw = ctx.measureText(label).width;
+        var lx = Math.max(pad + lw / 2, Math.min(w - pad - lw / 2, cx));
+        ctx.fillText(label, lx, ay + 24);
+      }
+    }
+
+    // Freed list.
+    ctx.textAlign = 'left';
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText(fit(ctx, 'Freed: ' + (sn.freed.length ? sn.freed.join(', ') : 'none'), w - 2 * pad), pad, 214);
+
+    // Turret.
+    var ty = 226, tw = Math.min(260, w - 2 * pad), th = 38;
+    roundRect(ctx, pad, ty, tw, th, 6);
+    ctx.fillStyle = sn.phase === 'turret' ? c.surface : c.surface2;
+    ctx.fill();
+    ctx.strokeStyle = sn.turretState === 'freed' ? c.bad : (sn.phase === 'turret' ? c.topic : c.line);
+    ctx.lineWidth = sn.phase === 'turret' || sn.turretState === 'freed' ? 2 : 1;
+    ctx.stroke();
+    var tText, tColor = c.ink;
+    if (sn.turretState === 'freed') { tText = 'target: ' + sn.target + ' (freed!)'; tColor = c.bad; }
+    else if (sn.turretState === 'switched') { tText = 'target: ' + sn.target + ' (switched)'; tColor = c.good; }
+    else if (sn.turretState === 'none') { tText = 'no target'; tColor = c.ink2; }
+    else if (sn.turretState === 'firing') { tText = 'firing at ' + sn.target; tColor = c.good; }
+    else { tText = 'target: ' + sn.target; }
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Turret', pad + 10, ty + 24);
+    var tlx = pad + 10 + ctx.measureText('Turret').width + 12;
+    ctx.font = MONO;
+    ctx.fillStyle = tColor;
+    ctx.fillText(fit(ctx, tText, tw - (tlx - pad) - 8), tlx, ty + 24);
+
+    // Message.
+    ctx.font = FONT;
+    ctx.fillStyle = sn.phase === 'error' || sn.turretState === 'freed' && sn.phase === 'turret' ? c.bad : c.ink2;
+    var lines = wrap(ctx, sn.msg, w - 2 * pad);
+    for (var k = 0; k < lines.length && k < 5; k++) ctx.fillText(lines[k], pad, 290 + k * 18);
+
+    // Counters.
+    ctx.font = FONT;
+    ctx.fillStyle = sn.errors ? c.bad : c.ink3;
+    ctx.fillText(fit(ctx, 'Damaged ' + sn.hits + ' of ' + count + '   Errors ' + sn.errors, w - 2 * pad), pad, 392);
+  }
+
+  // ---- controls --------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="freeing"]');
+  ui.select({
+    label: 'Removal',
+    options: Object.keys(MODES).map(function (key) { return { value: key, label: MODES[key].label }; }),
+    value: mode,
+    onChange: function (v) { mode = v; rebuild(); }
+  });
+  ui.slider({ label: 'Damage', min: 1, max: 6, step: 1, value: damage, onInput: function (v) { damage = v; rebuild(); } });
+  var back = ui.button({ label: 'Back', onClick: function () { go(-1); } });
+  ui.button({ label: 'Next', onClick: function () { go(1); } });
+  ui.button({ label: 'Run frame', onClick: function () { cur = snaps.length - 1; refresh(); } });
+  ui.button({ label: 'New wave', onClick: function () { waveSeed += 1; wave = makeWave(waveSeed); rebuild(); } });
+  ui.button({ label: 'First wave', onClick: function () { waveSeed = 0; wave = makeWave(0); rebuild(); } });
+  var readout = ui.readout({ label: 'Step' });
+
+  var handle = DemoKit.canvas('#freeing', {
+    height: 404,
+    animate: false,
+    keys: true,
+    label: 'Eight enemies in an array with their hit points, a loop index stepping over them, and a turret with a target. Step through one frame to see which enemies are damaged, skipped or freed.',
+    draw: draw,
+    onDown: function () { go(1); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright' || key === 'space' || key === 'enter') go(1);
+      if (key === 'arrowleft') go(-1);
+    }
+  });
+
+  function go(d) {
+    cur = Math.max(0, Math.min(snaps.length - 1, cur + d));
+    refresh();
+  }
+
+  function rebuild() {
+    snaps = simulate();
+    cur = 0;
+    refresh();
+  }
+
+  function refresh() {
+    readout.set((cur + 1) + ' of ' + snaps.length);
+    if (back && back.el) back.el.disabled = cur <= 0;
+    handle.redraw();
+  }
+
+  rebuild();
+})();
+</script>
+</body>
+</html>

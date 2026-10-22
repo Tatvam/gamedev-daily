@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha and blending: over, add, multiply and the dark fringe · Game Dev Daily</title>
+<meta name="description" content="How the GPU combines a shader's colour with what is already on screen, and why premultiplied alpha removes the dark fringe around filtered sprites.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Alpha and blending: over, add, multiply and the dark fringe</h1>
+  <p class="lede">How the GPU combines a shader's colour with what is already on screen, and why premultiplied alpha removes the dark fringe around filtered sprites.</p>
+</header>
+
+<section data-section="hook">
+  <p>You scale up a pixel-art coin, put it on a pale sky, and a thin dirty-brown outline appears around it that is not in the image file. On the dark cave level nobody notices. On the snow level everyone does.</p>
+  <p>The outline comes from how alpha is stored and blended. One change to the blend fixes it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The fourth number</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far every lesson returned <code>vec4(col, 1.0)</code> and ignored the last number. That number is <dfn>alpha</dfn>: how much of the pixel this fragment covers, from 0.0 (not at all) to 1.0 (fully).</p>
+  <p>The shader does not decide what happens with alpha. After it returns, a fixed piece of GPU hardware, the <dfn>blend unit</dfn>, reads the colour already stored at that pixel, called the <dfn>destination</dfn> or <code>dst</code>, and combines it with the shader's output, the <dfn>source</dfn> or <code>src</code>. You do not program the blend unit. You configure it by choosing two factors.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="The fragment shader outputs src, an r g b a colour. The framebuffer supplies dst, the colour already at that pixel. Both go into the blend unit, which computes src times a source factor plus dst times a destination factor. The result is written back into the framebuffer.">
+      <rect class="d-box" x="20" y="30" width="170" height="64" rx="8"/>
+      <text class="d-text" x="105" y="58" text-anchor="middle">Fragment shader</text>
+      <text class="d-muted" x="105" y="78" text-anchor="middle">your code</text>
+      <rect class="d-box" x="20" y="160" width="170" height="64" rx="8"/>
+      <text class="d-text" x="105" y="188" text-anchor="middle">Framebuffer</text>
+      <text class="d-muted" x="105" y="208" text-anchor="middle">what is on screen</text>
+
+      <path class="d-accent" d="M190 62H230L262 108"/>
+      <text class="d-mono" x="200" y="50">src (r, g, b, a)</text>
+      <path class="d-stroke" d="M190 192H230L262 146"/>
+      <text class="d-mono" x="200" y="214">dst (r, g, b)</text>
+
+      <rect class="d-accent-soft" x="262" y="92" width="210" height="70" rx="8"/>
+      <text class="d-text" x="367" y="118" text-anchor="middle">Blend unit</text>
+      <text class="d-mono" x="367" y="142" text-anchor="middle">src·F1 + dst·F2</text>
+      <text class="d-muted" x="367" y="182" text-anchor="middle">fixed hardware, you pick F1 and F2</text>
+
+      <path class="d-stroke" d="M472 127H520"/>
+      <rect class="d-box" x="520" y="100" width="100" height="54" rx="8"/>
+      <text class="d-text" x="570" y="132" text-anchor="middle">result</text>
+      <path class="d-dash" d="M570 154V236H105V224"/>
+      <text class="d-muted" x="400" y="230" text-anchor="middle">written back, becomes the next dst</text>
+    </svg>
+    <figcaption>The shader produces <code>src</code>. The blend unit combines it with <code>dst</code>, the pixel already on screen, and writes the result back. Every transparent sprite drawn later blends over that result.</figcaption>
+  </figure>
+
+  <h3>Normal blending is mix</h3>
+  <p>The usual transparency, often called <dfn>over</dfn>, uses the factors <code>SrcAlpha</code> and <code>OneMinusSrcAlpha</code>:</p>
+<pre><code>result = src.rgb * src.a + dst * (1.0 - src.a)</code></pre>
+  <p>That is exactly <code>mix(dst, src.rgb, src.a)</code> from the mix lesson, with alpha as the mask. At a = 1.0 you see only the sprite; at a = 0.5 you see half of each. Order matters: drawing A over B is not the same as B over A, which is why transparent objects are sorted back to front.</p>
+
+  <h3>Additive and multiply</h3>
+  <p>Two other modes come up constantly. <dfn>Additive</dfn> blending adds the source to what is there: it can only brighten, which suits fire, sparks and lasers. <dfn>Multiply</dfn> multiplies by what is there: it can only darken, which suits shadows and tinted glass. Both give the same result in any order, so they need no sorting.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Mode</th><th>Result</th><th>Factors (F1, F2)</th></tr></thead>
+    <tbody>
+      <tr><td>Normal, straight</td><td><code>src.rgb * a + dst * (1 - a)</code></td><td>SrcAlpha, OneMinusSrcAlpha</td></tr>
+      <tr><td>Normal, premultiplied</td><td><code>src.rgb + dst * (1 - a)</code></td><td>One, OneMinusSrcAlpha</td></tr>
+      <tr><td>Additive</td><td><code>src.rgb * a + dst</code></td><td>SrcAlpha, One</td></tr>
+      <tr><td>Multiply, premultiplied</td><td><code>dst * (src.rgb + 1 - a)</code></td><td>DstColor, OneMinusSrcAlpha</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Additive vanishes on white and multiply vanishes on black, so the demo has a dark half and a light half.</p>
+
+  <h3>Where the dark fringe comes from</h3>
+  <p>A texture with <dfn>straight alpha</dfn> stores the plain colour in rgb and the coverage in a. A fully transparent texel still stores some rgb, and many tools save it as black. Nobody sees it, until the sprite is drawn larger than its texture and <dfn>linear filtering</dfn> blends each pixel from the four nearest texels.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 170" role="img" aria-label="Two texels side by side. The left texel is orange with alpha 1. The right texel is transparent but stores black. A sample point halfway between them takes 50 percent of each: rgb half orange, alpha 0.5.">
+      <rect class="d-accent-soft" x="40" y="30" width="100" height="70"/>
+      <text class="d-text" x="90" y="60" text-anchor="middle">orange</text>
+      <text class="d-mono" x="90" y="82" text-anchor="middle">a = 1</text>
+      <rect class="d-box" x="140" y="30" width="100" height="70"/>
+      <text class="d-text" x="190" y="60" text-anchor="middle">black</text>
+      <text class="d-mono" x="190" y="82" text-anchor="middle">a = 0</text>
+      <path class="d-stroke" d="M140 24V106"/>
+      <circle class="d-accent-fill" cx="140" cy="65" r="6"/>
+      <text class="d-label" x="140" y="132" text-anchor="middle">sample halfway: 50% of each</text>
+      <text class="d-mono" x="140" y="154" text-anchor="middle">rgb = half orange, a = 0.5</text>
+    </svg>
+    <figcaption>Linear filtering averages all four channels. The hidden black is pulled into the colour.</figcaption>
+  </figure>
+
+  <p>Follow the demo's orange, (1.0, 0.5, 0.1), at that halfway sample, drawn on a white background:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Step</th><th>Straight</th><th>Premultiplied</th></tr></thead>
+    <tbody>
+      <tr><td>Filtered sample</td><td>(0.5, 0.25, 0.05), a = 0.5</td><td>(0.5, 0.25, 0.05), a = 0.5</td></tr>
+      <tr><td>Blend onto white</td><td>0.5 × sample + 0.5 × white</td><td>sample + 0.5 × white</td></tr>
+      <tr><td>Result</td><td class="num">(0.75, 0.63, 0.53)</td><td class="num">(1.0, 0.75, 0.55)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The right answer is half orange and half white: (1.0, 0.75, 0.55). The straight blend gives a muddy (0.75, 0.63, 0.53). It multiplies by alpha twice: once when filtering mixed in the black, and again in <code>src.rgb * a</code>.</p>
+
+  <h3>Premultiplied alpha</h3>
+  <p><dfn>Premultiplied alpha</dfn> stores <code>rgb * a</code> in the texture instead of plain rgb. A transparent texel is then always (0, 0, 0, 0), whatever colour the artist left there, and filtering averages colour already weighted by coverage, which is correct. The blend uses <code>One</code> instead of <code>SrcAlpha</code>, so it does not multiply a second time.</p>
+  <p>A bonus: with the premultiplied blend, a fragment with alpha 0.0 and a bright rgb adds light without hiding anything, so one blend setting draws normal sprites and additive glows in the same batch.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Straight alpha is easy to edit; premultiplied alpha is correct to filter and blend. If a texture is filtered, scaled or mipmapped, premultiply it before it reaches the GPU and blend with <code>One, OneMinusSrcAlpha</code>.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Two 16 by 16 sprites are generated in the shader: an orange disc and a blue diamond, each with a one-texel soft edge at alpha 0.5. The shader filters them by hand and blends them over a background that is dark on the left and light on the right. Drag on the picture (or focus it and press the arrow keys) to move the diamond.</p>
+  <p>Start with what is on screen: a brown rim on the light half, invisible on the dark half. Switch <em>Stage</em> to 1 to see the stored texels, black around each shape. Now tick <em>Premultiplied alpha</em> and the rim is gone. Untick it, set <em>Hidden colour</em> to White, and a pale halo appears on the dark half instead. Try Sprite colour, then untick <em>Linear filtering</em>: with no filtering there is no fringe in any mode.</p>
+
+  <figure class="demo" data-demo="alpha-blend">
+    <canvas id="alpha-blend"></canvas>
+    <figcaption>Stages 1 to 3 show the raw sprite values on a grey checker, diamond on top; opacity applies only at the blend. With premultiplied alpha, stage 1 is black around each shape whatever the hidden colour, because rgb × 0 is 0.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use <code>effect</code> instead of <code>main</code>. Drag with the left mouse button to move the diamond. P toggles premultiplied alpha, 1, 2 and 3 pick normal, additive or multiply, F toggles linear filtering, H cycles the hidden colour, S cycles the stage, and up and down change the opacity.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local posA = { -0.12, 0.04 }   <span class="c">-- orange disc, drawn first</span>
+local posB = { 0.14, -0.06 }   <span class="c">-- blue diamond, drawn on top</span>
+local size = 0.56              <span class="c">-- sprite quad size in uv units (16 texels)</span>
+local premul = 0               <span class="c">-- 0 straight, 1 premultiplied</span>
+local blend = 0                <span class="c">-- 0 normal, 1 additive, 2 multiply</span>
+local filter = 1               <span class="c">-- 0 nearest, 1 linear</span>
+local hidden = 0               <span class="c">-- rgb of a = 0 texels: 0 black, 1 white, 2 sprite colour</span>
+local opacity = 1
+local stage = 3                <span class="c">-- 0 texels, 1 alpha, 2 rgb, 3 final</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_posA;
+uniform vec2 u_posB;
+uniform float u_size;
+uniform float u_premul;
+uniform float u_blend;
+uniform float u_filter;
+uniform float u_hidden;
+uniform float u_opacity;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+float inQuad(vec2 uv, vec2 pos) {
+    vec2 t = abs(uv - pos) / u_size;
+    return step(t.x, 0.5) * step(t.y, 0.5);
+}
+
+// One texel of a 16 x 16 sprite, made with maths instead of an image file.
+vec4 spriteTexel(vec2 ij, float shape, vec3 tint) {
+    ij = clamp(ij, 0.0, 15.0);                       // clamp to edge
+    vec2 c = ij + 0.5 - 8.0;                         // texel centre, from the middle
+    float d = length(c);                             // disc
+    if (shape &gt; 0.5) d = abs(c.x) + abs(c.y) - 0.5;  // diamond
+    float a = 0.0;
+    if (d &lt; 7.5) a = 0.5;                            // soft edge drawn by the artist
+    if (d &lt; 6.5) a = 1.0;
+    vec3 rgb = tint;
+    if (length(c - vec2(-2.0, 2.0)) &lt; 2.5) rgb = mix(tint, vec3(1.0), 0.5);
+    vec3 hiddenCol = vec3(0.0);                      // what a = 0 texels store
+    if (u_hidden &gt; 0.5) hiddenCol = vec3(1.0);
+    if (u_hidden &gt; 1.5) hiddenCol = tint;
+    if (a &lt; 0.25) rgb = hiddenCol;
+    if (u_premul &gt; 0.5) rgb = rgb * a;              // premultiplied: store rgb * a
+    return vec4(rgb, a);
+}
+
+vec4 spriteAt(vec2 uv, vec2 pos, float shape, vec3 tint, float useLinear) {
+    if (inQuad(uv, pos) &lt; 0.5) return vec4(0.0);   // outside the quad: no fragment
+    vec2 t = (uv - pos) / u_size * 16.0 + 8.0;       // texel units, 0 to 16
+    if (useLinear &lt; 0.5) return spriteTexel(floor(t), shape, tint); // nearest
+    vec2 f = t - 0.5;
+    vec2 i = floor(f);
+    vec2 w = f - i;
+    vec4 s00 = spriteTexel(i, shape, tint);
+    vec4 s10 = spriteTexel(i + vec2(1.0, 0.0), shape, tint);
+    vec4 s01 = spriteTexel(i + vec2(0.0, 1.0), shape, tint);
+    vec4 s11 = spriteTexel(i + vec2(1.0, 1.0), shape, tint);
+    return mix(mix(s00, s10, w.x), mix(s01, s11, w.x), w.y); // bilinear
+}
+
+// What the GPU's blend unit does.
+vec3 blendOver(vec3 dst, vec4 s) {
+    if (u_premul &gt; 0.5) s = s * u_opacity;          // premultiplied: scale all four
+    else s.a = s.a * u_opacity;                      // straight: scale alpha only
+    vec3 src = s.rgb * s.a;                          // straight: factor SrcAlpha
+    if (u_premul &gt; 0.5) src = s.rgb;                // premultiplied: factor One
+    if (u_blend &gt; 1.5) return dst * (src + 1.0 - s.a); // multiply
+    if (u_blend &gt; 0.5) return dst + src;               // additive
+    return src + dst * (1.0 - s.a);                     // normal
+}
+
+vec3 shade(vec2 uv) {
+    vec3 dst = mix(vec3(0.08, 0.09, 0.16), vec3(0.95, 0.93, 0.88), step(0.0, uv.x));
+    vec3 tintA = vec3(1.0, 0.5, 0.1);
+    vec3 tintB = vec3(0.1, 0.6, 0.95);
+    vec4 sA = spriteAt(uv, u_posA, 0.0, tintA, u_filter);
+    vec4 sB = spriteAt(uv, u_posB, 1.0, tintB, u_filter);
+    vec3 col = blendOver(blendOver(dst, sA), sB);   // draw A, then B
+    if (u_stage &lt; 2.5) {
+        if (u_stage &lt; 0.5) {                        // stored texels, no filtering
+            sA = spriteAt(uv, u_posA, 0.0, tintA, 0.0);
+            sB = spriteAt(uv, u_posB, 1.0, tintB, 0.0);
+        }
+        vec3 vA = sA.rgb;
+        vec3 vB = sB.rgb;
+        if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 1.5) { vA = vec3(sA.a); vB = vec3(sB.a); }
+        float ch = mod(floor(uv.x * 25.0) + floor(uv.y * 25.0), 2.0);
+        col = vec3(0.3 + 0.1 * ch);
+        if (inQuad(uv, u_posA) &gt; 0.5) col = vA;
+        if (inQuad(uv, u_posB) &gt; 0.5) col = vB;
+    }
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                   // y points down here; make it point up
+    return vec4(shade(uv), 1.0);
+}
+]]
+
+local function toUV(x, y)
+  local u = (x - rect[1] - rect[3] / 2) / rect[4]
+  local v = -(y - rect[2] - rect[4] / 2) / rect[4]
+  return u, v
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "p" then premul = 1 - premul end
+  if key == "1" then blend = 0 end
+  if key == "2" then blend = 1 end
+  if key == "3" then blend = 2 end
+  if key == "f" then filter = 1 - filter end
+  if key == "h" then hidden = (hidden + 1) % 3 end
+  if key == "s" then stage = (stage + 1) % 4 end
+  if key == "up" then opacity = math.min(1, opacity + 0.05) end
+  if key == "down" then opacity = math.max(0, opacity - 0.05) end
+end
+
+function love.mousepressed(x, y, button)
+  if button == 1 then posB[1], posB[2] = toUV(x, y) end
+end
+
+function love.mousemoved(x, y)
+  if love.mouse.isDown(1) then posB[1], posB[2] = toUV(x, y) end
+end
+
+function love.draw()
+  shader:send("u_posA", posA)
+  shader:send("u_posB", posB)
+  shader:send("u_size", size)
+<span class="k">  shader:send("u_premul", premul)</span>
+<span class="k">  shader:send("u_blend", blend)</span>
+  shader:send("u_filter", filter)
+  shader:send("u_hidden", hidden)
+  shader:send("u_opacity", opacity)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_posA;
+uniform vec2 u_posB;
+uniform float u_size;
+uniform float u_premul;
+uniform float u_blend;
+uniform float u_filter;
+uniform float u_hidden;
+uniform float u_opacity;
+uniform float u_stage;
+
+float inQuad(vec2 uv, vec2 pos) {
+  vec2 t = abs(uv - pos) / u_size;
+  return step(t.x, 0.5) * step(t.y, 0.5);
+}
+
+// One texel of a 16 x 16 sprite, made with maths instead of an image file.
+vec4 spriteTexel(vec2 ij, float shape, vec3 tint) {
+  ij = clamp(ij, 0.0, 15.0);                       // clamp to edge
+  vec2 c = ij + 0.5 - 8.0;                         // texel centre, from the middle
+  float d = length(c);                             // disc
+  if (shape &gt; 0.5) d = abs(c.x) + abs(c.y) - 0.5;  // diamond
+  float a = 0.0;
+  if (d &lt; 7.5) a = 0.5;                            // soft edge drawn by the artist
+  if (d &lt; 6.5) a = 1.0;
+  vec3 rgb = tint;
+  if (length(c - vec2(-2.0, 2.0)) &lt; 2.5) rgb = mix(tint, vec3(1.0), 0.5);
+  vec3 hiddenCol = vec3(0.0);                      // what a = 0 texels store
+  if (u_hidden &gt; 0.5) hiddenCol = vec3(1.0);
+  if (u_hidden &gt; 1.5) hiddenCol = tint;
+  if (a &lt; 0.25) rgb = hiddenCol;
+<span class="k">  if (u_premul &gt; 0.5) rgb = rgb * a;              // premultiplied: store rgb * a</span>
+  return vec4(rgb, a);
+}
+
+vec4 spriteAt(vec2 uv, vec2 pos, float shape, vec3 tint, float useLinear) {
+  if (inQuad(uv, pos) &lt; 0.5) return vec4(0.0);   // outside the quad: no fragment
+  vec2 t = (uv - pos) / u_size * 16.0 + 8.0;       // texel units, 0 to 16
+  if (useLinear &lt; 0.5) return spriteTexel(floor(t), shape, tint); // nearest
+  vec2 f = t - 0.5;
+  vec2 i = floor(f);
+  vec2 w = f - i;
+  vec4 s00 = spriteTexel(i, shape, tint);
+  vec4 s10 = spriteTexel(i + vec2(1.0, 0.0), shape, tint);
+  vec4 s01 = spriteTexel(i + vec2(0.0, 1.0), shape, tint);
+  vec4 s11 = spriteTexel(i + vec2(1.0, 1.0), shape, tint);
+  return mix(mix(s00, s10, w.x), mix(s01, s11, w.x), w.y); // bilinear
+}
+
+// What the GPU's blend unit does.
+vec3 blendOver(vec3 dst, vec4 s) {
+  if (u_premul &gt; 0.5) s = s * u_opacity;          // premultiplied: scale all four
+  else s.a = s.a * u_opacity;                      // straight: scale alpha only
+<span class="k">  vec3 src = s.rgb * s.a;                          // straight: factor SrcAlpha</span>
+<span class="k">  if (u_premul &gt; 0.5) src = s.rgb;                // premultiplied: factor One</span>
+  if (u_blend &gt; 1.5) return dst * (src + 1.0 - s.a); // multiply
+  if (u_blend &gt; 0.5) return dst + src;               // additive
+<span class="k">  return src + dst * (1.0 - s.a);                     // normal</span>
+}
+
+vec3 shade(vec2 uv) {
+  vec3 dst = mix(vec3(0.08, 0.09, 0.16), vec3(0.95, 0.93, 0.88), step(0.0, uv.x));
+  vec3 tintA = vec3(1.0, 0.5, 0.1);
+  vec3 tintB = vec3(0.1, 0.6, 0.95);
+  vec4 sA = spriteAt(uv, u_posA, 0.0, tintA, u_filter);
+  vec4 sB = spriteAt(uv, u_posB, 1.0, tintB, u_filter);
+  vec3 col = blendOver(blendOver(dst, sA), sB);   // draw A, then B
+  if (u_stage &lt; 2.5) {
+    if (u_stage &lt; 0.5) {                        // stored texels, no filtering
+      sA = spriteAt(uv, u_posA, 0.0, tintA, 0.0);
+      sB = spriteAt(uv, u_posB, 1.0, tintB, 0.0);
+    }
+    vec3 vA = sA.rgb;
+    vec3 vB = sB.rgb;
+    if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 1.5) { vA = vec3(sA.a); vB = vec3(sB.a); }
+    float ch = mod(floor(uv.x * 25.0) + floor(uv.y * 25.0), 2.0);
+    col = vec3(0.3 + 0.1 * ch);
+    if (inQuad(uv, u_posA) &gt; 0.5) col = vA;
+    if (inQuad(uv, u_posB) &gt; 0.5) col = vB;
+  }
+  return col;
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y; // centred, y up
+  gl_FragColor = vec4(shade(uv), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, on a Sprite2D. Import the texture with
+// Process &gt; Premult Alpha turned on, so it stores rgb * a.
+shader_type canvas_item;
+<span class="k">render_mode blend_premul_alpha;   // src.rgb + dst * (1.0 - src.a)</span>
+
+uniform float opacity : hint_range(0.0, 1.0) = 1.0;
+
+void fragment() {
+    vec4 c = texture(TEXTURE, UV);  // already premultiplied
+<span class="k">    COLOR = c * opacity;            // fade all four channels, not just alpha</span>
+}
+
+// Other modes: blend_mix (straight "over", the default),
+// blend_add, blend_mul.</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit, for a texture that stores rgb * a.
+Shader "GameDevDaily/PremultipliedSprite"
+{
+    Properties
+    {
+        _MainTex ("Texture (premultiplied)", 2D) = "white" {}
+        _Opacity ("Opacity", Range(0, 1)) = 1
+    }
+    SubShader
+    {
+        Tags { "Queue" = "Transparent" "RenderType" = "Transparent" }
+        Pass
+        {
+            ZWrite Off
+            Cull Off
+<span class="k">            Blend One OneMinusSrcAlpha   // premultiplied "over"</span>
+            // Blend SrcAlpha OneMinusSrcAlpha   straight "over"
+            // Blend One One                     additive (premultiplied)
+            // Blend DstColor OneMinusSrcAlpha   multiply (premultiplied)
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_ST;
+            float _Opacity;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                fixed4 c = tex2D(_MainTex, i.uv);   // rgb already times a
+<span class="k">                return c * _Opacity;                // fade all four channels</span>
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+
+  <p>In a real LÖVE game the GPU does the blend; you choose it with <code>love.graphics.setBlendMode</code>, and the second argument says whether your colours are straight or premultiplied. To premultiply a texture you built or loaded as image data, multiply each pixel before making the image:</p>
+<pre><code><span class="c">-- data is an ImageData; do this once, before love.graphics.newImage(data)</span>
+data:mapPixel(function(x, y, r, g, b, a)
+  return r * a, g * a, b * a, a
+end)
+
+<span class="c">-- straight "over", LÖVE's default</span>
+love.graphics.setBlendMode("alpha", "alphamultiply")
+<span class="c">-- premultiplied "over", for the image above</span>
+love.graphics.setBlendMode("alpha", "premultiplied")
+<span class="c">-- additive glow from a straight-alpha image</span>
+love.graphics.setBlendMode("add", "alphamultiply")</code></pre>
+  <p>The Godot and Unity tabs set the real blend state instead of blending by hand. The Unity shader is for the Built-in pipeline; in URP Shader Graph, set Surface Type to Transparent and pick the Blending Mode (Alpha, Premultiply, Additive or Multiply).</p>
+  <p>WebGL's <code>gl_FragCoord</code> has (0, 0) at the bottom-left; LÖVE's <code>screen_coords</code> has it at the top-left with y down, so the Lua version flips y. The demo blends the stored numbers directly. A Unity project in Linear colour space decodes sRGB render targets before blending, so a half-transparent edge looks lighter there than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Mixing up the two kinds.</strong> Straight data with the premultiplied blend adds the full colour at the edge and leaves a bright halo. Premultiplied data with the straight blend multiplies by alpha twice and leaves a dark one. Decide once per texture and label it.</li>
+    <li><strong>Fading a premultiplied sprite by alpha only.</strong> If you lower a but not rgb, the sprite turns into an additive glow as it fades. Multiply all four channels by the opacity, as the demo and the engine snippets do.</li>
+    <li><strong>Edge colour bleeding is the other fix.</strong> To keep straight alpha, fill transparent texels with the nearest opaque colour, as <em>Sprite colour</em> does in the demo. It fixes filtering but not the additive trick.</li>
+    <li><strong>Unsorted transparency.</strong> Normal blending depends on order, and transparent objects usually do not write depth. Sort them back to front. Additive and multiply do not need sorting.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The blend itself is fixed-function hardware and nearly free; premultiplied alpha costs nothing at run time once the texture is prepared. The expense of transparency is <dfn>overdraw</dfn>: every layer runs the fragment shader again for every pixel it covers, and nothing behind a transparent sprite can be skipped. On a phone, ten big overlapping smoke particles can cost more than the rest of the frame. Keep transparent quads tight around their visible pixels.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Particle effects lean on these modes: additive for fire, sparks, lasers and magic; normal for smoke and dust; multiply for shadows and dark decals. Unity's older built-in particle shaders came as separate Additive, Alpha Blended and Multiply versions for that reason.</p>
+  <p>Premultiplied alpha is supported as a blend mode in Unity's ShaderLab (<code>Blend One OneMinusSrcAlpha</code>), in Godot (<code>blend_premul_alpha</code>) and in LÖVE (the <code>"premultiplied"</code> alpha mode). Microsoft's XNA Game Studio 4.0 made it the default for sprites. Texture importers often fix fringes by bleeding colour into transparent texels instead: Unity's <em>Alpha Is Transparency</em> option does this, and Godot's importer has a <em>Fix Alpha Border</em> option.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make the fringe and then fix it in a real LÖVE project, without a shader:</p>
+  <ol>
+    <li>In <code>love.load</code>, create <code>love.image.newImageData(16, 16)</code>. New image data starts as transparent black. Use <code>setPixel</code> to paint an orange disc of radius 6 at full alpha.</li>
+    <li>Make an image from it and draw it scaled by 16 on a white background (<code>love.graphics.setBackgroundColor(1, 1, 1)</code>). Images use linear filtering by default. Look for the brown rim.</li>
+    <li>Premultiply the data with the <code>mapPixel</code> snippet above before making the image, and draw it with <code>setBlendMode("alpha", "premultiplied")</code>.</li>
+  </ol>
+  <p>You are done when the rim is gone, and when fading the sprite with <code>love.graphics.setColor(o, o, o, o)</code> makes it fade evenly instead of glowing.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The shader returns rgb and alpha; the blend unit combines them with the colour already on screen using two factors you choose.</li>
+    <li>Normal blending is <code>mix(dst, src.rgb, src.a)</code>. Additive only brightens, multiply only darkens, and neither needs sorting.</li>
+    <li>Filtering a straight-alpha texture pulls the hidden colour of transparent texels into the edge, which shows as a dark or light fringe.</li>
+    <li>Premultiplied alpha stores <code>rgb * a</code> and blends with <code>One, OneMinusSrcAlpha</code>: filtering is then correct, and fading must scale all four channels.</li>
+    <li>Blending is cheap; overdraw from large transparent layers is what costs, especially on phones.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Track 2 begins with 2D signed distance functions: the distance trick from circles, extended to boxes, rounded boxes and lines.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Thomas Porter and Tom Duff, <cite>Compositing Digital Images</cite>, SIGGRAPH 1984. Defines the "over" operator and the premultiplied form.</li>
+    <li>Shawn Hargreaves, <cite>Premultiplied alpha</cite> and related posts on his blog, on why XNA Game Studio 4.0 switched to it.</li>
+    <li>Tom Forsyth, <cite>Premultiplied alpha</cite>, blog post on filtering and blending with premultiplied colour.</li>
+    <li>Unity Manual, <cite>ShaderLab command: Blend</cite>, and <cite>Texture Import Settings</cite> (Alpha Is Transparency).</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite>, render modes, and <cite>Importing images</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.setBlendMode</cite>, <cite>BlendMode</cite>, <cite>BlendAlphaMode</cite> and <cite>ImageData:mapPixel</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_posA;",
+    "uniform vec2 u_posB;",
+    "uniform float u_size;",
+    "uniform float u_premul;",
+    "uniform float u_blend;",
+    "uniform float u_filter;",
+    "uniform float u_hidden;",
+    "uniform float u_opacity;",
+    "uniform float u_stage;",
+    "",
+    "float inQuad(vec2 uv, vec2 pos) {",
+    "  vec2 t = abs(uv - pos) / u_size;",
+    "  return step(t.x, 0.5) * step(t.y, 0.5);",
+    "}",
+    "",
+    "// One texel of a 16 x 16 sprite, made with maths instead of an image file.",
+    "vec4 spriteTexel(vec2 ij, float shape, vec3 tint) {",
+    "  ij = clamp(ij, 0.0, 15.0);                       // clamp to edge",
+    "  vec2 c = ij + 0.5 - 8.0;                         // texel centre, from the middle",
+    "  float d = length(c);                             // disc",
+    "  if (shape > 0.5) d = abs(c.x) + abs(c.y) - 0.5;  // diamond",
+    "  float a = 0.0;",
+    "  if (d < 7.5) a = 0.5;                            // soft edge drawn by the artist",
+    "  if (d < 6.5) a = 1.0;",
+    "  vec3 rgb = tint;",
+    "  if (length(c - vec2(-2.0, 2.0)) < 2.5) rgb = mix(tint, vec3(1.0), 0.5);",
+    "  vec3 hiddenCol = vec3(0.0);                      // what a = 0 texels store",
+    "  if (u_hidden > 0.5) hiddenCol = vec3(1.0);",
+    "  if (u_hidden > 1.5) hiddenCol = tint;",
+    "  if (a < 0.25) rgb = hiddenCol;",
+    "  if (u_premul > 0.5) rgb = rgb * a;              // premultiplied: store rgb * a",
+    "  return vec4(rgb, a);",
+    "}",
+    "",
+    "vec4 spriteAt(vec2 uv, vec2 pos, float shape, vec3 tint, float useLinear) {",
+    "  if (inQuad(uv, pos) < 0.5) return vec4(0.0);   // outside the quad: no fragment",
+    "  vec2 t = (uv - pos) / u_size * 16.0 + 8.0;       // texel units, 0 to 16",
+    "  if (useLinear < 0.5) return spriteTexel(floor(t), shape, tint); // nearest",
+    "  vec2 f = t - 0.5;",
+    "  vec2 i = floor(f);",
+    "  vec2 w = f - i;",
+    "  vec4 s00 = spriteTexel(i, shape, tint);",
+    "  vec4 s10 = spriteTexel(i + vec2(1.0, 0.0), shape, tint);",
+    "  vec4 s01 = spriteTexel(i + vec2(0.0, 1.0), shape, tint);",
+    "  vec4 s11 = spriteTexel(i + vec2(1.0, 1.0), shape, tint);",
+    "  return mix(mix(s00, s10, w.x), mix(s01, s11, w.x), w.y); // bilinear",
+    "}",
+    "",
+    "// What the GPU's blend unit does.",
+    "vec3 blendOver(vec3 dst, vec4 s) {",
+    "  if (u_premul > 0.5) s = s * u_opacity;          // premultiplied: scale all four",
+    "  else s.a = s.a * u_opacity;                      // straight: scale alpha only",
+    "  vec3 src = s.rgb * s.a;                          // straight: factor SrcAlpha",
+    "  if (u_premul > 0.5) src = s.rgb;                // premultiplied: factor One",
+    "  if (u_blend > 1.5) return dst * (src + 1.0 - s.a); // multiply",
+    "  if (u_blend > 0.5) return dst + src;               // additive",
+    "  return src + dst * (1.0 - s.a);                     // normal",
+    "}",
+    "",
+    "vec3 shade(vec2 uv) {",
+    "  vec3 dst = mix(vec3(0.08, 0.09, 0.16), vec3(0.95, 0.93, 0.88), step(0.0, uv.x));",
+    "  vec3 tintA = vec3(1.0, 0.5, 0.1);",
+    "  vec3 tintB = vec3(0.1, 0.6, 0.95);",
+    "  vec4 sA = spriteAt(uv, u_posA, 0.0, tintA, u_filter);",
+    "  vec4 sB = spriteAt(uv, u_posB, 1.0, tintB, u_filter);",
+    "  vec3 col = blendOver(blendOver(dst, sA), sB);   // draw A, then B",
+    "  if (u_stage < 2.5) {",
+    "    if (u_stage < 0.5) {                        // stored texels, no filtering",
+    "      sA = spriteAt(uv, u_posA, 0.0, tintA, 0.0);",
+    "      sB = spriteAt(uv, u_posB, 1.0, tintB, 0.0);",
+    "    }",
+    "    vec3 vA = sA.rgb;",
+    "    vec3 vB = sB.rgb;",
+    "    if (u_stage > 0.5 && u_stage < 1.5) { vA = vec3(sA.a); vB = vec3(sB.a); }",
+    "    float ch = mod(floor(uv.x * 25.0) + floor(uv.y * 25.0), 2.0);",
+    "    col = vec3(0.3 + 0.1 * ch);",
+    "    if (inQuad(uv, u_posA) > 0.5) col = vA;",
+    "    if (inQuad(uv, u_posB) > 0.5) col = vB;",
+    "  }",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y; // centred, y up",
+    "  gl_FragColor = vec4(shade(uv), 1.0);",
+    "}"
+  ].join('\n');
+
+  var EQUATIONS = {
+    '0-0': 'src.rgb × src.a + dst × (1 − src.a)',
+    '1-0': 'src.rgb + dst × (1 − src.a)',
+    '0-1': 'src.rgb × src.a + dst',
+    '1-1': 'src.rgb + dst',
+    '0-2': 'dst × (src.rgb × src.a + 1 − src.a)',
+    '1-2': 'dst × (src.rgb + 1 − src.a)'
+  };
+  var START_B = [0.14, -0.06];
+
+  var handle = null;
+  var posB = START_B.slice();
+  var size = { w: 16, h: 9 };
+  var ui = DemoKit.controls('[data-demo="alpha-blend"]');
+
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Stored texels (rgb, alpha ignored)' },
+      { value: '1', label: '2. Filtered alpha' },
+      { value: '2', label: '3. Filtered rgb' },
+      { value: '3', label: '4. Final blend' }
+    ],
+    value: '3',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var blend = ui.select({
+    label: 'Blend',
+    options: [
+      { value: '0', label: 'Normal (over)' },
+      { value: '1', label: 'Additive' },
+      { value: '2', label: 'Multiply' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_blend', Number(v)); }
+  });
+  var hidden = ui.select({
+    label: 'Hidden colour (rgb of a = 0 texels)',
+    options: [
+      { value: '0', label: 'Black' },
+      { value: '1', label: 'White' },
+      { value: '2', label: 'Sprite colour' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_hidden', Number(v)); }
+  });
+  var premul = ui.toggle({ label: 'Premultiplied alpha', value: false,
+    onChange: function (v) { send('u_premul', v ? 1 : 0); } });
+  var linear = ui.toggle({ label: 'Linear filtering', value: true,
+    onChange: function (v) { send('u_filter', v ? 1 : 0); } });
+  var spriteSize = ui.slider({ label: 'Sprite size (uv units)', min: 0.16, max: 0.9, step: 0.02, value: 0.56,
+    onInput: function (v) { send('u_size', v); } });
+  var opacity = ui.slider({ label: 'Opacity', min: 0, max: 1, step: 0.05, value: 1,
+    onInput: function (v) { send('u_opacity', v); } });
+  ui.button({ label: 'Reset diamond', onClick: function () { setB(START_B[0], START_B[1]); } });
+  var eqOut = ui.readout({ label: 'Blend unit' });
+
+  function updateReadout() {
+    var key = (premul.value ? '1' : '0') + '-' + blend.value;
+    eqOut.set('result = ' + EQUATIONS[key]);
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function setB(x, y) {
+    var hw = 0.5 * size.w / Math.max(1, size.h);
+    posB = [Math.min(Math.max(x, -hw), hw), Math.min(Math.max(y, -0.5), 0.5)];
+    send('u_posB', posB.slice());
+  }
+
+  // Pointer position in CSS pixels to centred uv, y up. Same formula as the shader.
+  function toUV(p, s) {
+    var h = Math.max(1, s.height);
+    return [(p.x - 0.5 * s.width) / h, (0.5 * s.height - p.y) / h];
+  }
+
+  handle = DemoKit.shader('#alpha-blend', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader that filters two small generated sprites, an orange disc and a blue diamond, and blends them over a background that is dark on the left and light on the right. Drag or use the arrow keys to move the diamond.',
+    uniforms: {
+      u_posA: [-0.12, 0.04],
+      u_posB: START_B.slice(),
+      u_size: 0.56,
+      u_premul: 0,
+      u_blend: 0,
+      u_filter: 1,
+      u_hidden: 0,
+      u_opacity: 1,
+      u_stage: 3
+    },
+    onDown: function (p, s) {
+      var q = toUV(p, s);
+      setB(q[0], q[1]);
+    },
+    onMove: function (p, s) {
+      if (!p.down) return;
+      var q = toUV(p, s);
+      setB(q[0], q[1]);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.03;
+      if (key === 'arrowleft') setB(posB[0] - step, posB[1]);
+      if (key === 'arrowright') setB(posB[0] + step, posB[1]);
+      if (key === 'arrowup') setB(posB[0], posB[1] + step);
+      if (key === 'arrowdown') setB(posB[0], posB[1] - step);
+    },
+    onResize: function (s) {
+      size = { w: s.width, h: s.height };
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

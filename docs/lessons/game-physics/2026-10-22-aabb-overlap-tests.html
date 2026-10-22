@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AABB overlap tests · Game Dev Daily</title>
+<meta name="description" content="How to test two axis-aligned boxes for overlap by comparing their intervals on each axis, and why checking corners misses some hits.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-22">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>AABB overlap tests</h1>
+  <p class="lede">How to test two axis-aligned boxes for overlap by comparing their intervals on each axis, and why checking corners misses some hits.</p>
+</header>
+
+<section data-section="hook">
+  <p>A long sword swing passes straight through a tall, thin enemy and nothing happens. Neither box has a corner inside the other, so the hit check says they never met. Somewhere else in the same game, a crate resting flat on the floor counts as "colliding" every single frame.</p>
+  <p>Both bugs come from the simplest collision test in games. This lesson shows the version that has neither.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A box is two intervals</h2>
+  <p>An <dfn>axis-aligned bounding box</dfn>, or AABB, is a rectangle whose sides are parallel to the x and y axes. It never rotates. That is what makes it cheap: it is fully described by where it starts and ends on each axis.</p>
+  <p>In LÖVE, and in these lessons, a box is stored as its top-left corner <code>x, y</code> and its size <code>w, h</code>, with y growing downwards. So box A covers x from <code>a.x</code> to <code>a.x + a.w</code>, and y from <code>a.y</code> to <code>a.y + a.h</code>.</p>
+  <p>A stretch of numbers from a minimum to a maximum is an <dfn>interval</dfn>. Think of it as the box's shadow on that axis.</p>
+
+  <h3>When do two intervals overlap?</h3>
+  <p>Two intervals on a line are apart only if one ends before the other begins. So they overlap when each one starts before the other ends:</p>
+<pre><code>a.x &lt; b.x + b.w  and  b.x &lt; a.x + a.w</code></pre>
+  <p>In words: A starts before B ends, and B starts before A ends.</p>
+
+  <h3>When do two boxes overlap?</h3>
+  <p>Two boxes overlap when their shadows overlap on <em>both</em> axes. If either axis shows a gap, a straight line fits through that gap and the boxes are apart. That is the whole test: four comparisons joined by <code>and</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Two boxes, A above and to the left of B. Their shadows on the x axis overlap by 20 pixels, shown in green. Their shadows on the y axis have a 10 pixel gap, shown in red. Because one axis has a gap, the boxes do not overlap.">
+      <!-- axes -->
+      <path class="d-stroke" d="M50 20 V252 H620"/>
+      <text class="d-muted" x="612" y="272" text-anchor="end">x</text>
+      <text class="d-muted" x="36" y="30" text-anchor="middle">y</text>
+      <!-- guides down to the x shadows -->
+      <path class="d-dash" d="M152 116 V218 M308 116 V218 M256 180 V232 M464 180 V232"/>
+      <!-- guides across to the y shadows -->
+      <path class="d-dash" d="M152 52 H72 M152 116 H72 M256 132 H84 M256 180 H84"/>
+      <!-- boxes -->
+      <rect class="d-accent-soft" x="152" y="52" width="156" height="64"/>
+      <text class="d-label" x="230" y="89" text-anchor="middle">A</text>
+      <rect class="d-fill" x="256" y="132" width="208" height="48"/>
+      <rect class="d-stroke" x="256" y="132" width="208" height="48"/>
+      <text class="d-text" x="360" y="161" text-anchor="middle">B</text>
+      <!-- x shadows -->
+      <path class="d-accent" d="M152 222 H308" stroke-width="6"/>
+      <path class="d-stroke" d="M256 236 H464" stroke-width="6"/>
+      <path class="d-good" d="M256 252 H308" stroke-width="5"/>
+      <text class="d-text" x="282" y="276" text-anchor="middle">overlap 20</text>
+      <!-- y shadows -->
+      <path class="d-accent" d="M66 52 V116" stroke-width="6"/>
+      <path class="d-stroke" d="M80 132 V180" stroke-width="6"/>
+      <path class="d-bad" d="M50 116 V132" stroke-width="5"/>
+      <text class="d-text" x="44" y="129" text-anchor="end">gap 10</text>
+      <!-- verdict -->
+      <text class="d-text" x="620" y="44" text-anchor="end">x: overlap. y: gap.</text>
+      <text class="d-text" x="620" y="64" text-anchor="end">One gap is enough: no hit.</text>
+    </svg>
+    <figcaption>Each box casts a shadow on each axis. The x shadows overlap (green), but the y shadows leave a gap (red), so a horizontal line fits between the boxes and they do not touch.</figcaption>
+  </figure>
+
+  <h3>One check by hand</h3>
+  <p>Take A at <code>x = 100, y = 50, w = 60, h = 40</code> and B at <code>x = 140, y = 100, w = 80, h = 30</code>, the boxes in the diagram. On x, A covers 100 to 160 and B covers 140 to 220. Is 100 &lt; 220? Yes. Is 140 &lt; 160? Yes. The x shadows overlap.</p>
+  <p>On y, A covers 50 to 90 and B covers 100 to 130. Is 50 &lt; 130? Yes. Is 100 &lt; 90? No. The y shadows have a gap, so the boxes do not overlap.</p>
+  <p>It is often useful to know <em>how much</em> two intervals overlap, not just whether they do:</p>
+<pre><code>overlap = math.min(maxA, maxB) - math.max(minA, minB)</code></pre>
+  <p>This is the smaller of the two ends minus the larger of the two starts. A positive result is the overlap in pixels, zero means the edges just touch, and a negative result is the size of the gap. For the example: on x, 160 − 140 = 20. On y, 90 − 100 = −10, a gap of 10. Later lessons use this number to push boxes apart.</p>
+
+  <h2>The bug: checking corners</h2>
+  <p>A test that many people write first is "is any corner of A inside B?", sometimes checked both ways round. It fails when the boxes cross like a plus sign: a tall thin box over a wide flat one. They clearly overlap in the middle, but every corner lies outside the other box.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 320 200" role="img" aria-label="A tall thin box crosses a wide flat box like a plus sign. All eight corners, marked with hollow circles, lie outside the other box, yet the middle region overlaps.">
+      <rect class="d-fill" x="40" y="80" width="240" height="50"/>
+      <rect class="d-stroke" x="40" y="80" width="240" height="50"/>
+      <rect class="d-accent-soft" x="130" y="20" width="60" height="160"/>
+      <rect class="d-bad-fill" x="130" y="80" width="60" height="50" opacity="0.35"/>
+      <g class="d-stroke">
+        <circle cx="130" cy="20" r="5"/><circle cx="190" cy="20" r="5"/>
+        <circle cx="130" cy="180" r="5"/><circle cx="190" cy="180" r="5"/>
+        <circle cx="40" cy="80" r="5"/><circle cx="280" cy="80" r="5"/>
+        <circle cx="40" cy="130" r="5"/><circle cx="280" cy="130" r="5"/>
+      </g>
+      <text class="d-text" x="238" y="60" text-anchor="middle">no corner</text>
+      <text class="d-text" x="238" y="160" text-anchor="middle">is inside</text>
+    </svg>
+    <figcaption>Eight corners, none inside the other box, and still an overlap. The interval test gets this right.</figcaption>
+  </figure>
+
+  <h2>Touching is a choice</h2>
+  <p>With <code>&lt;</code>, boxes whose edges meet exactly do not count as overlapping. With <code>&lt;=</code>, they do.</p>
+  <p>A collision response usually pushes a box out until it is exactly touching the wall or floor. If touching counts as overlapping, that box is "still colliding" on the next step, and the next, so your code keeps reporting hits of zero depth. That is a common source of characters that stick to walls or crates that never stop firing landing sounds. The usual choice is strict <code>&lt;</code> for overlap. If you need "is something right next to me", ask that separately, for example by testing a box moved one pixel down.</p>
+
+  <div class="callout">
+    <p class="callout-title">Another way to write it</p>
+    <p>Some code stores a box as a centre and a <dfn>half extent</dfn>, half its width and half its height. Then the x test reads <code>math.abs(a.cx - b.cx) &lt; a.hw + b.hw</code>: the centres are closer than the two half widths added together. It is the same test, so pick whichever matches how you store boxes.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag either box. The bars on the left and bottom edges are each box's shadow on that axis, and the strip on each axis turns green where the shadows overlap and red where there is a gap. The boxes only turn red when <em>both</em> strips are green.</p>
+  <p>Then pick the "Cross" layout and switch the test to "Corner test". Watch it report no hit while the boxes plainly overlap. Finally pick "Touching edges" and flip the touching toggle to see a zero-width overlap change the answer.</p>
+
+  <figure class="demo" data-demo="aabb">
+    <canvas id="aabb"></canvas>
+    <figcaption>Keyboard: click or tab to the canvas, then use the arrow keys to move a box 10 pixels (hold Shift for 1 pixel). Press A or B to choose which box the keys move.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the same two boxes and numbers as the demo's starting layout. Drag box A with the mouse; both boxes turn red when they overlap, and the two interval overlaps are printed at the top.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- x, y is the top-left corner, y grows downwards, w and h are the size.</span>
+local boxA = { x = 150, y = 90,  w = 120, h = 80 }
+local boxB = { x = 320, y = 140, w = 160, h = 100 }
+
+<span class="c">-- Positive: overlap in pixels. Zero: touching. Negative: size of the gap.</span>
+local function intervalOverlap(minA, maxA, minB, maxB)
+  return math.min(maxA, maxB) - math.max(minA, minB)
+end
+
+<span class="c">-- Strict &lt; : boxes that only touch do not count as overlapping.</span>
+local function overlaps(a, b)
+<span class="k">  return a.x &lt; b.x + b.w and b.x &lt; a.x + a.w
+     and a.y &lt; b.y + b.h and b.y &lt; a.y + a.h</span>
+end
+
+local dragging = false
+local grabX, grabY = 0, 0
+
+function love.mousepressed(mx, my, button)
+  if button == 1 and mx &gt;= boxA.x and mx &lt;= boxA.x + boxA.w
+     and my &gt;= boxA.y and my &lt;= boxA.y + boxA.h then
+    dragging = true
+    grabX, grabY = mx - boxA.x, my - boxA.y
+  end
+end
+
+function love.mousereleased(mx, my, button)
+  if button == 1 then dragging = false end
+end
+
+function love.update(dt)
+  if dragging then
+    local mx, my = love.mouse.getPosition()
+    boxA.x, boxA.y = mx - grabX, my - grabY
+  end
+end
+
+function love.draw()
+  if overlaps(boxA, boxB) then
+    love.graphics.setColor(1, 0.3, 0.3)
+  else
+    love.graphics.setColor(1, 1, 1)
+  end
+  love.graphics.rectangle("line", boxA.x, boxA.y, boxA.w, boxA.h)
+  love.graphics.rectangle("line", boxB.x, boxB.y, boxB.w, boxB.h)
+
+  local ox = intervalOverlap(boxA.x, boxA.x + boxA.w, boxB.x, boxB.x + boxB.w)
+  local oy = intervalOverlap(boxA.y, boxA.y + boxA.h, boxB.y, boxB.y + boxB.h)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print("x overlap " .. ox .. "   y overlap " .. oy, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot's Rect2 is the same idea: a top-left position and a size.</span>
+var box_a := Rect2(150, 90, 120, 80)
+var box_b := Rect2(320, 140, 160, 100)
+
+func _physics_process(_delta: float) -&gt; void:
+<span class="k">    var hit := box_a.intersects(box_b)         # touching edges do not count</span>
+    var hit_or_touch := box_a.intersects(box_b, true)  # include_borders
+    var shared := box_a.intersection(box_b)    # the overlapping rectangle</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Rect stores x, y, width and height.</span>
+Rect boxA = new Rect(150, 90, 120, 80);
+Rect boxB = new Rect(320, 140, 160, 100);
+public Collider2D other;   <span class="c">// another collider, set in the Inspector</span>
+
+void FixedUpdate()
+{
+<span class="k">    bool hit = boxA.Overlaps(boxB);</span>
+
+    <span class="c">// Colliders expose their AABB as a Bounds (centre and extents).</span>
+    bool roughHit = GetComponent&lt;Collider2D&gt;().bounds.Intersects(other.bounds);
+}</code></pre>
+  </div>
+  <p>In both engines you rarely write this test for physics bodies yourself: the physics engine runs it, and you ask it questions, for example with <code>Physics2D.OverlapBox</code> in Unity. Writing it by hand is still the right tool for hitboxes, UI and tile games with their own collision.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Testing corners instead of intervals.</strong> Misses the plus-sign case, and checking only the corners of A also misses B sitting entirely inside A. Use the four comparisons.</li>
+    <li><strong>Mixing centre and corner positions.</strong> If a sprite's position is its centre but the test treats it as the top-left corner, every hitbox is shifted by half its size. Hits register too early on one side and too late on the other. Decide on one convention and convert in one place.</li>
+    <li><strong>Counting touching as overlap by accident.</strong> <code>&lt;=</code> makes resting objects report zero-depth hits forever. Choose on purpose, and use the same rule everywhere.</li>
+    <li><strong>Forgetting rotation.</strong> An AABB cannot rotate. For a spinning sprite, recompute a larger box around it each step, or use a rotated-shape test from later in this track.</li>
+    <li><strong>Testing every pair.</strong> The test is cheap, but 1000 boxes make about half a million pairs. Fine for a few dozen objects; beyond that, a broad phase (Track 6) skips pairs that are far apart.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Many 2D games use AABBs as their only collision shape: tile-based platformers, top-down shooters and bullet-hell games, where hitboxes are deliberately simple rectangles. The LÖVE library bump.lua by Enrique García Cota is built entirely around axis-aligned boxes.</p>
+  <p>Full physics engines use AABBs too, as a first filter. Box2D keeps an AABB around every shape in a tree, and only shapes whose boxes overlap go on to the exact, more expensive test. Godot's <code>Rect2</code> and Unity's <code>Rect</code> and <code>Bounds</code> types all offer the overlap test shown here.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the Lua program above and add a third box. Make all three draggable, and colour each one red if it overlaps <em>any</em> other box. Then place two boxes in a plus shape and confirm that both turn red.</p>
+  <p>For an extra step, draw the overlapping region: its left edge is the larger of the two left edges, its right edge the smaller of the two right edges, and the same on y. You are done when the drawn region matches what you see on screen in every layout you try.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An axis-aligned box is two intervals, one on x and one on y.</li>
+    <li>Two intervals overlap when each starts before the other ends. Two boxes overlap when their intervals overlap on both axes.</li>
+    <li>The overlap amount is the smaller end minus the larger start: positive for overlap, zero for touching, negative for a gap.</li>
+    <li>Checking corners misses boxes that cross like a plus sign. Compare intervals instead.</li>
+    <li>Whether touching counts is a design decision. Strict <code>&lt;</code> stops resting objects reporting endless zero-depth hits.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson does the same for circles, where one distance comparison replaces the four interval checks.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005), chapter 4, "Bounding Volumes". Covers AABB storage forms (min and max, or centre and half extents) and their overlap tests.</li>
+    <li>Godot Engine documentation, <cite>Rect2</cite> class reference. Describes <code>intersects</code>, its <code>include_borders</code> option, and <code>intersection</code>.</li>
+    <li>Enrique García Cota, <cite>bump.lua</cite>. A collision library for LÖVE that works only with axis-aligned boxes.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units match the Lua code: pixels, y grows downwards.
+  var W = 600, H = 340;
+  var AREA = { left: 52, top: 44, right: 592, bottom: 290 };  // where boxes may sit
+  var X_AXIS = 326;     // y of the x axis line
+  var Y_AXIS = 18;      // x of the y axis line
+
+  var LAYOUTS = {
+    start: { a: [150, 90, 120, 80], b: [320, 140, 160, 100] },
+    cross: { a: [255, 80, 50, 180], b: [160, 150, 240, 50] },
+    touching: { a: [200, 120, 120, 80], b: [320, 100, 160, 100] },
+    inside: { a: [250, 130, 50, 40], b: [180, 90, 220, 130] }
+  };
+
+  var boxA = { x: 0, y: 0, w: 0, h: 0, name: 'A' };
+  var boxB = { x: 0, y: 0, w: 0, h: 0, name: 'B' };
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="aabb"]');
+  var layout = ui.select({
+    label: 'Layout',
+    options: [
+      { value: 'start', label: 'Start' },
+      { value: 'cross', label: 'Cross (plus sign)' },
+      { value: 'touching', label: 'Touching edges' },
+      { value: 'inside', label: 'A inside B' },
+      { value: 'custom', label: 'Your own' }
+    ],
+    value: 'start',
+    onChange: function (v) { applyLayout(v); }
+  });
+  var method = ui.select({
+    label: 'Test',
+    options: [
+      { value: 'interval', label: 'Interval test (correct)' },
+      { value: 'corner', label: 'Corner test (buggy)' }
+    ],
+    value: 'interval',
+    onChange: redraw
+  });
+  var touching = ui.toggle({ label: 'Count touching edges as a hit', value: false, onChange: redraw });
+  var shadows = ui.toggle({ label: 'Show axis shadows', value: true, onChange: redraw });
+  var bw = ui.slider({ label: 'Box B width', min: 20, max: 300, step: 10, value: 160, unit: ' px',
+    onInput: function (v) { boxB.w = v; clampBox(boxB); layout.set('custom'); redraw(); } });
+  var bh = ui.slider({ label: 'Box B height', min: 20, max: 200, step: 10, value: 100, unit: ' px',
+    onInput: function (v) { boxB.h = v; clampBox(boxB); layout.set('custom'); redraw(); } });
+  var keyBox = ui.select({
+    label: 'Arrow keys move',
+    options: [{ value: 'A', label: 'Box A' }, { value: 'B', label: 'Box B' }],
+    value: 'A'
+  });
+  var outX = ui.readout({ label: 'x intervals' });
+  var outY = ui.readout({ label: 'y intervals' });
+  var outHit = ui.readout({ label: 'Result' });
+  ui.button({ label: 'Reset', onClick: function () {
+    layout.set('start'); method.set('interval'); touching.set(false); shadows.set(true);
+    keyBox.set('A'); applyLayout('start');
+  } });
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  function setBox(box, arr) { box.x = arr[0]; box.y = arr[1]; box.w = arr[2]; box.h = arr[3]; }
+
+  function applyLayout(name) {
+    var l = LAYOUTS[name];
+    if (!l) return;
+    setBox(boxA, l.a);
+    setBox(boxB, l.b);
+    bw.set(boxB.w);
+    bh.set(boxB.h);
+    redraw();
+  }
+
+  function clampBox(box) {
+    box.x = Math.round(DemoKit.clamp(box.x, AREA.left, AREA.right - box.w));
+    box.y = Math.round(DemoKit.clamp(box.y, AREA.top, AREA.bottom - box.h));
+  }
+
+  // Positive: overlap. Zero: touching. Negative: size of the gap. Same as the Lua.
+  function intervalOverlap(minA, maxA, minB, maxB) {
+    return Math.min(maxA, maxB) - Math.max(minA, minB);
+  }
+
+  function overlapX() { return intervalOverlap(boxA.x, boxA.x + boxA.w, boxB.x, boxB.x + boxB.w); }
+  function overlapY() { return intervalOverlap(boxA.y, boxA.y + boxA.h, boxB.y, boxB.y + boxB.h); }
+
+  function axisHit(o) { return touching.value ? o >= 0 : o > 0; }
+
+  function intervalTest() { return axisHit(overlapX()) && axisHit(overlapY()); }
+
+  function pointInside(px, py, b) {
+    if (touching.value) return px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
+    return px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h;
+  }
+
+  function corners(b) {
+    return [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+  }
+
+  // The buggy test: is any corner of either box inside the other box?
+  function cornerTest() {
+    var i, ca = corners(boxA), cb = corners(boxB);
+    for (i = 0; i < 4; i++) {
+      if (pointInside(ca[i][0], ca[i][1], boxB)) return true;
+      if (pointInside(cb[i][0], cb[i][1], boxA)) return true;
+    }
+    return false;
+  }
+
+  function describe(o) {
+    if (o > 0) return 'overlap ' + o + ' px';
+    if (o === 0) return 'touching';
+    return 'gap ' + (-o) + ' px';
+  }
+
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+
+  function toWorld(p) {
+    return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale };
+  }
+
+  function contains(b, w) {
+    return w.x >= b.x && w.x <= b.x + b.w && w.y >= b.y && w.y <= b.y + b.h;
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function drawBox(ctx, b, color, hit, c) {
+    var k = view.scale;
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = color;
+    ctx.fillRect(sx(b.x), sy(b.y), b.w * k, b.h * k);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = hit ? c.bad : color;
+    ctx.lineWidth = hit ? 3 : 2;
+    ctx.strokeRect(sx(b.x), sy(b.y), b.w * k, b.h * k);
+    ctx.fillStyle = color;
+    ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.name, sx(b.x + b.w / 2), sy(b.y + b.h / 2));
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawShadows(ctx, c) {
+    var k = view.scale;
+    var bar = Math.max(4, 6 * k);
+    var ox = overlapX(), oy = overlapY();
+
+    // Guide lines from box edges to the axes.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    [boxA, boxB].forEach(function (b) {
+      line(ctx, sx(b.x), sy(b.y + b.h), sx(b.x), sy(X_AXIS));
+      line(ctx, sx(b.x + b.w), sy(b.y + b.h), sx(b.x + b.w), sy(X_AXIS));
+      line(ctx, sx(b.x), sy(b.y), sx(Y_AXIS), sy(b.y));
+      line(ctx, sx(b.x), sy(b.y + b.h), sx(Y_AXIS), sy(b.y + b.h));
+    });
+    ctx.setLineDash([]);
+
+    // Axis lines.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    line(ctx, sx(Y_AXIS), sy(AREA.top - 10), sx(Y_AXIS), sy(X_AXIS));
+    line(ctx, sx(Y_AXIS), sy(X_AXIS), sx(W - 4), sy(X_AXIS));
+
+    // Shadows: A above B on the x axis, A left of B on the y axis.
+    ctx.lineWidth = bar;
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = c.topic;
+    line(ctx, sx(boxA.x), sy(X_AXIS - 22), sx(boxA.x + boxA.w), sy(X_AXIS - 22));
+    line(ctx, sx(Y_AXIS + 10), sy(boxA.y), sx(Y_AXIS + 10), sy(boxA.y + boxA.h));
+    ctx.strokeStyle = c.warn;
+    line(ctx, sx(boxB.x), sy(X_AXIS - 11), sx(boxB.x + boxB.w), sy(X_AXIS - 11));
+    line(ctx, sx(Y_AXIS + 21), sy(boxB.y), sx(Y_AXIS + 21), sy(boxB.y + boxB.h));
+
+    // The overlap or gap on each axis, drawn on the axis line.
+    var thick = Math.max(4, 7 * k);
+    var x1 = Math.max(boxA.x, boxB.x), x2 = Math.min(boxA.x + boxA.w, boxB.x + boxB.w);
+    var y1 = Math.max(boxA.y, boxB.y), y2 = Math.min(boxA.y + boxA.h, boxB.y + boxB.h);
+    ctx.lineWidth = thick;
+    ctx.strokeStyle = axisHit(ox) ? c.good : c.bad;
+    if (ox === 0) { ctx.beginPath(); ctx.arc(sx(x1), sy(X_AXIS), thick * 0.7, 0, Math.PI * 2); ctx.fillStyle = ctx.strokeStyle; ctx.fill(); }
+    else line(ctx, sx(Math.min(x1, x2)), sy(X_AXIS), sx(Math.max(x1, x2)), sy(X_AXIS));
+    ctx.strokeStyle = axisHit(oy) ? c.good : c.bad;
+    if (oy === 0) { ctx.beginPath(); ctx.arc(sx(Y_AXIS), sy(y1), thick * 0.7, 0, Math.PI * 2); ctx.fillStyle = ctx.strokeStyle; ctx.fill(); }
+    else line(ctx, sx(Y_AXIS), sy(Math.min(y1, y2)), sx(Y_AXIS), sy(Math.max(y1, y2)));
+    ctx.lineWidth = 1;
+  }
+
+  function drawCorners(ctx, c) {
+    [[boxA, boxB], [boxB, boxA]].forEach(function (pair) {
+      corners(pair[0]).forEach(function (p) {
+        var inside = pointInside(p[0], p[1], pair[1]);
+        ctx.beginPath();
+        ctx.arc(sx(p[0]), sy(p[1]), 5, 0, Math.PI * 2);
+        ctx.fillStyle = inside ? c.bad : c.surface;
+        ctx.fill();
+        ctx.strokeStyle = inside ? c.bad : c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+    });
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    ctx.fillStyle = c.surface;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(x - 3, y - 13, wTxt + 6, 18);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  handle = DemoKit.canvas('#aabb', {
+    aspect: W / H,
+    minHeight: 220,
+    maxHeight: 380,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Two draggable boxes, A and B, with their shadows drawn on the x and y axes. The overlap or gap on each axis is coloured green or red, and the boxes turn red when the chosen test reports a hit.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      view.scale = Math.min(s.width / W, s.height / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (s.height - H * view.scale) / 2;
+      var k = view.scale;
+
+      // Light grid every 50 pixels inside the area.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      var g;
+      for (g = 100; g < AREA.right; g += 50) line(ctx, sx(g), sy(AREA.top), sx(g), sy(AREA.bottom));
+      for (g = 50; g < AREA.bottom; g += 50) if (g > AREA.top) line(ctx, sx(AREA.left), sy(g), sx(AREA.right), sy(g));
+
+      var truth = intervalTest();
+      var verdict = method.value === 'interval' ? truth : cornerTest();
+
+      if (shadows.value) drawShadows(ctx, c);
+
+      // The overlapping region, which exists whenever the boxes truly overlap.
+      var ox = overlapX(), oy = overlapY();
+      if (ox > 0 && oy > 0) {
+        ctx.fillStyle = c.bad;
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(sx(Math.max(boxA.x, boxB.x)), sy(Math.max(boxA.y, boxB.y)), ox * k, oy * k);
+        ctx.globalAlpha = 1;
+      }
+
+      drawBox(ctx, boxB, c.warn, verdict, c);
+      drawBox(ctx, boxA, c.topic, verdict, c);
+      if (method.value === 'corner') drawCorners(ctx, c);
+
+      // Status at the top.
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      var tx = sx(AREA.left) + 2;
+      var name = method.value === 'interval' ? 'Interval test' : 'Corner test';
+      label(ctx, name + ': ' + (verdict ? 'HIT' : 'no hit'), tx, 18, verdict ? c.bad : c.ink, c);
+      if (verdict !== truth) {
+        label(ctx, truth ? 'Wrong: the boxes do overlap' : 'Wrong: the boxes do not overlap', tx, 36, c.bad, c);
+      }
+
+      outX.set(describe(ox));
+      outY.set(describe(oy));
+      outHit.set(name + ': ' + (verdict ? 'hit' : 'no hit') + (verdict !== truth ? ', wrong' : ''));
+    },
+    onDown: function (p) {
+      var w = toWorld(p);
+      var b = contains(boxA, w) ? boxA : (contains(boxB, w) ? boxB : null);
+      if (!b) { drag = null; return; }
+      drag = { box: b, dx: w.x - b.x, dy: w.y - b.y };
+      keyBox.set(b.name);
+    },
+    onMove: function (p) {
+      var cv = document.getElementById('aabb');
+      var w = toWorld(p);
+      if (drag && p.down) {
+        drag.box.x = w.x - drag.dx;
+        drag.box.y = w.y - drag.dy;
+        clampBox(drag.box);
+        layout.set('custom');
+        return;
+      }
+      cv.style.cursor = (contains(boxA, w) || contains(boxB, w)) ? 'grab' : '';
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      if (key === 'a' || key === 'b') { keyBox.set(key.toUpperCase()); return; }
+      var d = s.keys.has('shift') ? 1 : 10;
+      var dx = 0, dy = 0;
+      if (key === 'arrowleft') dx = -d;
+      else if (key === 'arrowright') dx = d;
+      else if (key === 'arrowup') dy = -d;
+      else if (key === 'arrowdown') dy = d;
+      else return;
+      var b = keyBox.value === 'B' ? boxB : boxA;
+      b.x += dx;
+      b.y += dy;
+      clampBox(b);
+      layout.set('custom');
+    }
+  });
+
+  applyLayout('start');
+})();
+</script>
+</body>
+</html>

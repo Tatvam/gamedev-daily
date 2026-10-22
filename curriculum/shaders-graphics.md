@@ -13,7 +13,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Repeating space with fract** — How fract and floor tile space into cells that each have their own local coordinates. Demo: a tile count slider repeats a simple motif with a toggle that shows cell coordinates. (published 2026-10-19, repeating-space-fract)
 - [x] **Stripes and checkerboards** — How to combine fract, step and mod into basic patterns. Demo: sliders for frequency, angle and line width switch between stripes, grids and checkers. (published 2026-10-20, stripes-and-checkerboards)
 - [x] **Circles from distance** — How the length function turns distance from a point into discs, rings and glows. Demo: sliders for radius, edge softness and ring thickness shape a circle. (published 2026-10-21, circles-from-distance)
-- [ ] **Alpha and blending** — How alpha combines a fragment with what is already on screen and why premultiplied alpha avoids dark fringes. Demo: toggle between straight and premultiplied alpha and between normal, additive and multiply blending on overlapping shapes.
+- [x] **Alpha and blending** — How alpha combines a fragment with what is already on screen and why premultiplied alpha avoids dark fringes. Demo: toggle between straight and premultiplied alpha and between normal, additive and multiply blending on overlapping shapes. (published 2026-10-22, alpha-and-blending)
 
 ## Track 2: Shapes, motion, and textures
 

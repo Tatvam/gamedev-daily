@@ -13,7 +13,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Clean curves** — How curves stay smooth when their segment lengths grow and shrink in a steady order. Demo: drag a control point to bend a pixel curve and read the run lengths printed beside it, with bad transitions marked in red. (published 2026-10-19, clean-pixel-curves)
 - [x] **Pixel-perfect lines and doubles** — Why stray corner pixels, called doubles, make lines look heavy and how removing them gives a clean stroke one pixel wide. Demo: draw freehand on a grid with a pixel-perfect toggle that removes doubles as you go. (published 2026-10-20, pixel-perfect-doubles)
 - [x] **Circles and ellipses at tiny sizes** — How to build round shapes from symmetric runs and why some diameters look rounder than others. Demo: a diameter slider draws circles from 3 to 32 pixels and lets you toggle between odd and even centres. (published 2026-10-21, tiny-circles-ellipses)
-- [ ] **Symmetry and mirroring** — How mirror drawing speeds up sprite work and when to break symmetry so the result does not look stiff. Demo: a small editor with a mirror toggle lets you draw half a creature and then nudge single pixels to break the symmetry.
+- [x] **Symmetry and mirroring** — How mirror drawing speeds up sprite work and when to break symmetry so the result does not look stiff. Demo: a small editor with a mirror toggle lets you draw half a creature and then nudge single pixels to break the symmetry. (published 2026-10-22, symmetry-and-mirroring)
 
 ## Track 2: Colour and palettes
 
