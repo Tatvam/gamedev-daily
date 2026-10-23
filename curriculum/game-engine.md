@@ -17,7 +17,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 2: Input, communication and data
 
-- [ ] **Polling versus event-driven input** — The difference between asking every frame whether a key is down and being told at the moment a key changes. Demo: A key timeline shows your real presses against what a polled game sees, with a frame rate slider that makes quick taps go missing.
+- [x] **Polling versus event-driven input** — The difference between asking every frame whether a key is down and being told at the moment a key changes. Demo: A key timeline shows your real presses against what a polled game sees, with a frame rate slider that makes quick taps go missing. (published 2026-10-23, polling-versus-events)
 - [ ] **Input action maps: InputMap in Godot, the Input System in Unity** — How naming actions such as jump and move, instead of reading raw keys, lets one script support keyboards, gamepads and rebinding. Demo: A rebinding panel lets you assign any key to each action and immediately drive a character with the new layout.
 - [ ] **Analogue sticks and dead zones** — How raw stick values are cleaned up with axial and radial dead zones so characters do not drift or snap to the axes. Demo: Drag a virtual thumbstick and compare the raw vector with the processed one while changing the dead zone type and size.
 - [ ] **The observer pattern** — How an object can announce that something happened without knowing who is listening. Demo: Click a subject to fire an event and watch subscribed observers light up, with buttons to subscribe and unsubscribe each one.

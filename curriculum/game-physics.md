@@ -18,7 +18,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 2: Collision detection
 
 - [x] **AABB overlap tests** — How to test two axis-aligned boxes for overlap by comparing their intervals on each axis. Demo: drag two boxes and watch their shadows on the x and y axes light up when they overlap. (published 2026-10-22, aabb-overlap-tests)
-- [ ] **Circle against circle** — How comparing the distance between centres with the sum of the radii detects overlap and why squared distances avoid a square root. Demo: drag two circles with radius sliders and see the distance line change colour on contact.
+- [x] **Circle against circle** — How comparing the distance between centres with the sum of the radii detects overlap and why squared distances avoid a square root. Demo: drag two circles with radius sliders and see the distance line change colour on contact. (published 2026-10-23, circle-circle-collision)
 - [ ] **Circle against box** — How clamping the circle centre to the box gives the closest point and the overlap test. Demo: drag a circle around a box and watch the closest point and contact normal update.
 - [ ] **Raycasts** — How to find the first thing a ray hits, the distance to it and the surface normal, as exposed by RayCast2D in Godot and Physics2D.Raycast in Unity. Demo: drag the origin and direction of a ray through a scene of boxes and circles to see the hit point and normal.
 - [ ] **Tunnelling** — Why fast or small objects can skip through thin walls between two steps. Demo: sliders for bullet speed and wall thickness show the discrete positions jumping over the wall.

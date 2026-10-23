@@ -17,7 +17,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 2: Forgiveness mechanics
 
-- [ ] **Coyote time** — Why letting players jump for a few frames after leaving a ledge makes platforming feel fair. Demo: A row of gaps to jump with a coyote time slider in milliseconds, a success counter, and a ghost marker showing where each jump was pressed.
+- [x] **Coyote time** — Why letting players jump for a few frames after leaving a ledge makes platforming feel fair. Demo: A row of gaps to jump with a coyote time slider in milliseconds, a success counter, and a ghost marker showing where each jump was pressed. (published 2026-10-23, coyote-time)
 - [ ] **Jump buffering** — How remembering a jump press made just before landing prevents the game from ignoring inputs. Demo: A bouncing course where the player jumps again on landing, with a buffer slider and a counter of presses that were saved.
 - [ ] **Variable jump height** — How cutting a jump short when the button is released gives players fine control. Demo: A set of low and high ledges with a toggle between fixed and variable jump height and a slider for the release gravity.
 - [ ] **Jump arcs, hang time and fast fall** — How rise speed, time at the top and fall speed shape a jump that is easy to aim. Demo: Sliders for jump height, time to apex, hang time and fall multiplier redraw the arc on screen while the player jumps.

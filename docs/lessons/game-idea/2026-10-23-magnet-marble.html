@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnet Marble: steer a ball you are not allowed to touch · Game Dev Daily</title>
+<meta name="description" content="A physics puzzle where you guide a rolling marble only by flipping magnets between pull and push, with a playable prototype and the force code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Magnet Marble: steer a ball you are not allowed to touch</h1>
+  <p class="lede">A physics puzzle where you guide a rolling marble only by flipping magnets between pull and push, with a playable prototype and the force code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>A steel marble rolls across a quiet table. You cannot nudge it, aim it or stop it. All you can do is flip the five magnets around it between pull and push, before the launch or while it rolls, and watch it bend its path towards the hole or into a pit.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: set the field, launch, nudge, learn</h2>
+  <p>Magnet Marble is a <dfn>physics puzzle</dfn>: a puzzle where the answer comes out of a simulation rather than a fixed rule. Each table has a launch pad, a goal hole, one or two pits and five magnets. Every magnet is either <dfn>attract</dfn> (it pulls the marble towards it) or <dfn>repel</dfn> (it pushes the marble away). That one switch per magnet is the whole control scheme.</p>
+  <p>The launch is always the same shot, so only the pattern of pulls and pushes, and the timing of any mid-roll flip, changes between tries.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: set the magnets, launch the marble, then watch and flip magnets mid-roll, which leads back to setting the magnets after reading the trail of the failed try. Beside it, two longer loops: every minute or so a table is cleared, and every session is three tables cleared in as few launches as possible.">
+      <defs>
+        <marker id="mm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Set the magnets</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">pull or push, each one</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Launch</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">same shot every time</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Watch and nudge</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">flip one mid-roll</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#mm-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#mm-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#mm-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 5 to 10 seconds</text>
+      <text class="d-muted" x="70" y="110" text-anchor="middle">read the</text>
+      <text class="d-muted" x="70" y="126" text-anchor="middle">old trail</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">the marble drops in;</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">a new table appears</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">three tables; score is</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">launches used, lower wins</text>
+    </svg>
+    <figcaption>The short loop is an experiment: change one thing, run it, compare the new trail with the old one.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>The pull.</strong> Each magnet pulls or pushes with a strength that falls off with the square of the distance, an <dfn>inverse-square force</dfn>. A small softening number stops it going to infinity at the centre, and it fades to zero at a visible range ring 150 units out.</li>
+    <li><strong>Rolling.</strong> The marble slows a little all the time (rolling friction) and bounces softly off the edges and the magnets.</li>
+    <li><strong>Sticking.</strong> If the marble touches an attracting magnet slowly, it sticks. Flip that magnet to repel and it pops free. Leave it and the try ends.</li>
+    <li><strong>Ending a try.</strong> The marble drops into the goal, falls in a pit, stays stopped or stuck too long, or runs out its 20 seconds. Its path stays on the table as a faint <dfn>ghost trail</dfn> for the next try.</li>
+    <li><strong>Score.</strong> Clear three tables. The score is the total number of launches. Magnets keep their setting between tries, so you build on what you learned.</li>
+  </ul>
+
+  <h3>Why the force falls off so fast</h3>
+  <p>The inverse-square rule makes a magnet a local event. In the prototype, a magnet at 40 units pulls about 15 times harder than at 100 units, so most steering happens on close passes. That lets the player reason about the path one magnet at a time.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Left: a graph of pull against distance. The pull is 1250 at the centre, about 600 at 20 units, about 220 at 40 units, under 40 at 80 units and zero at the 150 unit range ring. Right: a magnet with its range ring. A marble inside the ring has an arrow pointing to the magnet when attracting and an arrow pointing away when repelling.">
+      <path class="d-stroke" d="M60 30 V190 H370"/>
+      <text class="d-muted" x="52" y="36" text-anchor="end">1250</text>
+      <text class="d-muted" x="52" y="194" text-anchor="end">0</text>
+      <text class="d-muted" x="60" y="212" text-anchor="middle">0</text>
+      <text class="d-muted" x="140" y="212" text-anchor="middle">40</text>
+      <text class="d-muted" x="260" y="212" text-anchor="middle">100</text>
+      <text class="d-muted" x="360" y="212" text-anchor="middle">150</text>
+      <text class="d-label" x="215" y="232" text-anchor="middle">distance from magnet</text>
+      <text class="d-label" x="70" y="20">pull</text>
+      <path class="d-accent" d="M60 30 L80 70 L100 113 L120 143 L140 162 L180 179 L220 185 L260 188 L300 189.4 L360 190"/>
+      <path class="d-dash" d="M360 40 V190"/>
+      <text class="d-muted" x="356" y="52" text-anchor="end">range ring</text>
+      <circle class="d-accent-fill" cx="140" cy="162" r="4"/>
+      <text class="d-text" x="150" y="150">216 at 40</text>
+      <circle class="d-accent-fill" cx="260" cy="188" r="4"/>
+      <text class="d-text" x="250" y="172">15 at 100</text>
+
+      <circle class="d-dash" cx="520" cy="120" r="100"/>
+      <circle class="d-accent-fill" cx="520" cy="120" r="16"/>
+      <circle class="d-stroke" cx="580" cy="80" r="9"/>
+      <path class="d-accent" d="M572 85 L546 102" marker-end="url(#mm-arrow)"/>
+      <text class="d-text" x="590" y="66">pull</text>
+      <circle class="d-stroke" cx="470" cy="170" r="9"/>
+      <path class="d-bad" d="M463 177 L440 200"/>
+      <path class="d-bad" d="M440 200 L452 197 M440 200 L443 188"/>
+      <text class="d-text" x="430" y="226">push</text>
+    </svg>
+    <figcaption>Pull against distance for one magnet in the prototype (units per second squared). The curve drops steeply, then the range ring cuts it to zero.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the stage magician: the ball moves, your hands never touch it. The constraint is five switches and nothing else, which turns each try into a small experiment with the ghost trail as the lab notebook. Flipping mid-roll adds a second skill, so a careful planner and a quick-handed rescuer can both clear a table.</p>
+  <p>The hardest part to build is not the physics, which is twenty lines, but the tables: they need testing by a script, not just by eye (see Pitfalls).</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Launch once without changing anything and watch where the marble goes wrong. Flip one magnet near that spot, launch again, and compare the new trail with the ghost of the old one. Then try flipping a magnet while the marble rolls.</p>
+
+  <figure class="demo" data-demo="magnet-marble">
+    <canvas id="magnet-marble"></canvas>
+    <figcaption>Controls: click or tap a magnet, or press <kbd>1</kbd> to <kbd>5</kbd>, to flip it. Press <kbd>Space</kbd>, <kbd>Enter</kbd> or the Launch button to roll the marble. Filled blue magnets with inward ticks pull; amber magnets with outward ticks push. The dashed circle is each magnet's range. Dark circles are pits, the green ring is the goal. The faint line is your previous try. Every table can be solved before launch, without any flips during the roll.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: summing the pulls, applying friction, and stepping at a fixed rate so the same setup always gives the same roll. Constants and the first table match the prototype. <code>bounce()</code> is your own function for edges, magnets, sticking, pits and the goal.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local K, SOFT, RANGE, DRAG, MAXSPEED = 500000, 20, 150, 0.25, 400
+local STEP = 1 / 120
+local ball = { x = 50, y = 185, vx = 190, vy = 58 }
+local magnets = {                            <span class="c">-- pol: 1 attract, -1 repel</span>
+  { x = 140, y = 153, pol = 1 }, { x = 269, y = 244, pol = 1 },
+  { x = 295, y = 134, pol = 1 }, { x = 322, y = 299, pol = 1 },
+  { x = 507, y = 215, pol = 1 },
+}
+local acc = 0
+
+local function bounce() end                   <span class="c">-- yours: edges, magnets, pits, goal</span>
+
+local function step(h)
+  local ax, ay = 0, 0
+  for _, m in ipairs(magnets) do
+    local dx, dy = m.x - ball.x, m.y - ball.y
+    local d2 = dx * dx + dy * dy
+    local d = math.sqrt(d2)
+    if d &gt; 0 and d &lt; RANGE then
+      local f = 1 - d2 / (RANGE * RANGE)      <span class="c">-- fades to 0 at the ring</span>
+<span class="k">      local a = K * m.pol * f * f / (d2 + SOFT * SOFT)</span>
+      ax, ay = ax + a * dx / d, ay + a * dy / d
+    end
+  end
+  local damp = math.exp(-DRAG * h)            <span class="c">-- rolling friction</span>
+  ball.vx = (ball.vx + ax * h) * damp
+  ball.vy = (ball.vy + ay * h) * damp
+  local speed = math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy)
+  local cap = math.min(1, MAXSPEED / speed)   <span class="c">-- never faster than MAXSPEED</span>
+  ball.vx, ball.vy = ball.vx * cap, ball.vy * cap
+  ball.x, ball.y = ball.x + ball.vx * h, ball.y + ball.vy * h
+  bounce()
+end
+
+function love.update(dt)
+  acc = acc + math.min(dt, 0.1)
+  while acc &gt;= STEP do step(STEP); acc = acc - STEP end
+end
+
+function love.keypressed(key)
+  local i = tonumber(key)                     <span class="c">-- "1" to "5" flip a magnet</span>
+<span class="k">  if i and magnets[i] then magnets[i].pol = -magnets[i].pol end</span>
+end</code></pre>
+  </div>
+  <p>The fixed step matters here: with a variable step, the same setup can roll differently on fast and slow computers, and a solution that depends on frame rate is not fair. On the first table, flipping magnet 4 alone is enough.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Chaos hides the cause.</strong> Several inverse-square pulls make the path very sensitive. While building the prototype, one table that worked was broken by rounding the magnet positions to whole numbers, a change of less than half a unit. If players cannot see why a flip changed the outcome, the puzzle feels random. The fix used here: keep only tables with a winning roll under 7 seconds that still wins when the launch speed changes by 5 percent either way.</li>
+    <li><strong>Brute force wins.</strong> Five two-way switches give 32 setups, so a patient player can try them all. Count the winners with a script: the prototype's tables have two to four each, and both "all pull" and "all push" fail. Later tables can add a third magnet state to grow the space.</li>
+    <li><strong>The marble gets stuck forever.</strong> Without the sticking rule, the marble can orbit a pulling magnet for a long time. Detect slow contact, freeze the marble, and end the try after a short delay unless the player flips.</li>
+    <li><strong>Unreadable fields.</strong> Draw the range rings, show direction with ticks as well as colour, and keep the ghost trail. If testers flip magnets far from the path, the field is not readable yet.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Guiding something by shaping the world around it, rather than steering it, is a well-explored corner of puzzle design. In <cite>Lemmings</cite> (DMA Design, 1991) you assign jobs such as digging or building, but you never steer the walkers themselves. Marble games such as <cite>Marble Madness</cite> (Atari Games, 1984) take the opposite approach: you push the ball directly. Magnet Marble sits closer to the first idea. The player is never on the board, and the only thing they change is the field the marble rolls through.</p>
+  <p>The softening term is borrowed from gravity simulations, where it stops two close bodies from flinging each other at absurd speed.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with circles for everything, a range ring per magnet, and a trail stored as a list of points. Make one table by hand, then write a loop that tries all 32 setups and prints the winners.</p>
+  <p>Hand the game to a friend and say only "click the magnets, then launch". The one question to answer: <strong>after a failed try, can they say which magnet to flip next and why?</strong> If they point at a magnet near where the trail went wrong, the mechanic is readable. If they flip at random, the forces are too strong, too far-reaching or too hidden.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype above with ten hand-checked tables, a par number of launches per table, and a short sound and flash when the marble drops in.</li>
+    <li><strong>One-month version:</strong> forty tables with new pieces introduced one at a time: a magnet that is fixed and cannot be flipped, a magnet that switches by itself on a timer, walls, and a second marble that must share the same field.</li>
+    <li><strong>Cut first:</strong> the second marble. It doubles the chaos for a small gain. Fixed and timed magnets add more puzzles for less work.</li>
+    <li>The hardest part is level design, not physics. Build the solver script before the level editor.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: allow only three flips per table in total, counting both before and during the roll, so every flip becomes a spent resource and players must choose between planning and rescuing.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite>. The fixed step with an accumulator used in the code, which makes a physics puzzle repeatable.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008). The lenses on puzzles and on meaningful choices help when deciding how many setups should win.</li>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (2012). On emergence and how small rule sets produce behaviour that is hard to predict, which is both the appeal and the risk here.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var WORLD_W = 600, WORLD_H = 360;
+  var K = 500000, SOFT = 20, RANGE = 150, DRAG = 0.25, MAXSPEED = 400, STEP = 1 / 120;
+  var MR = 8, MAGR = 14, GOAL_R = 12, STICK_SPEED = 40, STOP_SPEED = 6, TIME_LIMIT = 20;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  // Each table was checked with a script: all-pull and all-push fail, two to four setups win.
+  var TABLES = [
+    { start: [50, 185], launch: [190, 58], goal: [439, 248], pits: [[242, 183]],
+      magnets: [[140, 153], [269, 244], [295, 134], [322, 299], [507, 215]] },
+    { start: [50, 229], launch: [207, -35], goal: [536, 131], pits: [[273, 310]],
+      magnets: [[204, 43], [204, 286], [205, 137], [337, 128], [418, 260]] },
+    { start: [50, 193], launch: [200, -57], goal: [501, 59], pits: [[349, 158], [290, 276]],
+      magnets: [[178, 101], [228, 260], [258, 93], [345, 220], [516, 138]] }
+  ];
+
+  var mode, table, pol, ball, trail, ghost, launches, msg, msgTimer, acc, rollTime, slowTime, stuckTo, pulses;
+  var best = null, handle = null, sc = 1;
+
+  function reset() { table = 0; launches = 0; ghost = []; setupTable(); }
+
+  function setupTable() {
+    pol = [1, 1, 1, 1, 1];
+    pulses = [0, 0, 0, 0, 0];
+    ghost = [];
+    toStart();
+  }
+
+  function toStart() {
+    var T = TABLES[table];
+    mode = 'aim';
+    ball = { x: T.start[0], y: T.start[1], vx: 0, vy: 0 };
+    trail = []; acc = 0; rollTime = 0; slowTime = 0; stuckTo = -1; msg = ''; msgTimer = 0;
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  function flip(i) {
+    if (mode !== 'aim' && mode !== 'roll') return;
+    pol[i] = -pol[i];
+    pulses[i] = 0.35;
+    if (stuckTo === i && pol[i] < 0) stuckTo = -1;
+    wake();
+  }
+
+  function launch() {
+    if (mode === 'cleared') {
+      if (table + 1 >= TABLES.length) {
+        mode = 'done';
+        best = best === null ? launches : Math.min(best, launches);
+      } else { table++; setupTable(); }
+      wake();
+      return;
+    }
+    if (mode === 'done') { reset(); wake(); return; }
+    if (mode !== 'aim') return;
+    var T = TABLES[table];
+    ball.vx = T.launch[0]; ball.vy = T.launch[1];
+    launches++;
+    mode = 'roll';
+    trail = [[ball.x, ball.y]];
+    wake();
+  }
+
+  function finish(text, won) {
+    ghost = trail.slice();
+    msg = text;
+    if (won) { mode = 'cleared'; } else { mode = 'result'; msgTimer = 1.3; }
+  }
+
+  function step() {
+    var T = TABLES[table], i, m, dx, dy, d, d2;
+    if (stuckTo >= 0) {
+      ball.vx = 0; ball.vy = 0;
+    } else {
+      var ax = 0, ay = 0;
+      for (i = 0; i < 5; i++) {
+        m = T.magnets[i]; dx = m[0] - ball.x; dy = m[1] - ball.y;
+        d2 = dx * dx + dy * dy; d = Math.sqrt(d2);
+        if (d <= 0 || d >= RANGE) continue;
+        var f = 1 - d2 / (RANGE * RANGE);
+        var a = K * pol[i] * f * f / (d2 + SOFT * SOFT);
+        ax += a * dx / d; ay += a * dy / d;
+      }
+      var damp = Math.exp(-DRAG * STEP);
+      ball.vx = (ball.vx + ax * STEP) * damp;
+      ball.vy = (ball.vy + ay * STEP) * damp;
+      var sp = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+      if (sp > MAXSPEED) { ball.vx *= MAXSPEED / sp; ball.vy *= MAXSPEED / sp; }
+      ball.x += ball.vx * STEP; ball.y += ball.vy * STEP;
+    }
+    // Table edges.
+    if (ball.x < MR) { ball.x = MR; ball.vx = Math.abs(ball.vx) * 0.6; }
+    if (ball.x > WORLD_W - MR) { ball.x = WORLD_W - MR; ball.vx = -Math.abs(ball.vx) * 0.6; }
+    if (ball.y < MR) { ball.y = MR; ball.vy = Math.abs(ball.vy) * 0.6; }
+    if (ball.y > WORLD_H - MR) { ball.y = WORLD_H - MR; ball.vy = -Math.abs(ball.vy) * 0.6; }
+    // Solid magnets: bounce, or stick to a slow touch on a pulling magnet.
+    for (i = 0; i < 5; i++) {
+      m = T.magnets[i]; dx = ball.x - m[0]; dy = ball.y - m[1]; d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= MR + MAGR || d <= 0) continue;
+      var nx = dx / d, ny = dy / d;
+      ball.x = m[0] + nx * (MR + MAGR); ball.y = m[1] + ny * (MR + MAGR);
+      var vn = ball.vx * nx + ball.vy * ny;
+      if (vn < 0) { ball.vx -= 1.5 * vn * nx; ball.vy -= 1.5 * vn * ny; }
+      if (pol[i] > 0 && Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) < STICK_SPEED) stuckTo = i;
+    }
+    for (i = 0; i < T.pits.length; i++) {
+      if (Math.hypot(ball.x - T.pits[i][0], ball.y - T.pits[i][1]) < 20) return finish('Fell in a pit', false);
+    }
+    if (Math.hypot(ball.x - T.goal[0], ball.y - T.goal[1]) < GOAL_R) {
+      ball.x = T.goal[0]; ball.y = T.goal[1];
+      return finish('Table ' + (table + 1) + ' cleared', true);
+    }
+    rollTime += STEP;
+    slowTime = Math.hypot(ball.vx, ball.vy) < STOP_SPEED ? slowTime + STEP : 0;
+    if (stuckTo >= 0 && slowTime > 2.5) return finish('Stuck on magnet ' + (stuckTo + 1), false);
+    if (stuckTo < 0 && slowTime > 1.5) return finish('The marble stopped', false);
+    if (rollTime > TIME_LIMIT) return finish('Out of time', false);
+  }
+
+  function update(dt) {
+    for (var i = 0; i < 5; i++) pulses[i] = Math.max(0, pulses[i] - dt);
+    if (mode === 'result') { msgTimer -= dt; if (msgTimer <= 0) toStart(); return; }
+    if (mode !== 'roll') return;
+    acc += dt;
+    while (acc >= STEP && mode === 'roll') {
+      step(); acc -= STEP;
+      var last = trail[trail.length - 1];
+      if (Math.hypot(ball.x - last[0], ball.y - last[1]) > 4) trail.push([ball.x, ball.y]);
+    }
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.fillText(str, x, y);
+  }
+
+  function path(ctx, pts) {
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      if (i === 0) ctx.moveTo(pts[i][0] * sc, pts[i][1] * sc); else ctx.lineTo(pts[i][0] * sc, pts[i][1] * sc);
+    }
+    ctx.stroke();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, T = TABLES[table], i, m, x, y, k;
+    sc = s.width / WORLD_W;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    // Range rings.
+    ctx.setLineDash([4, 5]); ctx.lineWidth = 1;
+    for (i = 0; i < 5; i++) {
+      m = T.magnets[i];
+      ctx.strokeStyle = pol[i] > 0 ? c.topic : c.warn; ctx.globalAlpha = 0.45;
+      ctx.beginPath(); ctx.arc(m[0] * sc, m[1] * sc, RANGE * sc, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+    // Pits and goal.
+    for (i = 0; i < T.pits.length; i++) {
+      ctx.fillStyle = c.ink; ctx.beginPath(); ctx.arc(T.pits[i][0] * sc, T.pits[i][1] * sc, 20 * sc, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.good; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(T.goal[0] * sc, T.goal[1] * sc, (GOAL_R + 4) * sc, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    // Trails.
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = c.ink3; ctx.globalAlpha = 0.6; ctx.setLineDash([3, 4]); path(ctx, ghost);
+    ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.strokeStyle = c.topic; path(ctx, trail);
+
+    // Launch arrow while aiming.
+    if (mode === 'aim') {
+      var L = Math.hypot(T.launch[0], T.launch[1]), ux = T.launch[0] / L, uy = T.launch[1] / L;
+      x = T.start[0] * sc; y = T.start[1] * sc;
+      var ex = x + ux * 46 * sc, ey = y + uy * 46 * sc;
+      ctx.strokeStyle = c.ink2; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex - (ux * 8 - uy * 5) * sc, ey - (uy * 8 + ux * 5) * sc);
+      ctx.lineTo(ex, ey); ctx.lineTo(ex - (ux * 8 + uy * 5) * sc, ey - (uy * 8 - ux * 5) * sc); ctx.stroke();
+    }
+
+    // Magnets with ticks: inward to pull, outward to push.
+    for (i = 0; i < 5; i++) {
+      m = T.magnets[i]; x = m[0] * sc; y = m[1] * sc;
+      var col = pol[i] > 0 ? c.topic : c.warn, r = MAGR * sc * (1 + pulses[i]);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      for (k = 0; k < 4; k++) {
+        var an = k * Math.PI / 2 + Math.PI / 4, ca = Math.cos(an), sa = Math.sin(an), dir = pol[i] > 0 ? -1 : 1;
+        var r1 = (MAGR + 5) * sc, r2 = (MAGR + 13) * sc, tip = pol[i] > 0 ? r1 : r2, tail = pol[i] > 0 ? r2 : r1;
+        var tx = x + ca * tip, ty = y + sa * tip, hb = Math.max(3, 5 * sc), hw = Math.max(2.5, 3.5 * sc);
+        ctx.beginPath(); ctx.moveTo(x + ca * tail, y + sa * tail); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - dir * ca * hb - sa * hw, ty - dir * sa * hb + ca * hw);
+        ctx.lineTo(tx - dir * ca * hb + sa * hw, ty - dir * sa * hb - ca * hw);
+        ctx.closePath(); ctx.fill();
+      }
+      text(ctx, String(i + 1), x, y + 4.5, c.surface, '700 13px');
+    }
+
+    // Marble.
+    ctx.fillStyle = c.ink; ctx.beginPath(); ctx.arc(ball.x * sc, ball.y * sc, MR * sc + 1, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); ctx.arc((ball.x - 2.5) * sc, (ball.y - 2.5) * sc, 2.2 * sc + 0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // HUD.
+    var tableNo = table + 1;
+    text(ctx, 'Table ' + tableNo + '/' + TABLES.length + '   Launches ' + launches, 8, s.height - 9, c.ink, '600 13px', 'left');
+    text(ctx, 'Best ' + (best === null ? '-' : best), s.width - 8, 17, c.ink2, '13px', 'right');
+
+    if (mode !== 'result' && mode !== 'cleared' && mode !== 'done') return;
+    var bw = Math.min(280, s.width - 20), bh = mode === 'result' ? 36 : 60, bx = s.width / 2 - bw / 2, by = s.height / 2 - bh / 2;
+    ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(bx, by, bw, bh); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    if (mode === 'result') {
+      text(ctx, msg + ', try again', s.width / 2, by + 23, c.bad, '600 13px');
+    } else if (mode === 'cleared') {
+      text(ctx, msg + '!', s.width / 2, by + 24, c.good, '600 14px');
+      text(ctx, 'Launch to continue', s.width / 2, by + 44, c.ink2, '12px');
+    } else {
+      text(ctx, 'All tables cleared in ' + launches + ' launches', s.width / 2, by + 24, c.good, '600 14px');
+      text(ctx, 'Launch to play again', s.width / 2, by + 44, c.ink2, '12px');
+    }
+  }
+
+  function magnetAt(p) {
+    var T = TABLES[table], wx = p.x / sc, wy = p.y / sc, bestI = -1, bestD = Math.max(32, 24 / sc);
+    for (var i = 0; i < 5; i++) {
+      var d = Math.hypot(T.magnets[i][0] - wx, T.magnets[i][1] - wy);
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    return bestI;
+  }
+
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="magnet-marble"]');
+  ui.button({ label: 'Launch', onClick: launch });
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  handle = DemoKit.canvas('#magnet-marble', {
+    aspect: WORLD_W / WORLD_H,
+    keys: true,
+    label: 'Magnet Marble prototype. A top-down table with a marble on a launch pad, a goal hole, pits and five numbered magnets that each pull or push. Click a magnet or press 1 to 5 to flip it, and press Space, Enter or the Launch button to roll the marble.',
+    update: update,
+    draw: draw,
+    onDown: function (p) {
+      if (mode === 'cleared' || mode === 'done') { launch(); return; }
+      var i = magnetAt(p);
+      if (i >= 0) flip(i);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'enter') { launch(); return; }
+      var n = parseInt(key, 10);
+      if (n >= 1 && n <= 5) flip(n - 1);
+    }
+  });
+})();
+</script>
+</body>
+</html>

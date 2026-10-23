@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2D signed distance functions: boxes, rounded boxes and lines · Game Dev Daily</title>
+<meta name="description" content="A signed distance function says how far each pixel is from a shape's edge, negative inside. One smoothstep then draws boxes, rounded boxes and lines.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>2D signed distance functions: boxes, rounded boxes and lines</h1>
+  <p class="lede">A signed distance function says how far each pixel is from a shape's edge, negative inside. One smoothstep then draws boxes, rounded boxes and lines.</p>
+</header>
+
+<section data-section="hook">
+  <p>Health bars with rounded ends, dialogue boxes with soft corners, a laser between two points. As sprites, each needs nine-slicing (cutting the image into a 3 by 3 grid so the corners never stretch) or a new texture whenever its size changes.</p>
+  <p>A shader can draw all of them from one number per pixel: how far the pixel is from the shape's edge, with a sign that says which side it is on.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A shape is a distance with a sign</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. In the last lesson the input was the pixel's centred UV <code>p</code>, with y pointing up, and the circle came from <code>d = length(p)</code> compared with a radius <code>r</code>. Move the radius inside the function and something useful happens:</p>
+<pre><code>float sdCircle(vec2 p, float r) { return length(p) - r; }</code></pre>
+  <p>This returns a negative number inside the circle, zero exactly on its edge and a positive number outside. Its size is the distance to the edge. A function like this is a <dfn>signed distance function</dfn>, or <dfn>SDF</dfn>: give it a point, get back how far the point is from the shape's edge, with the sign telling you inside (negative) or outside (positive).</p>
+  <p>Once a shape is an SDF, drawing it is always the same line. The edge is where <code>d</code> crosses zero, so spread a <code>smoothstep</code> across one pixel <code>aa</code> on either side:</p>
+<pre><code>float m = 1.0 - smoothstep(-aa, aa, d);   // 1.0 inside, 0.0 outside</code></pre>
+  <p>The shape lives entirely in the function. Swap the function and the same mask line draws a box or a line instead.</p>
+
+  <h3>The box: fold space into one corner</h3>
+  <p>A box centred on the origin is described by <code>b</code>, its <em>half</em> width and half height. A box is symmetric, so a point at (-0.4, -0.3) is exactly as far from the edge as (0.4, 0.3). <code>abs(p)</code> folds all four quarters onto the top-right one, and the shader only has to solve that one corner.</p>
+  <p>Then <code>q = abs(p) - b</code> measures the folded point from the box's corner. Each part of <code>q</code> is positive when the point is past that edge. That leaves three cases:</p>
+  <ul>
+    <li><strong>Past both edges</strong> (both parts positive): the nearest point is the corner, and the distance is <code>length(q)</code>.</li>
+    <li><strong>Past one edge</strong>: the distance is straight to that edge, the positive part of <code>q</code>. <code>length(max(q, 0.0))</code> covers both outside cases in one call, because the negative part becomes zero.</li>
+    <li><strong>Inside</strong> (both negative): the nearest edge is the one with the larger, less negative part, so the distance is <code>max(q.x, q.y)</code>, a negative number.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" role="img" aria-label="Left: a box with its edges extended as dashed lines, splitting the space around it into corner regions, side regions and the inside. A point in the top-right corner region has an arrow to the box corner, labelled length of q. A point to the right has a horizontal arrow to the right edge, labelled q.x. A point above has a vertical arrow to the top edge, labelled q.y. A point inside has a short arrow down to the nearest edge, labelled max of q.x and q.y. Right: axes with a small box, a point p in the bottom-left quarter and its mirror abs(p) in the top-right quarter, joined by a dashed line through the centre. Below are the four lines of the box formula.">
+      <!-- Left: the regions of a box -->
+      <text class="d-label" x="170" y="22" text-anchor="middle">the regions around a box</text>
+      <path class="d-dash" d="M95 36V286M245 36V286M12 125H328M12 225H328"/>
+      <rect class="d-accent-soft" x="95" y="125" width="150" height="100"/>
+      <!-- corner case -->
+      <path class="d-accent" d="M300 82L245 125"/>
+      <circle class="d-accent-fill" cx="300" cy="82" r="5"/>
+      <text class="d-mono" x="292" y="64" text-anchor="middle">length(q)</text>
+      <!-- side case, right -->
+      <path class="d-accent" d="M300 190H245"/>
+      <circle class="d-accent-fill" cx="300" cy="190" r="5"/>
+      <text class="d-mono" x="290" y="214" text-anchor="middle">q.x</text>
+      <!-- side case, top -->
+      <path class="d-accent" d="M150 82V125"/>
+      <circle class="d-accent-fill" cx="150" cy="82" r="5"/>
+      <text class="d-mono" x="150" y="64" text-anchor="middle">q.y</text>
+      <!-- inside case -->
+      <path class="d-accent" d="M205 203V225"/>
+      <circle class="d-accent-fill" cx="205" cy="203" r="5"/>
+      <text class="d-text" x="160" y="156" text-anchor="middle">inside</text>
+      <text class="d-mono" x="160" y="176" text-anchor="middle">max(q.x, q.y)</text>
+      <text class="d-muted" x="170" y="312" text-anchor="middle">dashed: the edges, extended</text>
+
+      <!-- Right: the fold -->
+      <text class="d-label" x="495" y="22" text-anchor="middle">abs(p) folds space</text>
+      <path class="d-thin" d="M395 110H595M495 40V180"/>
+      <rect class="d-accent-soft" x="455" y="85" width="80" height="50"/>
+      <path class="d-dash" d="M430 150L560 70"/>
+      <circle class="d-fill" cx="430" cy="150" r="5"/>
+      <text class="d-mono" x="420" y="170" text-anchor="end">p</text>
+      <circle class="d-accent-fill" cx="560" cy="70" r="5"/>
+      <text class="d-mono" x="572" y="66">abs(p)</text>
+      <text class="d-mono" x="380" y="222">q   = abs(p) - b</text>
+      <text class="d-mono" x="380" y="244">out = length(max(q, 0.0))</text>
+      <text class="d-mono" x="380" y="266">in  = min(max(q.x, q.y), 0.0)</text>
+      <text class="d-mono" x="380" y="288">d   = out + in</text>
+    </svg>
+    <figcaption>Left: outside a box, the nearest point is either a corner or straight across to one edge; inside, it is the closest edge. Right: abs(p) mirrors every point into the top-right quarter, so one corner's maths covers the whole box. The <code>min(..., 0.0)</code> keeps the inside term at zero for outside points.</figcaption>
+  </figure>
+
+  <h3>Rounded corners: shrink, then subtract</h3>
+  <p>Subtracting <code>r</code> from any SDF moves its zero line outwards by <code>r</code>. Every point on the new edge is exactly <code>r</code> from the old shape, so the sides move out and the corners become quarter circles. To round a box without growing it, shrink it by <code>r</code> first:</p>
+<pre><code>d = sdBox(p, b - r) - r;</code></pre>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 210" role="img" aria-label="A dashed inner box and, around it, a solid rounded rectangle whose edge stays a distance r from the inner box. A short arrow labelled r runs diagonally from the inner box's corner to the rounded corner.">
+      <rect class="d-accent-soft" x="80" y="40" width="200" height="120" rx="30"/>
+      <rect class="d-dash" x="110" y="70" width="140" height="60"/>
+      <path class="d-stroke" d="M250 70L271 49"/>
+      <text class="d-mono" x="290" y="46">r</text>
+      <text class="d-mono" x="180" y="186" text-anchor="middle">dashed: sdBox(p, b - r)</text>
+      <text class="d-mono" x="180" y="204" text-anchor="middle">filled: sdBox(p, b - r) - r</text>
+    </svg>
+    <figcaption>The rounded box is every point within r of a smaller box. It ends up the original size, b, with corners of radius r.</figcaption>
+  </figure>
+
+  <h3>A line: the nearest point on a segment</h3>
+  <p>For a segment from <code>a</code> to <code>b</code>, find how far along the segment the pixel sits, as a fraction <code>h</code>: 0.0 at <code>a</code>, 1.0 at <code>b</code>. That is a dot product divided by the squared length, clamped so the nearest point cannot leave the segment. The distance is the length from that nearest point to the pixel. A segment has no inside, so subtract a thickness and it becomes a capsule, which is a line with round ends.</p>
+<pre><code>float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+return length(pa - ba * h);</code></pre>
+
+  <h3>Outlines come free</h3>
+  <p><code>abs(d)</code> is the unsigned distance to the edge from either side, the same fold that made a ring in the circle lesson. Threshold it at half a width <code>w</code> and every SDF gets an outline that hugs it exactly, rounded corners included.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Write the shape as a function that returns a signed distance. Everything else, the fill, the soft edge, the outline and the rounding, is the same one or two lines for every shape.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Walk the <em>Stage</em> menu from 1 to 5. Stage 2 is the distance with its sign thrown away: black on the edge, lighter both ways. Stage 3 puts the sign back as colour, orange inside and blue outside, with a band every 0.05 units and a white line where <code>d</code> is zero. Watch the bands outside a <em>Box</em>: near the corners they turn into quarter circles, because there the nearest point is the corner.</p>
+  <p>Drag on the picture, or focus it and use the arrow keys, to move the green probe. Its circle has a radius equal to <code>|d|</code> at the probe, and it always just touches the shape. Then pick <em>Rounded box</em> and raise the corner radius: the box keeps its size. Try an outline on each shape.</p>
+
+  <figure class="demo" data-demo="sdf-shapes">
+    <canvas id="sdf-shapes"></canvas>
+    <figcaption>Every stage is one line of the same shader. <em>Corner radius</em> rounds the box and sets the half thickness of the line; the plain box and the circle ignore it. The circle uses the half width as its radius. Stage 2 shows values twice as bright as they are, so 0.5 is white.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the same shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. It also has the box and line distances in plain Lua: a left click or drag moves the probe and prints <code>d</code> there, worked out on the CPU with the same maths. Keys 1 to 4 pick circle, box, rounded box or line, up and down change the corner radius, O toggles a 0.02 outline, B the bands and S cycles the stage.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local size = { 0.35, 0.2 }   <span class="c">-- half width, half height</span>
+local radius = 0.06          <span class="c">-- corner radius, or half thickness of the line</span>
+local outline = 0
+local shape = 2              <span class="c">-- 0 circle, 1 box, 2 rounded box, 3 line</span>
+local stage = 4              <span class="c">-- 0 uv, 1 |d|, 2 signed bands, 3 mask, 4 final</span>
+local bands = 0
+local probe = { 0.5, 0.3 }
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_size;
+uniform float u_radius;
+uniform float u_outline;
+uniform float u_shape;
+uniform float u_stage;
+uniform float u_bands;
+uniform vec2 u_probe;
+uniform float u_show_probe;
+uniform vec4 u_rect;
+
+float sdCircle(vec2 p, float r) {
+    return length(p) - r;
+}
+
+float sdBox(vec2 p, vec2 b) {
+    vec2 q = abs(p) - b;                          // fold into one corner
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a;
+    vec2 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); // 0 at a, 1 at b
+    return length(pa - ba * h);
+}
+
+float scene(vec2 p) {
+    float r = min(u_radius, min(u_size.x, u_size.y));
+    float d = sdCircle(p, u_size.x);
+    if (u_shape &gt; 0.5) d = sdBox(p, u_size);
+    if (u_shape &gt; 1.5) d = sdBox(p, u_size - r) - r;
+    if (u_shape &gt; 2.5) d = sdSegment(p, -u_size, u_size) - u_radius;
+    return d;
+}
+
+vec3 shade(vec2 uv, float aa) {
+    vec2 p = uv;                                  // 1. input: position
+    float d = scene(p);                           // 2-3. signed distance
+    float m = 1.0 - smoothstep(-aa, aa, d);       // 4. mask: 1 inside
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+    float o = 1.0 - smoothstep(0.5 * u_outline - aa, 0.5 * u_outline + aa, abs(d));
+    col = mix(col, vec3(0.95, 0.95, 0.9), o * step(0.001, u_outline));
+    vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+    vec3 signedView = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+    signedView = mix(signedView, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+    if (u_stage &lt; 3.5) col = vec3(m);
+    if (u_stage &lt; 2.5) col = signedView;
+    if (u_stage &lt; 1.5) col = vec3(2.0 * abs(d));
+    if (u_stage &lt; 0.5) col = vec3(p + 0.5, 0.0);
+    float iso = abs(fract(d * 20.0 + 0.5) - 0.5) / 20.0;  // distance to a 0.05 contour
+    col = mix(col, vec3(1.0), 0.5 * u_bands * (1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso)));
+    float pd = abs(scene(u_probe));               // distance at the probe
+    float ring = 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(length(uv - u_probe) - pd));
+    float spot = 1.0 - smoothstep(3.0 * aa, 4.0 * aa, length(uv - u_probe));
+    col = mix(col, vec3(0.2, 0.9, 0.5), max(ring, spot) * u_show_probe);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+<span class="c">-- The same distances on the CPU.</span>
+<span class="k">local function sdBox(px, py, bx, by)
+  local qx = math.abs(px) - bx
+  local qy = math.abs(py) - by
+  local ox, oy = math.max(qx, 0), math.max(qy, 0)
+  return math.sqrt(ox * ox + oy * oy) + math.min(math.max(qx, qy), 0)
+end</span>
+
+local function sdSegment(px, py, ax, ay, bx, by)
+  local pax, pay = px - ax, py - ay
+  local bax, bay = bx - ax, by - ay
+  local h = (pax * bax + pay * bay) / (bax * bax + bay * bay)
+  h = math.min(math.max(h, 0), 1)
+  local dx, dy = pax - bax * h, pay - bay * h
+  return math.sqrt(dx * dx + dy * dy)
+end
+
+local function scene(px, py)
+  local r = math.min(radius, size[1], size[2])
+  if shape == 0 then return math.sqrt(px * px + py * py) - size[1] end
+  if shape == 1 then return sdBox(px, py, size[1], size[2]) end
+  if shape == 2 then return sdBox(px, py, size[1] - r, size[2] - r) - r end
+  return sdSegment(px, py, -size[1], -size[2], size[1], size[2]) - radius
+end
+
+local function toUV(x, y)
+  local u = (x - rect[1] - rect[3] / 2) / rect[4]
+  local v = -(y - rect[2] - rect[4] / 2) / rect[4]
+  return u, v
+end
+
+local function moveProbe(x, y)
+  probe[1], probe[2] = toUV(x, y)
+  print(string.format("d = %.3f", scene(probe[1], probe[2])))
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "1" then shape = 0 end
+  if key == "2" then shape = 1 end
+  if key == "3" then shape = 2 end
+  if key == "4" then shape = 3 end
+  if key == "up" then radius = math.min(0.2, radius + 0.005) end
+  if key == "down" then radius = math.max(0, radius - 0.005) end
+  if key == "o" then outline = 0.02 - outline end
+  if key == "b" then bands = 1 - bands end
+  if key == "s" then stage = (stage + 1) % 5 end
+end
+
+function love.mousepressed(x, y, button)
+  if button == 1 then moveProbe(x, y) end
+end
+
+function love.mousemoved(x, y)
+  if love.mouse.isDown(1) then moveProbe(x, y) end
+end
+
+function love.draw()
+  shader:send("u_size", size)
+  shader:send("u_radius", radius)
+  shader:send("u_outline", outline)
+  shader:send("u_shape", shape)
+  shader:send("u_stage", stage)
+  shader:send("u_bands", bands)
+  shader:send("u_probe", probe)
+  shader:send("u_show_probe", 1)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_size;
+uniform float u_radius;
+uniform float u_outline;
+uniform float u_shape;
+uniform float u_stage;
+uniform float u_bands;
+uniform vec2 u_probe;
+uniform float u_show_probe;
+
+float sdCircle(vec2 p, float r) {
+  return length(p) - r;
+}
+
+<span class="k">float sdBox(vec2 p, vec2 b) {
+  vec2 q = abs(p) - b;                          // fold into one corner
+  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}</span>
+
+float sdSegment(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a;
+  vec2 ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); // 0 at a, 1 at b
+  return length(pa - ba * h);
+}
+
+float scene(vec2 p) {
+  float r = min(u_radius, min(u_size.x, u_size.y));
+  float d = sdCircle(p, u_size.x);
+  if (u_shape &gt; 0.5) d = sdBox(p, u_size);
+<span class="k">  if (u_shape &gt; 1.5) d = sdBox(p, u_size - r) - r;</span>
+  if (u_shape &gt; 2.5) d = sdSegment(p, -u_size, u_size) - u_radius;
+  return d;
+}
+
+vec3 shade(vec2 uv, float aa) {
+  vec2 p = uv;                                  // 1. input: position
+  float d = scene(p);                           // 2-3. signed distance
+<span class="k">  float m = 1.0 - smoothstep(-aa, aa, d);       // 4. mask: 1 inside</span>
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+  float o = 1.0 - smoothstep(0.5 * u_outline - aa, 0.5 * u_outline + aa, abs(d));
+  col = mix(col, vec3(0.95, 0.95, 0.9), o * step(0.001, u_outline));
+  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+  vec3 signedView = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+  signedView = mix(signedView, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+  if (u_stage &lt; 3.5) col = vec3(m);
+  if (u_stage &lt; 2.5) col = signedView;
+  if (u_stage &lt; 1.5) col = vec3(2.0 * abs(d));
+  if (u_stage &lt; 0.5) col = vec3(p + 0.5, 0.0);
+  float iso = abs(fract(d * 20.0 + 0.5) - 0.5) / 20.0;  // distance to a 0.05 contour
+  col = mix(col, vec3(1.0), 0.5 * u_bands * (1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso)));
+  float pd = abs(scene(u_probe));               // distance at the probe
+  float ring = 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(length(uv - u_probe) - pd));
+  float spot = 1.0 - smoothstep(3.0 * aa, 4.0 * aa, length(uv - u_probe));
+  col = mix(col, vec3(0.2, 0.9, 0.5), max(ring, spot) * u_show_probe);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up
+  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. A rounded box with an optional outline.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 half_size = vec2(0.35, 0.2);
+uniform float radius : hint_range(0.0, 0.2) = 0.06;
+uniform float outline : hint_range(0.0, 0.06) = 0.0;
+uniform float aspect = 1.0;    // set to the ColorRect's width / height
+
+<span class="k">float sd_box(vec2 p, vec2 b) {
+    vec2 q = abs(p) - b;
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}</span>
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);
+    uv.y = -uv.y;              // UV (0, 0) is the top-left; make y point up
+    float r = min(radius, min(half_size.x, half_size.y));
+<span class="k">    float d = sd_box(uv, half_size - r) - r;</span>
+    float aa = fwidth(uv.y);   // one pixel, in uv units
+    float m = 1.0 - smoothstep(-aa, aa, d);
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m);
+    float o = 1.0 - smoothstep(0.5 * outline - aa, 0.5 * outline + aa, abs(d));
+    col = mix(col, vec3(0.95, 0.95, 0.9), o * step(0.001, outline));
+    COLOR = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. A rounded box with an optional outline.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/RoundedBoxSDF"
+{
+    Properties
+    {
+        _HalfSize ("Half size (xy)", Vector) = (0.35, 0.2, 0, 0)
+        _Radius ("Corner radius", Range(0, 0.2)) = 0.06
+        _Outline ("Outline width", Range(0, 0.06)) = 0
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float4 _HalfSize;
+            float _Radius, _Outline, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+<span class="k">            float sdBox (float2 p, float2 b)
+            {
+                float2 q = abs(p) - b;
+                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+            }</span>
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y already points up
+                float r = min(_Radius, min(_HalfSize.x, _HalfSize.y));
+<span class="k">                float d = sdBox(uv, _HalfSize.xy - r) - r;</span>
+                float aa = fwidth(uv.y);
+                float m = 1.0 - smoothstep(-aa, aa, d);
+                float3 col = lerp(float3(0.1, 0.12, 0.22), float3(1.0, 0.62, 0.2), m);
+                float o = 1.0 - smoothstep(0.5 * _Outline - aa, 0.5 * _Outline + aa, abs(d));
+                col = lerp(col, float3(0.95, 0.95, 0.9), o * step(0.001, _Outline));
+                return fixed4(col, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions draw only the rounded box, the shape you will use most for UI, and measure one pixel with <code>fwidth</code>, which WebGL 1 lacks without an extension. The other functions copy over line for line. Unity's URP Shader Graph has a <em>Rounded Rectangle</em> node, but it returns a finished mask, not the distance, so it cannot take an outline; put the HLSL function in a <em>Custom Function</em> node instead.</p>
+  <p>Which way is up matters for the line, which runs bottom-left to top-right only when y points up. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> have y up; Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> have y down, so those versions flip y first. In a Unity project set to Linear colour space, the hard-coded colours are treated as linear values and look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Full size instead of half size.</strong> <code>b</code> is measured from the centre. Pass the full width and the box comes out twice as big.</li>
+    <li><strong>Rounding that grows the shape.</strong> <code>sdBox(p, b) - r</code> rounds the corners but also makes the box <code>r</code> bigger on every side. Shrink first with <code>b - r</code>, and clamp <code>r</code> to the smaller half size, or <code>b - r</code> goes negative and the shape breaks.</li>
+    <li><strong>The cheap box that is not a distance.</strong> <code>max(q.x, q.y)</code> alone is correct inside and on the edge, so the filled box looks right. Outside the corners it is too small, so outlines and glows get square outer corners. Use the full formula whenever you use the distance outside the shape.</li>
+    <li><strong>Scaling p without scaling d.</strong> Drawing a shape twice as big with <code>sd(p / 2.0)</code> returns distances in the shrunken space. Multiply the result by 2.0, or the one-pixel edge becomes two pixels wide.</li>
+    <li><strong>A zero-length line.</strong> <code>dot(ba, ba)</code> is zero when both ends meet, and the division is undefined. Check the length first.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>A box is an <code>abs</code>, a subtraction, a few <code>max</code> and <code>min</code> and one square root: around a dozen instructions, cheap even on a phone. A line adds a dot product and a division. The cost is per shape: every pixel evaluates every SDF in the shader, so a hundred shapes cost a hundred times one. The <code>if</code> statements on <code>u_shape</code> are cheap because every pixel takes the same path. The demo works out the probe's distance once per pixel, which is wasteful; a game would do it once on the CPU, as the Lua does, and send it as a uniform.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Rounded panels, buttons and capsule health bars in game UI are often drawn this way, because one material handles any size and corner radius with a sharp edge. The functions in this lesson are the common forms found across Shadertoy.</p>
+  <p>Distance fields also render sharp text: Unity's TextMesh Pro uses signed distance field fonts, and Godot 4 can import fonts as multichannel signed distance fields. There the distance is stored in a texture, but the edge is the same smoothstep around zero.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a capsule health bar:</p>
+  <ol>
+    <li>Add <code>uniform float u_health;</code> and send a Lua variable <code>health</code> that starts at 1 and changes with the left and right keys, clamped to 0 to 1.</li>
+    <li>Draw the frame as a rounded box with half size (0.6, 0.08) and radius 0.08, with an outline.</li>
+    <li>Draw the fill as a second rounded box on top. Move a shape by subtracting its centre from <code>p</code>: give it half width <code>0.6 * u_health</code> and centre x <code>-0.6 + 0.6 * u_health</code>, so its left end stays still.</li>
+  </ol>
+  <p>You are done when the fill shrinks from the right with round ends at every health value and the edges stay sharp when you resize the window.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An SDF returns the distance to a shape's edge: negative inside, zero on the edge, positive outside.</li>
+    <li>One line draws any SDF: <code>1.0 - smoothstep(-aa, aa, d)</code>. The shape lives in the function.</li>
+    <li>The box folds space with <code>abs(p)</code> and solves one corner; the line clamps to the nearest point on the segment.</li>
+    <li>Subtract <code>r</code> to round and grow a shape; threshold <code>abs(d)</code> for an outline.</li>
+    <li>Each SDF is cheap, but every pixel pays for every shape in the shader.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson joins shapes together: <code>min</code>, <code>max</code> and a smooth minimum add, cut and melt distance fields into one another.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Inigo Quilez, <cite>2D distance functions</cite>. A catalogue of exact 2D SDFs, including the box, rounded box and segment used here, with interactive examples.</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Shapes".</li>
+    <li>Chris Green (Valve), <cite>Improved Alpha-Tested Magnification for Vector Textures and Special Effects</cite>, SIGGRAPH 2007. Distance fields stored in textures for text and decals.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, sections 8.3 "Common Functions" and 8.4 "Geometric Functions". Defines abs, clamp, smoothstep, dot and length.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Unity Shader Graph documentation, <cite>Rounded Rectangle Node</cite> and <cite>Custom Function Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_size;",
+    "uniform float u_radius;",
+    "uniform float u_outline;",
+    "uniform float u_shape;",
+    "uniform float u_stage;",
+    "uniform float u_bands;",
+    "uniform vec2 u_probe;",
+    "uniform float u_show_probe;",
+    "",
+    "float sdCircle(vec2 p, float r) {",
+    "  return length(p) - r;",
+    "}",
+    "",
+    "float sdBox(vec2 p, vec2 b) {",
+    "  vec2 q = abs(p) - b;                          // fold into one corner",
+    "  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);",
+    "}",
+    "",
+    "float sdSegment(vec2 p, vec2 a, vec2 b) {",
+    "  vec2 pa = p - a;",
+    "  vec2 ba = b - a;",
+    "  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); // 0 at a, 1 at b",
+    "  return length(pa - ba * h);",
+    "}",
+    "",
+    "float scene(vec2 p) {",
+    "  float r = min(u_radius, min(u_size.x, u_size.y));",
+    "  float d = sdCircle(p, u_size.x);",
+    "  if (u_shape > 0.5) d = sdBox(p, u_size);",
+    "  if (u_shape > 1.5) d = sdBox(p, u_size - r) - r;",
+    "  if (u_shape > 2.5) d = sdSegment(p, -u_size, u_size) - u_radius;",
+    "  return d;",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  vec2 p = uv;                                  // 1. input: position",
+    "  float d = scene(p);                           // 2-3. signed distance",
+    "  float m = 1.0 - smoothstep(-aa, aa, d);       // 4. mask: 1 inside",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final",
+    "  float o = 1.0 - smoothstep(0.5 * u_outline - aa, 0.5 * u_outline + aa, abs(d));",
+    "  col = mix(col, vec3(0.95, 0.95, 0.9), o * step(0.001, u_outline));",
+    "  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));",
+    "  vec3 signedView = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));",
+    "  signedView = mix(signedView, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));",
+    "  if (u_stage < 3.5) col = vec3(m);",
+    "  if (u_stage < 2.5) col = signedView;",
+    "  if (u_stage < 1.5) col = vec3(2.0 * abs(d));",
+    "  if (u_stage < 0.5) col = vec3(p + 0.5, 0.0);",
+    "  float iso = abs(fract(d * 20.0 + 0.5) - 0.5) / 20.0;  // distance to a 0.05 contour",
+    "  col = mix(col, vec3(1.0), 0.5 * u_bands * (1.0 - smoothstep(0.5 * aa, 1.5 * aa, iso)));",
+    "  float pd = abs(scene(u_probe));               // distance at the probe",
+    "  float ring = 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(length(uv - u_probe) - pd));",
+    "  float spot = 1.0 - smoothstep(3.0 * aa, 4.0 * aa, length(uv - u_probe));",
+    "  col = mix(col, vec3(0.2, 0.9, 0.5), max(ring, spot) * u_show_probe);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var handle = null;
+  var probe = [0.5, 0.3];
+  var size = { w: 16, h: 9 };
+  var ui = DemoKit.controls('[data-demo="sdf-shapes"]');
+
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Input uv as red, green' },
+      { value: '1', label: '2. |d|, distance without sign' },
+      { value: '2', label: '3. Signed d as bands' },
+      { value: '3', label: '4. Mask m' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var shape = ui.select({
+    label: 'Shape',
+    options: [
+      { value: '0', label: 'Circle' },
+      { value: '1', label: 'Box' },
+      { value: '2', label: 'Rounded box' },
+      { value: '3', label: 'Line' }
+    ],
+    value: '2',
+    onChange: function (v) { send('u_shape', Number(v)); }
+  });
+  var halfW = ui.slider({ label: 'Half width', min: 0.02, max: 0.6, step: 0.01, value: 0.35,
+    onInput: function () { sendSize(); } });
+  var halfH = ui.slider({ label: 'Half height', min: 0.02, max: 0.45, step: 0.01, value: 0.2,
+    onInput: function () { sendSize(); } });
+  var radius = ui.slider({ label: 'Corner radius / line half thickness', min: 0, max: 0.2, step: 0.005, value: 0.06,
+    onInput: function (v) { send('u_radius', v); } });
+  var outline = ui.slider({ label: 'Outline width', min: 0, max: 0.06, step: 0.005, value: 0,
+    onInput: function (v) { send('u_outline', v); } });
+  ui.toggle({ label: 'Show distance as bands', value: false,
+    onChange: function (v) { send('u_bands', v ? 1 : 0); } });
+  ui.toggle({ label: 'Show probe circle', value: true,
+    onChange: function (v) { send('u_show_probe', v ? 1 : 0); } });
+  var probeOut = ui.readout({ label: 'At probe' });
+
+  // The same distance functions as the shader, for the readout.
+  function sdBox(px, py, bx, by) {
+    var qx = Math.abs(px) - bx;
+    var qy = Math.abs(py) - by;
+    var ox = Math.max(qx, 0);
+    var oy = Math.max(qy, 0);
+    return Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0);
+  }
+  function sdSegment(px, py, ax, ay, bx, by) {
+    var pax = px - ax, pay = py - ay;
+    var bax = bx - ax, bay = by - ay;
+    var len2 = bax * bax + bay * bay;
+    var h = len2 > 0 ? (pax * bax + pay * bay) / len2 : 0;
+    h = Math.min(Math.max(h, 0), 1);
+    var dx = pax - bax * h, dy = pay - bay * h;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function scene(px, py) {
+    var bx = halfW.value, by = halfH.value;
+    var r = Math.min(radius.value, bx, by);
+    var s = shape.value;
+    if (s === '0') return Math.sqrt(px * px + py * py) - bx;
+    if (s === '1') return sdBox(px, py, bx, by);
+    if (s === '2') return sdBox(px, py, bx - r, by - r) - r;
+    return sdSegment(px, py, -bx, -by, bx, by) - radius.value;
+  }
+
+  function updateReadout() {
+    var d = scene(probe[0], probe[1]);
+    var where = Math.abs(d) < 0.002 ? 'on the edge' : (d < 0 ? 'inside' : 'outside');
+    probeOut.set('(' + probe[0].toFixed(2) + ', ' + probe[1].toFixed(2) + '), d = ' + d.toFixed(3) + ', ' + where);
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+  function sendSize() {
+    send('u_size', [halfW.value, halfH.value]);
+  }
+
+  function setProbe(x, y) {
+    var hw = 0.5 * size.w / Math.max(1, size.h);
+    probe = [Math.min(Math.max(x, -hw), hw), Math.min(Math.max(y, -0.5), 0.5)];
+    send('u_probe', probe.slice());
+  }
+
+  // Pointer position in CSS pixels to centred uv, y up. Same formula as the shader.
+  function toUV(p, s) {
+    var h = Math.max(1, s.height);
+    return [(p.x - 0.5 * s.width) / h, (0.5 * s.height - p.y) / h];
+  }
+
+  handle = DemoKit.shader('#sdf-shapes', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader that draws a circle, box, rounded box or line from a signed distance function. Drag or use the arrow keys to move a probe whose circle shows the distance to the shape.',
+    uniforms: {
+      u_size: [0.35, 0.2],
+      u_radius: 0.06,
+      u_outline: 0,
+      u_shape: 2,
+      u_stage: 4,
+      u_bands: 0,
+      u_probe: [0.5, 0.3],
+      u_show_probe: 1
+    },
+    onDown: function (p, s) {
+      var q = toUV(p, s);
+      setProbe(q[0], q[1]);
+    },
+    onMove: function (p, s) {
+      if (!p.down) return;
+      var q = toUV(p, s);
+      setProbe(q[0], q[1]);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.025;
+      if (key === 'arrowleft') setProbe(probe[0] - step, probe[1]);
+      if (key === 'arrowright') setProbe(probe[0] + step, probe[1]);
+      if (key === 'arrowup') setProbe(probe[0], probe[1] + step);
+      if (key === 'arrowdown') setProbe(probe[0], probe[1] - step);
+    },
+    onResize: function (s) {
+      size = { w: s.width, h: s.height };
+      updateReadout();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

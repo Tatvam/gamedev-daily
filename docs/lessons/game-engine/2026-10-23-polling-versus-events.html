@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polling versus event-driven input · Game Dev Daily</title>
+<meta name="description" content="Why asking every frame whether a key is down can miss quick taps, how input events catch every press, and how Godot and Unity offer both.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Polling versus event-driven input</h1>
+  <p class="lede">Why asking every frame whether a key is down can miss quick taps, how input events catch every press, and how Godot and Unity offer both.</p>
+</header>
+
+<section data-section="hook">
+  <p>On a fast machine the jump button always works. During a heavy scene, when the game drops to 15 frames per second, some quick taps do nothing at all. The player is sure they pressed it, and they are right. The game simply never looked at the key while it was down.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two ways to learn about a key</h2>
+  <p>The operating system notices each key change and puts a message about it in a queue for your window. The engine reads that queue, usually once per frame, and offers you two ways to find out what happened.</p>
+
+  <h3>Polling: ask about the state now</h3>
+  <p><dfn>Polling</dfn> means asking "is this key down at this moment?" once per frame. The engine keeps a table of which keys are held, updates it from the queued messages, and answers from the table. In LÖVE that question is <code>love.keyboard.isDown("space")</code>.</p>
+  <p>Polling suits things that last, such as walking or charging a shot, and keeps all input code in your update, in a known order.</p>
+  <p>To get a one-off action such as a jump from polling, you compare this frame's answer with the last one. "Down now, up last frame" is a new press. This is called <dfn>edge detection</dfn>, and it is where polling breaks.</p>
+
+  <h3>The gap between two looks</h3>
+  <p>A poll is a sample: it sees the state at one instant per frame. At 60 frames per second the samples are 16.7 milliseconds apart. At 10 per second they are 100 milliseconds apart. A quick tap can easily be shorter than 100 milliseconds, and a key pressed and released entirely between two samples is up at both of them. As far as polling can tell, it never happened.</p>
+
+  <h3>Events: be told about every change</h3>
+  <p>An <dfn>input event</dfn> is one of those queued messages, handed to your code: "space went down", then later "space came up". Instead of asking, you write a function, a <dfn>callback</dfn>, that the engine calls once for each event. In LÖVE that is <code>love.keypressed(key)</code>.</p>
+  <p>Events are not faster than polling: the engine still hands them over at the next frame. But they are not lost. A tap between two frames arrives as a press and a release, both delivered at the next frame. The price is that your code runs in a callback, outside your update, so it usually just records what happened for the update to act on.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 236" role="img" aria-label="A timeline with four frames. A short tap happens between frame 2 and frame 3, and a long hold starts after frame 3. Polling samples the key at each frame and sees it up at frames 1, 2 and 3, so the tap is missed, and down at frame 4. The events row shows the tap's press and release queued and both handled at frame 3, and the hold's press handled at frame 4.">
+      <g text-anchor="middle">
+        <text class="d-muted" x="140" y="22">frame 1</text>
+        <text class="d-muted" x="270" y="22">frame 2</text>
+        <text class="d-muted" x="400" y="22">frame 3</text>
+        <text class="d-muted" x="530" y="22">frame 4</text>
+      </g>
+      <path class="d-dash" d="M140 30 V200"/>
+      <path class="d-dash" d="M270 30 V200"/>
+      <path class="d-dash" d="M400 30 V200"/>
+      <path class="d-dash" d="M530 30 V200"/>
+
+      <text class="d-text" x="12" y="66">Key</text>
+      <rect class="d-accent-soft" x="300" y="50" width="50" height="24" rx="4"/>
+      <rect class="d-accent-soft" x="440" y="50" width="180" height="24" rx="4"/>
+      <text class="d-label" x="325" y="94" text-anchor="middle">tap</text>
+      <text class="d-label" x="585" y="94" text-anchor="middle">hold</text>
+
+      <text class="d-text" x="12" y="130">Polling</text>
+      <circle class="d-stroke" cx="140" cy="126" r="6"/>
+      <circle class="d-stroke" cx="270" cy="126" r="6"/>
+      <circle class="d-bad" cx="400" cy="126" r="6"/>
+      <circle class="d-accent-fill" cx="530" cy="126" r="7"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="400" y="152">up: tap missed</text>
+        <text class="d-muted" x="530" y="152">down: new press</text>
+      </g>
+
+      <text class="d-text" x="12" y="188">Events</text>
+      <circle class="d-stroke" cx="300" cy="184" r="5"/>
+      <circle class="d-stroke" cx="350" cy="184" r="5"/>
+      <path class="d-thin" d="M305 184 H345 M355 184 H392"/>
+      <rect class="d-accent-fill" x="393" y="177" width="14" height="14" rx="3"/>
+      <circle class="d-stroke" cx="440" cy="184" r="5"/>
+      <path class="d-thin" d="M445 184 H522"/>
+      <rect class="d-accent-fill" x="523" y="177" width="14" height="14" rx="3"/>
+      <text class="d-muted" x="140" y="224">queued press and release, both handled at frame 3</text>
+    </svg>
+    <figcaption>Polling only sees the key at each frame line, so a tap between two lines is invisible. Events are queued when they happen (hollow circles) and handled at the next frame (filled squares), so nothing is lost, but nothing arrives early either.</figcaption>
+  </figure>
+
+  <h3>What the engines do with this</h3>
+  <p><strong>Godot 4.</strong> Polling: <code>Input.is_key_pressed(KEY_SPACE)</code> or <code>Input.is_action_pressed("jump")</code>. Events: override <code>_unhandled_input(event)</code> (or <code>_input</code>) on a node, which is called once per event. The edge check <code>Input.is_action_just_pressed</code> is recorded when the press event arrives, not sampled. The Godot 4.5 documentation says it still returns <code>true</code> for an action that was pressed and released again in the same frame, "so as not to miss input". A project setting, <code>input_devices/compatibility/legacy_just_pressed_behavior</code>, brings back the old behaviour that missed such taps. It is off by default.</p>
+  <p><strong>Unity 6 and 2022 LTS, Input System package.</strong> Polling: <code>Keyboard.current.spaceKey.isPressed</code>, or <code>IsPressed()</code> on an input action. Edge checks: <code>wasPressedThisFrame</code> on a control and <code>WasPressedThisFrame()</code> on an action. Events: subscribe to an action's <code>performed</code> callback, which runs as the Input System processes queued input. The older Input Manager has <code>Input.GetKey</code> for polling and <code>Input.GetKeyDown</code> for edges. I could not confirm whether these "this frame" checks report a press released inside the same frame, so when every tap matters, use the callback.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Poll for things that last, such as movement. Use events, or the engine's event-built "just pressed" check, for things that happen once, such as jumping, shooting or opening a menu.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>This models a game running at the frame rate you pick. Hold the canvas, or focus it and hold Space, to press the key. The lanes show your real presses, what polling sees at each frame, and each press event queued and then handled.</p>
+  <p>Set the frame rate to 10 and tap as quickly as you can, or press <strong>Play test taps</strong> for eight taps from 20 to 250 milliseconds long. Watch the red bars: those are presses polling never saw. Then raise the frame rate to 60 and play the taps again.</p>
+
+  <figure class="demo" data-demo="polling">
+    <canvas id="polling"></canvas>
+    <figcaption>With the test taps, polling at 10 per second misses three of the eight, and at 60 per second it catches them all. The events lane never misses one, but at low frame rates it waits up to a whole frame to handle each. The model leaves out key repeat, the operating system's own delay, and engines that merge or timestamp events.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This LÖVE program counts space presses in both ways, like the demo's counters. It sleeps in every update to fake a game running at 10 frames per second. Tap space quickly and the polling count falls behind the event count.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local FRAME_RATE = 10        <span class="c">-- slow frames make the gaps between polls wide</span>
+local polledPresses = 0
+local eventPresses = 0
+local wasDown = false
+
+<span class="c">-- Event: LÖVE calls this once for every press, before love.update runs.</span>
+function love.keypressed(key, scancode, isrepeat)
+<span class="k">  if key == "space" and not isrepeat then
+    eventPresses = eventPresses + 1
+  end</span>
+end
+
+function love.update(dt)
+  <span class="c">-- Poll: is the key down at this moment?</span>
+<span class="k">  local isDown = love.keyboard.isDown("space")
+  if isDown and not wasDown then          -- edge: down now, up last frame
+    polledPresses = polledPresses + 1
+  end
+  wasDown = isDown</span>
+  love.timer.sleep(1 / FRAME_RATE)        <span class="c">-- pretend the game is busy</span>
+end
+
+function love.draw()
+  love.graphics.print("polling saw " .. polledPresses, 20, 20)
+  love.graphics.print("events saw  " .. eventPresses, 20, 40)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># tap_counter.gd, on any Node in the main scene. Godot 4.</span>
+extends Node
+
+var polled_presses := 0
+var event_presses := 0
+var just_pressed_count := 0
+var was_down := false
+
+func _ready() -&gt; void:
+    Engine.max_fps = 10    <span class="c"># slow frames make the gaps between polls wide</span>
+
+<span class="c"># Event: called once for every input event that nothing else handled.</span>
+func _unhandled_input(event: InputEvent) -&gt; void:
+<span class="k">    if event is InputEventKey and event.pressed and not event.echo \
+            and event.keycode == KEY_SPACE:
+        event_presses += 1</span>
+
+func _process(_delta: float) -&gt; void:
+    <span class="c"># Poll: is the key down at this moment?</span>
+<span class="k">    var is_down := Input.is_key_pressed(KEY_SPACE)
+    if is_down and not was_down:
+        polled_presses += 1
+    was_down = is_down</span>
+    <span class="c"># Built from events by the engine. ui_accept includes Space by default.</span>
+    if Input.is_action_just_pressed("ui_accept"):
+        just_pressed_count += 1
+    if Input.is_action_just_pressed("ui_cancel"):
+        print("polling ", polled_presses, ", events ", event_presses,
+                ", just pressed ", just_pressed_count)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// TapCounter.cs. Unity 6 or 2022 LTS with the Input System package installed.</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class TapCounter : MonoBehaviour
+{
+    int polledPresses, eventPresses;
+    bool wasDown;
+    InputAction jump;
+
+    void Awake()
+    {
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = 10;   <span class="c">// slow frames, wide gaps</span>
+        jump = new InputAction("Jump", InputActionType.Button, "&lt;Keyboard&gt;/space");
+<span class="k">        jump.performed += ctx =&gt; eventPresses++;   <span class="c">// event: once per press</span></span>
+    }
+
+    void OnEnable()  { jump.Enable(); }
+    void OnDisable() { jump.Disable(); }
+
+    void Update()
+    {
+        <span class="c">// Poll: is the key down at this moment?</span>
+<span class="k">        bool isDown = Keyboard.current != null &amp;&amp; Keyboard.current.spaceKey.isPressed;
+        if (isDown &amp;&amp; !wasDown) polledPresses++;
+        wasDown = isDown;</span>
+    }
+
+    void OnGUI()
+    {
+        GUILayout.Label("polling saw " + polledPresses);
+        GUILayout.Label("events saw " + eventPresses);
+    }
+}</code></pre>
+  </div>
+  <p>In Godot, press Escape (<code>ui_cancel</code>) to print the three counts. The third, built by the engine from events, should match the event count, not the polling count.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Building one-off actions from your own polling.</strong> Comparing <code>isDown</code> with last frame works at 60 frames per second and quietly fails during a slowdown. Use an event, or the engine's own just-pressed check.</li>
+    <li><strong>Reading "pressed this frame" in the fixed step in Unity.</strong> <code>FixedUpdate</code> can run zero or several times in one frame, so a one-frame flag can be missed or seen twice. Read it in <code>Update</code>, store it, and let the next fixed step use it. Godot tracks physics ticks separately, and its documentation says <code>is_action_just_pressed</code> works per physics tick inside <code>_physics_process</code>.</li>
+    <li><strong>Doing gameplay inside the callback.</strong> It runs at a different point in the frame from your update. Record the event, such as <code>jumpQueued = true</code>, and act on it in the update.</li>
+    <li><strong>Counting key repeat as presses.</strong> Holding a key makes the operating system send repeated press events. Skip them with <code>isrepeat</code> in LÖVE and <code>event.echo</code> in Godot.</li>
+    <li><strong>Keeping your own held state from events.</strong> If the window loses focus while a key is down, the release may never reach you and the key stays "held". Clear your state when focus is lost (<code>love.focus</code> in LÖVE), or poll for held keys instead.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>LÖVE is built on the SDL library, which offers both styles at the bottom layer: an event queue and a keyboard state array. Godot and Unity both expose both styles. Godot's source shows its just-pressed check being recorded as each event is parsed, and Unity's Input System is also fed by a queue of input events. Browsers offer only events (<code>keydown</code> and <code>keyup</code>), so browser games that poll, like this page's demo, fill their own table of held keys from those events.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own project, cap the frame rate at 10 (<code>Engine.max_fps</code> in Godot, <code>Application.targetFrameRate</code> with <code>QualitySettings.vSyncCount = 0</code> in Unity). Tap jump twenty times as quickly as you can and count the jumps. If any were lost, move the press detection to an event callback or the engine's just-pressed check, store it in a <code>jumpQueued</code> flag, and consume the flag in your update. You are done when twenty quick taps give twenty jumps at 10 frames per second.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Polling asks "is it down now?" once per frame. It cannot see anything that starts and ends between two frames.</li>
+    <li>Events report every change. They are handled at the next frame, so they are not faster, but they are never lost.</li>
+    <li>Poll for held actions such as movement. Use events or the engine's just-pressed check for one-off actions such as jumping.</li>
+    <li>Godot 4.5's <code>is_action_just_pressed</code> is built from events and catches a press and release inside one frame by default.</li>
+      </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we stop naming keys in code and name actions instead, with Godot's InputMap and Unity's Input System, so one script works with keyboards, gamepads and rebinding.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, class reference for <cite>Input</cite> (Godot 4.5), entries for <code>is_action_just_pressed</code>, <code>is_key_pressed</code> and <code>use_accumulated_input</code>. Read from the source file <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Input.xml">doc/classes/Input.xml</a></cite>.</li>
+    <li>Godot Engine documentation, <cite>ProjectSettings</cite>, entry for <code>input_devices/compatibility/legacy_just_pressed_behavior</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/ProjectSettings.xml">doc/classes/ProjectSettings.xml</a></cite>; and <cite>Node</cite>, entries for <code>_input</code> and <code>_unhandled_input</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Node.xml">doc/classes/Node.xml</a></cite>.</li>
+    <li>Godot Engine source, <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/core/input/input.cpp">core/input/input.cpp</a></cite> (4.5-stable), where the press frame is recorded when the event is parsed.</li>
+    <li>Unity Technologies, <cite>Input System</cite> package manual and scripting reference, pages for <code>InputAction</code> and <code>ButtonControl</code>.</li>
+    <li>LÖVE wiki, <cite>love.keypressed</cite> and <cite>love.keyboard.isDown</cite>.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Game Loop", on processing user input as the first step of each frame.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var WINDOW = 4;                                    // seconds of history on screen
+  var TEST_TAPS = [200, 45, 120, 30, 250, 80, 20, 140]; // milliseconds held
+  var TEST_GAP = 0.3;                                // seconds between test taps
+
+  var simTime = 0;        // the model's clock, in seconds
+  var lastWall = -1e9;    // performance.now() at the last update
+  var lastFrame = 0;      // time of the last game frame
+  var frames = [];        // { t, down, edge, events }
+  var presses = [];       // { start, end, seen, delivered, deliveredAt, missed }
+  var schedule = [];      // test taps waiting to start: { start, end }
+  var current = null;     // the press the reader is holding
+  var held = '';          // 'key' or 'pointer'
+  var wasDown = false;
+  var counts = { real: 0, polled: 0, events: 0, missed: 0 };
+
+  function paused() { return window.performance.now() - lastWall > 250; }
+
+  function now() {
+    var extra = (window.performance.now() - lastWall) / 1000;
+    return simTime + Math.min(Math.max(extra, 0), 0.1);
+  }
+
+  function isDown(t) {
+    for (var k = 0; k < presses.length; k++) {
+      var p = presses[k];
+      if (p.start <= t && (p.end === null || t < p.end)) return true;
+    }
+    return false;
+  }
+
+  function addPress(start, end) {
+    var p = { start: start, end: end, seen: false, delivered: false, deliveredAt: 0, missed: false };
+    presses.push(p);
+    counts.real += 1;
+    return p;
+  }
+
+  function beginPress(source) {
+    if (current || paused()) return;
+    var t = now();
+    if (isDown(t)) return;
+    current = addPress(t, null);
+    held = source;
+  }
+
+  function endPress(source) {
+    if (!current || held !== source) return;
+    current.end = Math.max(now(), current.start + 0.001);
+    current = null;
+    held = '';
+  }
+
+  // One frame of the modelled game, at time t.
+  function runFrame(t) {
+    var down = isDown(t);
+    var edge = down && !wasDown;          // polling's idea of a new press
+    if (edge) counts.polled += 1;
+    wasDown = down;
+    var delivered = 0;
+    for (var k = 0; k < presses.length; k++) {
+      var p = presses[k];
+      if (!p.delivered && p.start <= t) { // the queued press event is handled now
+        p.delivered = true;
+        p.deliveredAt = t;
+        delivered += 1;
+        counts.events += 1;
+      }
+      if (p.start <= t && (p.end === null || t < p.end)) p.seen = true;
+      if (!p.seen && !p.missed && p.end !== null && p.end <= t) {
+        p.missed = true;
+        counts.missed += 1;
+      }
+    }
+    frames.push({ t: t, down: down, edge: edge, events: delivered });
+  }
+
+  function prune() {
+    var cutoff = simTime - WINDOW - 0.5;
+    while (frames.length && frames[0].t < cutoff) frames.shift();
+    presses = presses.filter(function (p) {
+      return p === current || p.end === null || p.end >= cutoff || !p.delivered;
+    });
+  }
+
+  function clearAll() {
+    frames = [];
+    presses = [];
+    schedule = [];
+    current = null;
+    held = '';
+    wasDown = false;
+    counts = { real: 0, polled: 0, events: 0, missed: 0 };
+    handle.redraw();
+  }
+
+  function playTestTaps() {
+    if (schedule.length) return;
+    var step = 1 / rate.value;
+    // Start half way into a frame, so the result is the same every time at a given rate.
+    var t = lastFrame + Math.ceil(0.3 * rate.value) * step + 0.5 * step;
+    for (var k = 0; k < TEST_TAPS.length; k++) {
+      var d = TEST_TAPS[k] / 1000;
+      schedule.push({ start: t, end: t + d });
+      t += d + TEST_GAP;
+    }
+  }
+
+  // ---- controls --------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="polling"]');
+  var gap = null;
+  var rate = ui.slider({ label: 'Game frame rate', min: 2, max: 60, step: 1, value: 10, unit: ' per second',
+    onInput: function () { showGap(); } });
+  ui.button({ label: 'Play test taps', onClick: playTestTaps });
+  ui.button({ label: 'Clear', onClick: function () { clearAll(); } });
+  gap = ui.readout({ label: 'Time between polls' });
+  function showGap() { gap.set((1000 / rate.value).toFixed(1) + ' ms'); }
+  showGap();
+
+  // ---- drawing ---------------------------------------------------------------------------
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var SMALL = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BIG = '600 18px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function fit(ctx, text, maxW) {
+    if (maxW <= 0) return '';
+    if (ctx.measureText(text).width <= maxW) return text;
+    var t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  var L1 = { label: 40, top: 46, h: 22 };
+  var L2 = { label: 102, top: 108, h: 22 };
+  var L3 = { label: 152, top: 158, h: 22 };
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var w = s.width;
+    var pad = 12;
+    var x0 = pad, x1 = w - pad, tw = x1 - x0;
+    var tStart = simTime - WINDOW;
+    function X(t) { return x0 + (t - tStart) / WINDOW * tw; }
+
+    // Hint.
+    ctx.font = FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink3;
+    var hint = paused() ? 'Paused. Press Play to run the game.' :
+      (current ? 'Key down…' : 'Hold the pointer here, or focus and press Space.');
+    ctx.fillText(fit(ctx, hint, w - 2 * pad), pad, 16);
+
+    // Lane backgrounds and labels.
+    [[L1, 'Your key'], [L2, 'Polling: is it down at this frame?'], [L3, 'Events: queued, handled at the next frame']]
+      .forEach(function (pair) {
+        var L = pair[0];
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(x0, L.top, tw, L.h);
+        ctx.font = BOLD;
+        ctx.fillStyle = c.ink;
+        ctx.fillText(fit(ctx, pair[1], tw), x0, L.label);
+      });
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, 0, tw, s.height);
+    ctx.clip();
+
+    // Frame lines.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    for (var k = 0; k < frames.length; k++) {
+      var fx = Math.round(X(frames[k].t)) + 0.5;
+      if (fx < x0 - 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(fx, L1.top);
+      ctx.lineTo(fx, L3.top + L3.h);
+      ctx.stroke();
+    }
+
+    // Lane 1: real presses.
+    for (var p = 0; p < presses.length; p++) {
+      var pr = presses[p];
+      var end = pr.end === null ? simTime : Math.min(pr.end, simTime);
+      if (end < tStart || pr.start > simTime) continue;
+      var bx = X(pr.start), bw = Math.max(2, X(end) - bx);
+      roundRect(ctx, bx, L1.top + 2, bw, L1.h - 4, 3);
+      ctx.fillStyle = pr.missed ? c.bad : c.topic;
+      ctx.fill();
+      if (pr.missed) {
+        ctx.font = SMALL;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = c.bad;
+        ctx.fillText('missed', bx + bw / 2, L1.top + L1.h + 14);
+        ctx.textAlign = 'left';
+      }
+
+      // Lane 3: the press event, queued at its start and handled at a frame.
+      if (pr.start <= simTime) {
+        var qx = X(pr.start);
+        var hx = pr.delivered ? X(pr.deliveredAt) : X(simTime);
+        var ey = L3.top + L3.h / 2;
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(qx, ey);
+        ctx.lineTo(hx, ey);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(qx, ey, 4, 0, Math.PI * 2);
+        ctx.fillStyle = c.surface;
+        ctx.fill();
+        ctx.strokeStyle = c.ink2;
+        ctx.stroke();
+        if (pr.delivered) {
+          ctx.fillStyle = c.good;
+          ctx.fillRect(hx - 5, ey - 5, 10, 10);
+        }
+      }
+    }
+
+    // Lane 2: one sample per frame.
+    for (var f = 0; f < frames.length; f++) {
+      var fr = frames[f];
+      var dx = X(fr.t);
+      if (dx < x0 - 10) continue;
+      var dy = L2.top + L2.h / 2;
+      ctx.beginPath();
+      ctx.arc(dx, dy, 3.5, 0, Math.PI * 2);
+      if (fr.down) {
+        ctx.fillStyle = c.topic;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = c.surface;
+        ctx.fill();
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      if (fr.edge) {
+        ctx.beginPath();
+        ctx.arc(dx, dy, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = c.good;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // Counters, kept clear of the Pause button in the bottom-right corner.
+    var area = w - 2 * pad - 84;
+    var cw = Math.max(60, Math.min(120, area / 3));
+    var items = [
+      ['Presses', counts.real, c.ink],
+      ['Polling saw', counts.polled, counts.missed ? c.bad : c.ink],
+      ['Events saw', counts.events, c.good]
+    ];
+    for (var i = 0; i < items.length; i++) {
+      var cx = pad + i * cw;
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(fit(ctx, items[i][0], cw - 6), cx, 206);
+      ctx.font = BIG;
+      ctx.fillStyle = items[i][2];
+      ctx.fillText(String(items[i][1]), cx, 228);
+    }
+  }
+
+  var handle = DemoKit.canvas('#polling', {
+    height: 244,
+    drag: true,
+    keys: true,
+    label: 'A timeline of key presses with three lanes: your real presses, what polling sees at each game frame, and when each press event is handled. Press and hold the canvas or press Space to press the key.',
+    update: function (dt, s) {
+      lastWall = window.performance.now();
+      simTime += dt;
+
+      // Start any test taps that are due.
+      while (schedule.length && schedule[0].start <= simTime) {
+        var tap = schedule.shift();
+        if (!current && !isDown(tap.start)) addPress(tap.start, tap.end);
+      }
+
+      // Run the modelled game's frames that fall inside this real frame.
+      var step = 1 / rate.value;
+      var guard = 0;
+      while (lastFrame + step <= simTime && guard < 200) {
+        lastFrame += step;
+        runFrame(lastFrame);
+        guard += 1;
+      }
+      if (guard >= 200) lastFrame = simTime;
+
+      // If the canvas lost focus while Space was held, let go.
+      if (held === 'key' && !s.keys.has('space') && !s.keys.has('enter')) endPress('key');
+      prune();
+    },
+    draw: draw,
+    onDown: function () { beginPress('pointer'); },
+    onUp: function () { endPress('pointer'); },
+    onKey: function (key, isDownNow) {
+      if (key !== 'space' && key !== 'enter') return;
+      if (isDownNow) beginPress('key');
+      else endPress('key');
+    }
+  });
+})();
+</script>
+</body>
+</html>
