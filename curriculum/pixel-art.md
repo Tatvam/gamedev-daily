@@ -18,7 +18,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 2: Colour and palettes
 
 - [x] **Hue, saturation, and value** — How the three parts of a colour work and why they are easier to reason about than red, green and blue numbers. Demo: three sliders recolour a simple sprite live and show the matching RGB values. (published 2026-10-23, hue-saturation-value)
-- [ ] **Value comes first** — Why a sprite must read clearly in greyscale before colour is added. Demo: toggle a scene between colour and greyscale and drag value sliders until the character separates from the background.
+- [x] **Value comes first** — Why a sprite must read clearly in greyscale before colour is added. Demo: toggle a scene between colour and greyscale and drag value sliders until the character separates from the background. (published 2026-10-24, value-comes-first)
 - [ ] **Building a colour ramp** — How to make an ordered ramp from dark to light that you can reuse for shading. Demo: pick a base colour and a step count to generate a ramp that is applied to a shaded ball.
 - [ ] **Hue shifting** — Why shifting hue towards warm highlights and cool shadows makes ramps look richer than changing brightness alone. Demo: a hue shift slider morphs a straight ramp into a shifted one in an A/B comparison on the same sprite.
 - [ ] **Saturation across a ramp** — Why saturation usually peaks in the mid-tones and falls off in the brightest and darkest steps. Demo: drag points on a saturation curve and watch the ramp and a sample sprite update.

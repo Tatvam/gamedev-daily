@@ -18,7 +18,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 2: Angles and interpolation
 
 - [x] **Radians, degrees, and the unit circle** — How angles are measured and how sine and cosine come from a point on a circle. Demo: drag a point around the unit circle and read the angle in both units with sine and cosine drawn as lines. (published 2026-10-23, radians-unit-circle)
-- [ ] **Sine waves for motion** — How amplitude, frequency and phase turn sine into bobbing, pulsing and swaying. Demo: three sliders shape the wave that drives a floating pickup and a graph.
+- [x] **Sine waves for motion** — How amplitude, frequency and phase turn sine into bobbing, pulsing and swaying. Demo: three sliders shape the wave that drives a floating pickup and a graph. (published 2026-10-24, sine-waves-motion)
 - [ ] **From vector to angle with atan2** — How atan2 turns a direction into an angle in every quadrant. Demo: move the mouse to aim a turret and read the angle, with a toggle that shows how plain atan fails.
 - [ ] **Rotating a vector** — How sine and cosine rotate a point around the origin or around any pivot. Demo: an angle slider rotates a shape around a draggable pivot.
 - [ ] **Polar coordinates** — How describing a point by angle and radius makes circles, spirals and radial patterns simple. Demo: sliders for count, radius growth and twist arrange bullets into rings and spirals.

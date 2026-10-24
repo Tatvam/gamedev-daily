@@ -18,7 +18,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 2: Shapes, motion, and textures
 
 - [x] **2D signed distance functions** — How a function that returns the distance to the edge of a shape draws boxes, rounded boxes and lines with clean edges. Demo: choose a shape and adjust its size and corner radius with a toggle that shows the distance field as bands. (published 2026-10-23, 2d-signed-distance-functions)
-- [ ] **Combining distance fields** — How min, max and smooth minimum join, cut and melt shapes together. Demo: drag two shapes together and pick union, subtraction, intersection or smooth union with a smoothness slider.
+- [x] **Combining distance fields** — How min, max and smooth minimum join, cut and melt shapes together. Demo: drag two shapes together and pick union, subtraction, intersection or smooth union with a smoothness slider. (published 2026-10-24, combining-distance-fields)
 - [ ] **Time and animation** — How a time uniform with sine and fract creates pulsing and looping motion. Demo: sliders for speed and amplitude drive a pulsing shape with a pause toggle.
 - [ ] **Scrolling UVs** — How adding an offset to the UV moves a pattern across a surface for conveyors, clouds and waterfalls. Demo: direction and speed sliders scroll two pattern layers at different rates.
 - [ ] **Rotating and scaling UV space** — How transforming the coordinates instead of the shape rotates and zooms a pattern. Demo: angle, zoom and pivot sliders transform a grid pattern.

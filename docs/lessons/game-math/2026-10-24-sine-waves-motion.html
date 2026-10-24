@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sine waves for motion: how do I make a pickup float? · Game Dev Daily</title>
+<meta name="description" content="How amplitude, frequency and phase turn math.sin and the clock into bobbing pickups, pulsing gems and swaying plants, with one small Lua function.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-24">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-w { color: var(--topic); font-weight: 650; }
+  .v-a { color: var(--warn); font-weight: 650; }
+  .v-f { color: var(--t-game-physics); font-weight: 650; }
+  .v-p { color: var(--t-game-idea); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sine waves for motion: how do I make a pickup float?</h1>
+  <p class="lede">How amplitude, frequency and phase turn math.sin and the clock into bobbing pickups, pulsing gems and swaying plants, with one small Lua function.</p>
+</header>
+
+<section data-section="hook">
+  <p>You want a coin pickup to float gently, so you write <code>coin.y = baseY + math.sin(time)</code>. You run the game and the coin looks frozen. Look very closely and it drifts one pixel up and down, once every six seconds.</p>
+  <p>Nothing is broken. <code>math.sin</code> needs three numbers from you: how far, how fast, and when. This lesson is about those three numbers.</p>
+</section>
+
+<section data-section="concept">
+  <h2>From a circle to a wave</h2>
+  <p>In the last lesson, the <dfn>sine</dfn> of an angle was the y of the point at that angle on the unit circle (the circle of radius 1). Now let the angle grow steadily, write down the sine at every moment, and plot it against the angle. The point going round the circle draws a <dfn>wave</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="On the left, a unit circle with a point at 60 degrees. A dashed line carries the height of that point to the right, where it lands on a sine wave plotted against the angle from 0 to 2 pi. The wave is 0 at 0, 1 at pi over 2, 0 at pi, minus 1 at 3 pi over 2 and 0 again at 2 pi. Y points up in this diagram.">
+      <path class="d-thin" d="M20 125 H200 M110 35 V215"/>
+      <circle class="d-stroke" cx="110" cy="125" r="80" style="fill: none"/>
+      <path class="d-stroke" d="M110 125 L150 55.7"/>
+      <path style="stroke: var(--warn); stroke-width: 4; fill: none" d="M150 125 V55.7"/>
+      <path style="stroke: var(--t-game-idea); stroke-width: 1.5; fill: none" d="M122 125 A12 12 0 0 0 116 114.6"/>
+      <circle cx="110" cy="125" r="3" class="d-fill"/>
+      <circle cx="150" cy="55.7" r="5.5" class="d-fill"/>
+      <text class="d-mono" style="fill: var(--t-game-idea)" x="126" y="121">60°</text>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="157" y="100">sin</text>
+      <path class="d-dash" d="M150 55.7 H300"/>
+
+      <path class="d-thin" d="M240 125 H610"/>
+      <path class="d-dash" d="M330 125 V232 M420 125 V232 M510 125 V232 M600 125 V232"/>
+      <path style="stroke: var(--topic); stroke-width: 3; fill: none" d="M240 125 L250 111.1 L260 97.6 L270 85 L280 73.6 L290 63.7 L300 55.7 L310 49.8 L320 46.2 L330 45 L340 46.2 L350 49.8 L360 55.7 L370 63.7 L380 73.6 L390 85 L400 97.6 L410 111.1 L420 125 L430 138.9 L440 152.4 L450 165 L460 176.4 L470 186.3 L480 194.3 L490 200.2 L500 203.8 L510 205 L520 203.8 L530 200.2 L540 194.3 L550 186.3 L560 176.4 L570 165 L580 152.4 L590 138.9 L600 125"/>
+      <circle cx="300" cy="55.7" r="5.5" class="d-fill"/>
+      <text class="d-mono" x="318" y="72">0.87</text>
+      <text class="d-mono" x="342" y="40">1</text>
+      <text class="d-mono" x="522" y="216">−1</text>
+      <text class="d-label" x="240" y="250" text-anchor="middle">0</text>
+      <text class="d-label" x="330" y="250" text-anchor="middle">π/2</text>
+      <text class="d-label" x="420" y="250" text-anchor="middle">π</text>
+      <text class="d-label" x="510" y="250" text-anchor="middle">3π/2</text>
+      <text class="d-label" x="600" y="250" text-anchor="middle">2π</text>
+      <text class="d-muted" x="630" y="20" text-anchor="end">sin(angle) against angle · y up</text>
+    </svg>
+    <figcaption>The height of the point on the circle, carried sideways, is the height of the wave. One trip round the circle (2π radians) is one full wave.</figcaption>
+  </figure>
+
+  <p>Two facts make this wave perfect for motion:</p>
+  <ul>
+    <li><strong>It stays between −1 and 1.</strong> Whatever it drives never wanders off.</li>
+    <li><strong>It repeats every 2π radians.</strong> It loops forever with no seam, and it slows down smoothly at the top and bottom, like a float on water.</li>
+  </ul>
+
+  <h2>Three numbers shape the wave</h2>
+  <p>Here is the formula. Each part is explained below it.</p>
+<pre><code>offset = A × sin(2π × f × t + φ)</code></pre>
+  <ul>
+    <li><strong>t</strong> is the time in seconds, for example since the level started.</li>
+    <li><span class="v-a">A</span>, the <dfn>amplitude</dfn>, is how far it goes. sin gives −1 to 1, so A × sin gives −A to A.</li>
+    <li><span class="v-f">f</span>, the <dfn>frequency</dfn>, is how many full waves happen per second. Its unit is the <dfn>hertz</dfn> (Hz): 2 Hz means twice a second. The time for one wave is the <dfn>period</dfn>, and period = 1 / f.</li>
+    <li><span class="v-p">φ</span> (the Greek letter phi), the <dfn>phase</dfn>, is an angle in radians added inside. It slides the wave sideways in time without changing its shape.</li>
+  </ul>
+  <p>Why the 2π? One full wave is one trip round the circle, which is 2π radians. To make f trips per second, the angle must grow by 2π × f every second.</p>
+
+  <h3>Worked example</h3>
+  <p>Take <span class="v-a">A = 10</span> pixels, <span class="v-f">f = 0.5</span> Hz and <span class="v-p">φ = 0</span>. The period is 1 / 0.5 = 2 seconds. At t = 0.5 the angle is 2π × 0.5 × 0.5 = π/2, and sin(π/2) = 1, so the offset is 10.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th class="num">t (s)</th><th class="num">angle</th><th class="num">sin</th><th class="num">offset (px)</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+      <tr><td class="num">0.25</td><td class="num">π/4</td><td class="num">0.707</td><td class="num">7.07</td></tr>
+      <tr><td class="num">0.5</td><td class="num">π/2</td><td class="num">1</td><td class="num">10</td></tr>
+      <tr><td class="num">1</td><td class="num">π</td><td class="num">0</td><td class="num">0</td></tr>
+      <tr><td class="num">1.5</td><td class="num">3π/2</td><td class="num">−1</td><td class="num">−10</td></tr>
+      <tr><td class="num">2</td><td class="num">2π</td><td class="num">0</td><td class="num">0</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Look at t = 0.25: halfway through the rise in time, the coin has already covered 71 percent of the distance. It moves fastest through the middle and slows near the top. That easing is why a sine float looks soft and a constant-speed bounce looks mechanical.</p>
+  <p>Now the hook makes sense. <code>math.sin(time)</code> is A = 1 and 2π × f = 1, so f = 1 / 2π ≈ 0.16 Hz: one pixel each way, once every 6.28 seconds.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 272" role="img" aria-label="A green wave, 10 times sin of 2 pi times 0.5 times t, plotted from 0 to 4 seconds. An orange line from the rest line up to a peak is labelled A equals 10. A blue bracket between two troughs is labelled period equals 1 over f equals 2 seconds. A purple dashed wave with phase pi over 2 reaches each peak half a second earlier, shown by a purple arrow between the first two peaks.">
+      <path style="stroke: var(--topic); stroke-width: 3; fill: none" d="M60 14 H84"/>
+      <text class="d-mono" x="92" y="18">10 × sin(2π × 0.5 × t)</text>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2; stroke-dasharray: 6 4; fill: none" d="M340 14 H364"/>
+      <text class="d-mono" x="372" y="18">same, + φ = π/2 (90°)</text>
+
+      <path class="d-dash" d="M60 125 H600"/>
+      <text class="d-muted" x="606" y="129">rest</text>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2; stroke-dasharray: 6 4; fill: none" d="M60 55 L70 56.9 L80 62.4 L90 71.4 L100 83.2 L110 97.3 L120 112.8 L130 129.1 L140 145.1 L150 160 L160 173 L170 183.5 L180 190.8 L190 194.5 L195 195 L200 194.5 L210 190.8 L220 183.5 L230 173 L240 160 L250 145.1 L260 129.1 L270 112.8 L280 97.3 L290 83.2 L300 71.4 L310 62.4 L320 56.9 L330 55 L340 56.9 L350 62.4 L360 71.4 L370 83.2 L380 97.3 L390 112.8 L400 129.1 L410 145.1 L420 160 L430 173 L440 183.5 L450 190.8 L460 194.5 L465 195 L470 194.5 L480 190.8 L490 183.5 L500 173 L510 160 L520 145.1 L530 129.1 L540 112.8 L550 97.3 L560 83.2 L570 71.4 L580 62.4 L590 56.9 L600 55"/>
+      <path style="stroke: var(--topic); stroke-width: 3; fill: none" d="M60 125 L70 108.9 L80 93.6 L90 80 L100 68.9 L110 60.7 L120 56.1 L127.5 55 L135 56.1 L145 60.7 L155 68.9 L165 80 L175 93.6 L185 108.9 L195 125 L205 141.1 L215 156.4 L225 170 L235 181.1 L245 189.3 L255 193.9 L262.5 195 L270 193.9 L280 189.3 L290 181.1 L300 170 L310 156.4 L320 141.1 L330 125 L340 108.9 L350 93.6 L360 80 L370 68.9 L380 60.7 L390 56.1 L397.5 55 L405 56.1 L415 60.7 L425 68.9 L435 80 L445 93.6 L455 108.9 L465 125 L475 141.1 L485 156.4 L495 170 L505 181.1 L515 189.3 L525 193.9 L532.5 195 L540 193.9 L550 189.3 L560 181.1 L570 170 L580 156.4 L590 141.1 L600 125"/>
+
+      <path style="stroke: var(--warn); stroke-width: 3; fill: none" d="M397.5 125 V55"/>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="397.5" y="46" text-anchor="middle">A = 10</text>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2; fill: none" d="M127.5 44 H70"/>
+      <path style="fill: var(--t-game-idea)" d="M72 39.5 L63 44 L72 48.5 Z"/>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="96" y="37" text-anchor="middle">0.5 s earlier</text>
+
+      <path style="stroke: var(--t-game-physics); stroke-width: 2; fill: none" d="M262.5 205 V219 M262.5 212 H532.5 M532.5 205 V219"/>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="397.5" y="234" text-anchor="middle">period = 1 / f = 2 s</text>
+
+      <path class="d-thin" d="M60 244 H600 M60 244 V250 M195 244 V250 M330 244 V250 M465 244 V250 M600 244 V250"/>
+      <text class="d-label" x="60" y="264" text-anchor="middle">0 s</text>
+      <text class="d-label" x="195" y="264" text-anchor="middle">1 s</text>
+      <text class="d-label" x="330" y="264" text-anchor="middle">2 s</text>
+      <text class="d-label" x="465" y="264" text-anchor="middle">3 s</text>
+      <text class="d-label" x="600" y="264" text-anchor="middle">4 s</text>
+    </svg>
+    <figcaption>The worked example over 4 seconds, drawn with up as positive. The purple wave has φ = π/2: it is a quarter of a wave ahead, so it starts at the top instead of in the middle.</figcaption>
+  </figure>
+
+  <h3>Up is minus on a screen</h3>
+  <p>The graphs draw up as positive, like a maths book. On a screen, and in LÖVE, y grows <em>downwards</em>. So to make a positive offset lift the coin, subtract it: <code>y = baseY - offset</code>. The demo uses y pointing down for its scene, and this minus sign, so up on the graph is up on the screen.</p>
+
+  <h2>Not only position</h2>
+  <p>The wave is just a number that swings smoothly. Feed it into anything:</p>
+  <ul>
+    <li><strong>Bob:</strong> <code>y = baseY - offset</code>, with A in pixels.</li>
+    <li><strong>Pulse:</strong> <code>scale = 1 + offset</code>, with A = 0.1 for 10 percent bigger and smaller.</li>
+    <li><strong>Sway:</strong> <code>rotation = offset</code>, with A = <code>math.rad(10)</code> for 10 degrees each way.</li>
+  </ul>
+  <p>For a row of identical pickups, give each one its own phase, such as φ = (i − 1) × π/4 for pickup number i. They stop moving in lockstep, and a ripple runs along the row.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Choose the period first, in seconds, because that is what you feel when you watch. Then set f = 1 / period. Choose A in the units of the thing you are moving.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The three sliders are the three numbers of the formula. You can also drag up and down on the graph to set the amplitude, or press the up and down arrow keys. The green dot on the graph is the offset right now. Its height is how far the gem sits from its rest line.</p>
+  <p>Things to try. Set f to 0: the wave freezes, yet moving the phase still moves the gem. Move the phase and watch the purple arrow slide the green wave away from the dashed φ = 0 wave. Switch on <strong>Five copies</strong> to see phase turn five copies into a ripple; the green copy is the one on the graph. Then change what the wave drives.</p>
+  <figure class="demo wide" data-demo="sine-motion">
+    <canvas id="sine-motion"></canvas>
+    <figcaption>Scene: y points down and is measured in real pixels, so A = 10 moves the gem 10 pixels. Graph: up is positive, time runs from 3 seconds ago to 1 second ahead. Defaults match the worked example.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A small wave object, used three times: five coins that bob with a ripple, a pulse that changes their size, and a plant that sways. The numbers are the demo's defaults: A = 10 (pixels, percent or degrees), f = 0.5 Hz.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- offset = amplitude * sin(2 pi * frequency * t + phase)</span>
+local TWO_PI = 2 * math.pi
+
+local function newWave(amplitude, frequency, phase)
+  return { amplitude = amplitude, frequency = frequency,
+           phase = phase or 0, angle = 0 }
+end
+
+<span class="c">-- The angle grows by 2 pi * frequency every second. While the frequency stays</span>
+<span class="c">-- the same this equals 2 pi * f * t; % keeps the number between 0 and 2 pi.</span>
+local function updateWave(w, dt)
+<span class="k">  w.angle = (w.angle + TWO_PI * w.frequency * dt) % TWO_PI</span>
+end
+
+local function waveValue(w, extraPhase)
+<span class="k">  return w.amplitude * math.sin(w.angle + w.phase + (extraPhase or 0))</span>
+end
+
+local bob   = newWave(10, 0.5)             <span class="c">-- 10 pixels each way, every 2 seconds</span>
+local pulse = newWave(0.10, 0.5)           <span class="c">-- 10 percent bigger and smaller</span>
+local sway  = newWave(math.rad(10), 0.5)   <span class="c">-- 10 degrees each way</span>
+
+local coins = {}
+for i = 1, 5 do
+  coins[i] = { x = 100 + (i - 1) * 60, baseY = 200, radius = 12 }
+end
+
+function love.update(dt)
+  updateWave(bob, dt)
+  updateWave(pulse, dt)
+  updateWave(sway, dt)
+end
+
+function love.draw()
+  for i, c in ipairs(coins) do
+    local ripple = (i - 1) * math.pi / 4      <span class="c">-- each coin 45 degrees further along</span>
+    local y = c.baseY - waveValue(bob, ripple) <span class="c">-- minus: y grows downwards</span>
+    local r = c.radius * (1 + waveValue(pulse, ripple))
+    love.graphics.circle("fill", c.x, y, r)
+  end
+
+  <span class="c">-- A plant, 70 pixels tall, rocking about its root at (500, 300).</span>
+  love.graphics.push()
+  love.graphics.translate(500, 300)
+  love.graphics.rotate(waveValue(sway))      <span class="c">-- radians, positive is clockwise</span>
+  love.graphics.line(0, 0, 0, -70)
+  love.graphics.pop()
+end</code></pre>
+  </div>
+  <p>The code adds to the angle every frame instead of computing 2π × f × t from the total time. The result is the same while f stays fixed, and the wave stays smooth when f changes; see the pitfalls. The demo works the same way.</p>
+  <p>Built-in versions: Godot has <code>sin()</code> and the constant <code>TAU</code>, which equals 2π. Unity has <code>Mathf.Sin</code> and <code>Mathf.PI</code>. Both sine functions take radians.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting the 2π.</strong> <code>math.sin(time * 2)</code> does not mean 2 waves per second. Its period is 2π / 2 ≈ 3.14 seconds. Write <code>2 * math.pi * f</code> and f really is waves per second.</li>
+    <li><strong>Phase in degrees.</strong> <code>math.sin(angle + 90)</code> adds 90 radians, about 14 full turns plus a bit. Use <code>math.pi / 2</code> or <code>math.rad(90)</code>. Phases of −180 and 180 degrees give exactly the same wave.</li>
+    <li><strong>Counting frames instead of seconds.</strong> <code>angle = angle + 0.05</code> every frame runs twice as fast at 120 frames per second as at 60. Always multiply by <code>dt</code>.</li>
+    <li><strong>Changing f with the total-time formula.</strong> With <code>sin(2π × f × t)</code>, a change in f moves the angle by 2π × (change) × t. At t = 100 seconds, going from 0.5 to 0.505 Hz moves it by π: a coin at the top snaps to the bottom. Adding <code>2π × f × dt</code> each frame, as in the code, avoids the jump.</li>
+    <li><strong>Frequency zero is not "off".</strong> With f = 0 the offset is stuck at A × sin(φ), which is only 0 when φ is 0. Set A to 0 to switch the motion off.</li>
+    <li><strong>Scales through zero.</strong> <code>1 + A × sin</code> goes to 0 and turns negative when A reaches 1. Keep a pulse amplitude below 1. For a value from 0 to 1, such as brightness, use <code>(sin(angle) + 1) / 2</code>.</li>
+    <li><strong>Forgetting the minus.</strong> <code>baseY + offset</code> is not wrong, but on a screen with y pointing down the coin starts by moving down.</li>
+    <li><strong>Cost.</strong> One <code>math.sin</code> per object per frame is cheap. A few hundred bobbing pickups are not a performance concern.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Floating collectibles, hovering power-ups and "press a button" prompts that gently grow and shrink are common uses of a sine wave over time. So are idle "breathing" motions on characters and glowing items that brighten and dim.</p>
+  <p>Foliage that sways in the wind is often done in a vertex shader with the same idea. The time goes into sin, and the world position goes into the phase, so neighbouring plants do not move in lockstep. Exact methods differ from engine to engine and game to game.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a heart pickup that bobs 6 pixels each way with a period of 1.5 seconds, so f = 1 / 1.5 ≈ 0.667 Hz. Under it, draw a shadow ellipse that stays on the ground and gets narrower as the heart rises: <code>shadowWidth = 20 - offset</code>.</p>
+  <p>Then place eight hearts in a row with phase (i − 1) × π/4. You are done when a stopwatch shows 10 bobs in 15 seconds, the shadow is smallest when the heart is highest, and a ripple runs along the row of eight.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A sine wave is the height of a point going round a circle. It stays between −1 and 1 and repeats every 2π.</li>
+    <li>offset = A × sin(2π × f × t + φ). A is how far, f is waves per second, φ slides the wave in time.</li>
+    <li>period = 1 / f. Pick the period you want to feel, then work out f.</li>
+    <li>The same wave can drive position, size, rotation or brightness. Give copies different phases so they do not move in lockstep.</li>
+    <li>With y pointing down, subtract the offset to move up. Add 2π × f × dt each frame so frequency changes stay smooth.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we go the other way round: atan2, which takes a direction such as "towards the mouse" and gives back its angle in every quadrant.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapters reviewing trigonometry.</li>
+    <li>Roberto Ierusalimschy, Luiz Henrique de Figueiredo and Waldemar Celes, <cite>Lua 5.1 Reference Manual</cite>, the section on the mathematical functions (<code>math.sin</code>, <code>math.pi</code>, <code>math.rad</code>).</li>
+    <li>LÖVE wiki, <cite>love.graphics.rotate</cite> and <cite>love.graphics.push</cite>.</li>
+    <li>Godot Engine documentation, <cite>@GDScript</cite>, the constant <cite>TAU</cite>.</li>
+    <li>Unity Scripting API, <cite>Mathf.Sin</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var TWO_PI = Math.PI * 2;
+  var DEF = { A: 10, f: 0.5, phase: 0 };
+  var EXTRA = Math.PI / 4;          // each copy is 45 degrees further along
+  var PAST = 3, AHEAD = 1;          // graph window, seconds
+  var MAX_A = 40;
+  var angle = 0;                    // grows by 2 pi * f each second, kept in [0, 2 pi)
+  var t = 0;                        // seconds since reset, for the readout
+  var dragging = false;
+  var handle = null;
+  var L = {};
+
+  function redraw() { if (handle) handle.redraw(); }
+  function unit() {
+    return mode.value === 'bob' ? ' px' : (mode.value === 'pulse' ? ' %' : '°');
+  }
+  function num(n, d) {
+    var p = Math.pow(10, d);
+    n = Math.round(n * p) / p;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n).toFixed(d) : n.toFixed(d);
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  var ui = DemoKit.controls('[data-demo="sine-motion"]');
+  var mode = ui.select({
+    label: 'The wave drives',
+    options: [
+      { value: 'bob', label: 'Bob: y = base y − offset (px)' },
+      { value: 'pulse', label: 'Pulse: size × (1 + offset / 100)' },
+      { value: 'sway', label: 'Sway: rotation = offset (degrees)' }
+    ],
+    value: 'bob',
+    onChange: function () { amp.set(amp.value); redraw(); }
+  });
+  var amp = ui.slider({ label: 'Amplitude A (orange)', min: 0, max: MAX_A, step: 1, value: DEF.A,
+    format: function (v) { return v + unit(); }, onInput: redraw });
+  var freq = ui.slider({ label: 'Frequency f (blue)', min: 0, max: 3, step: 0.05, value: DEF.f,
+    format: function (v) { return v.toFixed(2) + ' Hz'; }, onInput: redraw });
+  var phase = ui.slider({ label: 'Phase φ (purple)', min: -180, max: 180, step: 15, value: DEF.phase,
+    format: function (v) { return num(v, 0) + '° = ' + num(v * Math.PI / 180, 2) + ' rad'; }, onInput: redraw });
+  var copies = ui.toggle({ label: 'Five copies, each 45° further along', value: false, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    angle = 0; t = 0;
+    amp.set(DEF.A); freq.set(DEF.f); phase.set(DEF.phase);
+    redraw();
+  } });
+  var outT = ui.readout({ label: 't, seconds since reset' });
+  var outAngle = ui.readout({ label: 'Angle inside sin (wrapped to 0 to 2π)' });
+  var outSin = ui.readout({ label: 'sin(angle)' });
+  var outOff = ui.readout({ label: 'offset = A × sin (green)' });
+  var outPeriod = ui.readout({ label: 'Period = 1 / f (blue)' });
+
+  function phi() { return phase.value * Math.PI / 180; }
+  // The offset of copy k (0 for the graphed one), tau seconds from now, at the current settings.
+  function offsetAt(tau, k) {
+    return amp.value * Math.sin(angle + phi() + TWO_PI * freq.value * tau + k * EXTRA);
+  }
+  function mod(a, b) { return ((a % b) + b) % b; }
+
+  function layout(s) {
+    L.W = s.width;
+    L.sceneTop = 62; L.sceneBot = 212; L.baseY = 137;
+    L.gMid = 330; L.scale = 70 / MAX_A; L.gTop = 256; L.gBot = 404;
+    L.gLeft = 42; L.gRight = s.width - 14;
+    L.pps = (L.gRight - L.gLeft) / (PAST + AHEAD);
+    L.nowX = L.gLeft + PAST * L.pps;
+  }
+  function gx(tau) { return L.nowX + tau * L.pps; }
+  function gy(v) { return L.gMid - v * L.scale; }
+
+  function setAmpFromY(y) {
+    var a = Math.round(Math.abs(L.gMid - y) / L.scale);
+    amp.set(DemoKit.clamp(a, 0, MAX_A));
+    redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '600 13px ui-monospace, Menlo, Consolas, monospace';
+  var MONO_S = '600 11px ui-monospace, Menlo, Consolas, monospace';
+
+  function drawGem(ctx, x, y, r, fill, stroke) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r * 0.75, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r * 0.75, y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
+  }
+
+  function drawObject(ctx, s, x, off, main) {
+    var c = s.colors;
+    var fill = main ? c.topic : c.ink3;
+    var A = amp.value;
+    var groundY = L.sceneBot - 8;
+    if (mode.value === 'bob') {
+      var y = L.baseY - off;                       // minus: screen y grows downwards
+      var w = Math.max(4, 16 - off * 0.25);
+      ctx.fillStyle = c.ink3;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, w, 4, 0, 0, TWO_PI);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      drawGem(ctx, x, y, 14, fill, c.ink);
+    } else if (mode.value === 'pulse') {
+      var R = 20, k = 1 + off / 100;
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.arc(x, L.baseY, R * (1 + A / 100), 0, TWO_PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, L.baseY, R * (1 - A / 100), 0, TWO_PI); ctx.stroke();
+      ctx.setLineDash([]);
+      drawGem(ctx, x, L.baseY, R * k, fill, c.ink);
+    } else {
+      var rootY = groundY, len = 100;
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      [-A, A].forEach(function (d) {
+        var a = d * Math.PI / 180;
+        line(ctx, x, rootY, x + Math.sin(a) * len, rootY - Math.cos(a) * len);
+      });
+      ctx.setLineDash([]);
+      ctx.save();
+      ctx.translate(x, rootY);
+      ctx.rotate(off * Math.PI / 180);             // positive is clockwise with y down
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      line(ctx, 0, 0, 0, -len + 10);
+      ctx.fillStyle = fill;
+      ctx.beginPath(); ctx.ellipse(-9, -40, 9, 4, -0.5, 0, TWO_PI); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(9, -60, 9, 4, 0.5, 0, TWO_PI); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -len + 6, 8, 0, TWO_PI);
+      ctx.fillStyle = s.colors.surface; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = fill; ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(x - 10, rootY, 20, 3);
+    }
+  }
+
+  function drawPieces(ctx, pieces, x, y) {
+    for (var i = 0; i < pieces.length; i++) {
+      ctx.fillStyle = pieces[i][1];
+      ctx.fillText(pieces[i][0], x, y);
+      x += ctx.measureText(pieces[i][0]).width;
+    }
+  }
+
+  handle = DemoKit.canvas('#sine-motion', {
+    height: 460,
+    drag: true,
+    keys: true,
+    label: 'A scene with a gem, or five gems, moved by a sine wave, above a graph of the wave against time. Drag up and down on the graph to set the amplitude. Up and down arrow keys change the amplitude, left and right arrow keys change the phase.',
+    onResize: function (s) { layout(s); },
+    onDown: function (p) {
+      if (p.y >= L.gTop - 20 && p.y <= L.gBot + 6) { dragging = true; setAmpFromY(p.y); }
+    },
+    onMove: function (p) { if (dragging && p.down) setAmpFromY(p.y); },
+    onUp: function () { dragging = false; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowup') amp.set(Math.min(MAX_A, amp.value + 1));
+      else if (key === 'arrowdown') amp.set(Math.max(0, amp.value - 1));
+      else if (key === 'arrowright') phase.set(Math.min(180, phase.value + 15));
+      else if (key === 'arrowleft') phase.set(Math.max(-180, phase.value - 15));
+      else return;
+      redraw();
+    },
+    update: function (dt) {
+      t += dt;
+      angle = mod(angle + TWO_PI * freq.value * dt, TWO_PI);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      layout(s);
+      var A = amp.value, f = freq.value;
+      var W = s.width;
+      var i, x, y;
+      var off = offsetAt(0, 0);
+      var sinNow = Math.sin(angle + phi());
+
+      // ---- Scene: grid every 10 px, base line, limits. ----
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (y = L.baseY - 70; y <= L.sceneBot; y += 10) line(ctx, 0, y + 0.5, W, y + 0.5);
+      for (x = (W / 2) % 10; x <= W; x += 10) line(ctx, x + 0.5, L.sceneTop, x + 0.5, L.sceneBot);
+      ctx.font = SMALL;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('scene: y ↓, squares 10 px', 8, L.sceneBot + 16);
+
+      if (mode.value === 'bob') {
+        ctx.strokeStyle = c.ink2;
+        ctx.setLineDash([6, 4]);
+        line(ctx, 0, L.baseY + 0.5, W, L.baseY + 0.5);
+        ctx.strokeStyle = c.warn;
+        ctx.setLineDash([3, 4]);
+        if (A > 0) {
+          line(ctx, 0, L.baseY - A + 0.5, W, L.baseY - A + 0.5);
+          line(ctx, 0, L.baseY + A + 0.5, W, L.baseY + A + 0.5);
+        }
+        ctx.setLineDash([]);
+        ctx.fillStyle = c.ink2;
+        ctx.textAlign = 'right';
+        ctx.fillText('base y', W - 8, L.baseY - 4);
+        if (A >= 6) {
+          ctx.fillStyle = c.warn;
+          ctx.fillText('base y − A', W - 8, L.baseY - A - 4);
+        }
+      }
+
+      var n = copies.value ? 5 : 1;
+      for (i = n - 1; i >= 0; i--) {
+        var cx = n === 1 ? W / 2 : W * (i + 0.5) / n;
+        drawObject(ctx, s, cx, offsetAt(0, i), i === 0);
+      }
+
+      // ---- Formula box, top left. ----
+      ctx.font = MONO;
+      var fText = f.toFixed(2);
+      var pText = num(phase.value, 0) + '°';
+      var pieces = [['offset = ', c.ink], [String(A), c.warn], [' × sin(2π × ', c.ink], [fText, blue],
+                    [' × t + ', c.ink], [pText, purple], [')', c.ink]];
+      var full = pieces.map(function (p) { return p[0]; }).join('');
+      if (ctx.measureText(full).width > W - 28) ctx.font = MONO_S;
+      if (ctx.measureText(full).width > W - 28) { pieces.shift(); }
+      ctx.textAlign = 'left';
+      drawPieces(ctx, pieces, 12, 24);
+      var u = unit();
+      var tail = mode.value === 'bob' ? ', so y = base y − ' + num(off, 2)
+        : (mode.value === 'pulse' ? ', so size × ' + num(1 + off / 100, 3) : ', so rotation ' + num(off, 2) + '°');
+      var line2 = '= ' + A + ' × ' + num(sinNow, 3) + ' = ' + num(off, 2) + u;
+      ctx.font = MONO;
+      if (ctx.measureText(line2 + tail).width > W - 28) ctx.font = MONO_S;
+      if (ctx.measureText(line2 + tail).width <= W - 28) line2 += tail;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(line2, 12, 44);
+
+      // ---- Graph. ----
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (var v = -MAX_A; v <= MAX_A; v += 10) line(ctx, L.gLeft, gy(v) + 0.5, L.gRight, gy(v) + 0.5);
+      for (var sec = -PAST; sec <= AHEAD; sec++) line(ctx, gx(sec) + 0.5, gy(MAX_A), gx(sec) + 0.5, gy(-MAX_A));
+      ctx.strokeStyle = c.ink3;
+      line(ctx, L.gLeft, L.gMid + 0.5, L.gRight, L.gMid + 0.5);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('+' + MAX_A, L.gLeft - 4, gy(MAX_A) + 4);
+      ctx.fillText('0', L.gLeft - 4, L.gMid + 4);
+      ctx.fillText('−' + MAX_A, L.gLeft - 4, gy(-MAX_A) + 4);
+      ctx.textAlign = 'right';
+      ctx.fillText('graph: up is +', W - 8, L.sceneBot + 16);
+      ctx.textAlign = 'center';
+      for (sec = -PAST; sec <= AHEAD; sec++) {
+        var lbl = sec === 0 ? 'now' : (sec < 0 ? '−' + (-sec) + ' s' : '+' + sec + ' s');
+        var lx = sec === AHEAD ? gx(sec) - 12 : gx(sec);
+        ctx.fillText(lbl, lx, L.gBot + 14);
+      }
+
+      // Amplitude lines.
+      if (A > 0) {
+        ctx.strokeStyle = c.warn;
+        ctx.setLineDash([3, 4]);
+        line(ctx, L.gLeft, gy(A), L.gRight, gy(A));
+        line(ctx, L.gLeft, gy(-A), L.gRight, gy(-A));
+        ctx.setLineDash([]);
+      }
+
+      function curve(color, width, dash, extraPhase) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        for (var px = L.gLeft; px <= L.gRight; px += 2) {
+          var tau = (px - L.nowX) / L.pps;
+          var val = A * Math.sin(angle + extraPhase + TWO_PI * f * tau);
+          if (px === L.gLeft) ctx.moveTo(px, gy(val)); else ctx.lineTo(px, gy(val));
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (phase.value !== 0) curve(c.ink3, 1.5, [5, 4], 0);   // the same wave with phi = 0
+      curve(c.topic, 3, [], phi());
+
+      // Period bracket (blue) between two peaks of the green wave, and the phase arrow (purple).
+      if (f > 0 && A > 0) {
+        var P = 1 / f;
+        var tp = -PAST + mod((Math.PI / 2 - angle - phi()) / (TWO_PI * f) + PAST, P);
+        var bY = L.gTop - 6;
+        if (tp + P <= AHEAD) {
+          ctx.strokeStyle = blue;
+          ctx.lineWidth = 2;
+          line(ctx, gx(tp), bY - 5, gx(tp), bY + 5);
+          line(ctx, gx(tp + P), bY - 5, gx(tp + P), bY + 5);
+          line(ctx, gx(tp), bY, gx(tp + P), bY);
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+          line(ctx, gx(tp), bY + 5, gx(tp), gy(A));
+          line(ctx, gx(tp + P), bY + 5, gx(tp + P), gy(A));
+          ctx.setLineDash([]);
+          ctx.font = MONO_S;
+          ctx.fillStyle = blue;
+          ctx.textAlign = 'center';
+          var mx = DemoKit.clamp(gx(tp + P / 2), 70, W - 70);
+          ctx.fillText('period ' + num(P, 2) + ' s', mx, bY - 8);
+        }
+        if (phase.value !== 0) {
+          var shift = phi() / (TWO_PI * f);                    // seconds the green wave is ahead
+          var tr = -PAST + mod((Math.PI / 2 - angle) / (TWO_PI * f) + PAST, P);
+          for (; tr <= AHEAD; tr += P) {
+            var tm = tr - shift;
+            if (tm >= -PAST && tm <= AHEAD) {
+              var ay = gy(A);
+              ctx.strokeStyle = purple;
+              ctx.fillStyle = purple;
+              ctx.lineWidth = 2;
+              line(ctx, gx(tr), ay, gx(tm), ay);
+              var dir = gx(tm) < gx(tr) ? -1 : 1;
+              ctx.beginPath();
+              ctx.moveTo(gx(tm), ay);
+              ctx.lineTo(gx(tm) - dir * 7, ay - 4);
+              ctx.lineTo(gx(tm) - dir * 7, ay + 4);
+              ctx.closePath();
+              ctx.fill();
+              ctx.font = MONO_S;
+              ctx.textAlign = 'center';
+              var ly = A > 30 ? ay + 16 : ay - 6;
+              ctx.fillText('φ', (gx(tr) + gx(tm)) / 2, ly);
+              break;
+            }
+          }
+        }
+      }
+
+      // Now line and dot.
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1;
+      line(ctx, L.nowX + 0.5, gy(MAX_A), L.nowX + 0.5, gy(-MAX_A));
+      ctx.fillStyle = c.topic;
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(L.nowX, gy(off), 7, 0, TWO_PI);
+      ctx.fill();
+      ctx.stroke();
+      // Amplitude handle on the left.
+      ctx.fillStyle = c.warn;
+      ctx.beginPath();
+      ctx.arc(L.gLeft + 10, gy(A), 6, 0, TWO_PI);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = MONO_S;
+      ctx.textAlign = 'left';
+      ctx.fillText('A', L.gLeft + 20, gy(A) - 6);
+
+      // ---- Readouts. ----
+      outT.set(num(t, 2) + ' s');
+      outAngle.set(num(mod(angle + phi(), TWO_PI), 3) + ' rad');
+      outSin.set(num(sinNow, 3));
+      outOff.set(num(off, 2) + u);
+      outPeriod.set(f > 0 ? num(1 / f, 2) + ' s' : 'none: f = 0, the wave is frozen');
+    }
+  });
+})();
+</script>
+</body>
+</html>

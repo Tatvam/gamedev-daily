@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input action maps: InputMap in Godot, the Input System in Unity · Game Dev Daily</title>
+<meta name="description" content="Why game code should ask for named actions such as jump instead of keys, and how Godot's InputMap and Unity's Input System bind, rebind and save them.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Input action maps: InputMap in Godot, the Input System in Unity</h1>
+  <p class="lede">Why game code should ask for named actions such as jump instead of keys, and how Godot's InputMap and Unity's Input System bind, rebind and save them.</p>
+</header>
+
+<section data-section="hook">
+  <p>One player has a French keyboard, another plugs in a gamepad, a third wants jump on another key. If your code says "if Space is down, jump", every one of those requests means editing gameplay code. The fix is to stop naming keys in gameplay code at all.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Name what the player wants, not what they pressed</h2>
+  <p>An <dfn>action</dfn> is a name for something the player wants to do: <code>jump</code>, <code>move_left</code>, <code>pause</code>. A <dfn>binding</dfn> connects one physical input, such as the Space key or the bottom face button of a gamepad, to an action. An action can have several bindings. The table of all actions and their bindings is the <dfn>action map</dfn> (Godot calls it the InputMap).</p>
+  <p>Gameplay code only asks about actions, such as "was <code>jump</code> just pressed?", and never learns which key did it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Four columns from left to right. Devices: Space key, gamepad A button, Left arrow key and gamepad d-pad left. Arrows lead into a binding table with two rows, jump bound to Space and Pad A, and move_left bound to Left arrow and Pad left. Arrows lead from the table to two actions, jump and move_left, and from them to the game code, which only names actions. A bracket under the binding table says rebinding edits only this data.">
+      <g text-anchor="middle">
+        <text class="d-muted" x="70" y="22">Devices</text>
+        <text class="d-muted" x="285" y="22">Bindings (data)</text>
+        <text class="d-muted" x="462" y="22">Actions</text>
+        <text class="d-muted" x="580" y="22">Game code</text>
+      </g>
+
+      <rect class="d-box" x="10" y="40" width="120" height="34" rx="6"/>
+      <rect class="d-box" x="10" y="86" width="120" height="34" rx="6"/>
+      <rect class="d-box" x="10" y="140" width="120" height="34" rx="6"/>
+      <rect class="d-box" x="10" y="186" width="120" height="34" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="70" y="62">Space key</text>
+        <text class="d-text" x="70" y="108">Pad A</text>
+        <text class="d-text" x="70" y="162">Left arrow</text>
+        <text class="d-text" x="70" y="208">Pad left</text>
+      </g>
+
+      <rect class="d-accent-soft" x="190" y="40" width="190" height="180" rx="8"/>
+      <path class="d-thin" d="M190 130 H380"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="285" y="70">jump</text>
+        <text class="d-label" x="285" y="96">Space, Pad A</text>
+        <text class="d-text" x="285" y="168">move_left</text>
+        <text class="d-label" x="285" y="194">Left arrow, Pad left</text>
+      </g>
+
+      <path class="d-stroke" d="M130 57 L188 78"/>
+      <path class="d-stroke" d="M130 103 L188 86"/>
+      <path class="d-stroke" d="M130 157 L188 176"/>
+      <path class="d-stroke" d="M130 203 L188 184"/>
+
+      <rect class="d-box" x="420" y="62" width="84" height="34" rx="6"/>
+      <rect class="d-box" x="420" y="160" width="84" height="34" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="462" y="84">jump</text>
+        <text class="d-text" x="462" y="182">move_left</text>
+      </g>
+      <path class="d-accent" d="M380 80 H418"/>
+      <path class="d-accent" d="M380 178 H418"/>
+
+      <rect class="d-box" x="530" y="62" width="100" height="132" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-label d-mono" x="580" y="112">"jump"</text>
+        <text class="d-label d-mono" x="580" y="150">"move_left"</text>
+      </g>
+      <path class="d-stroke" d="M504 79 H528"/>
+      <path class="d-stroke" d="M504 177 H528"/>
+
+      <path class="d-dash" d="M190 236 V244 H380 V236"/>
+      <text class="d-muted" x="285" y="262" text-anchor="middle">rebinding edits only this</text>
+    </svg>
+    <figcaption>Devices feed the binding table, the table drives actions, and game code sees only action names. Adding a gamepad or changing a key changes data in the middle column. The game code column never changes.</figcaption>
+  </figure>
+
+  <h3>Who owns what, and in what order</h3>
+  <p>The engine owns the action map and the state of every action. Your code owns only the names. Each frame, in this order:</p>
+  <ol>
+    <li>The engine reads the queued device events (see the previous lesson on events).</li>
+    <li>It matches each event against the bindings and updates the action it belongs to: held or not, just pressed, and a strength from 0 to 1 for triggers and sticks.</li>
+    <li>Your update or input callback reads the actions.</li>
+  </ol>
+  <p><dfn>Rebinding</dfn> means changing a row of that table while the game runs. Nothing else has to change. A settings screen edits data and saves it for the next launch.</p>
+
+  <h3>Godot 4: InputMap</h3>
+  <p>You define actions in <strong>Project Settings, Input Map</strong>, and they are stored in <code>project.godot</code>. Gameplay code reads them through <code>Input</code>: <code>Input.is_action_pressed("jump")</code>, <code>Input.is_action_just_pressed("jump")</code>, and helpers that combine actions into axes, <code>Input.get_axis("move_left", "move_right")</code> and <code>Input.get_vector(...)</code>. An input event can be tested with <code>event.is_action_pressed("jump")</code>.</p>
+  <p>The <code>InputMap</code> singleton edits the table at run time: <code>add_action</code>, <code>action_add_event</code>, <code>action_erase_event</code>, <code>action_get_events</code> and <code>has_action</code>. A binding is just an <code>InputEvent</code> object, such as an <code>InputEventKey</code> or an <code>InputEventJoypadButton</code>. Godot has one flat list of actions for the whole game. Each action also has its own dead zone, which the next lesson is about.</p>
+
+  <h3>Unity 6 and 2022 LTS: the Input System package</h3>
+  <p>Actions live in an <dfn>Input Action Asset</dfn>, edited in the Actions Editor. Inside it, actions are grouped into <dfn>action maps</dfn>, such as <code>Player</code> and <code>UI</code>, that you enable and disable as a group. Bindings are text paths such as <code>&lt;Keyboard&gt;/space</code> or <code>&lt;Gamepad&gt;/buttonSouth</code>, and a <dfn>composite binding</dfn> such as <code>1DAxis</code> or <code>2DVector</code> turns several buttons into one axis. From Input System 1.8 an asset can be made project-wide and read with <code>InputSystem.actions.FindAction("Jump")</code>.</p>
+  <p>Rebinding does not overwrite the asset. It sets an override on top of the binding, so "reset to default" means removing the override. <code>PerformInteractiveRebinding()</code> waits for the player's next input. <code>SaveBindingOverridesAsJson()</code> and <code>LoadBindingOverridesFromJson()</code> store the overrides. The older Input Manager also has named buttons and axes, such as <code>Input.GetButton("Jump")</code>, but no built-in way to change them while the game runs.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Godot's single list is quick to set up. Unity's maps and overrides take longer to learn but give you context switching and reset to defaults for free. Both are the same table.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the canvas, then move with the arrow keys and jump with Space. On a touch screen, hold the pad buttons under the table. Now press <strong>Rebind jump</strong> and press any key, for example W, or tap Pad B. Jump moves to the new input straight away, and nothing else changed.</p>
+  <p>Then switch on <strong>Game code reads raw keys</strong>. The game now asks about the arrow keys and Space directly. Your rebinding still sits in the table, but the game ignores it, and the pad stops working completely. Binding a key that is already in use takes it away from its old action.</p>
+
+  <figure class="demo" data-demo="action-map">
+    <canvas id="actionmap"></canvas>
+    <figcaption>Rows light up when an action is active, and the binding that caused it is outlined. In action mode, adding the pad cost no gameplay code. The model leaves out analogue values, modifier keys and multiple players. It also reads keys by the character they type, where engines usually bind by physical position.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same system in LÖVE, with the demo's names and numbers. LÖVE has no action map, so the table is a plain Lua table. F1, F2 and F3 start rebinding <code>move_left</code>, <code>move_right</code> and <code>jump</code>, standing in for the demo's buttons. The pad names (<code>dpleft</code>, <code>a</code>) are LÖVE's standard gamepad buttons.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED, JUMP_SPEED, GRAVITY, GROUND = 160, 420, 1200, 300
+
+<span class="c">-- The action map: data, not code. Rebinding edits only this table.</span>
+<span class="k">local bindings = {
+  move_left  = { key = "left",  pad = "dpleft" },
+  move_right = { key = "right", pad = "dpright" },
+  jump       = { key = "space", pad = "a" },
+}</span>
+local REBIND_KEYS = { f1 = "move_left", f2 = "move_right", f3 = "jump" }
+local waitingFor = nil      <span class="c">-- the action being rebound, or nil</span>
+local player = { x = 400, y = GROUND, vy = 0 }
+
+local function actionDown(name)       <span class="c">-- polled, for held actions</span>
+  local b = bindings[name]
+  if b.key and love.keyboard.isDown(b.key) then return true end
+  for _, stick in ipairs(love.joystick.getJoysticks()) do
+    if b.pad and stick:isGamepad() and stick:isGamepadDown(b.pad) then return true end
+  end
+  return false
+end
+
+local function onInput(field, value)  <span class="c">-- every press event comes through here</span>
+  if waitingFor then
+    for _, b in pairs(bindings) do      <span class="c">-- one input, one action</span>
+      if b[field] == value then b[field] = nil end
+    end
+<span class="k">    bindings[waitingFor][field] = value</span>
+    waitingFor = nil
+    return
+  end
+  if bindings.jump[field] == value and player.y &gt;= GROUND then
+    player.vy = -JUMP_SPEED
+  end
+end
+
+function love.keypressed(key, scancode, isrepeat)
+  if isrepeat then return end
+  if REBIND_KEYS[key] and not waitingFor then waitingFor = REBIND_KEYS[key] return end
+  onInput("key", key)
+end
+
+function love.gamepadpressed(joystick, button) onInput("pad", button) end
+
+function love.update(dt)
+  local move = 0
+<span class="k">  if actionDown("move_left") then move = move - 1 end
+  if actionDown("move_right") then move = move + 1 end</span>
+  player.x = player.x + move * SPEED * dt
+  player.vy = player.vy + GRAVITY * dt
+  player.y = math.min(player.y + player.vy * dt, GROUND)
+  if player.y &gt;= GROUND then player.vy = 0 end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", player.x - 12, player.y - 28, 24, 28)
+  love.graphics.print(waitingFor and ("press an input for " .. waitingFor) or "F1-F3: rebind", 20, 20)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># action_player.gd on a Node2D. Godot 4. F3 rebinds jump.</span>
+extends Node2D
+
+const SPEED := 160.0
+const JUMP_SPEED := 420.0
+const GRAVITY := 1200.0
+const GROUND := 300.0
+var vy := 0.0
+var waiting_for := ""
+
+func _ready() -&gt; void:
+    position = Vector2(400, GROUND)
+    <span class="c"># Usually made in Project Settings &gt; Input Map. Made here so the script runs alone.</span>
+    _add_default("move_left", KEY_LEFT, JOY_BUTTON_DPAD_LEFT)
+    _add_default("move_right", KEY_RIGHT, JOY_BUTTON_DPAD_RIGHT)
+    _add_default("jump", KEY_SPACE, JOY_BUTTON_A)
+
+func _add_default(action: StringName, key: Key, button: JoyButton) -&gt; void:
+    if InputMap.has_action(action):
+        return
+    InputMap.add_action(action)
+    var k := InputEventKey.new()
+    k.physical_keycode = key
+    InputMap.action_add_event(action, k)
+    var j := InputEventJoypadButton.new()
+    j.button_index = button
+    InputMap.action_add_event(action, j)
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if waiting_for != "" and event is InputEventKey and event.pressed:
+        <span class="c"># Replace the keyboard binding, keep the pad one.</span>
+        for old in InputMap.action_get_events(waiting_for):
+            if old is InputEventKey:
+                InputMap.action_erase_event(waiting_for, old)
+        var k := InputEventKey.new()
+        k.physical_keycode = event.physical_keycode
+<span class="k">        InputMap.action_add_event(waiting_for, k)</span>
+        waiting_for = ""
+        get_viewport().set_input_as_handled()
+    elif event is InputEventKey and event.pressed and event.keycode == KEY_F3:
+        waiting_for = "jump"
+
+func _process(delta: float) -&gt; void:
+<span class="k">    position.x += Input.get_axis("move_left", "move_right") * SPEED * delta
+    if Input.is_action_just_pressed("jump") and position.y &gt;= GROUND:</span>
+        vy = -JUMP_SPEED
+    vy += GRAVITY * delta
+    position.y = minf(position.y + vy * delta, GROUND)
+    if position.y &gt;= GROUND:
+        vy = 0.0
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_rect(Rect2(-12, -28, 24, 28), Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// ActionPlayer.cs. Unity 6 or 2022 LTS with the Input System package. F3 rebinds jump.</span>
+<span class="c">// Put it on a Cube. Units are metres, so 160 px/s becomes 1.6 m/s.</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class ActionPlayer : MonoBehaviour
+{
+    const float Speed = 1.6f, JumpSpeed = 4.2f, Gravity = 12f;
+    InputAction move, jump;
+    float vy;
+
+    void Awake()
+    {
+        move = new InputAction("Move", InputActionType.Value);
+        move.AddCompositeBinding("1DAxis")
+            .With("Negative", "&lt;Keyboard&gt;/leftArrow")
+            .With("Positive", "&lt;Keyboard&gt;/rightArrow");
+        move.AddCompositeBinding("1DAxis")
+            .With("Negative", "&lt;Gamepad&gt;/dpad/left")
+            .With("Positive", "&lt;Gamepad&gt;/dpad/right");
+        jump = new InputAction("Jump", InputActionType.Button);
+        jump.AddBinding("&lt;Keyboard&gt;/space");      <span class="c">// binding index 0</span>
+        jump.AddBinding("&lt;Gamepad&gt;/buttonSouth"); <span class="c">// binding index 1</span>
+<span class="k">        jump.performed += ctx =&gt; { if (transform.position.y &lt;= 0f) vy = JumpSpeed; };</span>
+    }
+
+    void OnEnable()  { move.Enable(); jump.Enable(); }
+    void OnDisable() { move.Disable(); jump.Disable(); }
+
+    void Update()
+    {
+        if (Keyboard.current != null &amp;&amp; Keyboard.current.f3Key.wasPressedThisFrame) RebindJump();
+        Vector3 p = transform.position;
+<span class="k">        p.x += move.ReadValue&lt;float&gt;() * Speed * Time.deltaTime;</span>
+        vy -= Gravity * Time.deltaTime;
+        p.y = Mathf.Max(p.y + vy * Time.deltaTime, 0f);
+        if (p.y &lt;= 0f) vy = 0f;
+        transform.position = p;
+    }
+
+    void RebindJump()
+    {
+        jump.Disable();   <span class="c">// rebinding an enabled action throws an exception</span>
+<span class="k">        jump.PerformInteractiveRebinding(0)</span>
+            .WithControlsExcluding("&lt;Mouse&gt;")
+            .WithCancelingThrough("&lt;Keyboard&gt;/escape")
+            .OnComplete(op =&gt; { op.Dispose(); jump.Enable(); Save(); })
+            .OnCancel(op =&gt; { op.Dispose(); jump.Enable(); })
+            .Start();
+    }
+
+    void Save() { PlayerPrefs.SetString("jump", jump.SaveBindingOverridesAsJson()); }
+}</code></pre>
+  </div>
+  <p>In every tab, key names appear only in the table or the code that builds it. The movement and jump lines name actions.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Binding by character instead of position.</strong> W, A, S and D are in different places on an AZERTY keyboard. Godot's <code>physical_keycode</code> binds by position on a US layout, and <code>keycode</code> by the printed label. Unity's Input System also names keyboard controls by their US layout position. Bind movement by position and show the local label.</li>
+    <li><strong>The press that rebinds also triggers the action.</strong> If the action stays live while you wait, the key the player presses to bind it fires it too. Unity forces the issue: <code>PerformInteractiveRebinding</code> throws if the action is enabled. In Godot, call <code>set_input_as_handled()</code> so other input callbacks skip that press.</li>
+    <li><strong>Silent conflicts.</strong> Nothing in the code above stops one key from being bound to two actions. Decide on a rule, such as taking it away from the old action like the demo does, or refusing and warning, and apply it in your settings screen.</li>
+    <li><strong>Forgetting to save.</strong> Changes made through Godot's <code>InputMap</code> at run time are not written back to <code>project.godot</code>, so they are gone on the next launch. Save the events yourself, for example as key codes in a <code>ConfigFile</code>. In Unity, save with <code>SaveBindingOverridesAsJson</code> and load before gameplay starts.</li>
+    <li><strong>Hard-coded button prompts.</strong> A tutorial that says "Press Space" is wrong after a rebind. Build prompts from the bindings: <code>GetBindingDisplayString()</code> in Unity, <code>as_text()</code> on the bound event in Godot.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The same idea appears one layer down, in SDL, which LÖVE is built on. Its game controller mapping database turns many different pads into one standard layout, which is why <code>"a"</code> in the Lua code means the bottom face button on almost any controller. Steam Input does it one layer up, outside the game: players remap controllers per game, and its API lets games declare their own actions grouped into action sets.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Search your project for raw key checks: <code>KEY_</code> or <code>is_key_pressed</code> in Godot, <code>Keyboard.current</code> or <code>Input.GetKey</code> in Unity. Replace each one in gameplay code with a named action, and add a gamepad binding for every action. Then add one rebind key, as in the code tabs, that rebinds jump and saves it. You are done when you can rebind jump, quit, relaunch, and still jump with the new key, and no gameplay script names a key.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An action is a name for what the player wants. A binding connects one physical input to it. Gameplay code asks only about actions.</li>
+    <li>Rebinding and new devices then change data in one table, never gameplay code.</li>
+    <li>Godot keeps one flat InputMap edited in Project Settings or with the <code>InputMap</code> singleton. Unity groups actions into maps in an asset and rebinds with overrides on top of it.</li>
+    <li>When you build rebinding, handle the triggering press, conflicts, saving and on-screen prompts yourself.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at the values analogue sticks send to those actions, and how axial and radial dead zones stop characters drifting or snapping to the axes.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite>InputMap</cite>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/InputMap.xml">doc/classes/InputMap.xml</a></cite>; <cite>Input</cite>, entries for <code>get_axis</code> and <code>get_vector</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Input.xml">doc/classes/Input.xml</a></cite>; and <cite>InputEventKey</cite>, entries for <code>keycode</code> and <code>physical_keycode</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/InputEventKey.xml">doc/classes/InputEventKey.xml</a></cite>.</li>
+    <li>Unity Technologies, <cite>Input System</cite> package manual, read from the package repository: <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/configure-bindings-from-code.md">Configure bindings from code</a></cite>, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/interactive-rebinding.md">Interactive rebinding</a></cite>, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/save-load-rebinds.md">Save and load rebinds</a></cite> and <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/about-project-wide-actions.md">About project-wide actions</a></cite>.</li>
+    <li>Unity Technologies, Input System source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/InputSystem/Runtime/Actions/InputActionRebindingExtensions.cs">InputActionRebindingExtensions.cs</a></cite>, where rebinding an enabled action throws.</li>
+    <li>LÖVE wiki, <cite>love.gamepadpressed</cite>, <cite>Joystick:isGamepadDown</cite> and <cite>GamepadButton</cite>.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Command", which opens with configurable input buttons.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var NAMES = ['move_left', 'move_right', 'jump'];
+  var DEFAULTS = {
+    move_left: { key: 'arrowleft', pad: 'left' },
+    move_right: { key: 'arrowright', pad: 'right' },
+    jump: { key: 'space', pad: 'a' }
+  };
+  var RAW = { move_left: 'arrowleft', move_right: 'arrowright', jump: 'space' };
+  var PADS = ['left', 'right', 'a', 'b'];
+  var PAD_LABEL = { left: 'Pad left', right: 'Pad right', a: 'Pad A', b: 'Pad B' };
+  var KEY_LABEL = {
+    arrowleft: 'Left arrow', arrowright: 'Right arrow', arrowup: 'Up arrow', arrowdown: 'Down arrow',
+    space: 'Space', enter: 'Enter', shift: 'Shift', control: 'Ctrl', backspace: 'Backspace'
+  };
+  var SPEED = 160, JUMP_SPEED = 420, GRAVITY = 1200;
+
+  var bindings = copyDefaults();
+  var waitingFor = null;     // action being rebound
+  var padHeld = null;        // pad button held by the pointer
+  var lastWall = -1e9;
+  var player = { x: -1, y: 0, vy: 0, face: 1 };
+  var active = {};           // name -> 'key' | 'pad' | null
+  var cv = document.getElementById('actionmap');
+
+  function copyDefaults() {
+    var b = {};
+    NAMES.forEach(function (n) { b[n] = { key: DEFAULTS[n].key, pad: DEFAULTS[n].pad }; });
+    return b;
+  }
+  function keyLabel(k) {
+    if (!k) return 'none';
+    if (KEY_LABEL[k]) return KEY_LABEL[k];
+    if (k.length === 1) return k.toUpperCase();
+    return k.charAt(0).toUpperCase() + k.slice(1);
+  }
+  function padLabel(p) { return p ? PAD_LABEL[p] : 'none'; }
+  function paused() { return window.performance.now() - lastWall > 250; }
+
+  // ---- controls --------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="action-map"]');
+  var rebindButtons = {};
+  NAMES.forEach(function (n) {
+    rebindButtons[n] = ui.button({ label: 'Rebind ' + n, onClick: function () { startRebind(n); } });
+  });
+  ui.button({ label: 'Reset to defaults', onClick: function () {
+    bindings = copyDefaults();
+    waitingFor = null;
+    say('Bindings reset to the defaults.');
+  } });
+  var rawMode = ui.toggle({ label: 'Game code reads raw keys', value: false, onChange: function (v) {
+    say(v ? 'Game code now names keys directly.' : 'Game code now names actions.');
+  } });
+  var status = ui.readout({ label: 'Status' });
+
+  function refreshButtons() {
+    NAMES.forEach(function (n) {
+      rebindButtons[n].el.textContent = waitingFor === n ? 'Waiting… (click to cancel)' : 'Rebind ' + n;
+    });
+  }
+  function say(text) { status.set(text); refreshButtons(); handle.redraw(); }
+
+  function startRebind(name) {
+    if (waitingFor === name) {
+      waitingFor = null;
+      say('Rebinding cancelled.');
+      return;
+    }
+    waitingFor = name;
+    if (cv.focus) cv.focus({ preventScroll: true });
+    say('Press a key or tap a pad button for ' + name + '.');
+  }
+
+  // Bind value to the waiting action, taking it away from any other action first.
+  function bind(field, value) {
+    var name = waitingFor;
+    var removed = [];
+    NAMES.forEach(function (n) {
+      if (n !== name && bindings[n][field] === value) {
+        bindings[n][field] = null;
+        removed.push(n);
+      }
+    });
+    bindings[name][field] = value;
+    waitingFor = null;
+    var label = field === 'key' ? keyLabel(value) : padLabel(value);
+    say('Bound ' + label + ' to ' + name + '.' + (removed.length ? ' Removed it from ' + removed.join(' and ') + '.' : ''));
+  }
+
+  // A press event: rebind, or jump if this input is bound to jump.
+  function onPress(field, value) {
+    if (waitingFor) { bind(field, value); return; }
+    var isJump = rawMode.value ? (field === 'key' && value === RAW.jump) : bindings.jump[field] === value;
+    if (isJump && player.y <= 0) player.vy = JUMP_SPEED;
+  }
+
+  // ---- layout ----------------------------------------------------------------------------
+  var GROUND_Y = 146, TABLE_TOP = 166, ROW_H = 28, PAD_TOP = 290, PAD_H = 40, HEIGHT = 354;
+
+  function padRects(s) {
+    var pad = 12, gap = 6;
+    var bw = Math.max(40, Math.min(64, (s.width - 2 * pad - 90 - 3 * gap) / 4));
+    return PADS.map(function (p, i) {
+      return { id: p, x: pad + i * (bw + gap), y: PAD_TOP, w: bw, h: PAD_H };
+    });
+  }
+  function hitPad(pt, s) {
+    var rects = padRects(s);
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return r.id;
+    }
+    return null;
+  }
+
+  // ---- drawing ---------------------------------------------------------------------------
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  function fit(ctx, text, maxW) {
+    if (maxW <= 0) return '';
+    if (ctx.measureText(text).width <= maxW) return text;
+    var t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var w = s.width, pad = 12;
+    ctx.textBaseline = 'alphabetic';
+
+    // Code line.
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = rawMode.value ? c.bad : c.good;
+    var code = rawMode.value ? 'game code: isDown("left"), isDown("right"), pressed("space")'
+                             : 'game code: actionDown("move_left"), ("move_right"), pressed("jump")';
+    ctx.fillText(fit(ctx, code, w - 2 * pad), pad, 16);
+
+    // Hint.
+    ctx.font = FONT;
+    ctx.fillStyle = waitingFor ? c.warn : c.ink3;
+    var hint = waitingFor ? 'Press a key or tap a pad button for ' + waitingFor :
+      paused() ? 'Paused. Press Play to run the game.' :
+      (document.activeElement === cv ? 'Arrows and Space, or hold the pad buttons' : 'Click here, then use your keys');
+    ctx.fillText(fit(ctx, hint, w - 2 * pad), pad, 34);
+
+    // Ground and player.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pad, GROUND_Y + 1);
+    ctx.lineTo(w - pad, GROUND_Y + 1);
+    ctx.stroke();
+    var px = player.x < 0 ? w / 2 : player.x;
+    var top = GROUND_Y - player.y - 28;
+    roundRect(ctx, px - 12, top, 24, 28, 4);
+    ctx.fillStyle = c.topic;
+    ctx.fill();
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(px + player.face * 4 - 2, top + 8, 4, 5);
+    ctx.fillRect(px + player.face * 9 - 2, top + 8, 4, 5);
+
+    // Binding table.
+    var tw = w - 2 * pad;
+    var colW = [tw * 0.36, tw * 0.34, tw * 0.30];
+    var colX = [pad, pad + colW[0], pad + colW[0] + colW[1]];
+    ctx.font = BOLD;
+    ctx.fillStyle = c.ink3;
+    ['Action', 'Keyboard', 'Pad'].forEach(function (h, i) {
+      ctx.fillText(fit(ctx, h, colW[i] - 8), colX[i] + 6, TABLE_TOP + 12);
+    });
+    ctx.save();
+    if (rawMode.value) ctx.globalAlpha = 0.4;
+    NAMES.forEach(function (n, i) {
+      var y = TABLE_TOP + 20 + i * ROW_H;
+      var on = active[n];
+      roundRect(ctx, pad, y, tw, ROW_H - 4, 4);
+      ctx.fillStyle = c.surface2;
+      ctx.fill();
+      if (on) {
+        ctx.save();
+        ctx.globalAlpha = rawMode.value ? 0.15 : 0.2;
+        ctx.fillStyle = c.topic;
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.font = BOLD;
+      ctx.fillStyle = on ? c.topic : c.ink;
+      ctx.fillText(fit(ctx, n, colW[0] - 10), colX[0] + 6, y + 16);
+      var cells = [
+        { field: 'key', text: keyLabel(bindings[n].key), empty: !bindings[n].key },
+        { field: 'pad', text: padLabel(bindings[n].pad), empty: !bindings[n].pad }
+      ];
+      cells.forEach(function (cell, k) {
+        var cx = colX[k + 1] + 2, cw = colW[k + 1] - 6;
+        if (waitingFor === n) {
+          ctx.save();
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = c.warn;
+          ctx.lineWidth = 1.5;
+          roundRect(ctx, cx, y + 2, cw, ROW_H - 8, 3);
+          ctx.stroke();
+          ctx.restore();
+        } else if (on === cell.field) {
+          ctx.strokeStyle = c.topic;
+          ctx.lineWidth = 2;
+          roundRect(ctx, cx, y + 2, cw, ROW_H - 8, 3);
+          ctx.stroke();
+        }
+        ctx.font = FONT;
+        ctx.fillStyle = waitingFor === n ? c.warn : (cell.empty ? c.ink3 : c.ink);
+        ctx.fillText(fit(ctx, waitingFor === n ? 'waiting…' : cell.text, cw - 10), cx + 5, y + 16);
+      });
+    });
+    ctx.restore();
+    if (rawMode.value) {
+      ctx.font = BOLD;
+      ctx.fillStyle = c.bad;
+      ctx.textAlign = 'center';
+      ctx.fillText(fit(ctx, 'Ignored: the game code names keys itself', tw), w / 2, TABLE_TOP + 20 + 3 * ROW_H + 10);
+      ctx.textAlign = 'left';
+    }
+
+    // Pad buttons.
+    padRects(s).forEach(function (r) {
+      var held = padHeld === r.id;
+      roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+      ctx.fillStyle = held ? c.topic : c.surface2;
+      ctx.fill();
+      ctx.strokeStyle = waitingFor ? c.warn : c.line;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = held ? c.surface : c.ink;
+      var mx = r.x + r.w / 2, my = r.y + r.h / 2;
+      if (r.id === 'left' || r.id === 'right') {
+        var d = r.id === 'left' ? -1 : 1;
+        ctx.beginPath();
+        ctx.moveTo(mx + d * 8, my);
+        ctx.lineTo(mx - d * 6, my - 9);
+        ctx.lineTo(mx - d * 6, my + 9);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.font = '600 16px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.id.toUpperCase(), mx, my + 6);
+        ctx.textAlign = 'left';
+      }
+    });
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    var rects = padRects(s);
+    ctx.fillText(fit(ctx, 'Touch gamepad', 120), rects[0].x, PAD_TOP + PAD_H + 14);
+  }
+
+  // ---- simulation ------------------------------------------------------------------------
+  function update(dt, s) {
+    lastWall = window.performance.now();
+    var keys = s.keys;
+    NAMES.forEach(function (n) {
+      if (rawMode.value) {
+        active[n] = keys.has(RAW[n]) ? 'key' : null;
+      } else {
+        var b = bindings[n];
+        if (b.key && keys.has(b.key)) active[n] = 'key';
+        else if (b.pad && padHeld === b.pad) active[n] = 'pad';
+        else active[n] = null;
+      }
+    });
+    if (waitingFor) { NAMES.forEach(function (n) { active[n] = null; }); }
+
+    if (player.x < 0) player.x = s.width / 2;
+    var move = 0;
+    if (active.move_left) move -= 1;
+    if (active.move_right) move += 1;
+    if (move !== 0) player.face = move;
+    player.x = DemoKit.clamp(player.x + move * SPEED * dt, 24, s.width - 24);
+    player.vy -= GRAVITY * dt;
+    player.y = Math.max(player.y + player.vy * dt, 0);
+    if (player.y <= 0) player.vy = 0;
+  }
+
+  var handle = DemoKit.canvas('#actionmap', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A small platformer with a binding table for the actions move_left, move_right and jump, and a touch gamepad. Use the arrow keys and Space, or the pad buttons, and use the Rebind buttons below to change which input drives each action.',
+    update: update,
+    draw: draw,
+    onResize: function (s) { if (player.x >= 0) player.x = DemoKit.clamp(player.x, 24, s.width - 24); },
+    onDown: function (p, s) {
+      var id = hitPad(p, s);
+      if (!id) return;
+      if (waitingFor) { bind('pad', id); return; }
+      padHeld = id;
+      if (!rawMode.value) onPress('pad', id);
+    },
+    onUp: function () { padHeld = null; },
+    onKey: function (key, isDown) {
+      if (isDown) onPress('key', key);
+    }
+  });
+  refreshButtons();
+  status.set('Defaults: arrows and Space, pad left, right and A.');
+})();
+</script>
+</body>
+</html>

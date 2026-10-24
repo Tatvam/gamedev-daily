@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle against box · Game Dev Daily</title>
+<meta name="description" content="How clamping a circle's centre to a box gives the closest point, the overlap test, the depth and the normal, even when the centre is inside the box.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-24">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Circle against box</h1>
+  <p class="lede">How clamping a circle's centre to a box gives the closest point, the overlap test, the depth and the normal, even when the centre is inside the box.</p>
+</header>
+
+<section data-section="hook">
+  <p>A round player walks past a crate's corner and stops dead, with a clear gap between them. Or a fast ball ends up inside a wall and, a frame later, disappears. Both are bugs in one small test: a circle against a box.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Find the point of the box closest to the circle</h2>
+  <p>The box is an <dfn>AABB</dfn>, an axis-aligned bounding box: a rectangle that never rotates. As in the AABB lesson it is stored as its top-left corner <code>x, y</code> and its size <code>w, h</code>, with y growing downwards. The circle is a centre <code>x, y</code> and a radius <code>r</code>.</p>
+  <p>The circle touches the box when some point of the box is closer to the centre than <code>r</code>. Only one point needs checking: the point of the box <em>closest</em> to the centre. If that one is too far away, every other point is further still.</p>
+
+  <h3>Clamping finds the closest point</h3>
+  <p>To <dfn>clamp</dfn> a number is to force it into a range: values below the range become its minimum, values above become its maximum, and values inside stay as they are.</p>
+<pre><code>qx = clamp(c.x, b.x, b.x + b.w)
+qy = clamp(c.y, b.y, b.y + b.h)</code></pre>
+  <p>In words: left of the box, use the left edge; right of it, use the right edge; in between, keep the centre's own x. Then the same for y. The result is the closest point, Q. The axes can be handled separately only because the box's edges line up with them.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="A box from x 180 to 380 and y 80 to 200, and a circle of radius 60 centred at 420, 230, below and right of the box. Clamping the centre gives the box's bottom-right corner, 380, 200, as the closest point. It is 40 across and 30 up from the centre, a distance of 50, which is less than the radius, so they overlap by 10.">
+      <rect class="d-box" x="60" y="40" width="200" height="120" rx="2"/>
+      <text class="d-muted" x="160" y="104" text-anchor="middle">box</text>
+      <circle class="d-accent-soft" cx="300" cy="190" r="60" opacity="0.85"/>
+      <!-- the two clamp legs -->
+      <path class="d-dash" d="M300 190 H260 V160"/>
+      <text class="d-text" x="280" y="210" text-anchor="middle">dx</text>
+      <text class="d-text" x="252" y="182" text-anchor="end">dy</text>
+      <!-- distance -->
+      <path class="d-stroke" d="M260 160 L300 190"/>
+      <!-- radius -->
+      <path class="d-thin" d="M300 190 V250"/>
+      <text class="d-text" x="306" y="238">r</text>
+      <circle class="d-accent-fill" cx="260" cy="160" r="4"/>
+      <circle class="d-accent-fill" cx="300" cy="190" r="4"/>
+      <text class="d-label" x="248" y="150" text-anchor="end">Q, closest point</text>
+      <text class="d-label" x="312" y="186">C</text>
+      <g class="d-mono">
+        <text x="380" y="40">box x 180..380, y 80..200</text>
+        <text x="380" y="62">centre (420, 230), r = 60</text>
+        <text x="380" y="92">qx = clamp(420, 180, 380)</text>
+        <text x="476" y="112">= 380</text>
+        <text x="380" y="134">qy = clamp(230, 80, 200)</text>
+        <text x="476" y="154">= 200</text>
+        <text x="380" y="184">dx = 40, dy = 30</text>
+        <text x="380" y="206">d² = 1600 + 900 = 2500</text>
+        <text x="380" y="228">r² = 3600, so they overlap</text>
+        <text x="380" y="258">depth = 60 − 50 = 10</text>
+      </g>
+    </svg>
+    <figcaption>The centre is right of and below the box, so both coordinates are clamped and Q lands on the corner.</figcaption>
+  </figure>
+
+  <h3>The overlap test</h3>
+  <p>With <code>dx = c.x - qx</code> and <code>dy = c.y - qy</code>, compare squared lengths as last lesson:</p>
+<pre><code>dx * dx + dy * dy &lt; c.r * c.r</code></pre>
+  <p>In words: the closest point of the box is nearer to the centre than the radius.</p>
+
+  <h3>One check by hand</h3>
+  <p>The box <code>x = 180, y = 80, w = 200, h = 120</code> spans 180 to 380 across and 80 to 200 down. The circle, as at the start of the demo, is at <code>(420, 230)</code> with <code>r = 60</code>. 420 is past the right edge, so <code>qx = 380</code>; 230 is below the bottom, so <code>qy = 200</code>. Then <code>dx = 40</code>, <code>dy = 30</code>, and 1600 + 900 = 2500 &lt; 3600, so they overlap.</p>
+
+  <h3>Depth and normal</h3>
+  <p>The <dfn>penetration depth</dfn> is how far the circle has sunk in: <code>depth = c.r - distance</code>, here 60 − 50 = 10 pixels. The <dfn>contact normal</dfn> is the direction, of length 1, that pushes the circle out of the box: <code>(dx / distance, dy / distance)</code>, here (0.8, 0.6). Moving the circle 10 pixels along it leaves the two exactly touching.</p>
+  <p>Beside a face, only one coordinate is clamped, so the normal points straight out of that face. Near a corner both are clamped, and the normal turns smoothly as the circle moves around it.</p>
+
+  <div class="callout">
+    <p class="callout-title">Good game answer</p>
+    <p>That smooth turn is why a circle is a forgiving shape for a character. A box player that clips a crate's corner by one pixel stops dead; a circle player gets a slanted normal and slides around it. Neither shape is physically "right" for a person, but the circle feels better against boxy levels.</p>
+  </div>
+
+  <h2>The two bugs</h2>
+  <p><strong>Testing the circle's bounding square.</strong> Reusing the box test on a square around the circle asks whether the centre is inside the box grown by <code>r</code> on every side. The correct region has <em>rounded</em> corners. In the four corner pieces between them, the square test reports hits across a visible gap: the snag in the hook.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 260" role="img" aria-label="A box surrounded by a rounded rectangle, the region where a circle's centre counts as a hit. Around that is a sharp-cornered rectangle used by the square test. The four corner pieces between them are shaded red. A circle centred in one red corner does not touch the box, but its square does.">
+      <rect class="d-bad-fill" x="80" y="60" width="200" height="150" opacity="0.35"/>
+      <rect class="d-accent-soft" x="80" y="60" width="200" height="150" rx="40"/>
+      <rect class="d-box" x="120" y="100" width="120" height="70"/>
+      <text class="d-muted" x="180" y="139" text-anchor="middle">box</text>
+      <circle class="d-dash" cx="270" cy="200" r="40"/>
+      <rect class="d-dash" x="230" y="160" width="80" height="80"/>
+      <circle class="d-bad-fill" cx="270" cy="200" r="3"/>
+      <text class="d-text" x="10" y="24">Blue: centre gives a real hit</text>
+      <text class="d-text" x="10" y="44">Red corners: square test lies</text>
+    </svg>
+    <figcaption>Radius 40. The dashed circle is about 2 pixels clear of the box, but its square overlaps it.</figcaption>
+  </figure>
+
+  <p><strong>The centre inside the box.</strong> Then clamping changes nothing, Q is the centre and the distance is 0. The overlap test still says yes, correctly, but the normal is 0 / 0, which is "not a number" (NaN). Push the circle by NaN and its position becomes NaN, and it vanishes. Fast objects that sink deep into a wall in one step, and objects spawned inside boxes, both hit this.</p>
+  <p>The fix: when the distance is 0, measure the distance from the centre to each face and leave through the nearest. The normal points straight out of that face, and <code>depth = c.r + distance to that face</code>, because the whole radius must clear it too.</p>
+  <p>Check: centre <code>(350, 140)</code>, <code>r = 40</code>, same box. The faces are 170 away on the left, 30 right, 60 up and 60 down. Right wins, so the normal is (1, 0) and the depth 40 + 30 = 70. Pushed 70 right, the centre is at x = 420 and the circle's left edge at 380, exactly on the right face.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the circle or the box. The dark dot is Q. On overlap, the red bar is the depth and the arrow the normal; otherwise the green bar is the gap. "Push out" moves the circle by depth times normal: it should end up exactly touching.</p>
+  <p>Then reproduce the bugs. Pick "Near the corner" with the test "Circle's square": a hit across a gap. Pick "Centre inside" with "No inside case" and press "Push out": the normal is NaN and the circle is lost. Debug drawing shows the dx and dy legs, the box edges extended, and the rounded region where the centre counts as a hit.</p>
+
+  <figure class="demo" data-demo="circlebox">
+    <canvas id="circlebox"></canvas>
+    <figcaption>Keyboard: click or tab to the canvas, then use the arrow keys to move the circle 10 pixels (hold Shift for 1 pixel). Press P to push out.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the demo's starting shapes. Drag the circle; the shapes turn red on overlap, Q is a dot, and the depth and normal are printed at the top.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Box: x, y is the top-left corner, w and h the size. y grows downwards.</span>
+local box = { x = 180, y = 80, w = 200, h = 120 }
+<span class="c">-- Circle: x, y is the centre, r the radius.</span>
+local circle = { x = 420, y = 230, r = 60 }
+
+local function clamp(v, lo, hi)
+  return math.max(lo, math.min(hi, v))
+end
+
+<span class="c">-- The point of the box closest to (px, py). Inside the box it is (px, py).</span>
+local function closestPoint(b, px, py)
+<span class="k">  return clamp(px, b.x, b.x + b.w), clamp(py, b.y, b.y + b.h)</span>
+end
+
+<span class="c">-- Strict &lt; : a circle that only touches the box does not count.</span>
+local function circleBoxOverlap(c, b)
+  local qx, qy = closestPoint(b, c.x, c.y)
+  local dx, dy = c.x - qx, c.y - qy
+<span class="k">  return dx * dx + dy * dy &lt; c.r * c.r</span>
+end
+
+<span class="c">-- Only call after circleBoxOverlap says yes. Returns depth, normal x, normal y.</span>
+<span class="c">-- The normal points from the box to the circle: the way to push the circle out.</span>
+local function contact(c, b)
+  local qx, qy = closestPoint(b, c.x, c.y)
+  local dx, dy = c.x - qx, c.y - qy
+  local dist = math.sqrt(dx * dx + dy * dy)
+  if dist &gt; 0 then
+    return c.r - dist, dx / dist, dy / dist
+  end
+  <span class="c">-- The centre is inside the box: leave through the nearest face.</span>
+  local left = c.x - b.x
+  local right = b.x + b.w - c.x
+  local top = c.y - b.y
+  local bottom = b.y + b.h - c.y
+  local best = math.min(left, right, top, bottom)
+  if best == left then return c.r + left, -1, 0 end
+  if best == right then return c.r + right, 1, 0 end
+  if best == top then return c.r + top, 0, -1 end
+  return c.r + bottom, 0, 1
+end
+
+local dragging = false
+local grabX, grabY = 0, 0
+
+function love.mousepressed(mx, my, button)
+  local dx, dy = mx - circle.x, my - circle.y
+  if button == 1 and dx * dx + dy * dy &lt;= circle.r * circle.r then
+    dragging = true
+    grabX, grabY = dx, dy
+  end
+end
+
+function love.mousereleased(mx, my, button)
+  if button == 1 then dragging = false end
+end
+
+function love.update(dt)
+  if dragging then
+    local mx, my = love.mouse.getPosition()
+    circle.x, circle.y = mx - grabX, my - grabY
+  end
+end
+
+function love.draw()
+  local hit = circleBoxOverlap(circle, box)
+  if hit then
+    love.graphics.setColor(1, 0.3, 0.3)
+  else
+    love.graphics.setColor(1, 1, 1)
+  end
+  love.graphics.rectangle("line", box.x, box.y, box.w, box.h)
+  love.graphics.circle("line", circle.x, circle.y, circle.r)
+  local qx, qy = closestPoint(box, circle.x, circle.y)
+  love.graphics.circle("fill", qx, qy, 4)
+  love.graphics.line(qx, qy, circle.x, circle.y)
+  if hit then
+    local depth, nx, ny = contact(circle, box)
+    love.graphics.print(string.format("depth %.1f   normal (%.2f, %.2f)", depth, nx, ny), 10, 10)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Rect2 stores the top-left corner in position, and end is the bottom-right.</span>
+var box := Rect2(180, 80, 200, 120)
+var centre := Vector2(420, 230)
+var radius := 60.0
+
+func _physics_process(_delta: float) -&gt; void:
+<span class="k">    var closest := centre.clamp(box.position, box.end)</span>
+    var hit := centre.distance_squared_to(closest) &lt; radius * radius
+    if hit and centre != closest:
+        var depth := radius - centre.distance_to(closest)
+        var normal := closest.direction_to(centre)   # from box to circle
+    <span class="c"># centre == closest means the centre is inside: use the nearest face.</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Rect(x, y, width, height). Unity's y points up, which does not change the clamp.</span>
+Rect box = new Rect(180, 80, 200, 120);
+Vector2 centre = new Vector2(420, 230);
+float radius = 60f;
+
+void FixedUpdate()
+{
+<span class="k">    Vector2 closest = new Vector2(
+        Mathf.Clamp(centre.x, box.xMin, box.xMax),
+        Mathf.Clamp(centre.y, box.yMin, box.yMax));</span>
+    bool hit = (centre - closest).sqrMagnitude &lt; radius * radius;
+
+    <span class="c">// Or ask the physics engine for a 2D collider overlapping a circle.</span>
+    Collider2D other = Physics2D.OverlapCircle(centre, radius);
+}</code></pre>
+  </div>
+  <p>For physics bodies the engine does this for you: <code>CircleShape2D</code> against <code>RectangleShape2D</code> in Godot, <code>CircleCollider2D</code> against <code>BoxCollider2D</code> in Unity. Writing it yourself suits hitboxes and simple custom movement.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>No inside case.</strong> 0 / 0 gives NaN, which spreads to every number it touches. Objects vanishing after a hard hit point here.</li>
+    <li><strong>Using the width as the right edge.</strong> The range for x is <code>b.x</code> to <code>b.x + b.w</code>, not <code>b.x</code> to <code>b.w</code>. It only works for boxes at the origin.</li>
+    <li><strong>Mixing box conventions.</strong> Storing some boxes by centre and half-size and others by top-left corner puts every clamp off by half a box. Pick one.</li>
+    <li><strong>A flipped normal.</strong> This normal points from the box to the circle. If you push the box instead of the circle, push it along the negative normal.</li>
+    <li><strong>Rotated boxes.</strong> Clamping needs axis-aligned edges. Rotate the centre into the box's own frame first, or use the separating axis test from a later lesson.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>A round ball, bullet or player against walls, crates and tiles is a common 2D pairing. Breakout-style games need it for ball and bricks, and top-down games often give the player a circle so it slides around wall corners.</p>
+  <p>Engines have a dedicated routine for it. Box2D has a circle against polygon function, and a box is a four-sided polygon. Godot and Unity report the same normal and depth for contacts between these shapes.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the Lua program above. Replace the mouse dragging with arrow-key movement at 200 pixels per second, using <code>love.keyboard.isDown("left")</code> and the other three directions. Then, after moving, push the circle out: if <code>circleBoxOverlap</code> says yes, call <code>contact</code> and add <code>nx * depth</code> to <code>circle.x</code> and <code>ny * depth</code> to <code>circle.y</code>.</p>
+  <p>Add two more boxes in a row. You are done when the circle slides along any face, rolls around every corner without catching, and pops out through the nearest face when started inside a box.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Clamp the centre to the box on each axis to get the closest point of the box.</li>
+    <li>The circle overlaps the box when that point is closer than the radius. Compare squared lengths.</li>
+    <li>Depth is the radius minus the distance; the normal points from the closest point to the centre.</li>
+    <li>A centre inside the box gives distance zero: push out through the nearest face, depth = radius + distance to that face.</li>
+    <li>A circle's bounding square reports false hits at box corners.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson fires a ray through a scene of boxes and circles to find the first thing it hits, how far away it is and which way the surface faces.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005), chapter 5, "Basic Primitive Tests". Covers the closest point on a box to a point and the sphere against box test, which works the same way in 2D.</li>
+    <li>Godot Engine documentation, <cite>Vector2</cite> and <cite>Rect2</cite> class references. Describe <code>clamp</code>, <code>distance_squared_to</code> and <code>end</code>.</li>
+    <li>Unity documentation, <cite>Mathf.Clamp</cite> and <cite>Physics2D.OverlapCircle</cite> scripting references.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units match the Lua code: pixels, y grows downwards.
+  var W = 600, H = 340;
+  var AREA = { left: 8, top: 8, right: 592, bottom: 332 };
+  var BOX0 = [180, 80, 200, 120];
+
+  var LAYOUTS = {
+    start: { c: [420, 230, 60], b: BOX0 },
+    near: { c: [440, 250, 70], b: BOX0 },
+    inside: { c: [350, 140, 40], b: BOX0 },
+    side: { c: [300, 240, 50], b: BOX0 }
+  };
+
+  var circle = { x: 0, y: 0, r: 0 };
+  var box = { x: 0, y: 0, w: 0, h: 0 };
+  var lost = false;      // true after pushing by a NaN normal
+  var message = '';
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="circlebox"]');
+  var layout = ui.select({
+    label: 'Layout',
+    options: [
+      { value: 'start', label: 'Start (corner hit)' },
+      { value: 'near', label: 'Near the corner' },
+      { value: 'inside', label: 'Centre inside' },
+      { value: 'side', label: 'Below a face' },
+      { value: 'custom', label: 'Your own' }
+    ],
+    value: 'start',
+    onChange: function (v) { applyLayout(v); }
+  });
+  var method = ui.select({
+    label: 'Test',
+    options: [
+      { value: 'clamp', label: 'Closest point (correct)' },
+      { value: 'square', label: "Circle's square (too eager)" },
+      { value: 'naive', label: 'No inside case (normal breaks)' }
+    ],
+    value: 'clamp',
+    onChange: function () { message = ''; redraw(); }
+  });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: false, onChange: redraw });
+  var rad = ui.slider({ label: 'Radius', min: 10, max: 120, step: 5, value: 60, unit: ' px',
+    onInput: function (v) { circle.r = v; clampCircle(); custom(); } });
+  var bw = ui.slider({ label: 'Box width', min: 40, max: 320, step: 10, value: 200, unit: ' px',
+    onInput: function (v) { box.w = v; clampBox(); custom(); } });
+  var bh = ui.slider({ label: 'Box height', min: 40, max: 240, step: 10, value: 120, unit: ' px',
+    onInput: function (v) { box.h = v; clampBox(); custom(); } });
+  ui.button({ label: 'Push out', onClick: pushOut });
+  ui.button({ label: 'Reset', onClick: function () {
+    layout.set('start'); method.set('clamp'); debug.set(false);
+    applyLayout('start');
+  } });
+  var outQ = ui.readout({ label: 'Closest point Q' });
+  var outD = ui.readout({ label: 'Squared distance' });
+  var outDepth = ui.readout({ label: 'Depth' });
+  var outN = ui.readout({ label: 'Normal' });
+  var outHit = ui.readout({ label: 'Result' });
+
+  function redraw() { if (handle) handle.redraw(); }
+  function custom() { layout.set('custom'); message = ''; redraw(); }
+
+  function applyLayout(name) {
+    var l = LAYOUTS[name];
+    if (!l) return;
+    circle.x = l.c[0]; circle.y = l.c[1]; circle.r = l.c[2];
+    box.x = l.b[0]; box.y = l.b[1]; box.w = l.b[2]; box.h = l.b[3];
+    rad.set(circle.r); bw.set(box.w); bh.set(box.h);
+    lost = false;
+    message = '';
+    redraw();
+  }
+
+  function clampCircle() {
+    circle.x = Math.round(DemoKit.clamp(circle.x, AREA.left + circle.r, AREA.right - circle.r));
+    circle.y = Math.round(DemoKit.clamp(circle.y, AREA.top + circle.r, AREA.bottom - circle.r));
+  }
+  function clampBox() {
+    box.x = Math.round(DemoKit.clamp(box.x, AREA.left, AREA.right - box.w));
+    box.y = Math.round(DemoKit.clamp(box.y, AREA.top, AREA.bottom - box.h));
+  }
+
+  // Same maths and names as the Lua code.
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function measure(c, b, handleInside) {
+    var qx = clamp(c.x, b.x, b.x + b.w);
+    var qy = clamp(c.y, b.y, b.y + b.h);
+    var dx = c.x - qx, dy = c.y - qy;
+    var d2 = dx * dx + dy * dy;
+    var dist = Math.sqrt(d2);
+    var m = { qx: qx, qy: qy, dx: dx, dy: dy, d2: d2, r2: c.r * c.r, dist: dist,
+      hit: d2 < c.r * c.r, inside: dist === 0, face: null, depth: 0, nx: 0, ny: 0 };
+    if (dist > 0) {
+      m.depth = c.r - dist; m.nx = dx / dist; m.ny = dy / dist;
+    } else if (handleInside) {
+      var left = c.x - b.x, right = b.x + b.w - c.x, top = c.y - b.y, bottom = b.y + b.h - c.y;
+      var best = Math.min(left, right, top, bottom);
+      if (best === left) { m.depth = c.r + left; m.nx = -1; m.ny = 0; m.face = 'left'; }
+      else if (best === right) { m.depth = c.r + right; m.nx = 1; m.ny = 0; m.face = 'right'; }
+      else if (best === top) { m.depth = c.r + top; m.nx = 0; m.ny = -1; m.face = 'top'; }
+      else { m.depth = c.r + bottom; m.nx = 0; m.ny = 1; m.face = 'bottom'; }
+      m.faceDist = best;
+    } else {
+      // What the naive code computes: depth r - 0, normal 0 / 0.
+      m.depth = c.r; m.nx = NaN; m.ny = NaN;
+    }
+    return m;
+  }
+
+  function squareTest(c, b) {
+    return c.x - c.r < b.x + b.w && b.x < c.x + c.r && c.y - c.r < b.y + b.h && b.y < c.y + c.r;
+  }
+
+  function pushOut() {
+    if (lost) { message = 'The circle is already lost. Press Reset.'; redraw(); return; }
+    var naive = method.value === 'naive';
+    var m = measure(circle, box, !naive);
+    if (!m.hit) {
+      message = method.value === 'square' && squareTest(circle, box)
+        ? 'The square test says hit, but there is no real overlap to push out of.'
+        : 'Nothing to push: no overlap.';
+      redraw();
+      return;
+    }
+    if (isNaN(m.nx)) {
+      lost = true;
+      message = '';
+      redraw();
+      return;
+    }
+    circle.x += m.nx * m.depth;
+    circle.y += m.ny * m.depth;
+    // Keep it on the canvas without rounding, so "exactly touching" stays exact.
+    circle.x = DemoKit.clamp(circle.x, AREA.left + circle.r, AREA.right - circle.r);
+    circle.y = DemoKit.clamp(circle.y, AREA.top + circle.r, AREA.bottom - circle.r);
+    layout.set('custom');
+    var after = measure(circle, box, true);
+    var still = after.hit && after.depth > 0.01;
+    message = 'Pushed ' + fmt(m.depth) + ' px. Now ' + (still ? 'still overlapping (hit the canvas edge)' : 'exactly touching') + '.';
+    redraw();
+  }
+
+  function fmt(v) { return (Math.round(v * 10) / 10).toFixed(1); }
+  function fmt2(v) { return isNaN(v) ? 'NaN' : (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2)); }
+  function num(v) { var r = Math.round(v * 10) / 10; return String(r === 0 ? 0 : r); }
+  function sq(v) { return v < 0 ? '(' + num(v) + ')²' : num(v) + '²'; }
+
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+  function toWorld(p) { return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale }; }
+  function inCircle(w) {
+    var dx = w.x - circle.x, dy = w.y - circle.y;
+    return dx * dx + dy * dy <= circle.r * circle.r;
+  }
+  function inBox(w) {
+    return w.x >= box.x && w.x <= box.x + box.w && w.y >= box.y && w.y <= box.y + box.h;
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    var left = ctx.textAlign === 'center' ? x - wTxt / 2 : (ctx.textAlign === 'right' ? x - wTxt : x);
+    ctx.fillStyle = c.surface;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(left - 3, y - 13, wTxt + 6, 18);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var ang = Math.atan2(y2 - y1, x2 - x1), h = 9;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    line(ctx, x1, y1, x2, y2);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - h * Math.cos(ang - 0.45), y2 - h * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - h * Math.cos(ang + 0.45), y2 - h * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Box grown by r with rounded corners: where the centre gives a real hit.
+  function roundedRegion(ctx, b, r) {
+    var x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h, k = view.scale;
+    ctx.beginPath();
+    ctx.moveTo(sx(x0), sy(y0 - r));
+    ctx.lineTo(sx(x1), sy(y0 - r));
+    ctx.arc(sx(x1), sy(y0), r * k, -Math.PI / 2, 0);
+    ctx.lineTo(sx(x1 + r), sy(y1));
+    ctx.arc(sx(x1), sy(y1), r * k, 0, Math.PI / 2);
+    ctx.lineTo(sx(x0), sy(y1 + r));
+    ctx.arc(sx(x0), sy(y1), r * k, Math.PI / 2, Math.PI);
+    ctx.lineTo(sx(x0 - r), sy(y0));
+    ctx.arc(sx(x0), sy(y0), r * k, Math.PI, Math.PI * 1.5);
+    ctx.closePath();
+  }
+
+  handle = DemoKit.canvas('#circlebox', {
+    aspect: W / H,
+    minHeight: 220,
+    maxHeight: 380,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A draggable circle and a draggable box. A dot marks the point of the box closest to the circle centre. When they overlap, a red bar shows the depth and an arrow shows the contact normal; when they do not, a green bar shows the gap.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      view.scale = Math.min(s.width / W, s.height / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (s.height - H * view.scale) / 2;
+      var k = view.scale;
+      var g;
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+      // Light grid every 50 pixels.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (g = 50; g < W; g += 50) line(ctx, sx(g), sy(AREA.top), sx(g), sy(AREA.bottom));
+      for (g = 50; g < H; g += 50) line(ctx, sx(AREA.left), sy(g), sx(AREA.right), sy(g));
+
+      var names = { clamp: 'Closest point', square: "Circle's square", naive: 'No inside case' };
+      var name = names[method.value];
+      var tx = sx(AREA.left) + 4;
+
+      if (lost) {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(sx(box.x), sy(box.y), box.w * k, box.h * k);
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx(box.x), sy(box.y), box.w * k, box.h * k);
+        ctx.textAlign = 'left';
+        label(ctx, 'Pushed by a NaN normal: the circle position is now NaN.', tx, 20, c.bad, c);
+        label(ctx, 'It cannot be drawn or found again. Press Reset.', tx, 40, c.bad, c);
+        outQ.set('(NaN, NaN)');
+        outD.set('NaN');
+        outDepth.set('NaN');
+        outN.set('(NaN, NaN)');
+        outHit.set('circle lost');
+        return;
+      }
+
+      var naive = method.value === 'naive';
+      var m = measure(circle, box, !naive);
+      var truth = m.hit;
+      var verdict = method.value === 'square' ? squareTest(circle, box) : truth;
+      var normalOk = !isNaN(m.nx);
+
+      // Debug: box edges extended into nine regions, and the rounded hit region.
+      if (debug.value) {
+        ctx.setLineDash([3, 5]);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        line(ctx, sx(box.x), sy(AREA.top), sx(box.x), sy(AREA.bottom));
+        line(ctx, sx(box.x + box.w), sy(AREA.top), sx(box.x + box.w), sy(AREA.bottom));
+        line(ctx, sx(AREA.left), sy(box.y), sx(AREA.right), sy(box.y));
+        line(ctx, sx(AREA.left), sy(box.y + box.h), sx(AREA.right), sy(box.y + box.h));
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.5;
+        roundedRegion(ctx, box, circle.r);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // The circle's square (used by the eager test).
+      if (debug.value || method.value === 'square') {
+        ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = c.warn;
+        ctx.strokeRect(sx(circle.x - circle.r), sy(circle.y - circle.r), 2 * circle.r * k, 2 * circle.r * k);
+        ctx.setLineDash([]);
+      }
+
+      // Box.
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(sx(box.x), sy(box.y), box.w * k, box.h * k);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = verdict ? c.bad : c.ink2;
+      ctx.lineWidth = verdict ? 3 : 2;
+      ctx.strokeRect(sx(box.x), sy(box.y), box.w * k, box.h * k);
+
+      // Circle.
+      ctx.beginPath();
+      ctx.arc(sx(circle.x), sy(circle.y), circle.r * k, 0, Math.PI * 2);
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = c.topic;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = verdict ? c.bad : c.topic;
+      ctx.lineWidth = verdict ? 3 : 2;
+      ctx.stroke();
+
+      // Debug: the dx and dy legs.
+      if (debug.value && m.dx !== 0 && m.dy !== 0) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1.5;
+        line(ctx, sx(circle.x), sy(circle.y), sx(m.qx), sy(circle.y));
+        line(ctx, sx(m.qx), sy(circle.y), sx(m.qx), sy(m.qy));
+        ctx.setLineDash([]);
+        ctx.textAlign = 'center';
+        label(ctx, 'dx ' + num(m.dx), sx((circle.x + m.qx) / 2), sy(circle.y) + (m.dy > 0 ? 18 : -6), c.ink2, c);
+        ctx.textAlign = m.dx > 0 ? 'right' : 'left';
+        label(ctx, 'dy ' + num(m.dy), sx(m.qx) + (m.dx > 0 ? -6 : 6), sy((circle.y + m.qy) / 2) + 4, c.ink2, c);
+        ctx.textAlign = 'left';
+      }
+
+      // Line from Q to the centre.
+      if (!m.inside) {
+        ctx.strokeStyle = truth ? c.bad : c.ink2;
+        ctx.lineWidth = 1.5;
+        line(ctx, sx(m.qx), sy(m.qy), sx(circle.x), sy(circle.y));
+      }
+
+      // Depth bar (red) or gap bar (green).
+      ctx.lineCap = 'butt';
+      if (truth && normalOk) {
+        var ddx = circle.x - m.nx * circle.r, ddy = circle.y - m.ny * circle.r;   // deepest point
+        var ex = circle.x - m.nx * (circle.r - m.depth), ey = circle.y - m.ny * (circle.r - m.depth); // exit point
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = c.bad;
+        line(ctx, sx(ddx), sy(ddy), sx(ex), sy(ey));
+        if (m.face) {
+          // Highlight the face the circle leaves through.
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = c.good;
+          var fx0 = box.x, fy0 = box.y, fx1 = box.x + box.w, fy1 = box.y + box.h;
+          if (m.face === 'left') line(ctx, sx(fx0), sy(fy0), sx(fx0), sy(fy1));
+          else if (m.face === 'right') line(ctx, sx(fx1), sy(fy0), sx(fx1), sy(fy1));
+          else if (m.face === 'top') line(ctx, sx(fx0), sy(fy0), sx(fx1), sy(fy0));
+          else line(ctx, sx(fx0), sy(fy1), sx(fx1), sy(fy1));
+        }
+        arrow(ctx, sx(ex), sy(ey), sx(ex) + m.nx * 46, sy(ey) + m.ny * 46, c.ink);
+        ctx.lineCap = 'butt';
+        ctx.textAlign = 'left';
+        label(ctx, 'depth ' + fmt(m.depth), sx((ddx + ex) / 2) + 10, sy((ddy + ey) / 2) - 10, c.bad, c);
+        label(ctx, 'normal', sx(ex) + m.nx * 46 + 6, sy(ey) + m.ny * 46 + 14, c.ink, c);
+      } else if (!truth && m.dist > 0) {
+        var ux = m.dx / m.dist, uy = m.dy / m.dist;
+        var gx = circle.x - ux * circle.r, gy = circle.y - uy * circle.r;
+        var gap = m.dist - circle.r;
+        if (gap > 0.01) {
+          ctx.lineWidth = 6;
+          ctx.strokeStyle = c.good;
+          line(ctx, sx(m.qx), sy(m.qy), sx(gx), sy(gy));
+        }
+        ctx.textAlign = 'left';
+        label(ctx, gap > 0.01 ? 'gap ' + fmt(gap) : 'touching', sx((m.qx + gx) / 2) + 10, sy((m.qy + gy) / 2) - 10, c.good, c);
+      } else if (truth && !normalOk) {
+        ctx.textAlign = 'left';
+        label(ctx, 'normal = 0 / 0 = NaN', sx(circle.x) + 10, sy(circle.y) - 10, c.bad, c);
+      }
+      ctx.lineCap = 'round';
+
+      // Q and the centre.
+      ctx.beginPath();
+      ctx.arc(sx(circle.x), sy(circle.y), 4, 0, Math.PI * 2);
+      ctx.fillStyle = c.topic;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sx(m.qx), sy(m.qy), m.inside ? 7 : 5, 0, Math.PI * 2);
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      if (m.inside) { ctx.stroke(); } else { ctx.fillStyle = c.ink; ctx.fill(); }
+      ctx.textAlign = 'left';
+      label(ctx, m.inside ? 'Q = centre' : 'Q', sx(m.qx) + 8, sy(m.qy) + (m.inside ? 22 : -8), c.ink, c);
+
+      // Status at the top left.
+      ctx.textAlign = 'left';
+      var status = name + ': ' + (verdict ? 'HIT' : 'no hit');
+      if (verdict && !normalOk) status += ', but the normal is NaN';
+      label(ctx, status, tx, 20, verdict ? c.bad : c.ink, c);
+      if (verdict !== truth) {
+        label(ctx, 'Wrong: the circle does not touch the box', tx, 40, c.bad, c);
+        if (message) label(ctx, message, tx, 60, c.ink2, c);
+      } else if (message) {
+        label(ctx, message, tx, 40, c.ink2, c);
+      }
+
+      outQ.set('(' + num(m.qx) + ', ' + num(m.qy) + ')' + (m.inside ? ', the centre itself' : ''));
+      outD.set(sq(m.dx) + ' + ' + sq(m.dy) + ' = ' + num(m.d2) + ' vs r² = ' + m.r2);
+      if (truth) {
+        outDepth.set(m.face ? fmt(m.depth) + ' px (r ' + circle.r + ' + face ' + fmt(m.faceDist) + ')' : fmt(m.depth) + ' px');
+        outN.set('(' + fmt2(m.nx) + ', ' + fmt2(m.ny) + ')' + (m.face ? ' out of the ' + m.face + ' face' : ''));
+      } else {
+        outDepth.set(Math.abs(m.dist - circle.r) < 0.01 ? '0 (touching)' : 'none (gap ' + fmt(m.dist - circle.r) + ' px)');
+        outN.set('none');
+      }
+      outHit.set(name + ': ' + (verdict ? 'hit' : 'no hit') + (verdict !== truth ? ', wrong' : '') + (verdict && !normalOk ? ', normal NaN' : ''));
+    },
+    onDown: function (p) {
+      if (lost) { drag = null; return; }
+      var w = toWorld(p);
+      if (inCircle(w)) drag = { t: 'circle', dx: w.x - circle.x, dy: w.y - circle.y };
+      else if (inBox(w)) drag = { t: 'box', dx: w.x - box.x, dy: w.y - box.y };
+      else drag = null;
+    },
+    onMove: function (p) {
+      var cv = document.getElementById('circlebox');
+      var w = toWorld(p);
+      if (drag && p.down) {
+        if (drag.t === 'circle') {
+          circle.x = w.x - drag.dx; circle.y = w.y - drag.dy; clampCircle();
+        } else {
+          box.x = w.x - drag.dx; box.y = w.y - drag.dy; clampBox();
+        }
+        layout.set('custom');
+        message = '';
+        return;
+      }
+      cv.style.cursor = (!lost && (inCircle(w) || inBox(w))) ? 'grab' : '';
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      if (key === 'p') { pushOut(); return; }
+      if (lost) return;
+      var d = s.keys.has('shift') ? 1 : 10;
+      var dx = 0, dy = 0;
+      if (key === 'arrowleft') dx = -d;
+      else if (key === 'arrowright') dx = d;
+      else if (key === 'arrowup') dy = -d;
+      else if (key === 'arrowdown') dy = d;
+      else return;
+      circle.x += dx;
+      circle.y += dy;
+      clampCircle();
+      layout.set('custom');
+      message = '';
+    }
+  });
+
+  applyLayout('start');
+})();
+</script>
+</body>
+</html>

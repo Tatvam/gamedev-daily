@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jump buffering: remembering the early press · Game Dev Daily</title>
+<meta name="description" content="How remembering a jump pressed just before landing stops the game ignoring inputs, how long to remember it, and how to code it.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-24">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Jump buffering: remembering the early press</h1>
+  <p class="lede">How remembering a jump pressed just before landing stops the game ignoring inputs, how long to remember it, and how to code it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are bouncing over a row of spikes. You press jump again as you come down, the character lands, and simply stands there until the next spike hits. You pressed. The game saw it. It threw the press away because your feet were still a few pixels above the floor.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A press that arrives too early is thrown away</h2>
+  <p>The usual rule is that a jump press only works while the character is <dfn>grounded</dfn>, standing on something solid in the current frame. A press in the air is checked once, fails, and is forgotten.</p>
+  <p>That is fine when the player is waiting on the ground. It fails when they chain moves. To jump again right on landing, a player aims at the landing frame, and human timing is not frame exact. Many presses arrive a few frames early, do nothing, and the surprised second press comes far too late.</p>
+  <p>The coyote time lesson fixed presses that arrive just <em>after</em> the edge. This is the mirror case: presses that arrive just <em>before</em> the ground.</p>
+
+  <h3>The fix: remember the press for a moment</h3>
+  <p><dfn>Jump buffering</dfn> stores a jump press made in the air and carries it out on the first frame the character is grounded, as long as that happens within a short window. The stored press is the <dfn>buffer</dfn>, and the window is how long it stays valid.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 252" role="img" aria-label="Two timelines. In the first, without a buffer, a press 50 milliseconds before landing is ignored and the player has to press again, which jumps 150 milliseconds late. In the second, with a 100 millisecond buffer, the same early press falls inside a shaded window before the landing and the jump fires on the landing frame.">
+      <text class="d-text" x="20" y="30">Without a buffer</text>
+      <path class="d-stroke" d="M40 80 H588"/>
+      <text class="d-muted" x="596" y="84">time</text>
+      <path class="d-stroke" d="M380 66 V94"/>
+      <text class="d-muted" x="380" y="58" text-anchor="middle">lands</text>
+      <circle class="d-bad-fill" cx="330" cy="80" r="6"/>
+      <text class="d-muted" x="322" y="112" text-anchor="end">early press ignored</text>
+      <circle class="d-accent-fill" cx="530" cy="80" r="6"/>
+      <text class="d-muted" x="530" y="112" text-anchor="middle">jumps 150 ms late</text>
+
+      <text class="d-text" x="20" y="150">With a 100 ms buffer</text>
+      <rect class="d-accent-soft" x="280" y="190" width="100" height="20"/>
+      <path class="d-stroke" d="M40 200 H588"/>
+      <text class="d-muted" x="596" y="204">time</text>
+      <text class="d-muted" x="330" y="180" text-anchor="middle">buffer window</text>
+      <path class="d-stroke" d="M380 186 V214"/>
+      <circle class="d-accent-fill" cx="330" cy="200" r="6"/>
+      <text class="d-muted" x="322" y="236" text-anchor="end">early press remembered</text>
+      <text class="d-muted" x="380" y="236" text-anchor="middle">lands</text>
+      <text class="d-label" x="392" y="182">jump fires on the landing frame</text>
+    </svg>
+    <figcaption>The same press, 50 ms before landing. Without a buffer it is lost and the next press decides the jump. With a buffer it is held, and the jump starts on the landing frame, which is the timing the player was aiming for.</figcaption>
+  </figure>
+
+  <h3>How it works in code</h3>
+  <p>Keep one number, the <dfn>buffer timer</dfn>. When jump is pressed on the ground, jump at once. When it is pressed in the air, set the timer to the full window. Each frame, after moving and checking for landing, jump if the character is grounded and the timer is above zero, then count the timer down. A jump always sets the timer to zero, so one press gives one jump.</p>
+  <p>As with coyote time, count in seconds or in fixed simulation steps, not in rendered frames, so the window stays the same length on every machine.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>A window of about 100 ms (6 frames at 60 frames per second) is a common place to start, and values from roughly 50 to 150 ms are widely used. Too short and early presses still vanish. Too long and the character starts jumping when the player has changed their mind, which feels like the game acting on its own. These are starting points, not rules.</p>
+  </div>
+
+  <h3>What the player feels</h3>
+  <p>Without a buffer, chained jumps feel sticky: the controls seem to drop presses at random, and players often blame their controller. With one, pressing "on the landing" simply works and bouncing gets a steady rhythm.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The runner never stops, and the spikes come in tight rows, so you have to jump again almost the moment you land. Try a few rows with the buffer off, pressing as you come down, then switch it on and play the same way. The strip at the top places your last early press against the landing and the buffer window, and a triangle marks when the jump actually fired.</p>
+  <p>Then drag the window to 250 ms and press near the top of a jump: the extra jump on landing is the cost of a buffer that is too long.</p>
+
+  <figure class="demo" data-demo="buffer">
+    <canvas id="buffer"></canvas>
+    <figcaption>Controls: click the canvas, then press Space, W or Up to jump. On a phone, tap the canvas or use the Jump button. Ghost outlines show where you pressed in the air: blue was saved by the buffer, red was ignored but would have been saved, grey was too early for the window. "Saved / ignored" counts those blue and red presses.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's runner in LÖVE, with the same numbers. Height <code>y</code> is measured upward from the ground, and spikes are left out to keep the technique visible. The marked lines are the whole technique.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local RUN_SPEED = 260       <span class="c">-- pixels per second, the runner never stops</span>
+local GRAVITY = 2200        <span class="c">-- pixels per second squared</span>
+local JUMP_SPEED = 700      <span class="c">-- pixels per second at take-off</span>
+local BUFFER_TIME = 0.100   <span class="c">-- seconds; the demo's slider (0 turns it off)</span>
+
+local player = { x = 0, y = 0, vy = 0, grounded = true }
+local jumpBuffer = 0        <span class="c">-- time left in which a stored press still counts</span>
+
+local function jump()
+  player.vy = JUMP_SPEED
+  player.grounded = false
+<span class="k">  jumpBuffer = 0            <span class="c">-- spent: one press, one jump</span></span>
+end
+
+function love.keypressed(key)
+  if key ~= "space" and key ~= "w" and key ~= "up" then return end
+  if player.grounded then
+    jump()
+  else
+<span class="k">    jumpBuffer = BUFFER_TIME  <span class="c">-- too early: remember it</span></span>
+  end
+end
+
+function love.update(dt)
+  player.x = player.x + RUN_SPEED * dt
+  if not player.grounded then
+    player.vy = player.vy - GRAVITY * dt
+    player.y = player.y + player.vy * dt
+    if player.y &lt;= 0 then
+      player.y, player.vy, player.grounded = 0, 0, true  <span class="c">-- landed</span>
+    end
+  end
+<span class="k">  if player.grounded and jumpBuffer &gt; 0 then</span>
+<span class="k">    jump()                    <span class="c">-- the stored press fires on the landing frame</span></span>
+<span class="k">  end</span>
+<span class="k">  jumpBuffer = math.max(0, jumpBuffer - dt)</span>
+end</code></pre>
+  </div>
+  <p>Order matters in <code>love.update</code>. Land first, then check the buffer, then count it down. If you count down before the check, a press made exactly one window before landing just misses, and the effective window is one frame shorter than the number you typed.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Not clearing the buffer on a jump.</strong> If the timer survives a jump, a press used for one jump can fire a second one on the next landing. Set it to zero in the one function every jump goes through.</li>
+    <li><strong>A window that is too long.</strong> A player who taps jump near the peak, perhaps hoping for a double jump that does not exist, gets an extra hop on landing they never wanted. That is the opposite of forgiving. Keep the window short, and test with a press at the top of a jump.</li>
+    <li><strong>Buffering into the wrong move.</strong> In a game with a double jump, an early press while airborne should usually spend the air jump if one is left, and buffer only when it is not. Decide on purpose which one wins, then make it consistent.</li>
+    <li><strong>Forgetting the other moves.</strong> Attacks, dashes and wall jumps drop early presses just as easily. If you buffer several actions, decide what happens when two are stored at once.</li>
+    <li><strong>Buffering through a scene change.</strong> A press stored as the player dies or a menu opens can fire after the restart. Clear the buffer whenever control is taken away.</li>
+  </ul>
+  <p><strong>When not to use it.</strong> Buffering matters most where moves are chained quickly. In slow, deliberate games, or where committing to an exact input is the challenge, such as some rhythm games, it can remove skill the design depends on. In fighting games the window is also a balance decision.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Celeste uses jump buffering. Its director Maddy Thorson listed it in a 2020 thread about the game's forgiveness mechanics, next to coyote time and corner correction, and said the team did not invent these tricks. I could not confirm the exact window Celeste uses, so it is not given here.</p>
+  <p>Input buffering in general is common in action and fighting games, where a press made during the end of one move is held so the next move starts the moment it can. A well tuned buffer is invisible, so you usually cannot tell its length from playing.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own platformer, add a buffer timer as above with a window of 0.1 seconds, and make the window something you can change while playing, for example with two keys that add or remove 0.02 seconds.</p>
+  <p>Stand on flat ground and jump ten times in a row, pressing each new jump as you come down. Count the jumps that fired on landing at 0, 0.1 and 0.25 seconds. Then, at each value, press once at the top of a jump and note whether the extra hop feels wanted. You are done when you have picked a value between those two points and written down why.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Players aim chained jumps at the landing frame and often press a little early. A strict grounded check throws those presses away.</li>
+    <li>Jump buffering stores an airborne press and carries it out on the first grounded frame, within a short window.</li>
+    <li>Set a timer on an air press, check it right after landing, count it down after the check, and clear it on every jump.</li>
+    <li>About 100 ms is a common starting point. Too long and the game jumps when the player has changed their mind.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Buffering and coyote time decide <em>when</em> a jump starts; the next lesson, variable jump height, lets the player decide how high it goes by how long they hold the button.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Maddy Thorson, <cite>Celeste &amp; Forgiveness</cite>, a write-up on her site of a March 2020 Twitter thread. Lists jump buffering, coyote time and the other hidden helpers in Celeste. I could not open the page in this session, so no link is given.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). The wider topic of how control and response feel in the hand.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var RUN_SPEED = 260;     // pixels per second, the runner never stops
+  var GRAVITY = 2200;      // pixels per second squared
+  var JUMP_SPEED = 700;    // pixels per second at take-off
+  var SIZE = 22;           // player square
+  var STEP = 1 / 60;       // the demo simulates at 60 steps per second
+  var SPIKE_W = 24;
+  var SPIKE_H = 18;        // drawn height
+  var SPIKE_HIT_H = 16;    // the player is hit while lower than this over a spike
+  var SLACK_STEPS = 4;     // extra ground time per bounce in a row of spikes
+  var AXIS_BEFORE = 300;   // ms shown before the landing on the strip
+  var AXIS_AFTER = 200;    // ms shown after it
+  var STRIP_H = 84;
+  var EPS = 1e-9;
+
+  // How many simulation steps one jump spends in the air on flat ground.
+  function airSteps() {
+    var y = 0, vy = JUMP_SPEED, n = 0, oldY;
+    do {
+      oldY = y;
+      vy -= GRAVITY * STEP;
+      y += vy * STEP;
+      n += 1;
+    } while (!(oldY >= 0 && y <= 0) && n < 600);
+    return n;
+  }
+  var AIR_STEPS = airSteps();                                   // 38 with these numbers
+  var ROW_GAP = (AIR_STEPS + SLACK_STEPS) * RUN_SPEED * STEP;   // spike spacing within a row
+
+  var ui = DemoKit.controls('[data-demo="buffer"]');
+  var bufferOn = ui.toggle({ label: 'Jump buffer', value: false });
+  // The window is set in whole simulation steps so that what the strip shows is exact.
+  var windowFrames = ui.slider({ label: 'Buffer window', min: 0, max: 15, step: 1, value: 6,
+    format: function (v) { return Math.round(v * STEP * 1000) + ' ms (' + v + ' frames)'; } });
+  var showGhosts = ui.toggle({ label: 'Show ghosts', value: true });
+  var scoreOut = ui.readout({ label: 'Spikes cleared / hit' });
+  var savedOut = ui.readout({ label: 'Saved / ignored' });
+  ui.button({ label: 'Jump', onClick: function () { press(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  function windowMsValue() {
+    return Math.round(windowFrames.value * STEP * 1000);
+  }
+
+  function bufferTime() {
+    return bufferOn.value ? windowFrames.value * STEP : 0;
+  }
+
+  var acc, player, jumpBuffer, airPress, stepsSinceLand, spikes, genX, random, presses,
+    lastLand, hurt, stats;
+
+  function reset() {
+    acc = 0;
+    player = { x: 0, y: 0, vy: 0, grounded: true };
+    jumpBuffer = 0;
+    airPress = null;       // the latest press made during this jump
+    stepsSinceLand = -1;   // -1 until the first landing
+    spikes = [];
+    genX = 460;
+    random = DemoKit.rng(24);
+    presses = [];
+    lastLand = null;
+    hurt = 0;
+    stats = { cleared: 0, hit: 0, saved: 0, lost: 0 };
+    ensureSpikes();
+    report();
+  }
+
+  function report() {
+    scoreOut.set(stats.cleared + ' / ' + stats.hit);
+    savedOut.set(stats.saved + ' / ' + stats.lost);
+  }
+
+  function addRow() {
+    var count = 3 + Math.floor(random() * 2);           // 3 or 4 spikes in a row
+    for (var i = 0; i < count; i++) {
+      spikes.push({ x: genX + i * ROW_GAP, hit: false, done: false });
+    }
+    genX = genX + (count - 1) * ROW_GAP + 340 + Math.floor(random() * 5) * 30;
+  }
+
+  function ensureSpikes() {
+    while (genX < player.x + 1400) addRow();
+    while (spikes.length > 0 && spikes[0].x < player.x - 700) spikes.shift();
+  }
+
+  function jump() {
+    player.vy = JUMP_SPEED;
+    player.grounded = false;
+    jumpBuffer = 0;        // spent: one press, one jump
+    airPress = null;
+    if (lastLand && lastLand.firedMs === null) {
+      lastLand.firedMs = Math.round(Math.max(0, stepsSinceLand) * STEP * 1000);
+    }
+  }
+
+  // A jump press. Like love.keypressed, it is handled between two simulation steps.
+  function press() {
+    if (player.grounded) {
+      presses.push({ x: player.x, y: 0, status: 'ground', ms: null });
+      if (presses.length > 14) presses.shift();
+      jump();
+    } else {
+      jumpBuffer = bufferTime();   // too early: remember it (0 when the buffer is off)
+      if (airPress) airPress.status = 'early';   // replaced by this newer press
+      airPress = { x: player.x, y: player.y, status: 'pending', ms: null, steps: 0 };
+      presses.push(airPress);
+      if (presses.length > 14) presses.shift();
+    }
+  }
+
+  function land() {
+    player.y = 0;
+    player.vy = 0;
+    player.grounded = true;
+    stepsSinceLand = 0;
+    lastLand = { pressMs: null, status: null, firedMs: null };
+    if (airPress) {
+      var ms = Math.round(airPress.steps * STEP * 1000);
+      airPress.ms = ms;
+      lastLand.pressMs = ms;
+      if (jumpBuffer > EPS) {
+        airPress.status = 'saved';
+        stats.saved += 1;
+      } else if (!bufferOn.value && airPress.steps <= windowFrames.value) {
+        airPress.status = 'lost';  // ignored, but the buffer would have saved it
+        stats.lost += 1;
+      } else {
+        airPress.status = 'early';
+      }
+      lastLand.status = airPress.status;
+      report();
+    }
+  }
+
+  function step() {
+    if (hurt > 0) hurt = Math.max(0, hurt - STEP);
+    if (airPress) airPress.steps += 1;
+    if (player.grounded && stepsSinceLand >= 0) stepsSinceLand += 1;
+
+    player.x += RUN_SPEED * STEP;
+    ensureSpikes();
+
+    if (!player.grounded) {
+      var oldY = player.y;
+      player.vy -= GRAVITY * STEP;
+      player.y += player.vy * STEP;
+      if (oldY >= 0 && player.y <= 0) land();
+    }
+    if (player.grounded && jumpBuffer > EPS) {
+      jump();              // the stored press fires on the landing frame
+    }
+    jumpBuffer = Math.max(0, jumpBuffer - STEP);
+
+    for (var i = 0; i < spikes.length; i++) {
+      var k = spikes[i];
+      if (k.done) continue;
+      if (player.x + SIZE > k.x && player.x < k.x + SPIKE_W && player.y < SPIKE_HIT_H) {
+        k.hit = true;
+        k.done = true;
+        stats.hit += 1;
+        hurt = 0.3;
+        report();
+      } else if (player.x > k.x + SPIKE_W) {
+        k.done = true;
+        stats.cleared += 1;
+        report();
+      }
+    }
+  }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function statusColor(c, status) {
+    if (status === 'ground') return c.good;
+    if (status === 'saved') return c.topic;
+    if (status === 'lost') return c.bad;
+    return c.ink3;
+  }
+
+  function drawStrip(ctx, s, c) {
+    var left = 12;
+    var right = s.width - 12;
+    var span = right - left;
+    var mid = 38;
+    function tx(ms) { return left + (ms + AXIS_BEFORE) / (AXIS_BEFORE + AXIS_AFTER) * span; }
+
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText('ms around the last landing', left, 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(bufferOn.value ? 'buffer ' + windowMsValue() + ' ms' : 'buffer off', right, 14);
+
+    // The window, filled when on, outlined when off.
+    var win = windowMsValue();
+    if (win > 0) {
+      ctx.fillStyle = c.topic;
+      ctx.globalAlpha = bufferOn.value ? 0.18 : 0.06;
+      ctx.fillRect(tx(-win), mid - 9, tx(0) - tx(-win), 18);
+      ctx.globalAlpha = 1;
+      if (!bufferOn.value) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(tx(-win) + 0.5, mid - 8.5, tx(0) - tx(-win), 17);
+        ctx.setLineDash([]);
+      }
+    }
+
+    // One tick per simulation step.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    for (var f = -Math.floor(AXIS_BEFORE / 1000 / STEP); f * STEP * 1000 <= AXIS_AFTER + 0.01; f++) {
+      var x = Math.round(tx(f * STEP * 1000)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, mid - 4);
+      ctx.lineTo(x, mid + 4);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = c.ink3;
+    ctx.beginPath();
+    ctx.moveTo(left, mid);
+    ctx.lineTo(right, mid);
+    ctx.stroke();
+
+    // The landing.
+    var lx = Math.round(tx(0)) + 0.5;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(lx, mid - 12);
+    ctx.lineTo(lx, mid + 12);
+    ctx.stroke();
+    font(ctx, 11);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    ctx.fillText('lands', lx, mid + 22);
+    ctx.textAlign = 'left';
+    ctx.fillText('-' + AXIS_BEFORE, left, mid + 22);
+    ctx.textAlign = 'right';
+    ctx.fillText('+' + AXIS_AFTER, right, mid + 22);
+
+    if (!lastLand) return;
+
+    // Live cursor while standing after the landing, before the jump.
+    if (player.grounded && lastLand.firedMs === null && stepsSinceLand >= 0) {
+      var cx = tx(Math.min(stepsSinceLand * STEP * 1000, AXIS_AFTER));
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(cx, mid - 10);
+      ctx.lineTo(cx, mid + 10);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // When the jump actually fired: an upward triangle.
+    if (lastLand.firedMs !== null) {
+      var fx = tx(Math.min(lastLand.firedMs, AXIS_AFTER));
+      ctx.fillStyle = lastLand.status === 'saved' ? c.topic : c.good;
+      ctx.beginPath();
+      ctx.moveTo(fx, mid - 16);
+      ctx.lineTo(fx - 6, mid - 6);
+      ctx.lineTo(fx + 6, mid - 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // The last press made in the air before this landing.
+    var label;
+    if (lastLand.pressMs !== null) {
+      var px = tx(-Math.min(lastLand.pressMs, AXIS_BEFORE));
+      ctx.beginPath();
+      ctx.arc(px, mid, 5, 0, Math.PI * 2);
+      ctx.fillStyle = statusColor(c, lastLand.status);
+      ctx.fill();
+      label = lastLand.pressMs + ' ms early: ';
+      if (lastLand.status === 'saved') label += 'saved';
+      else if (lastLand.status === 'lost') label += 'ignored';
+      else label += 'outside window';
+      if (lastLand.status !== 'saved' && lastLand.firedMs !== null) {
+        label += ', jumped +' + lastLand.firedMs;
+      }
+    } else if (lastLand.firedMs !== null) {
+      label = 'pressed on the ground, jumped +' + lastLand.firedMs + ' ms';
+    }
+    if (label) {
+      font(ctx, 12, '600');
+      ctx.fillStyle = lastLand.status ? statusColor(c, lastLand.status) : c.good;
+      ctx.textAlign = 'left';
+      var tw = ctx.measureText(label).width;
+      ctx.fillText(label, DemoKit.clamp(lx - tw / 2, left, Math.max(left, right - tw)), mid + 40);
+    }
+  }
+
+  reset();
+
+  DemoKit.canvas('#buffer', {
+    height: 350,
+    keys: true,
+    label: 'A square runs right over rows of spikes. Press Space, W or Up, or tap, to jump. A strip at the top shows the last press made in the air against the landing and the buffer window.',
+    update: function (dt) {
+      acc += dt;
+      var guard = 0;
+      while (acc >= STEP && guard < 12) {
+        acc -= STEP;
+        step();
+        guard += 1;
+      }
+      if (guard === 12) acc = 0;
+    },
+    onDown: function () { press(); },
+    onKey: function (key, down) {
+      if (down && (key === 'space' || key === 'w' || key === 'arrowup')) press();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var ground = Math.round(s.height - 56);
+      var camX = player.x - Math.round(s.width * 0.28);
+      function sx(x) { return Math.round(x - camX); }
+
+      drawStrip(ctx, s, c);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, STRIP_H + 0.5);
+      ctx.lineTo(s.width, STRIP_H + 0.5);
+      ctx.stroke();
+
+      // Ground.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, ground, s.width, s.height - ground);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, ground);
+      ctx.lineTo(s.width, ground);
+      ctx.stroke();
+
+      // Spikes.
+      for (var i = 0; i < spikes.length; i++) {
+        var k = spikes[i];
+        var kx = sx(k.x);
+        if (kx < -40 || kx > s.width + 40) continue;
+        ctx.fillStyle = k.hit ? c.bad : c.ink2;
+        ctx.beginPath();
+        ctx.moveTo(kx, ground);
+        ctx.lineTo(kx + SPIKE_W / 2, ground - SPIKE_H);
+        ctx.lineTo(kx + SPIKE_W, ground);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Ghosts where each jump was pressed.
+      if (showGhosts.value) {
+        font(ctx, 11);
+        ctx.textAlign = 'center';
+        for (var g = 0; g < presses.length; g++) {
+          var m = presses[g];
+          var gx = sx(m.x);
+          if (gx < -40 || gx > s.width + 40) continue;
+          if (m.status === 'pending') continue;
+          var gy = Math.round(ground - m.y - SIZE);
+          var col = statusColor(c, m.status);
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash(m.status === 'lost' || m.status === 'early' ? [3, 3] : []);
+          ctx.strokeRect(gx + 0.5, gy + 0.5, SIZE - 1, SIZE - 1);
+          ctx.setLineDash([]);
+          if (m.ms !== null) {
+            ctx.fillStyle = col;
+            ctx.fillText('-' + m.ms, gx + SIZE / 2, gy - 6);
+          }
+        }
+      }
+
+      // The runner. A hit tints it red for 0.3 s (a single change, no flashing).
+      ctx.fillStyle = hurt > 0 ? c.bad : c.topic;
+      ctx.fillRect(sx(player.x), Math.round(ground - player.y - SIZE), SIZE, SIZE);
+    }
+  });
+})();
+</script>
+</body>
+</html>

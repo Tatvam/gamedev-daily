@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Combining distance fields: union, subtraction and smooth blends · Game Dev Daily</title>
+<meta name="description" content="min joins two distance fields, max keeps their overlap, max(a, -b) cuts one out of the other, and a smooth minimum melts them together.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Combining distance fields: union, subtraction and smooth blends</h1>
+  <p class="lede">min joins two distance fields, max keeps their overlap, max(a, -b) cuts one out of the other, and a smooth minimum melts them together.</p>
+</header>
+
+<section data-section="hook">
+  <p>A button with a notch cut out for a badge. Two blobs of slime that stretch towards each other and merge. Each is two simple shapes put together, and layering two masks gives hard seams, no notch and no melting.</p>
+  <p>If both shapes are signed distance functions, one more line joins, cuts or melts them, and the result is still a distance you can draw with the same smoothstep.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two distances in, one distance out</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Last time it worked out one signed distance <code>d</code> per pixel, negative inside and positive outside. Now it works out two, <code>a</code> for a circle A and <code>b</code> for a rounded box B, and must turn them into one <code>d</code> before drawing.</p>
+<pre><code>float a = sdCircle(p - posA, 0.18);
+float b = sdBox(p - posB, vec2(0.18, 0.12) - 0.04) - 0.04;
+float d = min(a, b);                     // the only new line
+float m = 1.0 - smoothstep(-aa, aa, d);  // the same mask as before</code></pre>
+  <p>Subtracting a centre such as <code>posA</code> from <code>p</code> moves a shape there, because the function now measures from that point.</p>
+
+  <h3>Union is min</h3>
+  <p>A pixel is in the <dfn>union</dfn> of two shapes when it is inside either one. Inside means negative, and <code>min(a, b)</code> is negative as soon as either value is. Outside both, the nearest edge is the nearer of the two, again the smaller distance.</p>
+
+  <h3>Intersection is max</h3>
+  <p>The <dfn>intersection</dfn> is where a pixel is inside both shapes. <code>max(a, b)</code> is negative only when both values are, so it keeps just the overlap.</p>
+
+  <h3>Subtraction is max with a flipped sign</h3>
+  <p>Negating a distance turns its shape inside out: <code>-b</code> is negative everywhere <em>except</em> inside B. Intersect A with that and you get A with B cut out of it: <code>max(a, -b)</code>. The order matters. <code>max(b, -a)</code> cuts the circle out of the box instead.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Three panels, each with a circle A on the left overlapping a rounded box B on the right, both outlined with dashed lines. In the union panel both shapes are filled, labelled min of a and b. In the subtraction panel only the part of the circle outside the box is filled, labelled max of a and minus b. In the intersection panel only the overlap is filled, labelled max of a and b.">
+      <defs>
+        <mask id="cdf-cut-b" maskUnits="userSpaceOnUse" x="240" y="30" width="180" height="110">
+          <rect x="240" y="30" width="180" height="110" fill="#fff"/>
+          <rect x="312" y="55" width="64" height="56" rx="8" fill="#000"/>
+        </mask>
+        <clipPath id="cdf-clip-b">
+          <rect x="525" y="55" width="64" height="56" rx="8"/>
+        </clipPath>
+      </defs>
+
+      <!-- Union -->
+      <text class="d-label" x="107" y="24" text-anchor="middle">union</text>
+      <circle class="d-accent-fill" cx="85" cy="85" r="38"/>
+      <rect class="d-accent-fill" x="99" y="55" width="64" height="56" rx="8"/>
+      <circle class="d-dash" cx="85" cy="85" r="38"/>
+      <rect class="d-dash" x="99" y="55" width="64" height="56" rx="8"/>
+      <text class="d-text" x="40" y="90" text-anchor="end">A</text>
+      <text class="d-text" x="170" y="90">B</text>
+      <text class="d-mono" x="107" y="152" text-anchor="middle">min(a, b)</text>
+      <text class="d-muted" x="107" y="172" text-anchor="middle">inside either</text>
+
+      <!-- Subtraction -->
+      <text class="d-label" x="320" y="24" text-anchor="middle">subtraction</text>
+      <circle class="d-accent-fill" cx="298" cy="85" r="38" mask="url(#cdf-cut-b)"/>
+      <circle class="d-dash" cx="298" cy="85" r="38"/>
+      <rect class="d-dash" x="312" y="55" width="64" height="56" rx="8"/>
+      <text class="d-text" x="253" y="90" text-anchor="end">A</text>
+      <text class="d-text" x="383" y="90">B</text>
+      <text class="d-mono" x="320" y="152" text-anchor="middle">max(a, -b)</text>
+      <text class="d-muted" x="320" y="172" text-anchor="middle">A with B cut out</text>
+
+      <!-- Intersection -->
+      <text class="d-label" x="533" y="24" text-anchor="middle">intersection</text>
+      <circle class="d-accent-fill" cx="511" cy="85" r="38" clip-path="url(#cdf-clip-b)"/>
+      <circle class="d-dash" cx="511" cy="85" r="38"/>
+      <rect class="d-dash" x="525" y="55" width="64" height="56" rx="8"/>
+      <text class="d-text" x="466" y="90" text-anchor="end">A</text>
+      <text class="d-text" x="596" y="90">B</text>
+      <text class="d-mono" x="533" y="152" text-anchor="middle">max(a, b)</text>
+      <text class="d-muted" x="533" y="172" text-anchor="middle">inside both</text>
+    </svg>
+    <figcaption>The three hard operations. Each takes the two distances for one pixel and returns one distance. The filled area is where the result is negative.</figcaption>
+  </figure>
+
+  <p>The result is not always an exact distance. <code>min</code> is exact outside the union and <code>max</code> inside the intersection. Elsewhere the number is a <dfn>bound</dfn>: the real edge is at least that far away, never closer. The zero line, which is all the mask uses, is always in the right place.</p>
+
+  <h3>Smooth union: melt the corner</h3>
+  <p>Where A and B meet, <code>min</code> switches from one distance to the other with a sharp crease. A <dfn>smooth minimum</dfn> replaces that switch with a curve over a band of width <code>k</code>:</p>
+<pre><code>float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}</code></pre>
+  <p><code>h</code> is how much <code>a</code> wins: 1.0 when <code>a</code> is smaller by <code>k</code> or more, 0.0 when <code>b</code> is, 0.5 when they are equal. <code>mix</code> blends the two distances by that weight. On its own, a blend sits <em>above</em> the smaller value, so the last term pulls it back down, by up to <code>k / 4</code> where the two are equal. Far from the seam <code>h</code> is exactly 0 or 1 and <code>smin</code> is the same as <code>min</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="A graph of distance along a horizontal line through two shapes. Two dashed V-shaped curves, a and b, dip below the zero line over each shape. The plain minimum follows the lower V and has a sharp peak above zero in the gap between the shapes. The smooth minimum, drawn in the accent colour, rounds that peak off into a curve that dips just below zero. Below, bars show where each result is inside: the minimum gives two separate pieces, the smooth minimum gives one joined piece.">
+      <text class="d-label" x="320" y="22" text-anchor="middle">a slice through two shapes, with k = 2.4</text>
+      <path class="d-thin" d="M40 150H600"/>
+      <text class="d-muted" x="600" y="170" text-anchor="end">d = 0</text>
+      <!-- a and b -->
+      <path class="d-dash" d="M40 105L208 195L460 60"/>
+      <path class="d-dash" d="M180 60L432 195L600 105"/>
+      <text class="d-mono" x="468" y="62">a</text>
+      <text class="d-mono" x="168" y="62" text-anchor="end">b</text>
+      <!-- min(a, b) -->
+      <path class="d-stroke" d="M40 105L208 195L320 135L432 195L600 105"/>
+      <text class="d-mono" x="320" y="122" text-anchor="middle">min</text>
+      <!-- smin(a, b, k) -->
+      <path class="d-accent" d="M40 105L208 195L252.8 171Q320 135 387.2 171L432 195L600 105"/>
+      <text class="d-label" x="320" y="176" text-anchor="middle">smin</text>
+      <!-- inside bars -->
+      <rect class="d-fill" x="124" y="212" width="168" height="12" rx="3"/>
+      <rect class="d-fill" x="348" y="212" width="168" height="12" rx="3"/>
+      <text class="d-mono" x="530" y="223">min</text>
+      <rect class="d-accent-fill" x="124" y="240" width="392" height="12" rx="3"/>
+      <text class="d-mono" x="530" y="251">smin</text>
+    </svg>
+    <figcaption>Along one line, each distance is a V that is negative over its shape. min peaks above zero in the gap, so the shapes stay apart. smin rounds the peak off. At the midpoint both distances are 0.5 and smin is k / 4 = 0.6 lower, so it dips below zero and the pieces join. Along a line like this, a bridge forms once the gap is under k / 2. The bars mark where each result is negative.</figcaption>
+  </figure>
+
+  <p>The same trick smooths the other two: a smooth maximum is <code>-smin(-a, -b, k)</code>, which gives a smooth intersection, and <code>-smin(-a, b, k)</code> is a smooth subtraction with a rounded cut.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Combine the distances, then make the mask once. A union of two masks looks the same as <code>min</code>, but masks cannot be cut, rounded, outlined or melted afterwards. Distances can.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag to move the nearer shape, or focus the picture and use the arrow keys. The green lines are the edges of A and B on their own. Try each operation and watch which parts survive.</p>
+  <p>Then choose <em>Smooth union</em> and pull the shapes apart slowly: a bridge forms before they touch. In the <em>Stage</em> menu, stages 1 and 2 are each distance alone and stage 3 the combined one. With the hard union the bands crease sharply between the shapes; with the smooth union the crease is rounded.</p>
+
+  <figure class="demo" data-demo="sdf-combine">
+    <canvas id="sdf-combine"></canvas>
+    <figcaption>The bands are drawn every 0.05 units: orange inside, blue outside, a white line where the distance is zero. <em>Smoothness k</em> only changes the smooth union.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Drag to move the nearer shape. Keys 1 to 4 pick the operation, up and down change <code>k</code>, S cycles the stage and G toggles the guides.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local posA = { -0.15, 0.02 }   <span class="c">-- circle centre</span>
+local posB = { 0.15, -0.02 }   <span class="c">-- rounded box centre</span>
+local op = 0                   <span class="c">-- 0 union, 1 subtraction, 2 intersection, 3 smooth union</span>
+local k = 0.1                  <span class="c">-- smoothness, in uv units</span>
+local stage = 4                <span class="c">-- 0 a, 1 b, 2 combined d, 3 mask, 4 final</span>
+local guides = 1
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local dragging = nil
+local shader
+
+local pixelcode = [[
+uniform vec2 u_posA;
+uniform vec2 u_posB;
+uniform float u_op;
+uniform float u_k;
+uniform float u_stage;
+uniform float u_guides;
+uniform vec4 u_rect;
+
+float sdCircle(vec2 p, float r) {
+    return length(p) - r;
+}
+
+float sdBox(vec2 p, vec2 b) {
+    vec2 q = abs(p) - b;
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); // 1: a wins, 0: b wins
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float combine(float a, float b) {
+    float d = min(a, b);                              // union
+    if (u_op &gt; 0.5) d = max(a, -b);                   // subtraction: A minus B
+    if (u_op &gt; 1.5) d = max(a, b);                    // intersection
+    if (u_op &gt; 2.5) d = smin(a, b, max(u_k, 0.0001)); // smooth union
+    return d;
+}
+
+vec3 bands(float d, float aa) {
+    vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+    vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+    return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+}
+
+float contour(float d, float aa) {
+    return 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(d));
+}
+
+vec3 shade(vec2 uv, float aa) {
+    float a = sdCircle(uv - u_posA, 0.18);                         // 1. circle
+    float b = sdBox(uv - u_posB, vec2(0.18, 0.12) - 0.04) - 0.04;  // 2. rounded box
+    float d = combine(a, b);                                       // 3. one distance
+    float m = 1.0 - smoothstep(-aa, aa, d);                        // 4. mask
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+    if (u_stage &lt; 3.5) col = vec3(m);
+    if (u_stage &lt; 2.5) col = bands(d, aa);
+    if (u_stage &lt; 1.5) col = bands(b, aa);
+    if (u_stage &lt; 0.5) col = bands(a, aa);
+    float g = max(contour(a, aa), contour(b, aa)) * u_guides;
+    return mix(col, vec3(0.2, 0.9, 0.5), 0.8 * g);
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+local function toUV(x, y)
+  local u = (x - rect[1] - rect[3] / 2) / rect[4]
+  local v = -(y - rect[2] - rect[4] / 2) / rect[4]
+  return u, v
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+<span class="k">function love.mousepressed(x, y, button)
+  if button ~= 1 then return end
+  local u, v = toUV(x, y)
+  local da = (u - posA[1]) ^ 2 + (v - posA[2]) ^ 2
+  local db = (u - posB[1]) ^ 2 + (v - posB[2]) ^ 2
+  if da &lt; db then dragging = posA else dragging = posB end   <span class="c">-- the nearer one</span>
+  dragging[1], dragging[2] = u, v
+end</span>
+
+function love.mousemoved(x, y)
+  if dragging then dragging[1], dragging[2] = toUV(x, y) end
+end
+
+function love.mousereleased()
+  dragging = nil
+end
+
+function love.keypressed(key)
+  if key == "1" then op = 0 end
+  if key == "2" then op = 1 end
+  if key == "3" then op = 2 end
+  if key == "4" then op = 3 end
+  if key == "up" then k = math.min(0.3, k + 0.01) end
+  if key == "down" then k = math.max(0, k - 0.01) end
+  if key == "s" then stage = (stage + 1) % 5 end
+  if key == "g" then guides = 1 - guides end
+end
+
+function love.draw()
+  shader:send("u_posA", posA)
+  shader:send("u_posB", posB)
+  shader:send("u_op", op)
+  shader:send("u_k", k)
+  shader:send("u_stage", stage)
+  shader:send("u_guides", guides)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_posA;
+uniform vec2 u_posB;
+uniform float u_op;
+uniform float u_k;
+uniform float u_stage;
+uniform float u_guides;
+
+float sdCircle(vec2 p, float r) {
+  return length(p) - r;
+}
+
+float sdBox(vec2 p, vec2 b) {
+  vec2 q = abs(p) - b;
+  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+<span class="k">float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); // 1: a wins, 0: b wins
+  return mix(b, a, h) - k * h * (1.0 - h);
+}</span>
+
+float combine(float a, float b) {
+<span class="k">  float d = min(a, b);                              // union
+  if (u_op &gt; 0.5) d = max(a, -b);                   // subtraction: A minus B
+  if (u_op &gt; 1.5) d = max(a, b);                    // intersection
+  if (u_op &gt; 2.5) d = smin(a, b, max(u_k, 0.0001)); // smooth union</span>
+  return d;
+}
+
+vec3 bands(float d, float aa) {
+  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+  vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+  return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+}
+
+float contour(float d, float aa) {
+  return 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(d));
+}
+
+vec3 shade(vec2 uv, float aa) {
+  float a = sdCircle(uv - u_posA, 0.18);                         // 1. circle
+  float b = sdBox(uv - u_posB, vec2(0.18, 0.12) - 0.04) - 0.04;  // 2. rounded box
+  float d = combine(a, b);                                       // 3. one distance
+  float m = 1.0 - smoothstep(-aa, aa, d);                        // 4. mask
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+  if (u_stage &lt; 3.5) col = vec3(m);
+  if (u_stage &lt; 2.5) col = bands(d, aa);
+  if (u_stage &lt; 1.5) col = bands(b, aa);
+  if (u_stage &lt; 0.5) col = bands(a, aa);
+  float g = max(contour(a, aa), contour(b, aa)) * u_guides;
+  return mix(col, vec3(0.2, 0.9, 0.5), 0.8 * g);
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up
+  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. A circle and a rounded box melted together with a smooth union.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 pos_a = vec2(-0.15, 0.02);
+uniform vec2 pos_b = vec2(0.15, -0.02);
+uniform float smoothness : hint_range(0.0, 0.3) = 0.1;
+uniform float aspect = 1.0;    // set to the ColorRect's width / height
+
+float sd_box(vec2 p, vec2 b) {
+    vec2 q = abs(p) - b;
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+<span class="k">float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}</span>
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);
+    uv.y = -uv.y;              // UV (0, 0) is the top-left; make y point up
+    float a = length(uv - pos_a) - 0.18;
+    float b = sd_box(uv - pos_b, vec2(0.18, 0.12) - 0.04) - 0.04;
+<span class="k">    float d = smin(a, b, max(smoothness, 0.0001));</span>
+    float aa = fwidth(uv.y);   // one pixel, in uv units
+    float m = 1.0 - smoothstep(-aa, aa, d);
+    COLOR = vec4(mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. A circle and a rounded box with a smooth union.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/SmoothUnionSDF"
+{
+    Properties
+    {
+        _PosA ("Circle centre (xy)", Vector) = (-0.15, 0.02, 0, 0)
+        _PosB ("Box centre (xy)", Vector) = (0.15, -0.02, 0, 0)
+        _K ("Smoothness", Range(0, 0.3)) = 0.1
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float4 _PosA, _PosB;
+            float _K, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float sdBox (float2 p, float2 b)
+            {
+                float2 q = abs(p) - b;
+                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+            }
+
+<span class="k">            float smin (float a, float b, float k)
+            {
+                float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+                return lerp(b, a, h) - k * h * (1.0 - h);
+            }</span>
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y already points up
+                float a = length(uv - _PosA.xy) - 0.18;
+                float b = sdBox(uv - _PosB.xy, float2(0.18, 0.12) - 0.04) - 0.04;
+<span class="k">                float d = smin(a, b, max(_K, 0.0001));</span>
+                float aa = fwidth(uv.y);
+                float m = 1.0 - smoothstep(-aa, aa, d);
+                return fixed4(lerp(float3(0.1, 0.12, 0.22), float3(1.0, 0.62, 0.2), m), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions show the smooth union; swap the <code>smin</code> line for <code>min</code>, <code>max(a, -b)</code> or <code>max(a, b)</code> for the others. In URP Shader Graph, <em>Minimum</em> and <em>Maximum</em> nodes do the hard operations and <code>smin</code> fits in a <em>Custom Function</em> node.</p>
+  <p>The positions assume y up. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up; Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down, so those versions flip y. In a Unity project set to Linear colour space, the hard-coded colours are treated as linear values and look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Subtracting the wrong way round.</strong> <code>max(a, -b)</code> is A minus B. If the wrong shape disappears, swap the arguments.</li>
+    <li><strong>A smoothness of zero.</strong> <code>smin</code> divides by <code>k</code>. Clamp it to a tiny positive value, as the code does, or branch to plain <code>min</code>.</li>
+    <li><strong>Smooth union grows the shape.</strong> <code>smin</code> is never larger than <code>min</code>, so the shapes swell where they meet and join before they touch. If two parts must stay separate until they collide, use a smaller <code>k</code>.</li>
+    <li><strong>Trusting the distance far from the edge.</strong> After a <code>max</code> or a blend, the value away from zero is a bound. The fill is right; a wide glow or thick outline can come out uneven near cuts.</li>
+    <li><strong>Combining masks instead of distances.</strong> Once you have taken a smoothstep, the distance is gone. Do all the combining first and take the mask once at the end.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p><code>min</code> and <code>max</code> are single instructions, and <code>smin</code> is roughly half a dozen: a division, a clamp, a mix and a few multiplies. That is nothing next to the shapes, which every pixel evaluates in full, near them or not. Ten shapes cost ten shapes for every pixel: fine on a phone for a button, worth measuring for a full-screen effect. The <code>if</code> statements on <code>u_op</code> are cheap because every pixel takes the same path. </p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Inigo Quilez's articles on distance functions and the smooth minimum are where many shader programmers learned these operations, and they appear across Shadertoy. Media Molecule's <cite>Dreams</cite> lets players sculpt by adding and subtracting shapes with soft blends, built on signed distance fields, as Alex Evans described in his SIGGRAPH 2015 talk <cite>Learning from Failure</cite>.</p>
+  <p>In 2D the same lines draw UI shapes that are awkward as textures, such as a panel with a notch for a tab, and merging blobs of liquid or slime. They work unchanged in 3D, where a later ray marching lesson uses them.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a pair of lava lamp blobs:</p>
+  <ol>
+    <li>Replace the box with a second circle of radius 0.12, and add <code>uniform float u_time;</code>, sent from a Lua variable that <code>love.update(dt)</code> increases by <code>dt</code>.</li>
+    <li>Set <code>posA</code> to <code>{ 0, 0 }</code> and move the small circle up and down through it: centre <code>vec2(0.0, 0.3 * sin(u_time))</code>.</li>
+    <li>Join them with <code>smin</code> and <code>k = 0.15</code>.</li>
+  </ol>
+  <p>You are done when the small blob stretches a neck towards the big one before touching, merges, and pulls away again with no hard seam.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>min(a, b)</code> is the union, <code>max(a, b)</code> the intersection, and <code>max(a, -b)</code> cuts B out of A.</li>
+    <li><code>smin(a, b, k)</code> rounds the seam over a band of width <code>k</code>, so shapes melt together and join slightly before they touch.</li>
+    <li>The combined value is still a signed distance at the edge, so the same smoothstep draws it. Away from the edge it can be a bound.</li>
+    <li>Combine distances first and take the mask once.</li>
+    <li>The operations are almost free; every shape in the shader still costs every pixel.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson brings in time: a <code>u_time</code> uniform with <code>sin</code> and <code>fract</code> makes shapes pulse and loop.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Inigo Quilez, <cite>Smooth minimum</cite>. The polynomial smooth minimum used here, and other versions.</li>
+    <li>Inigo Quilez, <cite>2D distance functions</cite> and <cite>Distance functions</cite> (3D). Include the union, subtraction and intersection operators.</li>
+    <li>Alex Evans (Media Molecule), <cite>Learning from Failure: a Survey of Promising, Unconventional and Mostly Abandoned Renderers for Dreams PS4</cite>, SIGGRAPH 2015, Advances in Real-Time Rendering course.</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Shapes".</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.3 "Common Functions". Defines min, max, clamp, mix and smoothstep.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_posA;",
+    "uniform vec2 u_posB;",
+    "uniform float u_op;",
+    "uniform float u_k;",
+    "uniform float u_stage;",
+    "uniform float u_guides;",
+    "",
+    "float sdCircle(vec2 p, float r) {",
+    "  return length(p) - r;",
+    "}",
+    "",
+    "float sdBox(vec2 p, vec2 b) {",
+    "  vec2 q = abs(p) - b;",
+    "  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);",
+    "}",
+    "",
+    "float smin(float a, float b, float k) {",
+    "  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); // 1: a wins, 0: b wins",
+    "  return mix(b, a, h) - k * h * (1.0 - h);",
+    "}",
+    "",
+    "float combine(float a, float b) {",
+    "  float d = min(a, b);                              // union",
+    "  if (u_op > 0.5) d = max(a, -b);                   // subtraction: A minus B",
+    "  if (u_op > 1.5) d = max(a, b);                    // intersection",
+    "  if (u_op > 2.5) d = smin(a, b, max(u_k, 0.0001)); // smooth union",
+    "  return d;",
+    "}",
+    "",
+    "vec3 bands(float d, float aa) {",
+    "  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));",
+    "  vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));",
+    "  return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));",
+    "}",
+    "",
+    "float contour(float d, float aa) {",
+    "  return 1.0 - smoothstep(0.5 * aa, 1.5 * aa, abs(d));",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  float a = sdCircle(uv - u_posA, 0.18);                         // 1. circle",
+    "  float b = sdBox(uv - u_posB, vec2(0.18, 0.12) - 0.04) - 0.04;  // 2. rounded box",
+    "  float d = combine(a, b);                                       // 3. one distance",
+    "  float m = 1.0 - smoothstep(-aa, aa, d);                        // 4. mask",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final",
+    "  if (u_stage < 3.5) col = vec3(m);",
+    "  if (u_stage < 2.5) col = bands(d, aa);",
+    "  if (u_stage < 1.5) col = bands(b, aa);",
+    "  if (u_stage < 0.5) col = bands(a, aa);",
+    "  float g = max(contour(a, aa), contour(b, aa)) * u_guides;",
+    "  return mix(col, vec3(0.2, 0.9, 0.5), 0.8 * g);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                    // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y; // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;              // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var FORMULAS = ['d = min(a, b)', 'd = max(a, -b)', 'd = max(a, b)', 'd = smin(a, b, k)'];
+
+  var handle = null;
+  var pos = { a: [-0.15, 0.02], b: [0.15, -0.02] };
+  var dragging = null;
+  var view = { w: 16, h: 9 };
+  var ui = DemoKit.controls('[data-demo="sdf-combine"]');
+
+  var op = ui.select({
+    label: 'Operation',
+    options: [
+      { value: '0', label: 'Union' },
+      { value: '1', label: 'Subtraction (A minus B)' },
+      { value: '2', label: 'Intersection' },
+      { value: '3', label: 'Smooth union' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_op', Number(v)); }
+  });
+  var k = ui.slider({ label: 'Smoothness k', min: 0, max: 0.3, step: 0.005, value: 0.1,
+    onInput: function (v) { send('u_k', v); } });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Distance a to the circle' },
+      { value: '1', label: '2. Distance b to the box' },
+      { value: '2', label: '3. Combined distance d' },
+      { value: '3', label: '4. Mask m' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var keysMove = ui.select({
+    label: 'Arrow keys move',
+    options: [
+      { value: 'a', label: 'Circle A' },
+      { value: 'b', label: 'Box B' }
+    ],
+    value: 'a'
+  });
+  ui.toggle({ label: 'Show edges of A and B', value: true,
+    onChange: function (v) { send('u_guides', v ? 1 : 0); } });
+  var formula = ui.readout({ label: 'Formula' });
+
+  function updateReadout() {
+    var i = Number(op.value);
+    var text = FORMULAS[i] || FORMULAS[0];
+    if (i === 3) text += ', k = ' + k.value.toFixed(3);
+    formula.set(text);
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    updateReadout();
+  }
+
+  function place(which, x, y) {
+    var hw = 0.5 * view.w / Math.max(1, view.h);
+    pos[which] = [Math.min(Math.max(x, -hw), hw), Math.min(Math.max(y, -0.5), 0.5)];
+    send(which === 'a' ? 'u_posA' : 'u_posB', pos[which].slice());
+  }
+
+  // Pointer position in CSS pixels to centred uv, y up. Same formula as the shader.
+  function toUV(p, s) {
+    var h = Math.max(1, s.height);
+    return [(p.x - 0.5 * s.width) / h, (0.5 * s.height - p.y) / h];
+  }
+
+  function dist2(q, c) {
+    var dx = q[0] - c[0], dy = q[1] - c[1];
+    return dx * dx + dy * dy;
+  }
+
+  handle = DemoKit.shader('#sdf-combine', {
+    fragment: fragment,
+    animate: false,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader that combines a circle and a rounded box with union, subtraction, intersection or smooth union. Drag either shape, or use the arrow keys to move the one chosen below.',
+    uniforms: {
+      u_posA: [-0.15, 0.02],
+      u_posB: [0.15, -0.02],
+      u_op: 0,
+      u_k: 0.1,
+      u_stage: 4,
+      u_guides: 1
+    },
+    onDown: function (p, s) {
+      var q = toUV(p, s);
+      dragging = dist2(q, pos.a) < dist2(q, pos.b) ? 'a' : 'b';
+      keysMove.set(dragging);
+      place(dragging, q[0], q[1]);
+    },
+    onMove: function (p, s) {
+      if (!p.down || !dragging) return;
+      var q = toUV(p, s);
+      place(dragging, q[0], q[1]);
+    },
+    onUp: function () {
+      dragging = null;
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var w = keysMove.value === 'b' ? 'b' : 'a';
+      var step = 0.02;
+      if (key === 'arrowleft') place(w, pos[w][0] - step, pos[w][1]);
+      if (key === 'arrowright') place(w, pos[w][0] + step, pos[w][1]);
+      if (key === 'arrowup') place(w, pos[w][0], pos[w][1] + step);
+      if (key === 'arrowdown') place(w, pos[w][0], pos[w][1] - step);
+    },
+    onResize: function (s) {
+      view = { w: s.width, h: s.height };
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>
