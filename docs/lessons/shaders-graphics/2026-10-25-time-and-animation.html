@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time and animation: pulsing and looping with u_time · Game Dev Daily</title>
+<meta name="description" content="One time uniform makes a shader move: sin of time gives a pulse that swings back and forth, fract of time gives a loop that grows and starts again.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-25">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Time and animation: pulsing and looping with u_time</h1>
+  <p class="lede">One time uniform makes a shader move: sin of time gives a pulse that swings back and forth, fract of time gives a loop that grows and starts again.</p>
+</header>
+
+<section data-section="hook">
+  <p>A health pickup that gently breathes so the player notices it. A shockwave ring that grows and fades, again and again. A row of lights that ripple like a crowd doing a wave.</p>
+  <p>None of these need a sprite sheet or a tween. Give the shader one extra number, the time, and the shapes from the last few lessons start to move.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Time is just another input</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far its inputs were the pixel position and a few sliders. A shader has no memory between frames: it cannot add a little to a position each frame the way game code does. To animate, it must work out the whole picture from scratch each frame, from a number that changes.</p>
+  <p>That number is a <dfn>time uniform</dfn>: the seconds since the effect started, sent by the CPU before each frame. Like every <dfn>uniform</dfn>, it has the same value for every pixel in the draw. On this site it is <code>u_time</code>. Godot calls it <code>TIME</code>, Unity <code>_Time.y</code>, Shadertoy <code>iTime</code>, and in LÖVE you send it yourself.</p>
+<pre><code>float phase = u_time * u_speed;   // cycles completed so far
+float w = sin(6.2832 * phase);    // swings from -1 to 1 and back
+float d = length(uv) - (0.2 + u_amp * w);  // a circle whose radius breathes</code></pre>
+  <p>Read it as three steps. First, <code>phase</code> turns seconds into <dfn>cycles</dfn>: with <code>u_speed = 0.5</code>, half a cycle passes each second. Second, a shaping function turns cycles into a value with a useful range. Third, that value goes into something you already know how to draw, here the radius of the circle from the distance lesson.</p>
+
+  <h3>sin: back and forth</h3>
+  <p><code>sin</code> takes an angle in radians and returns a value between -1 and 1. One full turn is 2π, about 6.2832, so multiplying the phase by 6.2832 makes one cycle of <code>phase</code> one full swing. The speed is then in cycles per second: 0.5 means one breath every 2 seconds.</p>
+  <p>The <dfn>amplitude</dfn> is how far the value swings. <code>u_amp * w</code> moves between <code>-u_amp</code> and <code>+u_amp</code>, so a radius of <code>0.2 + 0.08 * w</code> breathes between 0.12 and 0.28.</p>
+
+  <h3>fract: grow, then start again</h3>
+  <p><code>fract(phase)</code> keeps only the part after the decimal point. It climbs from 0 to 1 over each cycle, then drops back to 0. This shape is called a <dfn>sawtooth</dfn>. Use it for anything that plays once and repeats: a growing ring, a sweeping scan line. Hide the hard drop by fading out as the value nears 1, with <code>1.0 - fract(phase)</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Two graphs of a value against time. On the left, sin of 6.2832 times phase swings smoothly between plus 1 and minus 1, two full cycles. On the right, fract of phase climbs in a straight line from 0 to 1, drops straight back to 0, and climbs again. Under each, a bracket marks one cycle, which lasts 1 divided by speed seconds.">
+      <!-- Left: sine -->
+      <text class="d-label" x="160" y="28" text-anchor="middle">sin(6.2832 × phase)</text>
+      <path class="d-thin" d="M50 50V160"/>
+      <path class="d-thin" d="M50 105H280"/>
+      <path class="d-dash" d="M50 60H270M50 150H270"/>
+      <text class="d-muted" x="42" y="64" text-anchor="end">+1</text>
+      <text class="d-muted" x="42" y="109" text-anchor="end">0</text>
+      <text class="d-muted" x="42" y="154" text-anchor="end">−1</text>
+      <path class="d-accent" d="M50.0 105.0L54.6 93.4L59.2 82.5L63.8 73.2L68.3 66.0L72.9 61.5L77.5 60.0L82.1 61.5L86.7 66.0L91.3 73.2L95.8 82.5L100.4 93.4L105.0 105.0L109.6 116.6L114.2 127.5L118.8 136.8L123.3 144.0L127.9 148.5L132.5 150.0L137.1 148.5L141.7 144.0L146.3 136.8L150.8 127.5L155.4 116.6L160.0 105.0L164.6 93.4L169.2 82.5L173.8 73.2L178.3 66.0L182.9 61.5L187.5 60.0L192.1 61.5L196.7 66.0L201.3 73.2L205.8 82.5L210.4 93.4L215.0 105.0L219.6 116.6L224.2 127.5L228.8 136.8L233.3 144.0L237.9 148.5L242.5 150.0L247.1 148.5L251.7 144.0L256.3 136.8L260.8 127.5L265.4 116.6L270.0 105.0"/>
+      <path class="d-stroke" d="M50 172V180H160V172"/>
+      <text class="d-text" x="105" y="198" text-anchor="middle">one cycle = 1 / speed s</text>
+      <text class="d-muted" x="284" y="109">time</text>
+
+      <!-- Right: fract -->
+      <text class="d-label" x="470" y="28" text-anchor="middle">fract(phase)</text>
+      <path class="d-thin" d="M360 50V160"/>
+      <path class="d-thin" d="M360 150H590"/>
+      <path class="d-dash" d="M360 60H580"/>
+      <text class="d-muted" x="352" y="64" text-anchor="end">1</text>
+      <text class="d-muted" x="352" y="154" text-anchor="end">0</text>
+      <path class="d-accent" d="M360 150L470 60"/>
+      <path class="d-dash" d="M470 60V150"/>
+      <path class="d-accent" d="M470 150L580 60"/>
+      <text class="d-muted" x="464" y="135" text-anchor="end">back to 0</text>
+      <path class="d-stroke" d="M360 172V180H470V172"/>
+      <text class="d-text" x="415" y="198" text-anchor="middle">one cycle, then repeat</text>
+      <text class="d-muted" x="594" y="154">time</text>
+    </svg>
+    <figcaption>The two shapes most shader animation is built from. Both repeat every 1 / speed seconds. sin swings smoothly and never stops; fract ramps up and jumps back.</figcaption>
+  </figure>
+
+  <h3>Same time, different phase</h3>
+  <p>Every pixel sees the same <code>u_time</code>, but nothing stops you mixing it with something that differs per pixel or per shape. Subtract a little from the phase for each dot in a row, <code>sin(6.2832 * (phase - 0.1 * i))</code>, and each dot reaches its peak a tenth of a cycle after its neighbour. The row carries a travelling wave. The offset is called a <dfn>phase offset</dfn>.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Time in, cycles out, shape last: multiply by a speed, shape with <code>sin</code> or <code>fract</code>, then scale and add to a size, a position or a colour you already know how to draw.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Pick a motion, then change <em>Speed</em> and <em>Amplitude</em>. The graph under the picture plots the driver value over the last 3 seconds; the dot on the right edge is the value this frame. Tick <em>Pause time</em> to freeze the clock while the sliders still reshape the frame.</p>
+  <p>Set <em>Stage</em> to <em>1. Driver value</em> and the whole canvas turns one shade of grey that brightens and darkens together: the time is the same for every pixel. Then drag <em>Speed</em> while it runs and watch the shape jump. The pitfalls below explain why.</p>
+
+  <figure class="demo" data-demo="time-anim">
+    <canvas id="time-anim"></canvas>
+    <canvas id="time-graph"></canvas>
+    <figcaption>Pulse uses <code>sin</code> on the radius. Ping uses <code>fract</code> on a ring and fades it out. Wave gives each of seven dots a phase offset of 0.1 cycles. Stage 2 shows the distance field as bands, orange inside and blue outside.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. LÖVE has no time uniform, so <code>love.update(dt)</code> adds up the seconds and <code>love.draw</code> sends them. Keys 1 to 3 pick the motion, up and down change the speed, left and right the amplitude, S cycles the stage and space pauses time.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local speed = 0.5      <span class="c">-- cycles per second</span>
+local amp = 0.08       <span class="c">-- uv units</span>
+local mode = 0         <span class="c">-- 0 pulse, 1 ping, 2 wave</span>
+local stage = 3        <span class="c">-- 0 driver, 1 distance, 2 mask, 3 final</span>
+local paused = false
+local time = 0         <span class="c">-- seconds, added up in love.update</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_time;
+uniform float u_speed;
+uniform float u_amp;
+uniform float u_mode;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+vec3 bands(float d, float aa) {
+    vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+    vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+    return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+}
+
+vec3 shade(vec2 uv, float aa) {
+    float phase = u_time * u_speed;            // 1. cycles so far
+    float w = sin(6.2832 * phase);             // 2. -1 to 1 and back
+    float f = fract(phase);                    //    0 to 1, then back to 0
+    float shown = 0.5 + 0.5 * w;               //    the driver as a grey
+    float fade = 1.0;
+    float d = length(uv) - (0.2 + u_amp * w);  // 3. pulse: radius breathes
+    if (u_mode &gt; 0.5 &amp;&amp; u_mode &lt; 1.5) {      // ping: ring grows and fades
+        d = abs(length(uv) - (0.05 + 3.0 * u_amp * f)) - 0.015;
+        fade = 1.0 - f;
+        shown = f;
+    }
+    if (u_mode &gt; 1.5) {                        // wave: each dot a bit behind
+        d = 1.0;
+        for (int k = 0; k &lt; 7; k++) {
+            float i = float(k) - 3.0;
+            float y = u_amp * sin(6.2832 * (phase - 0.1 * i));
+            d = min(d, length(uv - vec2(0.12 * i, y)) - 0.04);
+        }
+    }
+    float m = (1.0 - smoothstep(-aa, aa, d)) * fade;                // 4. mask
+    vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+    if (u_stage &lt; 2.5) col = vec3(m);
+    if (u_stage &lt; 1.5) col = bands(d, aa);
+    if (u_stage &lt; 0.5) col = vec3(shown);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+<span class="k">function love.update(dt)
+  if not paused then
+    time = time + dt               <span class="c">-- the clock the shader reads</span>
+  end
+end</span>
+
+function love.keypressed(key)
+  if key == "1" then mode = 0 end
+  if key == "2" then mode = 1 end
+  if key == "3" then mode = 2 end
+  if key == "up" then speed = math.min(2, speed + 0.05) end
+  if key == "down" then speed = math.max(0, speed - 0.05) end
+  if key == "right" then amp = math.min(0.15, amp + 0.01) end
+  if key == "left" then amp = math.max(0, amp - 0.01) end
+  if key == "s" then stage = (stage + 1) % 4 end
+  if key == "space" then paused = not paused end
+end
+
+function love.draw()
+<span class="k">  shader:send("u_time", time)</span>
+  shader:send("u_speed", speed)
+  shader:send("u_amp", amp)
+  shader:send("u_mode", mode)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_speed;
+uniform float u_amp;
+uniform float u_mode;
+uniform float u_stage;
+
+vec3 bands(float d, float aa) {
+  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));
+  vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));
+  return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));
+}
+
+vec3 shade(vec2 uv, float aa) {
+<span class="k">  float phase = u_time * u_speed;            // 1. cycles so far
+  float w = sin(6.2832 * phase);             // 2. -1 to 1 and back
+  float f = fract(phase);                    //    0 to 1, then back to 0</span>
+  float shown = 0.5 + 0.5 * w;               //    the driver as a grey
+  float fade = 1.0;
+<span class="k">  float d = length(uv) - (0.2 + u_amp * w);  // 3. pulse: radius breathes</span>
+  if (u_mode &gt; 0.5 &amp;&amp; u_mode &lt; 1.5) {      // ping: ring grows and fades
+    d = abs(length(uv) - (0.05 + 3.0 * u_amp * f)) - 0.015;
+    fade = 1.0 - f;
+    shown = f;
+  }
+  if (u_mode &gt; 1.5) {                        // wave: each dot a bit behind
+    d = 1.0;
+    for (int k = 0; k &lt; 7; k++) {
+      float i = float(k) - 3.0;
+      float y = u_amp * sin(6.2832 * (phase - 0.1 * i));
+      d = min(d, length(uv - vec2(0.12 * i, y)) - 0.04);
+    }
+  }
+  float m = (1.0 - smoothstep(-aa, aa, d)) * fade;                // 4. mask
+  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final
+  if (u_stage &lt; 2.5) col = vec3(m);
+  if (u_stage &lt; 1.5) col = bands(d, aa);
+  if (u_stage &lt; 0.5) col = vec3(shown);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up
+  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. A circle whose radius pulses with the built-in TIME.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float speed = 0.5;                        // cycles per second
+uniform float amp : hint_range(0.0, 0.15) = 0.08; // uv units
+uniform float aspect = 1.0;    // set to the ColorRect's width / height
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);    // centred; y points down
+<span class="k">    float phase = TIME * speed;
+    float w = sin(6.2832 * phase);
+    float d = length(uv) - (0.2 + amp * w);</span>
+    float aa = fwidth(uv.y);   // one pixel, in uv units
+    float m = 1.0 - smoothstep(-aa, aa, d);
+    COLOR = vec4(mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. A circle whose radius pulses with _Time.y.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/PulseCircle"
+{
+    Properties
+    {
+        _Speed ("Speed (cycles per second)", Float) = 0.5
+        _Amp ("Amplitude", Range(0, 0.15)) = 0.08
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float _Speed, _Amp, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y points up
+<span class="k">                float phase = _Time.y * _Speed;   // _Time.y is seconds
+                float w = sin(6.2832 * phase);
+                float d = length(uv) - (0.2 + _Amp * w);</span>
+                float aa = fwidth(uv.y);
+                float m = 1.0 - smoothstep(-aa, aa, d);
+                return fixed4(lerp(float3(0.1, 0.12, 0.22), float3(1.0, 0.62, 0.2), m), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions show the pulse; swap in the ping or wave lines from the GLSL tab for the others. In URP Shader Graph, the <em>Time</em> node gives the seconds, and a <em>Multiply</em>, <em>Sine</em> or <em>Fraction</em> node does the rest.</p>
+  <p>The pulse looks the same with y up or down; the wave does not. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up; Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down, which is why the LÖVE version flips y. In a Unity project set to Linear colour space, the hard-coded colours are treated as linear values and look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Changing the speed makes the shape jump.</strong> <code>u_time * u_speed</code> recomputes the phase from the start of time. At 103 seconds, raising the speed from 0.50 to 0.55 moves the phase forward by 5.15 cycles at once, so the shape snaps to a different point in its swing. If speed changes during play, add up the phase on the CPU and send that instead:
+<pre><code>phase = phase + speed * dt   -- in love.update(dt)
+shader:send("u_phase", phase)</code></pre></li>
+    <li><strong>Time grows without limit, and floats run out of precision.</strong> A 32-bit float carries about 7 significant digits; <code>mediump</code> on many phones carries closer to 3. With <code>mediump</code> time, after a minute or so the gaps between representable values are longer than a frame, and the animation starts to stutter. Desktop GPUs often run <code>mediump</code> at full precision, so you only see it on a phone. Wrap the value on the CPU, for example <code>time % 60</code> when every loop divides 60 seconds evenly. Godot wraps <code>TIME</code> for this reason, by default every 3600 seconds (a project setting).</li>
+    <li><strong>Forgetting the 6.2832.</strong> <code>sin(u_time)</code> repeats every 6.28 seconds, not every second.</li>
+    <li><strong>A visible restart.</strong> <code>fract</code> jumps from 1 back to 0. Fade the effect to nothing before the jump, or make the end of the loop look the same as its start.</li>
+    <li><strong>Marching in step.</strong> Ten pickups sharing one phase pulse together like a metronome. Give each a phase offset, from its position or an id, so they breathe independently.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p><code>sin</code>, <code>fract</code> and a multiply are a few cycles each on any GPU, and sending one float per frame is free. The wave mode's seven <code>sin</code> calls per pixel are still cheap. The real cost of animation is that the shader now runs again every frame. A still effect can be drawn once and kept; a moving one keeps the GPU busy every frame it is on screen, which on a phone means battery. Keep animated full-screen shaders small and stop updating the ones that are off screen, as this page does.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every major engine passes the time to shaders as a built-in: <code>TIME</code> in Godot, <code>_Time</code> in Unity's built-in shader variables (with <code>_SinTime</code> and <code>_CosTime</code> precomputed), and a <em>Time</em> node in Unity's Shader Graph. Shadertoy gives every shader <code>iTime</code>.</p>
+  <p>The patterns here are everyday ones: pickups that pulse to catch the eye, buttons that glow while waiting for a press, and expanding rings for shockwaves and click markers. Animating in the shader means a hundred pickups share one material and need no per-object scripts.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a heartbeat for a low-health warning:</p>
+  <ol>
+    <li>In pulse mode, replace <code>w</code> with a sharp beat: <code>float beat = pow(0.5 + 0.5 * sin(6.2832 * phase), 8.0);</code>, then use <code>0.2 + u_amp * beat</code> as the radius. Raising to a high power keeps the value near 0 most of the cycle and makes it spike briefly.</li>
+    <li>Set the speed to 1.2 cycles per second, about 72 beats per minute.</li>
+    <li>Fix the speed-jump pitfall: keep a <code>phase</code> variable in Lua, add <code>speed * dt</code> to it in <code>love.update(dt)</code>, send it as <code>u_phase</code>, and use it in place of <code>u_time * u_speed</code>.</li>
+  </ol>
+  <p>You are done when the circle gives a quick thump and rests, and holding the up arrow speeds the heartbeat up without the circle ever jumping.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader has no memory between frames; it animates by recomputing everything from a time uniform that is the same for every pixel.</li>
+    <li>Multiply time by a speed to get cycles, then shape it: <code>sin(6.2832 * phase)</code> swings from -1 to 1, <code>fract(phase)</code> ramps from 0 to 1 and restarts.</li>
+    <li>Scale by an amplitude and add a base value, then feed the result into a size, position or colour you can already draw.</li>
+    <li>A phase offset per shape or per pixel turns one clock into waves and keeps copies out of step.</li>
+    <li>Accumulate the phase on the CPU if speed changes, and wrap time so it stays precise on phones.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson adds time to the UV itself instead of to a shape, scrolling whole patterns for conveyors, clouds and waterfalls.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Uniforms" and "Shaping functions".</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 4.5 "Precision and Precision Qualifiers" and section 8 "Built-in Functions" (sin, fract).</li>
+    <li>Godot Engine documentation, <cite>CanvasItem shaders</cite> and <cite>Shading language</cite> (the TIME built-in).</li>
+    <li>Unity Manual, <cite>Built-in shader variables</cite> (_Time, _SinTime, _CosTime), and the Shader Graph <cite>Time Node</cite> page.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_time;",
+    "uniform float u_speed;",
+    "uniform float u_amp;",
+    "uniform float u_mode;",
+    "uniform float u_stage;",
+    "",
+    "vec3 bands(float d, float aa) {",
+    "  vec3 side = mix(vec3(0.35, 0.6, 1.0), vec3(1.0, 0.62, 0.2), step(d, 0.0));",
+    "  vec3 c = side * (0.75 + 0.25 * cos(6.2832 * 20.0 * d));",
+    "  return mix(c, vec3(1.0), 1.0 - smoothstep(aa, 2.0 * aa, abs(d)));",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  float phase = u_time * u_speed;            // 1. cycles so far",
+    "  float w = sin(6.2832 * phase);             // 2. -1 to 1 and back",
+    "  float f = fract(phase);                    //    0 to 1, then back to 0",
+    "  float shown = 0.5 + 0.5 * w;               //    the driver as a grey",
+    "  float fade = 1.0;",
+    "  float d = length(uv) - (0.2 + u_amp * w);  // 3. pulse: radius breathes",
+    "  if (u_mode > 0.5 && u_mode < 1.5) {      // ping: ring grows and fades",
+    "    d = abs(length(uv) - (0.05 + 3.0 * u_amp * f)) - 0.015;",
+    "    fade = 1.0 - f;",
+    "    shown = f;",
+    "  }",
+    "  if (u_mode > 1.5) {                        // wave: each dot a bit behind",
+    "    d = 1.0;",
+    "    for (int k = 0; k < 7; k++) {",
+    "      float i = float(k) - 3.0;",
+    "      float y = u_amp * sin(6.2832 * (phase - 0.1 * i));",
+    "      d = min(d, length(uv - vec2(0.12 * i, y)) - 0.04);",
+    "    }",
+    "  }",
+    "  float m = (1.0 - smoothstep(-aa, aa, d)) * fade;                // 4. mask",
+    "  vec3 col = mix(vec3(0.1, 0.12, 0.22), vec3(1.0, 0.62, 0.2), m); // 5. final",
+    "  if (u_stage < 2.5) col = vec3(m);",
+    "  if (u_stage < 1.5) col = bands(d, aa);",
+    "  if (u_stage < 0.5) col = vec3(shown);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var TAU = 6.2832;
+  var WINDOW = 3; // seconds of history in the graph
+
+  var clock = 0;  // seconds; this is what the shader receives as u_time
+  var handle = null;
+  var graph = null;
+
+  var ui = DemoKit.controls('[data-demo="time-anim"]');
+  var mode = ui.select({
+    label: 'Motion',
+    options: [
+      { value: '0', label: 'Pulse (sin on the radius)' },
+      { value: '1', label: 'Ping (fract on a ring)' },
+      { value: '2', label: 'Wave (phase offset per dot)' }
+    ],
+    value: '0',
+    onChange: function (v) { send('u_mode', Number(v)); }
+  });
+  var speed = ui.slider({ label: 'Speed', min: 0, max: 2, step: 0.05, value: 0.5, unit: ' cycles/s',
+    onInput: function (v) { send('u_speed', v); } });
+  var amp = ui.slider({ label: 'Amplitude', min: 0, max: 0.15, step: 0.005, value: 0.08,
+    onInput: function (v) { send('u_amp', v); } });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Driver value (same for every pixel)' },
+      { value: '1', label: '2. Distance field' },
+      { value: '2', label: '3. Mask' },
+      { value: '3', label: '4. Final colour' }
+    ],
+    value: '3',
+    onChange: function (v) { send('u_stage', Number(v)); }
+  });
+  var paused = ui.toggle({ label: 'Pause time', value: false });
+  var readout = ui.readout({ label: 'This frame' });
+
+  // The value the graph plots: sin for pulse and wave, fract for ping.
+  function driver(t) {
+    var phase = t * speed.value;
+    if (mode.value === '1') return phase - Math.floor(phase);
+    return Math.sin(TAU * phase);
+  }
+
+  function updateReadout() {
+    var phase = clock * speed.value;
+    var name = mode.value === '1' ? 'fract' : 'sin';
+    readout.set('t = ' + clock.toFixed(2) + ' s, phase = ' + phase.toFixed(2) +
+      ' cycles, ' + name + ' = ' + driver(clock).toFixed(2));
+  }
+
+  function refresh() {
+    updateReadout();
+    if (graph) graph.redraw();
+  }
+
+  function send(name, value) {
+    if (handle) handle.set(name, value);
+    refresh();
+  }
+
+  handle = DemoKit.shader('#time-anim', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 380,
+    label: 'A live fragment shader that animates a circle, a ring or a row of dots from a time uniform. Use the controls below to change the motion, speed and amplitude, or pause time.',
+    uniforms: {
+      // Overrides the DemoKit clock so the Pause time toggle can stop it.
+      u_time: function () { return clock; },
+      u_speed: 0.5,
+      u_amp: 0.08,
+      u_mode: 0,
+      u_stage: 3
+    },
+    update: function (dt) {
+      if (!paused.value) clock += dt;
+      refresh();
+    }
+  });
+
+  graph = DemoKit.canvas('#time-graph', {
+    height: 120,
+    animate: false,
+    label: 'A graph of the driver value over the last three seconds, with the current value marked at the right edge.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 34, right = s.width - 14, top = 14, bottom = s.height - 26;
+      var isSaw = mode.value === '1';
+      var lo = isSaw ? 0 : -1;
+      function yOf(v) { return bottom - (v - lo) / (1 - lo) * (bottom - top); }
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, s.width, s.height);
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, yOf(1)); ctx.lineTo(right, yOf(1));
+      ctx.moveTo(left, yOf(lo)); ctx.lineTo(right, yOf(lo));
+      if (!isSaw) { ctx.moveTo(left, yOf(0)); ctx.lineTo(right, yOf(0)); }
+      ctx.stroke();
+
+      ctx.fillStyle = c.ink3;
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('1', left - 6, yOf(1));
+      ctx.fillText(isSaw ? '0' : '-1', left - 6, yOf(lo));
+      if (!isSaw) ctx.fillText('0', left - 6, yOf(0));
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      ctx.fillText(WINDOW + ' s ago', left, s.height - 8);
+      ctx.textAlign = 'right';
+      ctx.fillText('now', right, s.height - 8);
+
+      var span = Math.max(1, right - left);
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      var steps = Math.round(span * 2);
+      for (var i = 0; i <= steps; i++) {
+        var x = left + span * i / steps;
+        var t = clock - WINDOW * (1 - i / steps);
+        var y = yOf(driver(t));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(right, yOf(driver(clock)), 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

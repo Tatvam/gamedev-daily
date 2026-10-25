@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raycasts · Game Dev Daily</title>
+<meta name="description" content="How to find the first thing a ray hits, how far away it is and which way the surface faces, for boxes and circles.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Raycasts</h1>
+  <p class="lede">How to find the first thing a ray hits, how far away it is and which way the surface faces, for boxes and circles.</p>
+</header>
+
+<section data-section="hook">
+  <p>A guard sees you straight through a wall. A laser passes a crate and burns the player standing behind it. A turret shoots at an enemy behind its own back. All three are the same function giving the wrong answer: the raycast, which asks "if I look from here in this direction, what do I hit first?"</p>
+</section>
+
+<section data-section="concept">
+  <h2>A ray is a start point, a direction and a distance</h2>
+  <p>A <dfn>ray</dfn> starts at an origin <code>O</code> and runs in a direction <code>D</code>. Keep <code>D</code> at length 1, a <dfn>unit vector</dfn>, so that distances along the ray come out in pixels. Every point on the ray is:</p>
+<pre><code>P(t) = O + t * D</code></pre>
+  <p>In words: walk <code>t</code> pixels from the origin in the direction <code>D</code>. Only <code>t</code> of zero or more is on the ray; negative <code>t</code> is behind the origin. A raycast also has a maximum distance.</p>
+  <p>A good raycast reports five things: whether anything was hit, which object, the distance <code>t</code>, the hit point <code>P(t)</code>, and the <dfn>normal</dfn>, the unit vector pointing straight out of the surface at that point. Ricochets and wall decals need it.</p>
+
+  <h2>Ray against box: two slabs</h2>
+  <p>Think of the box as the place where two bands overlap: the <dfn>x slab</dfn> between its left and right edges, and the <dfn>y slab</dfn> between its top and bottom. The ray crosses each band once, entering at one distance and leaving at another.</p>
+  <p>The distance at which the ray reaches the left edge is:</p>
+<pre><code>t = (left - O.x) / D.x</code></pre>
+  <p>In words: how far the ray must go before its x reaches the edge. Do the same for the right edge, and swap the two if the ray points left, so that the smaller one is the entry. Repeat on y.</p>
+  <p>The ray is inside the box only while it is inside <em>both</em> slabs. So it enters the box at the <em>later</em> of the two entries and leaves at the <em>earlier</em> of the two exits. If it would leave before it enters, it missed.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="A ray crosses a box. Dashed lines extend the box edges into an x slab and a y slab. The ray enters the y slab first, then the x slab, which is the hit on the left face. It leaves the x slab before the y slab.">
+      <path class="d-dash" d="M260 20 V250"/>
+      <path class="d-dash" d="M420 20 V250"/>
+      <path class="d-dash" d="M20 90 H620"/>
+      <path class="d-dash" d="M20 190 H620"/>
+      <text class="d-muted" x="340" y="34" text-anchor="middle">x slab</text>
+      <text class="d-muted" x="630" y="145" text-anchor="end">y slab</text>
+      <rect class="d-accent-soft" x="260" y="90" width="160" height="100"/>
+      <text class="d-muted" x="340" y="180" text-anchor="middle">inside both slabs</text>
+      <path class="d-stroke" d="M60 230 L592 52.7"/>
+      <polygon class="d-accent-fill" points="600,50 590.2,58.5 587,49.1"/>
+      <path class="d-accent" d="M260 163.3 L420 110" style="stroke-width:4"/>
+      <circle class="d-accent-fill" cx="60" cy="230" r="5"/>
+      <text class="d-text" x="60" y="252" text-anchor="middle">origin</text>
+      <circle class="d-stroke" cx="180" cy="190" r="4"/>
+      <text class="d-text" x="180" y="222" text-anchor="middle">enter y</text>
+      <path class="d-stroke" d="M260 163.3 H226"/>
+      <polygon points="220,163.3 229,158.8 229,167.8" style="fill: var(--ink)"/>
+      <text class="d-text" x="216" y="158" text-anchor="end">normal</text>
+      <circle class="d-accent-fill" cx="260" cy="163.3" r="5"/>
+      <text class="d-label" x="252" y="132" text-anchor="end">enter x = hit</text>
+      <circle class="d-stroke" cx="420" cy="110" r="4"/>
+      <text class="d-text" x="414" y="78" text-anchor="end">exit x</text>
+      <circle class="d-stroke" cx="480" cy="90" r="4"/>
+      <text class="d-text" x="490" y="110">exit y</text>
+    </svg>
+    <figcaption>Along the ray: enter y, enter x, exit x, exit y. The later entry (x) is the hit, so the ray strikes a face of the x slab, the left face, and the normal points left. The earlier exit (x again) is where it leaves.</figcaption>
+  </figure>
+
+  <p>The normal comes for free: it belongs to the axis whose entry was later. If that is x and the ray points right, it hit the left face, so the normal is (-1, 0).</p>
+  <p>One special case: a ray pointing straight down has <code>D.x = 0</code>, and the division above is a division by zero. Such a ray never crosses a vertical edge, so check instead whether <code>O.x</code> lies between left and right. If it does, the x slab places no limit on <code>t</code>; if not, it is a miss.</p>
+
+  <h2>Ray against circle</h2>
+  <p>Let <code>f = O - C</code> be the arrow from the circle's centre <code>C</code> to the origin, and <code>r</code> the radius. Two numbers do the work:</p>
+<pre><code>b = f.x * D.x + f.y * D.y     -- minus the distance to the closest approach
+k = f.x * f.x + f.y * f.y - r * r</code></pre>
+  <p>The first is a dot product. It says how far along the ray the centre is, with the sign flipped. The second is the squared distance to the centre minus the squared radius: negative when the origin is inside the circle.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 230" role="img" aria-label="A ray passes below the centre of a circle. A dashed line of length h drops from the centre to the ray. The ray hits the circle half a chord before that closest point, and the normal points from the centre through the hit point.">
+      <circle class="d-accent-soft" cx="200" cy="110" r="60"/>
+      <path class="d-stroke" d="M24 150 H332"/>
+      <polygon class="d-accent-fill" points="340,150 330,145 330,155"/>
+      <circle class="d-accent-fill" cx="24" cy="150" r="5"/>
+      <text class="d-text" x="24" y="138">origin</text>
+      <circle class="d-accent-fill" cx="200" cy="110" r="3"/>
+      <text class="d-text" x="208" y="106">C</text>
+      <path class="d-dash" d="M200 110 V150"/>
+      <text class="d-text" x="206" y="136">h</text>
+      <path class="d-thin" d="M200 110 L155.3 150"/>
+      <text class="d-text" x="166" y="124" text-anchor="end">r</text>
+      <circle class="d-accent-fill" cx="155.3" cy="150" r="5"/>
+      <text class="d-label" x="140" y="138" text-anchor="end">hit</text>
+      <path class="d-stroke" d="M155.3 150 L134.5 168.6"/>
+      <polygon points="127,175.3 131.5,165.3 137.5,172" style="fill: var(--ink)"/>
+      <text class="d-text" x="122" y="186" text-anchor="end">normal</text>
+      <circle class="d-stroke" cx="244.7" cy="150" r="4"/>
+      <path class="d-thin" d="M155.3 184 H200 M155.3 179 V189 M200 179 V189"/>
+      <text class="d-muted" x="206" y="190">half chord</text>
+      <path class="d-thin" d="M24 206 H200 M24 201 V211 M200 201 V211"/>
+      <text class="d-muted" x="112" y="224" text-anchor="middle">-b, to the closest approach</text>
+    </svg>
+    <figcaption>The hit is half a chord before the closest approach. Pythagoras gives the half chord as the square root of r² − h², and that equals b² − k.</figcaption>
+  </figure>
+
+<pre><code>t = -b - math.sqrt(b * b - k)</code></pre>
+  <p>In words: go to the point of closest approach, then step back half a chord. If <code>b * b - k</code> is negative, the ray passes further than <code>r</code> from the centre and misses. If <code>t</code> is negative, the circle is behind the origin or the origin is inside it. The normal is the arrow from the centre to the hit point, divided by <code>r</code> to make it length 1.</p>
+
+  <h2>The first hit is the closest one</h2>
+  <p>Test every shape, keep only hits with <code>t</code> from 0 to the maximum distance, and keep the one with the smallest <code>t</code>. Stopping at the first shape in your list that reports a hit is the classic bug: the list is in creation order, not distance order.</p>
+
+  <div class="callout">
+    <p class="callout-title">Correct maths, wrong game answer</p>
+    <p>A ray that starts inside a shape is, strictly, touching it at distance 0. A game almost never wants that answer: a character's sight ray starts inside its own body. The code here ignores shapes that contain the origin. Godot does the same by default (<code>hit_from_inside</code> is off on <code>RayCast2D</code>); Unity's 2D physics instead has a project setting, Queries Start In Colliders, that decides it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the origin, the aim ring or any shape; tap empty space to aim there. Letters show the list order.</p>
+  <p>Then reproduce the bugs. Pick "First in the list": the ray now passes through circle B to hit box A, which is earlier in the list. Pick "Infinite line": it reports box E, behind the origin, at a negative distance. Debug drawing shows the whole line, every entry and exit with its <code>t</code>, the slab intervals of a hit box and the closest approach to a hit circle.</p>
+
+  <figure class="demo" data-demo="raycast">
+    <canvas id="raycast"></canvas>
+    <figcaption>Keyboard: click or tab to the canvas. Arrow keys move the whole ray 10 pixels; A and D turn it 5 degrees. Hold Shift for 1 pixel or 1 degree.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the demo's starting scene. The ray aims at the mouse; click to move its origin. It prints the shape, distance and normal of the first hit.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Shapes in list order. Boxes: x, y top-left corner, w, h. Circles: x, y centre, r.</span>
+<span class="c">-- y grows downwards. All lengths are in pixels.</span>
+local shapes = {
+  { name = "A", x = 440, y = 150, w = 110, h = 70 },
+  { name = "B", x = 300, y = 150, r = 40 },
+  { name = "C", x = 170, y = 70, w = 80, h = 50 },
+  { name = "D", x = 210, y = 270, r = 40 },
+  { name = "E", x = 12, y = 140, w = 36, h = 60 },
+  { name = "F", x = 330, y = 270, w = 150, h = 40 },
+}
+local MAX_DIST = 500
+<span class="c">-- Origin x, y and a direction dx, dy of length 1.</span>
+local ray = { x = 80, y = 170, dx = 1, dy = 0 }
+local hit = nil
+
+<span class="c">-- Entry and exit distance on one axis, or nil if the ray misses this slab.</span>
+local function slab(o, d, lo, hi)
+  if d == 0 then
+    if o &lt; lo or o &gt; hi then return nil end
+    return -math.huge, math.huge
+  end
+<span class="k">  local t1, t2 = (lo - o) / d, (hi - o) / d</span>
+  if t1 &gt; t2 then t1, t2 = t2, t1 end
+  return t1, t2
+end
+
+<span class="c">-- Returns distance, normal x, normal y, or nil.</span>
+local function rayBox(ray, b)
+  local xin, xout = slab(ray.x, ray.dx, b.x, b.x + b.w)
+  if not xin then return nil end
+  local yin, yout = slab(ray.y, ray.dy, b.y, b.y + b.h)
+  if not yin then return nil end
+<span class="k">  local tin, tout = math.max(xin, yin), math.min(xout, yout)</span>
+  if tin &gt; tout or tin &lt; 0 then return nil end  <span class="c">-- missed, behind, or starts inside</span>
+  if xin &gt; yin then return tin, (ray.dx &gt; 0) and -1 or 1, 0 end
+  return tin, 0, (ray.dy &gt; 0) and -1 or 1
+end
+
+local function rayCircle(ray, c)
+  local fx, fy = ray.x - c.x, ray.y - c.y
+  local b = fx * ray.dx + fy * ray.dy
+  local k = fx * fx + fy * fy - c.r * c.r
+  local disc = b * b - k
+  if disc &lt; 0 then return nil end
+<span class="k">  local t = -b - math.sqrt(disc)</span>
+  if t &lt; 0 then return nil end  <span class="c">-- behind, or starts inside</span>
+  local px, py = ray.x + ray.dx * t, ray.y + ray.dy * t
+  return t, (px - c.x) / c.r, (py - c.y) / c.r
+end
+
+<span class="c">-- Test every shape and keep the closest hit, not the first one in the list.</span>
+local function raycast(ray, maxDist)
+  local best = nil
+  for _, s in ipairs(shapes) do
+    local t, nx, ny
+    if s.r then t, nx, ny = rayCircle(ray, s) else t, nx, ny = rayBox(ray, s) end
+<span class="k">    if t and t &lt;= maxDist and (best == nil or t &lt; best.t) then</span>
+      best = { t = t, nx = nx, ny = ny, shape = s }
+    end
+  end
+  if best then
+    best.x, best.y = ray.x + ray.dx * best.t, ray.y + ray.dy * best.t
+  end
+  return best
+end
+
+function love.mousepressed(mx, my, button)
+  if button == 1 then ray.x, ray.y = mx, my end
+end
+
+function love.update(dt)
+  local mx, my = love.mouse.getPosition()
+  local ax, ay = mx - ray.x, my - ray.y
+  local len = math.sqrt(ax * ax + ay * ay)
+  if len &gt; 0 then ray.dx, ray.dy = ax / len, ay / len end
+  hit = raycast(ray, MAX_DIST)
+end
+
+function love.draw()
+  for _, s in ipairs(shapes) do
+    if s.r then
+      love.graphics.circle("line", s.x, s.y, s.r)
+    else
+      love.graphics.rectangle("line", s.x, s.y, s.w, s.h)
+    end
+  end
+  local ex, ey = ray.x + ray.dx * MAX_DIST, ray.y + ray.dy * MAX_DIST
+  if hit then ex, ey = hit.x, hit.y end
+  love.graphics.line(ray.x, ray.y, ex, ey)
+  if hit then
+    love.graphics.circle("fill", hit.x, hit.y, 4)
+    love.graphics.line(hit.x, hit.y, hit.x + hit.nx * 30, hit.y + hit.ny * 30)
+    love.graphics.print(string.format("%s at %.1f px, normal (%.2f, %.2f)",
+      hit.shape.name, hit.t, hit.nx, hit.ny), 10, 10)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># A RayCast2D child node. target_position is relative to the node.</span>
+@onready var ray: RayCast2D = $RayCast2D
+
+func _physics_process(_delta: float) -&gt; void:
+    ray.target_position = Vector2(500, 0)   <span class="c"># 500 px to the right</span>
+    ray.force_raycast_update()              <span class="c"># use the new target this frame</span>
+<span class="k">    if ray.is_colliding():</span>
+        var point := ray.get_collision_point()
+        var normal := ray.get_collision_normal()
+        var other := ray.get_collider()
+
+<span class="c"># Or ask the physics space directly, without a node.</span>
+<span class="c"># The result is an empty Dictionary when nothing is hit.</span>
+func cast_ray(from: Vector2, to: Vector2) -&gt; Dictionary:
+    var space := get_world_2d().direct_space_state
+    var query := PhysicsRayQueryParameters2D.create(from, to)
+    return space.intersect_ray(query)   <span class="c"># keys include "position" and "normal"</span></code></pre>
+<pre data-lang="C# (Unity)"><code>public LayerMask wallMask;   <span class="c">// which layers the ray can hit</span>
+
+void FixedUpdate()
+{
+    Vector2 origin = transform.position;
+<span class="k">    RaycastHit2D hit = Physics2D.Raycast(origin, Vector2.right, 500f, wallMask);</span>
+    if (hit.collider != null)
+    {
+        float distance = hit.distance;
+        Vector2 point = hit.point;
+        Vector2 normal = hit.normal;
+    }
+}</code></pre>
+  </div>
+  <p>Both engines return the closest hit and filter by collision layers: the ray's <code>collision_mask</code> in Godot, the layer mask argument in Unity.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Taking the first hit in the list.</strong> Shapes are stored in creation order. Always compare distances. Box2D's ray cast reports the fixtures it crosses in no guaranteed order, for the same reason.</li>
+    <li><strong>Forgetting <code>t &gt;= 0</code>.</strong> Without it you are intersecting an infinite line, and enemies shoot at things behind them.</li>
+    <li><strong>A direction that is not length 1.</strong> Then <code>t</code> is not in pixels, the maximum distance means something else, and the circle formula above is wrong. Normalise once, and never divide by a zero length: keep the old direction instead.</li>
+    <li><strong>Hitting yourself.</strong> A ray cast from a character's centre starts inside the character. Ignore shapes that contain the origin, exclude the caster, or start the ray just outside its body.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Hitscan weapons, where the bullet arrives instantly, are a raycast from the gun. Enemy line of sight is a ray from the eyes to the player that must not hit a wall first. Platformers often cast short rays down from the feet to find the floor, which a later lesson covers. Mouse picking in a 2D scene is a ray or point test from the cursor.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the Lua program above and make the ray bounce once. When it hits, reflect the direction off the normal: <code>dot = dx * nx + dy * ny</code>, then the new direction is <code>dx - 2 * dot * nx</code>, <code>dy - 2 * dot * ny</code>. Cast a second ray from the hit point, moved 0.01 pixels along the normal so it does not start inside the surface, with the distance that was left over.</p>
+  <p>You are done when a ray aimed at box A's left face bounces straight back, and one aimed at circle B bounces off at an angle that changes smoothly as you move the mouse.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A ray is <code>O + t * D</code> with <code>D</code> of length 1, so <code>t</code> is a distance in pixels, and only <code>t &gt;= 0</code> counts.</li>
+    <li>Ray against box: the hit is the later of the two slab entries, and it is a miss if that comes after the earlier exit. The normal belongs to the later axis.</li>
+    <li>Ray against circle: go to the closest approach and step back half a chord, <code>t = -b - sqrt(b² - k)</code>.</li>
+    <li>The first hit is the one with the smallest <code>t</code>, never the first one in the list.</li>
+    <li>Decide what a ray that starts inside a shape should do. Games usually ignore that shape.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>A moving object is also a ray between two steps; the next lesson shows what goes wrong when you only test where it ends up: tunnelling.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005), section 5.3 on intersecting lines, rays and segments. Covers the ray against sphere and the slab test against a box; both work the same way in 2D.</li>
+    <li>Timothy L. Kay and James T. Kajiya, <cite>Ray Tracing Complex Scenes</cite> (SIGGRAPH 1986). The paper usually credited with the slab idea, written for ray tracing.</li>
+    <li>Godot Engine documentation, <cite>Ray-casting</cite> tutorial and the <cite>RayCast2D</cite> class reference.</li>
+    <li>Unity documentation, <cite>Physics2D.Raycast</cite> and <cite>RaycastHit2D</cite> scripting references.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units match the Lua code: pixels, y grows downwards.
+  var W = 600, H = 340;
+  var AREA = { left: 8, top: 8, right: 592, bottom: 332 };
+  var SHAPES0 = [
+    { name: 'A', x: 440, y: 150, w: 110, h: 70 },
+    { name: 'B', x: 300, y: 150, r: 40 },
+    { name: 'C', x: 170, y: 70, w: 80, h: 50 },
+    { name: 'D', x: 210, y: 270, r: 40 },
+    { name: 'E', x: 12, y: 140, w: 36, h: 60 },
+    { name: 'F', x: 330, y: 270, w: 150, h: 40 }
+  ];
+  var LAYOUTS = {
+    start: { o: [80, 170], a: [560, 170] },
+    inside: { o: [300, 170], a: [560, 170] },
+    down: { o: [210, 140], a: [210, 325] }
+  };
+
+  var shapes = [];
+  var origin = { x: 0, y: 0 };
+  var aim = { x: 0, y: 0 };
+  var dir = { x: 1, y: 0 };
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="raycast"]');
+  var layout = ui.select({
+    label: 'Layout',
+    options: [
+      { value: 'start', label: 'Start' },
+      { value: 'inside', label: 'Origin inside B' },
+      { value: 'down', label: 'Straight down (D.x = 0)' },
+      { value: 'custom', label: 'Your own' }
+    ],
+    value: 'start',
+    onChange: function (v) { applyLayout(v); }
+  });
+  var method = ui.select({
+    label: 'Search',
+    options: [
+      { value: 'closest', label: 'Closest hit (correct)' },
+      { value: 'first', label: 'First in the list (bug)' },
+      { value: 'line', label: 'Infinite line, no t >= 0 (bug)' }
+    ],
+    value: 'closest',
+    onChange: redraw
+  });
+  var maxLen = ui.slider({ label: 'Max distance', min: 50, max: 700, step: 10, value: 500, unit: ' px',
+    onInput: redraw });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: false, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    layout.set('start'); method.set('closest'); debug.set(false); maxLen.set(500);
+    applyLayout('start');
+  } });
+  var outD = ui.readout({ label: 'Direction D' });
+  var outHit = ui.readout({ label: 'Hit' });
+  var outT = ui.readout({ label: 'Distance t' });
+  var outP = ui.readout({ label: 'Point' });
+  var outN = ui.readout({ label: 'Normal' });
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  function applyLayout(name) {
+    var l = LAYOUTS[name];
+    if (!l) return;
+    shapes = SHAPES0.map(function (s) {
+      var c = {};
+      for (var k in s) c[k] = s[k];
+      return c;
+    });
+    origin.x = l.o[0]; origin.y = l.o[1];
+    aim.x = l.a[0]; aim.y = l.a[1];
+    updateDir();
+    redraw();
+  }
+
+  function updateDir() {
+    var ax = aim.x - origin.x, ay = aim.y - origin.y;
+    var len = Math.sqrt(ax * ax + ay * ay);
+    if (len > 0) { dir.x = ax / len; dir.y = ay / len; }   // keep the old direction at length 0
+  }
+
+  // Same maths and names as the Lua code. allowNeg reproduces the "infinite line" bug.
+  function slab(o, d, lo, hi) {
+    if (d === 0) {
+      if (o < lo || o > hi) return null;
+      return [-Infinity, Infinity];
+    }
+    var t1 = (lo - o) / d, t2 = (hi - o) / d;
+    return t1 < t2 ? [t1, t2] : [t2, t1];
+  }
+
+  function rayBox(ray, b, allowNeg) {
+    var xs = slab(ray.x, ray.dx, b.x, b.x + b.w);
+    if (!xs) return null;
+    var ys = slab(ray.y, ray.dy, b.y, b.y + b.h);
+    if (!ys) return null;
+    var tin = Math.max(xs[0], ys[0]), tout = Math.min(xs[1], ys[1]);
+    if (tin > tout) return null;
+    if (tin < 0 && !allowNeg) return null;
+    var r = { t: tin, tout: tout, xs: xs, ys: ys };
+    if (xs[0] > ys[0]) { r.nx = ray.dx > 0 ? -1 : 1; r.ny = 0; }
+    else { r.nx = 0; r.ny = ray.dy > 0 ? -1 : 1; }
+    return r;
+  }
+
+  function rayCircle(ray, c, allowNeg) {
+    var fx = ray.x - c.x, fy = ray.y - c.y;
+    var b = fx * ray.dx + fy * ray.dy;
+    var k = fx * fx + fy * fy - c.r * c.r;
+    var disc = b * b - k;
+    if (disc < 0) return null;
+    var root = Math.sqrt(disc);
+    var t = -b - root;
+    if (t < 0 && !allowNeg) return null;
+    var px = ray.x + ray.dx * t, py = ray.y + ray.dy * t;
+    return { t: t, tout: -b + root, b: b, nx: (px - c.x) / c.r, ny: (py - c.y) / c.r };
+  }
+
+  function makeRay() { return { x: origin.x, y: origin.y, dx: dir.x, dy: dir.y }; }
+
+  function test(ray, s, allowNeg) {
+    return s.r ? rayCircle(ray, s, allowNeg) : rayBox(ray, s, allowNeg);
+  }
+
+  function cast(mode) {
+    var ray = makeRay();
+    var allowNeg = mode === 'line';
+    var best = null;
+    for (var i = 0; i < shapes.length; i++) {
+      var h = test(ray, shapes[i], allowNeg);
+      if (h && h.t <= maxLen.value) {
+        if (!best || h.t < best.t) { h.shape = shapes[i]; best = h; }
+        if (mode === 'first') break;
+      }
+    }
+    if (best) { best.x = ray.x + ray.dx * best.t; best.y = ray.y + ray.dy * best.t; }
+    return best;
+  }
+
+  function contains(s, p) {
+    if (s.r) {
+      var dx = p.x - s.x, dy = p.y - s.y;
+      return dx * dx + dy * dy < s.r * s.r;
+    }
+    return p.x > s.x && p.x < s.x + s.w && p.y > s.y && p.y < s.y + s.h;
+  }
+  function grabShape(s, p) {
+    if (s.r) {
+      var dx = p.x - s.x, dy = p.y - s.y;
+      return dx * dx + dy * dy <= s.r * s.r;
+    }
+    return p.x >= s.x && p.x <= s.x + s.w && p.y >= s.y && p.y <= s.y + s.h;
+  }
+
+  function clampPoint(p) {
+    p.x = DemoKit.clamp(p.x, AREA.left, AREA.right);
+    p.y = DemoKit.clamp(p.y, AREA.top, AREA.bottom);
+  }
+  function clampShape(s) {
+    if (s.r) {
+      s.x = DemoKit.clamp(s.x, AREA.left + s.r, AREA.right - s.r);
+      s.y = DemoKit.clamp(s.y, AREA.top + s.r, AREA.bottom - s.r);
+    } else {
+      s.x = DemoKit.clamp(s.x, AREA.left, AREA.right - s.w);
+      s.y = DemoKit.clamp(s.y, AREA.top, AREA.bottom - s.h);
+    }
+  }
+
+  function fmt(v) {
+    var r = Math.round(v * 10) / 10;
+    return (r === 0 ? 0 : r).toFixed(1);
+  }
+  function fmt2(v) { return Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2); }
+
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+  function toWorld(p) { return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale }; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    var left = ctx.textAlign === 'center' ? x - wTxt / 2 : (ctx.textAlign === 'right' ? x - wTxt : x);
+    ctx.fillStyle = c.surface;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(left - 3, y - 13, wTxt + 6, 18);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var ang = Math.atan2(y2 - y1, x2 - x1), h = 9;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    line(ctx, x1, y1, x2, y2);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - h * Math.cos(ang - 0.45), y2 - h * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - h * Math.cos(ang + 0.45), y2 - h * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // A point on the ray at distance t, in screen pixels. Infinite t is clipped far off screen.
+  function at(t) {
+    t = DemoKit.clamp(t, -2000, 2000);
+    return { x: sx(origin.x + dir.x * t), y: sy(origin.y + dir.y * t) };
+  }
+
+  function drawShape(ctx, s, c, isHit, k) {
+    ctx.beginPath();
+    if (s.r) ctx.arc(sx(s.x), sy(s.y), s.r * k, 0, Math.PI * 2);
+    else ctx.rect(sx(s.x), sy(s.y), s.w * k, s.h * k);
+    ctx.globalAlpha = isHit ? 0.22 : 0.5;
+    ctx.fillStyle = isHit ? c.topic : c.surface2;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = isHit ? c.topic : c.ink2;
+    ctx.lineWidth = isHit ? 3 : 1.5;
+    ctx.stroke();
+    var cx = s.r ? s.x : s.x + s.w / 2, cy = s.r ? s.y : s.y + s.h / 2;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(s.name, sx(cx), sy(cy) + 4);
+  }
+
+  handle = DemoKit.canvas('#raycast', {
+    aspect: W / H,
+    minHeight: 240,
+    maxHeight: 400,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A ray from a draggable origin towards a draggable aim handle, through a scene of lettered boxes and circles. The ray stops at the first shape it hits, which is highlighted, and an arrow shows the surface normal at the hit point.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      view.scale = Math.min(s.width / W, s.height / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (s.height - H * view.scale) / 2;
+      var k = view.scale;
+      var g, i;
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.lineCap = 'round';
+
+      // Light grid every 50 pixels.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (g = 50; g < W; g += 50) line(ctx, sx(g), sy(AREA.top), sx(g), sy(AREA.bottom));
+      for (g = 50; g < H; g += 50) line(ctx, sx(AREA.left), sy(g), sx(AREA.right), sy(g));
+
+      var verdict = cast(method.value);
+      var truth = cast('closest');
+      var wrong = (verdict === null) !== (truth === null) ||
+        (verdict && truth && (verdict.shape !== truth.shape || Math.abs(verdict.t - truth.t) > 0.01));
+      var ray = makeRay();
+      var insideOf = null;
+      for (i = 0; i < shapes.length; i++) if (contains(shapes[i], origin)) { insideOf = shapes[i]; break; }
+
+      // Debug: the whole infinite line, both ways.
+      if (debug.value) {
+        var p0 = at(-2000), p1 = at(2000);
+        ctx.setLineDash([3, 5]);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        line(ctx, p0.x, p0.y, p1.x, p1.y);
+        ctx.setLineDash([]);
+      }
+
+      for (i = 0; i < shapes.length; i++) drawShape(ctx, shapes[i], c, verdict && verdict.shape === shapes[i], k);
+
+      // Debug: slab intervals of a hit box, or the closest approach to a hit circle.
+      if (debug.value && verdict) {
+        var hs = verdict.shape;
+        if (!hs.r) {
+          var px = -dir.y * 7, py = dir.x * 7;
+          var bars = [[verdict.xs, c.warn, 'x slab', 1], [verdict.ys, c.good, 'y slab', -1]];
+          for (i = 0; i < 2; i++) {
+            var a = at(bars[i][0][0]), b = at(bars[i][0][1]), side = bars[i][3];
+            ctx.globalAlpha = 0.75;
+            ctx.strokeStyle = bars[i][1];
+            ctx.lineWidth = 4;
+            line(ctx, a.x + px * side, a.y + py * side, b.x + px * side, b.y + py * side);
+            ctx.globalAlpha = 1;
+            if (isFinite(bars[i][0][0])) {
+              ctx.textAlign = 'center';
+              label(ctx, bars[i][2], a.x + px * side * 3.2, a.y + py * side * 3.2 + 4, bars[i][1], c);
+            }
+          }
+        } else {
+          var ca = at(-verdict.b);
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = c.ink2;
+          ctx.lineWidth = 1.5;
+          line(ctx, sx(hs.x), sy(hs.y), ca.x, ca.y);
+          ctx.setLineDash([]);
+          ctx.textAlign = 'left';
+          label(ctx, 'h', (sx(hs.x) + ca.x) / 2 + 6, (sy(hs.y) + ca.y) / 2 + 4, c.ink2, c);
+        }
+      }
+
+      // The ray: solid up to the hit (or the maximum distance), faint after it.
+      var endT = maxLen.value;
+      var full = at(endT);
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      line(ctx, sx(origin.x), sy(origin.y), full.x, full.y);
+      ctx.setLineDash([]);
+      if (verdict && verdict.t < 0) {
+        // The bug: a hit behind the origin.
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([2, 6]);
+        line(ctx, sx(origin.x), sy(origin.y), sx(verdict.x), sy(verdict.y));
+        ctx.setLineDash([]);
+      } else {
+        var stop = verdict ? at(verdict.t) : full;
+        ctx.strokeStyle = wrong ? c.bad : c.topic;
+        ctx.lineWidth = 3;
+        line(ctx, sx(origin.x), sy(origin.y), stop.x, stop.y);
+      }
+      if (!verdict) {
+        ctx.beginPath();
+        ctx.arc(full.x, full.y, 4, 0, Math.PI * 2);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Debug: every entry (filled) and exit (hollow) on the infinite line, with t.
+      if (debug.value) {
+        var nx = -dir.y, ny = dir.x;
+        for (i = 0; i < shapes.length; i++) {
+          var raw = test(ray, shapes[i], true);
+          if (!raw) continue;
+          var en = at(raw.t), ex = at(raw.tout);
+          ctx.beginPath();
+          ctx.arc(ex.x, ex.y, 3.5, 0, Math.PI * 2);
+          ctx.strokeStyle = c.ink2;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(en.x, en.y, 3.5, 0, Math.PI * 2);
+          ctx.fillStyle = c.ink2;
+          ctx.fill();
+          ctx.textAlign = 'center';
+          label(ctx, shapes[i].name + ' t=' + fmt(raw.t), en.x - nx * 16, en.y - ny * 16 + 4,
+            raw.t < 0 ? c.bad : c.ink2, c);
+        }
+      }
+
+      // The real closest hit, when the chosen search got it wrong.
+      if (wrong && truth) {
+        ctx.beginPath();
+        ctx.arc(sx(truth.x), sy(truth.y), 8, 0, Math.PI * 2);
+        ctx.strokeStyle = c.good;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      // Hit point and normal.
+      if (verdict) {
+        var hx = sx(verdict.x), hy = sy(verdict.y);
+        arrow(ctx, hx, hy, hx + verdict.nx * 40, hy + verdict.ny * 40, c.ink);
+        ctx.beginPath();
+        ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+        ctx.fillStyle = verdict.t < 0 ? c.bad : c.topic;
+        ctx.fill();
+        ctx.textAlign = verdict.nx < -0.3 ? 'right' : 'left';
+        var lx = hx + verdict.nx * 46 + (verdict.nx < -0.3 ? -2 : 4);
+        var ly = hy + verdict.ny * 46 + (verdict.ny > 0.3 ? 12 : -2);
+        label(ctx, 'normal', lx, ly, c.ink, c);
+      }
+
+      // Handles: origin (filled circle) and aim (ring).
+      ctx.beginPath();
+      ctx.arc(sx(aim.x), sy(aim.y), 8, 0, Math.PI * 2);
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(sx(origin.x), sy(origin.y), 8, 0, Math.PI * 2);
+      ctx.fillStyle = c.topic;
+      ctx.fill();
+      ctx.textAlign = 'center';
+      label(ctx, 'origin', sx(origin.x), sy(origin.y) + 24, c.ink, c);
+      label(ctx, 'aim', sx(aim.x), sy(aim.y) - 14, c.topic, c);
+
+      // Status at the top left.
+      var names = { closest: 'Closest hit', first: 'First in the list', line: 'Infinite line' };
+      var tx = sx(AREA.left) + 4;
+      ctx.textAlign = 'left';
+      var status = names[method.value] + ': ' +
+        (verdict ? 'hit ' + verdict.shape.name + ' at t = ' + fmt(verdict.t) + ' px' : 'no hit within ' + maxLen.value + ' px');
+      label(ctx, status, tx, 20, wrong ? c.bad : c.ink, c);
+      var row = 40;
+      if (wrong) {
+        var why;
+        if (verdict && verdict.t < 0) why = 'Wrong: that is behind the origin (negative t)';
+        else if (truth) why = 'Wrong: ' + truth.shape.name + ' is closer, at ' + fmt(truth.t) + ' px (green ring)';
+        else why = 'Wrong: nothing is really hit';
+        label(ctx, why, tx, row, c.bad, c);
+        row += 20;
+      }
+      if (insideOf && !(verdict && verdict.shape === insideOf)) {
+        label(ctx, 'Origin is inside ' + insideOf.name + ', so ' + insideOf.name + ' is ignored', tx, row, c.ink2, c);
+      }
+
+      outD.set('(' + fmt2(dir.x) + ', ' + fmt2(dir.y) + ')');
+      if (verdict) {
+        outHit.set((verdict.shape.r ? 'circle ' : 'box ') + verdict.shape.name + (wrong ? ' (wrong)' : ''));
+        outT.set(fmt(verdict.t) + ' px');
+        outP.set('(' + fmt(verdict.x) + ', ' + fmt(verdict.y) + ')');
+        outN.set('(' + fmt2(verdict.nx) + ', ' + fmt2(verdict.ny) + ')');
+      } else {
+        outHit.set('nothing');
+        outT.set('none');
+        outP.set('none');
+        outN.set('none');
+      }
+    },
+    onDown: function (p) {
+      var w = toWorld(p);
+      var tol = 16 / view.scale;
+      function near(q) { var dx = w.x - q.x, dy = w.y - q.y; return dx * dx + dy * dy <= tol * tol; }
+      if (near(origin)) { drag = { t: 'origin' }; return; }
+      if (near(aim)) { drag = { t: 'aim' }; return; }
+      for (var i = shapes.length - 1; i >= 0; i--) {
+        if (grabShape(shapes[i], w)) {
+          drag = { t: 'shape', s: shapes[i], dx: w.x - shapes[i].x, dy: w.y - shapes[i].y };
+          return;
+        }
+      }
+      // Empty space: aim there.
+      aim.x = w.x; aim.y = w.y; clampPoint(aim); updateDir();
+      layout.set('custom');
+      drag = { t: 'aim' };
+    },
+    onMove: function (p) {
+      var cv = document.getElementById('raycast');
+      var w = toWorld(p);
+      if (drag && p.down) {
+        if (drag.t === 'origin') { origin.x = w.x; origin.y = w.y; clampPoint(origin); }
+        else if (drag.t === 'aim') { aim.x = w.x; aim.y = w.y; clampPoint(aim); }
+        else { drag.s.x = w.x - drag.dx; drag.s.y = w.y - drag.dy; clampShape(drag.s); }
+        updateDir();
+        layout.set('custom');
+        return;
+      }
+      var tol = 16 / view.scale;
+      var over = false;
+      [origin, aim].forEach(function (q) {
+        var dx = w.x - q.x, dy = w.y - q.y;
+        if (dx * dx + dy * dy <= tol * tol) over = true;
+      });
+      for (var i = 0; i < shapes.length && !over; i++) if (grabShape(shapes[i], w)) over = true;
+      cv.style.cursor = over ? 'grab' : 'crosshair';
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var fine = s.keys.has('shift');
+      var d = fine ? 1 : 10;
+      if (key === 'a' || key === 'd') {
+        var ang = (fine ? 1 : 5) * Math.PI / 180 * (key === 'a' ? -1 : 1);
+        var ax = aim.x - origin.x, ay = aim.y - origin.y;
+        var len = Math.sqrt(ax * ax + ay * ay);
+        if (len < 40) { ax = dir.x * 120; ay = dir.y * 120; }   // keep the handle a usable distance away
+        var cs = Math.cos(ang), sn = Math.sin(ang);
+        aim.x = origin.x + ax * cs - ay * sn;
+        aim.y = origin.y + ax * sn + ay * cs;
+        clampPoint(aim);
+      } else {
+        var dx = 0, dy = 0;
+        if (key === 'arrowleft') dx = -d;
+        else if (key === 'arrowright') dx = d;
+        else if (key === 'arrowup') dy = -d;
+        else if (key === 'arrowdown') dy = d;
+        else return;
+        var nx = DemoKit.clamp(origin.x + dx, AREA.left, AREA.right) - origin.x;
+        var ny = DemoKit.clamp(origin.y + dy, AREA.top, AREA.bottom) - origin.y;
+        origin.x += nx; origin.y += ny;
+        aim.x += nx; aim.y += ny;
+        clampPoint(aim);
+      }
+      updateDir();
+      layout.set('custom');
+    }
+  });
+
+  applyLayout('start');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variable jump height: hold for high, tap for low · Game Dev Daily</title>
+<meta name="description" content="How ending a jump's rise early when the button is released lets players choose the height of every jump, and how to tune and code it.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Variable jump height: hold for high, tap for low</h1>
+  <p class="lede">How ending a jump's rise early when the button is released lets players choose the height of every jump, and how to tune and code it.</p>
+</header>
+
+<section data-section="hook">
+  <p>A small spike sits on the floor and a row of spikes hangs from the ceiling just above it. You only need a little hop, but every jump in this game is the same full leap, so you clear the floor spike and fly straight into the ceiling. The game gave you one jump and the level asked for two.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One button, many heights</h2>
+  <p>With a <dfn>fixed jump</dfn>, pressing the button starts the same arc every time. The player chooses only when to jump, never how high. Jumps are easy to predict, but cannot adapt to what is ahead.</p>
+  <p>With <dfn>variable jump height</dfn>, the jump keeps rising while the button is held and ends its rise early when the button is let go. A quick tap gives a low hop, a long hold gives the full jump, and everything in between is available. The player now steers the height of each jump with their thumb.</p>
+
+  <h3>How the rise is cut short</h3>
+  <p>Two methods are common. Both take off at full speed and differ only in what happens on release.</p>
+  <ul>
+    <li><strong>Release gravity.</strong> While the character is rising and the button is up, multiply gravity by a number above 1, the <dfn>release gravity multiplier</dfn>. The upward speed drains faster, so the top of the arc comes sooner and lower. This lesson's demo and code use this method.</li>
+    <li><strong>Velocity cut.</strong> On the frame the button is released, if the character is still rising, multiply its upward speed once by a number below 1, such as 0.5. The arc bends down at once.</li>
+  </ul>
+  <p>Release gravity gives a softer, rounded top. A velocity cut gives a sharper one. Neither is correct; try both.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A graph of height over time for two jumps that leave the ground at the same speed. The dashed jump is held all the way and peaks at 111 pixels. The solid jump releases the button at 100 milliseconds, after which gravity is three times stronger until the top, so it peaks at 77 pixels and lands sooner.">
+      <path class="d-stroke" d="M60 210 H596"/>
+      <path class="d-stroke" d="M60 210 V40"/>
+      <text class="d-muted" x="60" y="30" text-anchor="middle">height</text>
+      <text class="d-muted" x="604" y="214">time</text>
+      <text class="d-muted" x="60" y="230" text-anchor="middle">0</text>
+
+      <path class="d-stroke d-dash" fill="none" d="M60 210 L68 201 L76 192 L85 184 L93 176 L101 168 L109 161 L117 153 L126 146 L134 140 L142 133 L150 127 L158 121 L167 116 L175 111 L183 106 L191 101 L199 97 L208 93 L216 89 L224 85 L232 82 L240 79 L249 76 L257 74 L265 72 L273 70 L281 69 L290 67 L298 66 L306 66 L314 65 L322 65 L331 65 L339 66 L347 67 L355 68 L363 69 L372 71 L380 73 L388 75 L396 77 L404 80 L413 83 L421 86 L429 90 L437 94 L445 98 L454 103 L462 107 L470 113 L478 118 L486 123 L495 129 L503 136 L511 142 L519 149 L527 156 L536 163 L544 171 L552 179 L560 187 L568 195 L577 204 L585 210"/>
+      <path class="d-accent" fill="none" d="M60 210 L68 201 L76 192 L85 184 L93 176 L101 168 L109 161 L117 153 L126 146 L134 140 L142 133 L150 127 L158 123 L167 118 L175 115 L183 113 L191 111 L199 111 L208 111 L216 111 L224 112 L232 113 L240 114 L249 115 L257 117 L265 119 L273 122 L281 124 L290 127 L298 130 L306 134 L314 138 L322 142 L331 146 L339 151 L347 156 L355 161 L363 166 L372 172 L380 178 L388 184 L396 191 L404 198 L413 205 L421 210"/>
+
+      <path class="d-stroke d-thin d-dash" d="M142 206 V122"/>
+      <circle class="d-accent-fill" cx="142" cy="133" r="4"/>
+      <text class="d-muted" x="142" y="230" text-anchor="middle">release at 100 ms</text>
+      <text class="d-label" x="152" y="178">gravity ×3 until the top</text>
+
+      <path class="d-stroke d-dash" d="M392 30 H426"/>
+      <text class="d-text" x="434" y="34">held: peak 111 px</text>
+      <path class="d-accent" d="M392 54 H426"/>
+      <text class="d-text" x="434" y="58">released: peak 77 px</text>
+    </svg>
+    <figcaption>Both jumps leave the ground at 700 px/s under gravity of 2200 px/s². The rise is identical until the button comes up. After that, triple gravity ends the rise in about 70 ms and the hop tops out a third lower. The fall uses normal gravity in both.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>For release gravity, a multiplier of about 2 to 4 is a common range; this demo starts at 3. For a velocity cut, keeping about half the upward speed is a common start. Then test the shortest tap you can make: the lowest hop should be clearly lower than the full jump, often around a third to a half of its height, and still high enough to clear the smallest obstacle in your levels. These are starting points, not rules.</p>
+  </div>
+
+  <h3>What the player feels</h3>
+  <p>Without it, every jump is a commitment to one shape, and low obstacles under a ceiling feel unfair. With it, taps feel quick and light, holds feel strong, and the player senses that the character answers how they press, not only when.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The runner never stops. Tall pillars need a full jump, and low spikes under a spiked ceiling need a small hop. Play a few with variable jump height off: every jump is full height, so the ceilings cannot be passed. Then switch it on, hold for pillars and tap for ceilings.</p>
+  <p>Now move the release gravity slider. At ×1 letting go changes nothing, and the toggle might as well be off. Higher values make taps shorter. The graph at the top draws your last jump against a full one, so you can see the moment you let go bend the arc.</p>
+
+  <figure class="demo" data-demo="varjump">
+    <canvas id="varjump"></canvas>
+    <figcaption>Controls: click the canvas, then hold Space, W or Up to jump; let go early for a lower jump. On a phone, press and hold the canvas or the Jump button. In the graph, the thick part of the line is the time the button was held and the dashed line is a full jump. With variable height off, the release is still marked but ignored.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's runner in LÖVE, with the same numbers. Height <code>y</code> is measured upward from the ground and obstacles are left out. The marked lines are the technique.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local RUN_SPEED = 220        <span class="c">-- pixels per second, the runner never stops</span>
+local GRAVITY = 2200         <span class="c">-- pixels per second squared</span>
+local JUMP_SPEED = 700       <span class="c">-- pixels per second at take-off</span>
+local VARIABLE_JUMP = true   <span class="c">-- the demo's toggle</span>
+local RELEASE_GRAVITY = 3    <span class="c">-- the demo's slider: gravity multiplier after letting go</span>
+
+local player = { x = 0, y = 0, vy = 0, grounded = true }
+local jumpHeld = false       <span class="c">-- true from take-off until the button comes up</span>
+
+local function isJumpKey(key)
+  return key == "space" or key == "w" or key == "up"
+end
+
+function love.keypressed(key)
+  if isJumpKey(key) and player.grounded then
+    player.vy = JUMP_SPEED
+    player.grounded = false
+<span class="k">    jumpHeld = true</span>
+  end
+end
+
+function love.keyreleased(key)
+  if isJumpKey(key) then
+<span class="k">    jumpHeld = false           <span class="c">-- pressing again in the air does not undo this</span></span>
+  end
+end
+
+function love.update(dt)
+  player.x = player.x + RUN_SPEED * dt
+  if not player.grounded then
+    local g = GRAVITY
+<span class="k">    if VARIABLE_JUMP and player.vy &gt; 0 and not jumpHeld then</span>
+<span class="k">      g = GRAVITY * RELEASE_GRAVITY  <span class="c">-- let go while rising: the rise ends sooner</span></span>
+<span class="k">    end</span>
+    player.vy = player.vy - g * dt
+    player.y = player.y + player.vy * dt
+    if player.y &lt;= 0 then
+      player.y, player.vy, player.grounded = 0, 0, true  <span class="c">-- landed</span>
+    end
+  end
+end</code></pre>
+  </div>
+  <p>The check <code>player.vy &gt; 0</code> keeps the extra gravity to the rise. Once the character starts falling, normal gravity takes over, so a tap and a hold fall the same way. Making the fall itself faster is a separate choice, covered in the next lesson.</p>
+  <p>To try a velocity cut instead, drop the extra gravity and change the release handler:</p>
+<pre><code>function love.keyreleased(key)
+  if isJumpKey(key) and jumpHeld and player.vy &gt; 0 then
+    player.vy = player.vy * 0.5   <span class="c">-- keep half the upward speed, once</span>
+  end
+  if isJumpKey(key) then jumpHeld = false end
+end</code></pre>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Letting a second press restore the jump.</strong> If you test "is the button down right now" every frame, a player can release and press again in the air to get normal gravity back. Clear a flag on release and only set it on take-off, as above.</li>
+    <li><strong>Cutting upward motion that was not a jump.</strong> A spring, a stomp bounce or a knock-back also moves the character up with the button released. These usually should not be cut, another reason to track <code>jumpHeld</code> instead of reading the button.</li>
+    <li><strong>A shortest hop that is too short or too tall.</strong> A quick natural tap should still clear the smallest thing you ask players to hop over. If it is nearly full height, the feature is invisible.</li>
+    <li><strong>Forgetting buffered and coyote jumps.</strong> A jump fired from the buffer may start after the player already let go. Check the button when the jump fires and start it already released if it is up, so an early tap gives a hop.</li>
+    <li><strong>Levels that never ask for it.</strong> If every obstacle wants a full jump, players never learn that holding matters. Put a low ceiling or a small gap early, where a hop is the clear answer.</li>
+  </ul>
+  <p><strong>When not to use it.</strong> Some games are built on committed jumps, where the challenge is choosing when to leave the ground and then living with the arc. A fixed jump is easier to read and plan, which suits deliberate action and puzzle games where exact heights matter. It also frees the button for a "hold to charge" move.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In Super Mario Bros. (1985), holding the jump button longer makes Mario jump higher, and many later platformers follow this pattern, including Hollow Knight and Celeste. I have not checked which method each of these uses in code, so none is claimed here.</p>
+  <p>The original Castlevania (1986) is a well-known example of the opposite choice: a fixed jump arc that cannot be changed once it starts, which tends to be described as part of its deliberate, heavy feel.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own platformer, add <code>jumpHeld</code> and release gravity as above, and bind two keys that raise or lower the multiplier by 0.5 while you play.</p>
+  <p>Build one obstacle that needs a full jump and one low ceiling that needs a hop. Try the multiplier at 1, 2, 3 and 5. At each value, note your quickest tap's height and whether both obstacles can be cleared without thinking. You are done when you have picked a value and written one sentence on why.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Variable jump height lets the player choose the height of each jump by how long they hold the button.</li>
+    <li>Start every jump at full speed, then end the rise early on release, either with extra gravity while rising or a one-off cut to the upward speed.</li>
+    <li>Track a flag set on take-off and cleared on release, so a second press or a spring bounce does not get mixed up with the jump.</li>
+    <li>A release gravity of about 3, or keeping half the speed, is a common start. Tune it so the quickest tap still clears your smallest obstacle.</li>
+    <li>Fixed jumps are a valid choice for games about commitment and planning.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes the whole shape of the arc: how rise time, hang time at the top and a faster fall can be tuned separately to make a jump that is easy to aim.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Kyle Pittman, <cite>Math for Game Programmers: Building a Better Jump</cite>, GDC 2016. Derives jump speed and gravity from a chosen height and distance, and covers variable height from player input. I could not open the talk page in this session, so no link is given.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). The wider topic of how control and response feel in the hand.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var RUN_SPEED = 220;     // pixels per second, the runner never stops
+  var GRAVITY = 2200;      // pixels per second squared
+  var JUMP_SPEED = 700;    // pixels per second at take-off
+  var SIZE = 22;           // player square
+  var STEP = 1 / 60;       // the demo simulates at 60 steps per second
+
+  // Low obstacle: a small floor spike under a spiked ceiling. Needs a hop.
+  var LOW_W = 20, LOW_H = 12, LOW_HIT = 10;
+  var CEIL = 108;          // height of the ceiling spike tips above the ground
+  var CEIL_MARGIN = 30;    // the ceiling reaches this far past the floor spike on each side
+  // Tall obstacle: a spiked pillar. Needs a full jump.
+  var TALL_W = 24, TALL_H = 76;
+
+  var STRIP_H = 124;
+  var GRAPH_MS = 700;      // time shown on the graph
+  var GRAPH_PX = 130;      // height shown on the graph
+
+  var ui = DemoKit.controls('[data-demo="varjump"]');
+  var variable = ui.toggle({ label: 'Variable jump height', value: false });
+  var releaseGravity = ui.slider({ label: 'Release gravity', min: 1, max: 6, step: 0.5, value: 3,
+    format: function (v) { return '×' + v.toFixed(1); } });
+  var showArc = ui.toggle({ label: 'Show arcs', value: true });
+  var lastOut = ui.readout({ label: 'Last jump' });
+  var scoreOut = ui.readout({ label: 'Cleared / hit' });
+  var jumpBtn = ui.button({ label: 'Jump (hold)' });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  // The on-page button works as a held button for touch, mouse and keyboard.
+  var btnHeld = false;
+  var pendingPress = false;
+  (function () {
+    var el = jumpBtn.el;
+    el.style.touchAction = 'none';
+    el.style.userSelect = 'none';
+    el.style.webkitUserSelect = 'none';
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      btnHeld = true;
+      pendingPress = true;
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    function up() { btnHeld = false; }
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        if (!e.repeat) { btnHeld = true; pendingPress = true; }
+      }
+    });
+    el.addEventListener('keyup', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); btnHeld = false; }
+    });
+    el.addEventListener('blur', up);
+  })();
+
+  // A full jump, held all the way, as a list of heights per step (for the dashed graph line).
+  var FULL = (function () {
+    var y = 0, vy = JUMP_SPEED, pts = [0], n = 0;
+    while (n < 120) {
+      vy -= GRAVITY * STEP;
+      y += vy * STEP;
+      n += 1;
+      if (y <= 0) { pts.push(0); break; }
+      pts.push(y);
+    }
+    return pts;
+  })();
+
+  var acc, player, jumpHeld, obstacles, genX, random, hurt, stats, cur, last, arcs;
+
+  function reset() {
+    acc = 0;
+    player = { x: 0, y: 0, vy: 0, grounded: true };
+    jumpHeld = false;
+    obstacles = [];
+    genX = 420;
+    random = DemoKit.rng(25);
+    hurt = 0;
+    stats = { cleared: 0, hit: 0 };
+    cur = null;        // the jump in progress
+    last = null;       // the last finished jump
+    arcs = [];         // recent arcs in world space
+    pendingPress = false;
+    ensureObstacles();
+    lastOut.set('none yet');
+    report();
+  }
+
+  function report() {
+    scoreOut.set(stats.cleared + ' / ' + stats.hit);
+  }
+
+  function ensureObstacles() {
+    while (genX < player.x + 1400) {
+      var type = random() < 0.5 ? 'low' : 'tall';
+      obstacles.push({ type: type, x: genX, done: false, hit: false });
+      genX += 300 + Math.floor(random() * 4) * 40;
+    }
+    while (obstacles.length > 0 && obstacles[0].x < player.x - 700) obstacles.shift();
+    while (arcs.length > 0 && arcs[0].pts.length > 0 && arcs[0].pts[arcs[0].pts.length - 1].x < player.x - 700) arcs.shift();
+  }
+
+  function inputHeld(s) {
+    var k = s.keys;
+    return btnHeld || s.pointer.down || k.has('space') || k.has('w') || k.has('arrowup');
+  }
+
+  function jump() {
+    player.vy = JUMP_SPEED;
+    player.grounded = false;
+    jumpHeld = true;
+    cur = { pts: [0], held: [true], releaseStep: null, peak: 0, variable: variable.value };
+    arcs.push({ pts: [{ x: player.x, y: 0, held: true }] });
+    if (arcs.length > 4) arcs.shift();
+  }
+
+  function finishJump() {
+    if (!cur) return;
+    last = cur;
+    cur = null;
+    var heldMs = Math.round((last.releaseStep === null ? last.pts.length - 1 : last.releaseStep) * STEP * 1000);
+    lastOut.set((last.releaseStep === null ? 'held to landing' : 'held ' + heldMs + ' ms') +
+      ', peak ' + Math.round(last.peak) + ' px');
+  }
+
+  function overlaps(ax, aw, bx, bw) {
+    return ax + aw > bx && ax < bx + bw;
+  }
+
+  function step(s) {
+    if (hurt > 0) hurt = Math.max(0, hurt - STEP);
+    var held = inputHeld(s);
+    if (pendingPress) {
+      pendingPress = false;
+      if (player.grounded) jump();
+    }
+    if (!held) jumpHeld = false;   // once released, a second press does not restore it
+
+    player.x += RUN_SPEED * STEP;
+    ensureObstacles();
+
+    if (!player.grounded) {
+      var g = GRAVITY;
+      if (variable.value && player.vy > 0 && !jumpHeld) {
+        g = GRAVITY * releaseGravity.value;   // let go while rising: the rise ends sooner
+      }
+      player.vy -= g * STEP;
+      player.y += player.vy * STEP;
+      var landed = player.y <= 0;
+      if (landed) {
+        player.y = 0;
+        player.vy = 0;
+        player.grounded = true;
+      }
+      if (cur) {
+        if (!jumpHeld && cur.releaseStep === null) cur.releaseStep = cur.pts.length - 1;
+        cur.pts.push(player.y);
+        cur.held.push(jumpHeld);
+        if (player.y > cur.peak) cur.peak = player.y;
+        var arc = arcs[arcs.length - 1];
+        if (arc) arc.pts.push({ x: player.x, y: player.y, held: jumpHeld });
+      }
+      if (landed) finishJump();
+    }
+
+    for (var i = 0; i < obstacles.length; i++) {
+      var o = obstacles[i];
+      if (o.done) continue;
+      var hit = false, right;
+      if (o.type === 'low') {
+        right = o.x + LOW_W + CEIL_MARGIN;
+        if (overlaps(player.x, SIZE, o.x, LOW_W) && player.y < LOW_HIT) hit = true;
+        if (overlaps(player.x, SIZE, o.x - CEIL_MARGIN, LOW_W + 2 * CEIL_MARGIN) && player.y + SIZE > CEIL) hit = true;
+      } else {
+        right = o.x + TALL_W;
+        if (overlaps(player.x, SIZE, o.x, TALL_W) && player.y < TALL_H) hit = true;
+      }
+      if (hit) {
+        o.hit = true;
+        o.done = true;
+        stats.hit += 1;
+        hurt = 0.3;
+        report();
+      } else if (player.x > right) {
+        o.done = true;
+        stats.cleared += 1;
+        report();
+      }
+    }
+  }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function drawGraph(ctx, s, c) {
+    var left = 34, right = s.width - 12;
+    var top = 24, bottom = STRIP_H - 26;
+    function gx(stepIndex) { return left + (stepIndex * STEP * 1000) / GRAPH_MS * (right - left); }
+    function gy(h) { return bottom - h / GRAPH_PX * (bottom - top); }
+
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText('height over time, last jump', left, 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(variable.value ? 'variable, ×' + releaseGravity.value.toFixed(1) : 'fixed', right, 14);
+
+    // Axes.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(left, bottom + 0.5);
+    ctx.lineTo(right, bottom + 0.5);
+    ctx.stroke();
+    font(ctx, 11);
+    ctx.textAlign = 'right';
+    ctx.fillText('0', left - 4, bottom + 4);
+    ctx.fillText(String(Math.round(FULL_PEAK)), left - 4, gy(FULL_PEAK) + 4);
+    ctx.textAlign = 'left';
+    ctx.fillText('0 ms', left, bottom + 16);
+    ctx.textAlign = 'right';
+    ctx.fillText(GRAPH_MS + ' ms', right, bottom + 16);
+
+    // Full jump, dashed.
+    ctx.strokeStyle = c.ink3;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    for (var i = 0; i < FULL.length; i++) {
+      if (i === 0) ctx.moveTo(gx(i), gy(FULL[i]));
+      else ctx.lineTo(gx(i), gy(FULL[i]));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var j = cur || last;
+    if (!j) return;
+
+    // This jump: thick while held, thin after release.
+    ctx.lineCap = 'round';
+    for (var k = 1; k < j.pts.length; k++) {
+      ctx.strokeStyle = j.held[k] ? c.topic : c.ink2;
+      ctx.lineWidth = j.held[k] ? 3.5 : 1.75;
+      ctx.beginPath();
+      ctx.moveTo(gx(k - 1), gy(j.pts[k - 1]));
+      ctx.lineTo(gx(k), gy(j.pts[k]));
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+
+    // Release marker.
+    if (j.releaseStep !== null) {
+      var rx = Math.round(gx(j.releaseStep)) + 0.5;
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(rx, top);
+      ctx.lineTo(rx, bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      font(ctx, 11, '600');
+      ctx.fillStyle = c.ink2;
+      var label = 'released ' + Math.round(j.releaseStep * STEP * 1000) + ' ms' + (j.variable ? '' : ' (ignored)');
+      var tw = ctx.measureText(label).width;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, DemoKit.clamp(rx + 5, left, Math.max(left, right - tw)), bottom + 16);
+    }
+
+    // Peak.
+    var pi = 0;
+    for (var p = 0; p < j.pts.length; p++) if (j.pts[p] > j.pts[pi]) pi = p;
+    if (j.peak > 0) {
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(gx(pi), gy(j.peak), 4, 0, Math.PI * 2);
+      ctx.fill();
+      font(ctx, 11, '600');
+      ctx.textAlign = 'left';
+      ctx.fillText('peak ' + Math.round(j.peak) + ' px', Math.min(gx(pi) + 8, right - 70), gy(j.peak) - 4);
+    }
+  }
+
+  var FULL_PEAK = 0;
+  for (var f = 0; f < FULL.length; f++) if (FULL[f] > FULL_PEAK) FULL_PEAK = FULL[f];
+
+  reset();
+
+  DemoKit.canvas('#varjump', {
+    height: 380,
+    keys: true,
+    drag: true,
+    label: 'A square runs right past tall spiked pillars and low spikes under spiked ceilings. Hold Space, W or Up, or press and hold, to jump; release early for a lower jump. A graph at the top shows the height of the last jump over time.',
+    update: function (dt, s) {
+      acc += dt;
+      var guard = 0;
+      while (acc >= STEP && guard < 12) {
+        acc -= STEP;
+        step(s);
+        guard += 1;
+      }
+      if (guard === 12) acc = 0;
+    },
+    onDown: function () { pendingPress = true; },
+    onKey: function (key, down) {
+      if (down && (key === 'space' || key === 'w' || key === 'arrowup')) pendingPress = true;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var ground = Math.round(s.height - 50);
+      var camX = player.x - Math.round(s.width * 0.28);
+      function sx(x) { return Math.round(x - camX); }
+
+      drawGraph(ctx, s, c);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, STRIP_H + 0.5);
+      ctx.lineTo(s.width, STRIP_H + 0.5);
+      ctx.stroke();
+
+      // Ground.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, ground, s.width, s.height - ground);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, ground);
+      ctx.lineTo(s.width, ground);
+      ctx.stroke();
+
+      // Obstacles.
+      for (var i = 0; i < obstacles.length; i++) {
+        var o = obstacles[i];
+        var ox = sx(o.x);
+        if (ox < -120 || ox > s.width + 120) continue;
+        ctx.fillStyle = o.hit ? c.bad : c.ink2;
+        if (o.type === 'low') {
+          ctx.beginPath();
+          ctx.moveTo(ox, ground);
+          ctx.lineTo(ox + LOW_W / 2, ground - LOW_H);
+          ctx.lineTo(ox + LOW_W, ground);
+          ctx.closePath();
+          ctx.fill();
+          // Ceiling bar with downward spikes; the tips are at CEIL.
+          var cl = ox - CEIL_MARGIN, cw = LOW_W + 2 * CEIL_MARGIN;
+          var barBottom = ground - CEIL - 8;
+          var barTop = Math.max(STRIP_H + 6, barBottom - 26);
+          ctx.fillRect(cl, barTop, cw, barBottom - barTop);
+          var n = Math.round(cw / 12);
+          var sw = cw / n;
+          ctx.beginPath();
+          for (var t = 0; t < n; t++) {
+            ctx.moveTo(cl + t * sw, barBottom);
+            ctx.lineTo(cl + t * sw + sw / 2, ground - CEIL);
+            ctx.lineTo(cl + (t + 1) * sw, barBottom);
+          }
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillRect(ox, ground - TALL_H + 10, TALL_W, TALL_H - 10);
+          ctx.beginPath();
+          ctx.moveTo(ox, ground - TALL_H + 10);
+          ctx.lineTo(ox + TALL_W / 2, ground - TALL_H);
+          ctx.lineTo(ox + TALL_W, ground - TALL_H + 10);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      // Recent arcs, traced by the player's centre: thick while held.
+      if (showArc.value) {
+        for (var a = 0; a < arcs.length; a++) {
+          var pts = arcs[a].pts;
+          ctx.globalAlpha = a === arcs.length - 1 ? 0.8 : 0.35;
+          for (var q = 1; q < pts.length; q++) {
+            ctx.strokeStyle = pts[q].held ? c.topic : c.ink3;
+            ctx.lineWidth = pts[q].held ? 2.5 : 1.25;
+            ctx.beginPath();
+            ctx.moveTo(sx(pts[q - 1].x) + SIZE / 2, ground - pts[q - 1].y - SIZE / 2);
+            ctx.lineTo(sx(pts[q].x) + SIZE / 2, ground - pts[q].y - SIZE / 2);
+            ctx.stroke();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // The runner. A hit tints it red for 0.3 s (a single change, no flashing).
+      ctx.fillStyle = hurt > 0 ? c.bad : c.topic;
+      ctx.fillRect(sx(player.x), Math.round(ground - player.y - SIZE), SIZE, SIZE);
+      if (inputHeld(s)) {
+        font(ctx, 11);
+        ctx.fillStyle = c.ink3;
+        ctx.textAlign = 'center';
+        ctx.fillText('held', sx(player.x) + SIZE / 2, ground + 18);
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

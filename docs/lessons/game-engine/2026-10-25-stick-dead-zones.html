@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analogue sticks and dead zones · Game Dev Daily</title>
+<meta name="description" content="Why raw stick values drift and snap, and how axial, radial and scaled radial dead zones clean them up in LÖVE, Godot and Unity.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-25">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Analogue sticks and dead zones</h1>
+  <p class="lede">Why raw stick values drift and snap, and how axial, radial and scaled radial dead zones clean them up in LÖVE, Godot and Unity.</p>
+</header>
+
+<section data-section="hook">
+  <p>You put the controller down and your character slowly walks off a ledge. Or you try to creep forward at a slight angle and the character keeps snapping to straight up. Both bugs live in the few lines of code between the stick and your movement code.</p>
+</section>
+
+<section data-section="concept">
+  <h2>What a stick really reports</h2>
+  <p>An analogue stick has one sensor per axis, and the engine reports each as a number from -1 to 1: the <dfn>raw</dfn> x and y. In LÖVE and Godot positive y is down; in Unity it is up. The raw numbers have two flaws:</p>
+  <ul>
+    <li><strong>The centre is not zero.</strong> A released stick rests slightly off centre and jitters. On a worn controller this <dfn>drift</dfn> is enough to move a character.</li>
+    <li><strong>The edge is not exactly one.</strong> Some sticks never quite reach full tilt, so the player never reaches full speed.</li>
+  </ul>
+  <p>A <dfn>dead zone</dfn> is a range of raw values that the game treats as zero. The <dfn>inner dead zone</dfn> covers the centre and hides drift. An <dfn>outer dead zone</dfn> treats anything near the rim as full tilt. What matters most is the shape of the inner one.</p>
+
+  <h2>Three ways to cut out the middle</h2>
+  <p><strong>Axial.</strong> Test each axis on its own: if x is below the dead zone, set it to zero, then the same for y. This hides drift, but push the stick mostly right and slightly up and the small y is thrown away. The character snaps to the axis, so shallow angles are impossible.</p>
+  <p><strong>Radial.</strong> Judge the whole vector by its length: below the dead zone return zero, otherwise return it unchanged. Direction is kept, but output jumps: with a dead zone of 0.2, a length of 0.19 gives nothing and 0.21 gives 0.21. Moving at 5% speed is impossible.</p>
+  <p><strong>Scaled radial.</strong> Judge the length, then stretch what is left back to the full range. With an inner zone of 0.2 and an outer edge of 0.95, the output length is <code>(length - 0.2) / (0.95 - 0.2)</code>, capped at 1, in the raw direction. Output starts at zero at the edge of the dead zone and reaches 1 just before the rim.</p>
+<pre><code>local len = math.sqrt(x * x + y * y)
+if len &lt; INNER then return 0, 0 end
+local scaled = math.min((len - INNER) / (OUTER - INNER), 1)
+return x / len * scaled, y / len * scaled</code></pre>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 310" role="img" aria-label="Three stick diagrams side by side, all given the same raw input pointing right and slightly up. Axial: the dead zone is a cross along both axes, and the output dot has dropped onto the horizontal axis. Radial: the dead zone is a disc in the centre, and the output equals the raw input. Scaled radial: the same disc, and the output keeps the raw direction but is a little shorter.">
+      <defs>
+        <clipPath id="dz-clip"><circle cx="110" cy="125" r="80"/></clipPath>
+      </defs>
+      <g text-anchor="middle">
+        <text class="d-label" x="110" y="26">Axial</text>
+        <text class="d-label" x="320" y="26">Radial</text>
+        <text class="d-label" x="530" y="26">Scaled radial</text>
+      </g>
+
+      <g clip-path="url(#dz-clip)">
+        <rect class="d-accent-soft" x="86" y="45" width="48" height="160"/>
+        <rect class="d-accent-soft" x="30" y="101" width="160" height="48"/>
+      </g>
+      <circle class="d-stroke" cx="110" cy="125" r="80"/>
+      <path class="d-thin" d="M30 125 H190 M110 45 V205"/>
+      <path class="d-dash" d="M166 115 V119"/>
+      <circle class="d-stroke" cx="166" cy="109" r="5"/>
+      <circle class="d-accent-fill" cx="166" cy="125" r="5"/>
+
+      <circle class="d-accent-soft" cx="320" cy="125" r="24"/>
+      <circle class="d-stroke" cx="320" cy="125" r="80"/>
+      <path class="d-thin" d="M240 125 H400 M320 45 V205"/>
+      <circle class="d-accent-fill" cx="376" cy="109" r="3.5"/>
+      <circle class="d-stroke" cx="376" cy="109" r="6"/>
+
+      <circle class="d-accent-soft" cx="530" cy="125" r="24"/>
+      <circle class="d-stroke" cx="530" cy="125" r="80"/>
+      <path class="d-thin" d="M450 125 H610 M530 45 V205"/>
+      <circle class="d-stroke" cx="586" cy="109" r="5"/>
+      <circle class="d-accent-fill" cx="577" cy="112" r="5"/>
+
+      <g text-anchor="middle">
+        <text class="d-text" x="110" y="232">Each axis judged alone.</text>
+        <text class="d-muted" x="110" y="250">The small y is dropped,</text>
+        <text class="d-muted" x="110" y="266">so input snaps to the axis.</text>
+        <text class="d-text" x="320" y="232">Whole length judged.</text>
+        <text class="d-muted" x="320" y="250">Direction kept, but output</text>
+        <text class="d-muted" x="320" y="266">jumps from 0 to the zone size.</text>
+        <text class="d-text" x="530" y="232">Length judged, then stretched.</text>
+        <text class="d-muted" x="530" y="250">Direction kept, and output</text>
+        <text class="d-muted" x="530" y="266">rises smoothly from 0.</text>
+      </g>
+
+      <circle class="d-stroke" cx="150" cy="294" r="5"/>
+      <text class="d-muted" x="162" y="298">raw input (0.7, 0.2 up)</text>
+      <circle class="d-accent-fill" cx="330" cy="294" r="5"/>
+      <text class="d-muted" x="342" y="298">what the game reads</text>
+      <rect class="d-accent-soft" x="484" y="287" width="14" height="14"/>
+      <text class="d-muted" x="506" y="298">dead zone</text>
+    </svg>
+    <figcaption>One raw input through three dead zones of size 0.3, drawn large. Axial drops the vertical part. Radial passes it unchanged. Scaled radial keeps the direction and shortens the length from 0.73 to 0.61.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Use scaled radial for walking, aiming and steering. Keep axial thresholds for treating a stick as four buttons, as menus do.</p>
+  </div>
+
+  <h3>Who does it, and in what order</h3>
+  <p>The controller owns the raw value. The engine applies its dead zone between the device and your code, so the value your update reads has usually been processed already. Both engines also let you read the raw value.</p>
+  <p><strong>Godot 4.</strong> Every InputMap action has its own dead zone. <code>Input.get_action_strength</code> and <code>Input.get_axis</code> apply it per action, which on a stick is a scaled axial dead zone. <code>Input.get_vector</code> combines the raw strengths of four actions into one vector and applies a scaled radial dead zone; the optional fifth argument sets its size. <code>Input.get_joy_axis</code> returns one raw axis. The default for new actions was 0.5 up to Godot 4.3 and is 0.2 from 4.4.</p>
+  <p><strong>Unity 6 and 2022 LTS, Input System package.</strong> Values pass through <dfn>processors</dfn>, small functions that run in order on the device control, then the binding, then the action. A gamepad's sticks already carry a <code>stickDeadzone</code> processor, scaled radial with a <code>min</code> and <code>max</code> that default to the Input System settings <code>defaultDeadzoneMin</code> and <code>defaultDeadzoneMax</code>, 0.125 and 0.925. <code>ReadValue()</code> gives the processed value, <code>ReadUnprocessedValue()</code> the raw one. An <code>axisDeadzone</code> processor handles single axes and triggers.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 214" role="img" aria-label="Boxes and arrows. The stick sends raw x and y to two paths. In Godot 4, a joypad motion event feeds either get_axis, which uses a per-action axial dead zone, or get_vector, which uses a radial dead zone on the whole stick. In Unity's Input System, the gamepad leftStick control runs stickDeadzone, then binding processors, then action processors. Both paths end at your code.">
+      <text class="d-muted" x="150" y="24">Godot 4</text>
+      <text class="d-muted" x="150" y="146">Unity Input System</text>
+
+      <rect class="d-box" x="10" y="105" width="110" height="50" rx="6"/>
+      <text class="d-text" x="65" y="126" text-anchor="middle">Stick</text>
+      <text class="d-muted" x="65" y="144" text-anchor="middle">raw x, y</text>
+
+      <rect class="d-box" x="150" y="34" width="150" height="46" rx="6"/>
+      <rect class="d-accent-soft" x="330" y="14" width="150" height="46" rx="6"/>
+      <rect class="d-accent-soft" x="330" y="70" width="150" height="46" rx="6"/>
+      <rect class="d-accent-soft" x="150" y="154" width="150" height="46" rx="6"/>
+      <rect class="d-box" x="330" y="154" width="150" height="46" rx="6"/>
+      <rect class="d-box" x="510" y="14" width="120" height="186" rx="6"/>
+
+      <g text-anchor="middle">
+        <text class="d-text" x="225" y="53">Joypad motion</text>
+        <text class="d-muted" x="225" y="71">event, raw value</text>
+        <text class="d-text" x="405" y="33">get_axis</text>
+        <text class="d-muted" x="405" y="51">per action, axial</text>
+        <text class="d-text" x="405" y="89">get_vector</text>
+        <text class="d-muted" x="405" y="107">whole stick, radial</text>
+        <text class="d-text" x="225" y="173">Gamepad leftStick</text>
+        <text class="d-muted" x="225" y="191">stickDeadzone</text>
+        <text class="d-text" x="405" y="173">Binding processors</text>
+        <text class="d-muted" x="405" y="191">then action ones</text>
+        <text class="d-text" x="570" y="102">Your code</text>
+        <text class="d-muted" x="570" y="120">reads the result</text>
+      </g>
+
+      <path class="d-stroke" d="M120 118 L148 62"/>
+      <path class="d-stroke" d="M120 142 L148 176"/>
+      <path class="d-stroke" d="M300 50 L328 38"/>
+      <path class="d-stroke" d="M300 66 L328 90"/>
+      <path class="d-accent" d="M480 37 H508"/>
+      <path class="d-accent" d="M480 93 H508"/>
+      <path class="d-stroke" d="M300 177 H328"/>
+      <path class="d-accent" d="M480 177 H508"/>
+    </svg>
+    <figcaption>Shaded boxes apply a dead zone. In Godot the function you call decides its shape. In Unity the stick applies one before your bindings see the value.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Godot's dead zones are per-action settings, but the shape depends on which function you call. Unity applies a good default on the device, but processors you add stack on top of it instead of replacing it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The stick starts worn: released, it rests at (0.09, -0.12), and with no dead zone the character crawls away. Pick <strong>Axial</strong> and the drift stops. Now hold the stick to the right and slowly move it up: "Game reads" stays flat, then jumps.</p>
+  <p>Switch on <strong>Trace a full circle</strong> to see every direction at the current tilt. Axial leaves flat notches on the axes, radial passes the circle unchanged, scaled radial shrinks it evenly. In the graph, look for the jump in radial and the ramp in scaled radial. Finally, set the inner dead zone to 0.1 and the drift comes back.</p>
+
+  <figure class="demo wide" data-demo="dead-zones">
+    <canvas id="deadzones"></canvas>
+    <figcaption>Drag the knob in "Raw stick"; it springs back when you let go. With a keyboard, click the canvas and hold the arrow keys; the knob stays put. The outer edge slider only affects scaled radial. The model leaves out the square-ish range some controllers report at diagonals, and triggers.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE gives you raw axes through <code>Joystick:getGamepadAxis</code>, so the dead zone is yours to write. The numbers match the demo. Swap in <code>axial</code> to feel the snapping.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local INNER = 0.2      <span class="c">-- below this length the stick counts as centred</span>
+local OUTER = 0.95     <span class="c">-- beyond this length it counts as full tilt</span>
+local SPEED = 120      <span class="c">-- pixels per second at full tilt</span>
+local player = { x = 400, y = 300 }
+
+<span class="c">-- Scaled radial: judge the whole vector by its length,</span>
+<span class="c">-- then stretch the live range INNER..OUTER back to 0..1.</span>
+local function scaledRadial(x, y)
+  local len = math.sqrt(x * x + y * y)
+  if len &lt; INNER or len == 0 then return 0, 0 end
+<span class="k">  local scaled = math.min((len - INNER) / (OUTER - INNER), 1)
+  return x / len * scaled, y / len * scaled</span>
+end
+
+<span class="c">-- Axial, for comparison: hides drift but snaps to the axes.</span>
+local function axial(x, y)
+  if math.abs(x) &lt; INNER then x = 0 end
+  if math.abs(y) &lt; INNER then y = 0 end
+  return x, y
+end
+
+local function readStick()
+  local stick = love.joystick.getJoysticks()[1]
+  if stick == nil or not stick:isGamepad() then return 0, 0 end
+  return stick:getGamepadAxis("leftx"), stick:getGamepadAxis("lefty")
+end
+
+function love.update(dt)
+  local rawX, rawY = readStick()
+<span class="k">  local x, y = scaledRadial(rawX, rawY)   <span class="c">-- try axial(rawX, rawY)</span></span>
+  player.x = player.x + x * SPEED * dt
+  player.y = player.y + y * SPEED * dt
+end
+
+function love.draw()
+  love.graphics.circle("fill", player.x, player.y, 8)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># stick_mover.gd on a Node2D. Godot 4. Uses the left stick of the first pad.</span>
+extends Node2D
+
+const INNER := 0.2
+const SPEED := 120.0
+var raw := Vector2.ZERO
+
+func _ready() -&gt; void:
+    position = Vector2(400, 300)
+    <span class="c"># Usually made in Project Settings &gt; Input Map. Made here so the script runs alone.</span>
+    _add_axis_action("move_left", JOY_AXIS_LEFT_X, -1.0)
+    _add_axis_action("move_right", JOY_AXIS_LEFT_X, 1.0)
+    _add_axis_action("move_up", JOY_AXIS_LEFT_Y, -1.0)
+    _add_axis_action("move_down", JOY_AXIS_LEFT_Y, 1.0)
+
+func _add_axis_action(action: StringName, axis: JoyAxis, direction: float) -&gt; void:
+    if InputMap.has_action(action):
+        return
+    InputMap.add_action(action, INNER)   <span class="c"># the per-action dead zone</span>
+    var motion := InputEventJoypadMotion.new()
+    motion.axis = axis
+    motion.axis_value = direction
+    InputMap.action_add_event(action, motion)
+
+func _process(delta: float) -&gt; void:
+    <span class="c"># Raw value, no dead zone. Drawn as a red line so you can see your drift.</span>
+    raw = Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+    <span class="c"># Scaled radial on the whole stick.</span>
+<span class="k">    var move := Input.get_vector("move_left", "move_right", "move_up", "move_down", INNER)</span>
+    <span class="c"># Axial, for comparison: Vector2(Input.get_axis("move_left", "move_right"),</span>
+    <span class="c">#                                Input.get_axis("move_up", "move_down"))</span>
+    position += move * SPEED * delta
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_line(Vector2.ZERO, raw * 40.0, Color.RED)
+    draw_circle(Vector2.ZERO, 8.0, Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// StickMover.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Put it on a Cube. Units are metres, so 120 px/s becomes 1.2 m/s. Here y is up.</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class StickMover : MonoBehaviour
+{
+    const float Inner = 0.2f, Outer = 0.95f, Speed = 1.2f;
+
+    static Vector2 ScaledRadial(Vector2 v, float inner, float outer)
+    {
+        float len = v.magnitude;
+        if (len &lt; inner || len == 0f) return Vector2.zero;
+<span class="k">        float scaled = Mathf.Min((len - inner) / (outer - inner), 1f);
+        return v / len * scaled;</span>
+    }
+
+    void Update()
+    {
+        Gamepad pad = Gamepad.current;
+        if (pad == null) return;
+        <span class="c">// The value before any processor runs: this is where drift shows.</span>
+        Vector2 raw = pad.leftStick.ReadUnprocessedValue();
+        <span class="c">// After the stick's own stickDeadzone processor (defaults 0.125 and 0.925).</span>
+        Vector2 builtIn = pad.leftStick.ReadValue();
+        <span class="c">// The same maths with this lesson's numbers.</span>
+<span class="k">        Vector2 move = ScaledRadial(raw, Inner, Outer);</span>
+        transform.position += (Vector3)(move * Speed * Time.deltaTime);
+        Debug.DrawRay(transform.position, raw, Color.red);
+        Debug.DrawRay(transform.position, builtIn, Color.green);
+    }
+}</code></pre>
+  </div>
+  <p>The Unity script runs its own function on the unprocessed value. Running it on <code>ReadValue()</code> would apply two dead zones in a row.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Building a vector from two separate axis reads.</strong> <code>Vector2(get_axis(...), get_axis(...))</code> in Godot, or two single-axis checks of your own, give an axial dead zone and its snapping. Read the stick as one vector.</li>
+    <li><strong>Stacking dead zones.</strong> In Unity, a <code>stickDeadzone</code> added to a binding on <code>&lt;Gamepad&gt;/leftStick</code> runs on a value the control has already processed, so the stick feels sluggish. Change the project defaults instead, or start from the unprocessed value.</li>
+    <li><strong>Normalising stick input.</strong> <code>normalized()</code> throws away how far the stick is pushed, and turns any drift that slips past the dead zone into full speed. Only cap the length at 1.</li>
+    <li><strong>One size for every player.</strong> The right inner size depends on the controller and how worn it is. Put a slider in your settings screen.</li>
+    <li><strong>Menus and movement sharing one threshold.</strong> A stick used as a button needs a larger threshold than movement, or a resting thumb moves the menu cursor. Godot keeps 0.5 for its built-in <code>ui_</code> actions, even though new actions now default to 0.2.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines here default to scaled radial for sticks: Unity puts a <code>stickDeadzone</code> processor on every gamepad stick, and Godot's <code>get_vector</code> applies one to the whole vector. Many games, shooters in particular, offer inner and outer dead zone sliders in their controller settings. Aiming often adds a <dfn>response curve</dfn> after the dead zone, such as squaring the length so small movements are finer.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Print your raw stick value with the stick released, as in the code tabs, and note the largest length over ten seconds. Set your inner dead zone a little above it. Replace movement code that reads the two axes separately with one vector read: <code>get_vector</code> in Godot, the stick's processed value in Unity, or <code>scaledRadial</code> in LÖVE. You are done when the character stays still with the stick released and walks slowly at a shallow angle without snapping.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Raw stick values never rest at exactly zero and may not reach exactly one. A dead zone hides the centre and an outer edge fixes the rim.</li>
+    <li>Axial dead zones judge each axis alone and snap movement to the axes. Radial ones keep direction but jump from zero.</li>
+    <li>Scaled radial judges the length, then stretches the rest of the range back to 0 to 1. Use it for movement and aiming.</li>
+    <li>The engine usually applies a dead zone before your code runs: per action or in <code>get_vector</code> in Godot, as a processor on the stick in Unity. Know which one you are reading so you never apply two.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Input is done; next we look at how one object can announce that something happened without knowing who is listening, the observer pattern.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite>Input</cite>, entries for <code>get_vector</code>, <code>get_action_strength</code>, <code>get_action_raw_strength</code> and <code>get_joy_axis</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Input.xml">doc/classes/Input.xml</a></cite>; and for <cite>InputMap</cite>, entries for <code>add_action</code> and <code>action_set_deadzone</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/InputMap.xml">doc/classes/InputMap.xml</a></cite> (compare <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.3-stable/doc/classes/InputMap.xml">the 4.3 version</a></cite> for the old default of 0.5).</li>
+    <li>Godot Engine source (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/core/input/input.cpp">core/input/input.cpp</a></cite>, where <code>get_vector</code> applies the radial dead zone, and <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/core/input/input_map.h">core/input/input_map.h</a></cite>, with the default and the larger value kept for <code>ui_</code> actions.</li>
+    <li>Unity Technologies, <cite>Input System</cite> package manual, read from the package repository: <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/built-in-processors.md">Built-in processors</a></cite> and <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/Documentation~/add-processors-bindings-actions.md">Add processors to bindings and actions</a></cite>.</li>
+    <li>Unity Technologies, Input System source: <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/InputSystem/Runtime/Controls/Processors/StickDeadzoneProcessor.cs">StickDeadzoneProcessor.cs</a></cite>, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/InputSystem/Runtime/InputSettings.cs">InputSettings.cs</a></cite> for the 0.125 and 0.925 defaults, and <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/InputSystem/develop/Packages/com.unity.inputsystem/InputSystem/Runtime/Devices/Gamepad.cs">Gamepad.cs</a></cite>, where the sticks get their processor.</li>
+    <li>Josh Sutphin, <cite>Doing Thumbstick Dead Zones Right</cite> (2013). The widely cited article that compares axial, radial and scaled radial dead zones.</li>
+    <li>LÖVE wiki, <cite>Joystick:getGamepadAxis</cite> and <cite>GamepadAxis</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var DRIFT = { x: 0.09, y: -0.12 };  // where a worn stick rests (y down, so this is up and right)
+  var NOISE = 0.015;                  // jitter added to a worn stick each frame
+  var SPEED = 120;                    // pixels per second at full tilt, as in the Lua code
+  var KEY_SPEED = 0.6;                // knob units per second while an arrow key is held
+  var NUDGE = 0.02;                   // knob units per key press, so keys work while paused
+  var TRAIL = 90;
+
+  var knob = { x: 0, y: 0 };          // where the thumb holds the stick
+  var noise = { x: 0, y: 0 };
+  var dragging = false;
+  var player = { fx: 0.5, fy: 0.5 };  // position in the field, as fractions of its size
+  var trail = [];
+  var random = DemoKit.rng(11);
+
+  // The three dead zones from the lesson, with the same maths as the Lua code.
+  function processStick(x, y, kind, inner, outer) {
+    if (kind === 'none') return { x: x, y: y };
+    if (kind === 'axial') {
+      return { x: Math.abs(x) < inner ? 0 : x, y: Math.abs(y) < inner ? 0 : y };
+    }
+    var len = Math.sqrt(x * x + y * y);
+    if (len < inner || len === 0) return { x: 0, y: 0 };
+    if (kind === 'radial') return { x: x, y: y };
+    var scaled = Math.min((len - inner) / (outer - inner), 1);
+    return { x: x / len * scaled, y: y / len * scaled };
+  }
+
+  function clampLength(v) {
+    var len = Math.sqrt(v.x * v.x + v.y * v.y);
+    if (len > 1) { v.x /= len; v.y /= len; }
+    return v;
+  }
+
+  // ---- controls --------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="dead-zones"]');
+  var kind = ui.select({
+    label: 'Dead zone',
+    options: [
+      { value: 'none', label: 'None' },
+      { value: 'axial', label: 'Axial' },
+      { value: 'radial', label: 'Radial' },
+      { value: 'scaled', label: 'Scaled radial' }
+    ],
+    value: 'none',
+    onChange: refresh
+  });
+  var inner = ui.slider({ label: 'Inner dead zone', min: 0, max: 0.5, step: 0.01, value: 0.2, onInput: refresh });
+  var outer = ui.slider({ label: 'Outer edge', min: 0.7, max: 1, step: 0.01, value: 0.95, onInput: refresh });
+  var worn = ui.toggle({ label: 'Worn stick (drift)', value: true, onChange: function () {
+    noise.x = 0; noise.y = 0; refresh();
+  } });
+  var trace = ui.toggle({ label: 'Trace a full circle', value: false, onChange: refresh });
+  ui.button({ label: 'Centre stick', onClick: function () { knob.x = 0; knob.y = 0; refresh(); } });
+  ui.button({ label: 'Reset character', onClick: function () {
+    player.fx = 0.5; player.fy = 0.5; trail = []; refresh();
+  } });
+  var rawOut = ui.readout({ label: 'Raw' });
+  var gameOut = ui.readout({ label: 'Game reads' });
+
+  function rawValue() {
+    var v = { x: knob.x, y: knob.y };
+    if (worn.value) { v.x += DRIFT.x + noise.x; v.y += DRIFT.y + noise.y; }
+    return clampLength(v);
+  }
+  function output(raw) { return processStick(raw.x, raw.y, kind.value, inner.value, outer.value); }
+
+  function describe(v) {
+    var len = Math.sqrt(v.x * v.x + v.y * v.y);
+    if (len < 0.0005) return 'x 0.00, y 0.00, length 0.00';
+    var angle = Math.round(Math.atan2(-v.y, v.x) * 180 / Math.PI);
+    return 'x ' + v.x.toFixed(2) + ', y ' + v.y.toFixed(2) + ', length ' + len.toFixed(2) + ', angle ' + angle + '°';
+  }
+  function showNumbers() {
+    var raw = rawValue();
+    rawOut.set(describe(raw));
+    gameOut.set(describe(output(raw)));
+  }
+  function refresh() {
+    showNumbers();
+    if (handle) handle.redraw();
+  }
+
+  // ---- layout ----------------------------------------------------------------------------
+  var PAD = 12, LABEL = 20, BOTTOM = 40;
+
+  function layout(s) {
+    var p = Math.min((s.width - 3 * PAD) / 2, (s.height - BOTTOM - 2 * LABEL - 2 * PAD) / 2);
+    p = Math.max(60, Math.floor(p));
+    var x0 = Math.round((s.width - (2 * p + PAD)) / 2);
+    var y0 = PAD + LABEL;
+    var y1 = y0 + p + PAD + LABEL;
+    return {
+      size: p,
+      raw: { x: x0, y: y0 },
+      out: { x: x0 + p + PAD, y: y0 },
+      curve: { x: x0, y: y1 },
+      field: { x: x0 + p + PAD, y: y1 }
+    };
+  }
+  function circleOf(panel, size) {
+    return { cx: panel.x + size / 2, cy: panel.y + size / 2, r: size / 2 - 8 };
+  }
+
+  function setKnobFromPointer(p, s) {
+    var c = circleOf(layout(s).raw, layout(s).size);
+    var v = clampLength({ x: (p.x - c.cx) / c.r, y: (p.y - c.cy) / c.r });
+    knob.x = v.x;
+    knob.y = v.y;
+  }
+
+  // ---- drawing helpers -------------------------------------------------------------------
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function fit(ctx, text, maxW) {
+    if (maxW <= 0) return '';
+    if (ctx.measureText(text).width <= maxW) return text;
+    var t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+  function title(ctx, c, text, panel, size) {
+    ctx.font = BOLD;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(fit(ctx, text, size), panel.x, panel.y - 7);
+  }
+  function stickFrame(ctx, c, k) {
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath();
+    ctx.arc(k.cx, k.cy, k.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(k.cx - k.r, k.cy); ctx.lineTo(k.cx + k.r, k.cy);
+    ctx.moveTo(k.cx, k.cy - k.r); ctx.lineTo(k.cx, k.cy + k.r);
+    ctx.stroke();
+    ctx.strokeStyle = c.ink3;
+    ctx.beginPath();
+    ctx.arc(k.cx, k.cy, k.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  function arrowTo(ctx, colour, k, v, filled) {
+    var x = k.cx + v.x * k.r, y = k.cy + v.y * k.r;
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(k.cx, k.cy);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    if (filled) { ctx.fillStyle = colour; ctx.fill(); } else { ctx.lineWidth = 2; ctx.stroke(); }
+  }
+  // Trace at the tilt the thumb is holding, or at 0.6 when the stick is released.
+  function traceRadius(raw) {
+    var held = Math.sqrt(knob.x * knob.x + knob.y * knob.y);
+    return held > 0.1 ? Math.sqrt(raw.x * raw.x + raw.y * raw.y) : 0.6;
+  }
+  function traceDots(ctx, colour, k, radius, processed) {
+    ctx.fillStyle = colour;
+    for (var i = 0; i < 120; i++) {
+      var a = i / 120 * Math.PI * 2;
+      var v = { x: Math.cos(a) * radius, y: Math.sin(a) * radius };
+      if (processed) v = output(v);
+      ctx.beginPath();
+      ctx.arc(k.cx + v.x * k.r, k.cy + v.y * k.r, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawRaw(ctx, c, L, raw) {
+    var k = circleOf(L.raw, L.size);
+    title(ctx, c, 'Raw stick', L.raw, L.size);
+    stickFrame(ctx, c, k);
+
+    // Dead zone region.
+    var d = inner.value * k.r;
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = c.warn;
+    if (kind.value === 'axial') {
+      ctx.beginPath();
+      ctx.arc(k.cx, k.cy, k.r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillRect(k.cx - d, k.cy - k.r, 2 * d, 2 * k.r);
+      ctx.fillRect(k.cx - k.r, k.cy - d, 2 * k.r, 2 * d);
+    } else if (kind.value !== 'none') {
+      ctx.beginPath();
+      ctx.arc(k.cx, k.cy, d, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    if (kind.value === 'scaled') {
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(k.cx, k.cy, outer.value * k.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (trace.value) traceDots(ctx, c.ink3, k, traceRadius(raw), false);
+    arrowTo(ctx, c.ink2, k, raw, false);
+  }
+
+  function drawOut(ctx, c, L, raw, out) {
+    var k = circleOf(L.out, L.size);
+    title(ctx, c, 'Game reads', L.out, L.size);
+    stickFrame(ctx, c, k);
+    if (trace.value) traceDots(ctx, c.topic, k, traceRadius(raw), true);
+    arrowTo(ctx, c.topic, k, out, true);
+  }
+
+  function drawCurve(ctx, c, L, raw, out) {
+    var P = L.curve, size = L.size;
+    title(ctx, c, 'Output vs raw length', P, size);
+    var left = P.x + 24, right = P.x + size - 6, top = P.y + 6, bottom = P.y + size - 22;
+    var w = right - left, h = bottom - top;
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(P.x, P.y, size, size);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, top); ctx.lineTo(left, bottom); ctx.lineTo(right, bottom);
+    ctx.stroke();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.line;
+    ctx.beginPath();
+    ctx.moveTo(left, bottom); ctx.lineTo(right, top);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    ctx.fillText('0', left, bottom + 15);
+    ctx.fillText('1', right, bottom + 15);
+    ctx.fillText('raw', (left + right) / 2, bottom + 15);
+    ctx.textAlign = 'right';
+    ctx.fillText('1', left - 5, top + 9);
+    ctx.fillText('0', left - 5, bottom);
+
+    // Response along the current direction (20 degrees above right when centred).
+    var len = Math.sqrt(raw.x * raw.x + raw.y * raw.y);
+    var dir = len > 0.05 ? { x: raw.x / len, y: raw.y / len }
+                         : { x: Math.cos(20 * Math.PI / 180), y: -Math.sin(20 * Math.PI / 180) };
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    var prev = null;
+    for (var i = 0; i <= 200; i++) {
+      var t = i / 200;
+      var o = output({ x: dir.x * t, y: dir.y * t });
+      var ol = Math.min(1, Math.sqrt(o.x * o.x + o.y * o.y));
+      var x = left + t * w, y = bottom - ol * h;
+      if (prev === null || Math.abs(ol - prev) > 0.03) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      prev = ol;
+    }
+    ctx.stroke();
+
+    var outLen = Math.min(1, Math.sqrt(out.x * out.x + out.y * out.y));
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.arc(left + Math.min(1, len) * w, bottom - outLen * h, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawField(ctx, c, L) {
+    var P = L.field, size = L.size;
+    title(ctx, c, 'Character', P, size);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(P.x, P.y, size, size);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(P.x + 0.5, P.y + 0.5, size - 1, size - 1);
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var i = 0; i < trail.length; i++) {
+      var q = trail[i];
+      var x = P.x + q.fx * size, y = P.y + q.fy * size;
+      var jump = i > 0 && (Math.abs(q.fx - trail[i - 1].fx) > 0.5 || Math.abs(q.fy - trail[i - 1].fy) > 0.5);
+      if (i === 0 || jump) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.arc(P.x + player.fx * size, P.y + player.fy * size, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---- the demo --------------------------------------------------------------------------
+  var cv = document.getElementById('deadzones');
+  var handle = null;
+
+  handle = DemoKit.canvas('#deadzones', {
+    aspect: 1,
+    minHeight: 380,
+    maxHeight: 520,
+    drag: true,
+    keys: true,
+    label: 'A virtual thumbstick on the left, the processed stick value on the right, a graph of output length against raw length, and a character moved by the processed value. Drag the knob or use the arrow keys.',
+    update: function (dt, s) {
+      if (worn.value) {
+        noise.x = (random() * 2 - 1) * NOISE;
+        noise.y = (random() * 2 - 1) * NOISE;
+      }
+      var kx = 0, ky = 0;
+      if (s.keys.has('arrowleft')) kx -= 1;
+      if (s.keys.has('arrowright')) kx += 1;
+      if (s.keys.has('arrowup')) ky -= 1;
+      if (s.keys.has('arrowdown')) ky += 1;
+      if ((kx !== 0 || ky !== 0) && !dragging) {
+        knob.x += kx * KEY_SPEED * dt;
+        knob.y += ky * KEY_SPEED * dt;
+        clampLength(knob);
+      }
+
+      var out = output(rawValue());
+      var size = layout(s).size;
+      player.fx = ((player.fx + out.x * SPEED * dt / size) % 1 + 1) % 1;
+      player.fy = ((player.fy + out.y * SPEED * dt / size) % 1 + 1) % 1;
+      if (s.frame % 2 === 0) {
+        trail.push({ fx: player.fx, fy: player.fy });
+        if (trail.length > TRAIL) trail.shift();
+      }
+      if (s.frame % 6 === 0) showNumbers();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      var raw = rawValue();
+      var out = output(raw);
+      ctx.textBaseline = 'alphabetic';
+      drawRaw(ctx, c, L, raw);
+      drawOut(ctx, c, L, raw, out);
+      drawCurve(ctx, c, L, raw, out);
+      drawField(ctx, c, L);
+
+      ctx.font = FONT;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink3;
+      var hint = dragging ? 'Release to let the stick spring back' :
+        (document.activeElement === cv ? 'Arrow keys move the knob' : 'Drag the knob, or click here and use the arrow keys');
+      ctx.fillText(fit(ctx, hint, s.width - 2 * PAD - 90), PAD, s.height - 16);
+    },
+    onDown: function (p, s) {
+      var L = layout(s);
+      var k = circleOf(L.raw, L.size);
+      var dx = p.x - k.cx, dy = p.y - k.cy;
+      if (dx * dx + dy * dy <= (k.r + 14) * (k.r + 14)) {
+        dragging = true;
+        setKnobFromPointer(p, s);
+        showNumbers();
+      }
+    },
+    onMove: function (p, s) {
+      if (dragging && p.down) {
+        setKnobFromPointer(p, s);
+        showNumbers();
+      }
+    },
+    onUp: function () {
+      if (dragging) {
+        dragging = false;
+        knob.x = 0;
+        knob.y = 0;
+        showNumbers();
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown || dragging) return;
+      if (key === 'arrowleft') knob.x -= NUDGE;
+      else if (key === 'arrowright') knob.x += NUDGE;
+      else if (key === 'arrowup') knob.y -= NUDGE;
+      else if (key === 'arrowdown') knob.y += NUDGE;
+      else return;
+      clampLength(knob);
+      showNumbers();
+    }
+  });
+
+  showNumbers();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F-Zero and Mode 7: a flat map tilted into a racetrack · Game Dev Daily</title>
+<meta name="description" content="How F-Zero's flat track map becomes a floor in perspective: the Super Nintendo scales one background layer, and a new scale on every line adds depth.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>F-Zero and Mode 7: a flat map tilted into a racetrack</h1>
+  <p class="lede">How F-Zero's flat track map becomes a floor in perspective: the Super Nintendo scales one background layer, and a new scale on every line adds depth.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Nintendo's F-Zero, a launch game for the Super Famicom in Japan in November 1990, the track stretches away to a horizon and swings round as you steer. Yet the track is one flat picture, the same kind of picture a top-down racer would scroll. The console never knows it is drawing a floor.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: no time to draw pixels</h2>
+  <p>The Super Nintendo screen is 256 pixels wide and usually 224 lines tall: about 3.4 million pixels per second at sixty frames. The main processor, a 65816, runs at about 3.58 MHz at most, roughly one clock cycle per pixel. Working out a floor pixel by pixel in software is impossible. The graphics chip has to do it.</p>
+  <p>That chip draws <dfn>background layers</dfn>: big pictures built from 8 by 8 pixel <dfn>tiles</dfn>, which it scrolls for free. Most of its eight background modes can only slide a layer. <strong>Mode 7</strong> offers only one real layer, but that layer can be rotated and scaled.</p>
+
+  <h2>What Mode 7 does</h2>
+  <p>The Mode 7 layer is a map of 128 by 128 tiles: a plane of 1024 by 1024 pixels, built from up to 256 different tiles, with every pixel free to use any of the 256 palette colours. It fills 32 KB of the console's 64 KB of video memory.</p>
+  <p>Four registers, <code>A</code>, <code>B</code>, <code>C</code> and <code>D</code> (addresses <code>$211B</code> to <code>$211E</code>), form a 2 by 2 <dfn>matrix</dfn>, a small grid of numbers that turns one position into another. Each is a signed 16-bit <dfn>fixed-point</dfn> number with 8 bits after the point, so 256 means 1.0 and 128 means 0.5.</p>
+  <p>The emulator code shows how simple the work is. Each line starts at an <dfn>origin</dfn>, a map position worked out from the matrix, a centre point, the scroll and the line number. Then, for each pixel to the right, the chip adds <code>A</code> to the map x and <code>C</code> to the map y. With <code>A = 256</code> and <code>C = 0</code> it walks the map one pixel per pixel. With <code>A = 512</code> it skips every other map pixel and the picture shrinks. Add some <code>C</code> and the walk runs at an angle: the picture rotates.</p>
+
+  <h2>The trick: a new matrix on every line</h2>
+  <p>One matrix for the whole screen gives a flat map seen from above, turned and zoomed. For a floor every line must differ. From a camera at height <code>h</code>, a line <code>n</code> lines below the horizon sees ground at a distance proportional to <code>h / n</code>, so its scale, in map pixels per screen pixel, is</p>
+<pre><code>scale = h / n</code></pre>
+  <p>Lines just below the horizon sweep a wide strip of distant map. Lines at the bottom magnify a narrow strip near the camera. The rotation is the same on every line; only the step size and the start point change.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" role="img" aria-label="Left, the flat track map seen from above, with a camera at the bottom and a wedge spreading out in front of it. Three straight segments cross the wedge: short near the camera, long further away. Right, the screen: three horizontal lines of the same screen width, one near the horizon and two lower down. Each screen line shows one map segment. A table lists line 88 with scale 8, line 112 with scale 2 and line 208 with scale 0.5.">
+      <text class="d-label" x="20" y="24">The map (flat, 1024 × 1024)</text>
+      <rect class="d-box" x="20" y="40" width="240" height="240"/>
+      <rect class="d-thin" x="60" y="52" width="160" height="120" rx="50"/>
+      <path class="d-dash" d="M140 262 L20 142 M140 262 L260 142"/>
+      <path class="d-accent" d="M30 152 H250"/>
+      <path class="d-accent" d="M70 192 H210"/>
+      <path class="d-accent" d="M110 232 H170"/>
+      <text class="d-text" x="140" y="146" text-anchor="middle">line 88</text>
+      <text class="d-text" x="140" y="186" text-anchor="middle">line 112</text>
+      <text class="d-text" x="140" y="226" text-anchor="middle">line 208</text>
+      <circle class="d-accent-fill" cx="140" cy="262" r="5"/>
+      <text class="d-muted" x="152" y="274">camera</text>
+
+      <text class="d-label" x="340" y="24">The screen (256 × 224)</text>
+      <rect class="d-box" x="340" y="40" width="280" height="210"/>
+      <path class="d-dash" d="M340 115 H620"/>
+      <text class="d-muted" x="348" y="108">horizon, line 80</text>
+      <path class="d-accent" d="M340 122.5 H620"/>
+      <path class="d-accent" d="M340 145 H620"/>
+      <path class="d-accent" d="M340 235 H620"/>
+      <text class="d-text" x="348" y="140">line 88</text>
+      <text class="d-text" x="348" y="163">line 112</text>
+      <text class="d-text" x="348" y="230">line 208</text>
+      <text class="d-mono" x="340" y="276">line  88: scale 8    A = 0x0800</text>
+      <text class="d-mono" x="340" y="296">line 112: scale 2    A = 0x0200</text>
+      <text class="d-mono" x="340" y="316">line 208: scale 0.5  A = 0x0080</text>
+      <text class="d-muted" x="20" y="306">camera height 64; not to scale</text>
+    </svg>
+    <figcaption>Every screen line is 256 pixels wide, but each one walks a straight segment of a different length across the flat map. Far lines cover long segments, near lines short ones. The scale is <code>64 / (line − 80)</code>, written into <code>A</code> as fixed point (shown for a camera facing straight up the map).</figcaption>
+  </figure>
+
+  <p>Rewriting registers by hand 224 times a frame would also be too slow. The console has a helper: <dfn>HDMA</dfn> (horizontal-blank direct memory access). Each of its eight channels walks a table in memory and copies a few bytes into a chosen register in the short pause before each line. The game fills a table with one set of matrix values per line, once per frame, and the hardware feeds it in.</p>
+
+  <h3>Fact and legend</h3>
+  <p>Mode 7 is often called "3D". It is not: the plane is flat, and each line is a plain 2D rotate and scale. The register layout and sums above come from the emulator source listed below. That F-Zero feeds per-line matrix values through HDMA is how the game is generally described, and it fits the hardware, but I could not open a breakdown of F-Zero's own code, so its exact tables are not shown. The rebuild uses its own track.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Give the hardware one cheap transform per line, and change it from line to line to fake a perspective it cannot do.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>A ground plane in a shader is the same sum: work out the distance from the pixel's row, then look up the texture. Retro-style racers on phones and the web still draw floors this way. The wider habit carries to any tight budget: the processor fills a small table once per frame, and fast, simple hardware applies it.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The screen below is 256 by 224 pixels, drawn the Mode 7 way: each line gets its own step (<code>A</code>, <code>C</code>) and start point, then walks the map. Turn <strong>Per-line scaling</strong> off and every line shares one matrix: the flat map from above. Change <strong>Camera height</strong> and <strong>Horizon line</strong>. To steer, use the angle slider, or click the screen and hold the left and right arrow keys.</p>
+
+  <figure class="demo wide" data-demo="mode7-floor">
+    <canvas id="mode7-floor"></canvas>
+    <figcaption>The small map shows what the player never sees: the wedge of map the screen reads, and the segment read by the inspected line. Drag on the screen, or use <strong>Inspect line</strong>, to compare a line near the horizon with one at the bottom. Far lines skip map pixels, so the distant track sparkles as you move.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's renderer in LÖVE, with the same numbers. <code>buildLines</code> is the HDMA table: one step and start point per line, in 8.8 fixed point like the registers. <code>love.draw</code> is the graphics chip: it starts each line at its origin and adds the step for every pixel.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Mode 7 style floor: one step and start point per screen line.</span>
+local SW, SH, F = 256, 224, 256
+local HORIZON, CAM_H, SPEED, TURN = 80, 64, 120, 1.5
+local cam = { x = 512, y = 792, angle = -math.pi / 2 }   <span class="c">-- facing west</span>
+local function rgb(r, g, b) return { r / 255, g / 255, b / 255 } end
+local SKY, ROAD, RED, WHITE = rgb(120, 170, 230), rgb(96, 96, 104), rgb(200, 56, 48), rgb(236, 236, 236)
+local BLACK, GRASS1, GRASS2 = rgb(24, 24, 24), rgb(70, 150, 70), rgb(58, 128, 60)
+local data, img
+
+local function mapColour(mx, my)                 <span class="c">-- the flat 1024 x 1024 map</span>
+  mx, my = mx % 1024, my % 1024
+  local qx = math.max(math.abs(mx - 512) - 200, 0)
+  local qy = math.max(math.abs(my - 512) - 120, 0)
+  local d = math.abs(math.sqrt(qx * qx + qy * qy) - 160)   <span class="c">-- distance from track centre</span>
+  if d &lt; 36 then
+    if my &gt; 700 and math.abs(mx - 512) &lt; 8 then        <span class="c">-- start line</span>
+      return (math.floor(mx / 4) + math.floor(my / 4)) % 2 == 0 and WHITE or BLACK
+    end
+    return ROAD
+  elseif d &lt; 44 then
+    return (math.floor(mx / 16) + math.floor(my / 16)) % 2 == 0 and RED or WHITE
+  end
+  return (math.floor(mx / 64) + math.floor(my / 64)) % 2 == 0 and GRASS1 or GRASS2
+end
+
+local function buildLines()                      <span class="c">-- the per-line table</span>
+  local lines = {}
+  local fx, fy = math.sin(cam.angle), -math.cos(cam.angle)   <span class="c">-- forward</span>
+  local rx, ry = -fy, fx                                     <span class="c">-- right</span>
+  for y = HORIZON + 1, SH - 1 do
+<span class="k">    local scale = CAM_H / (y - HORIZON)          -- map pixels per screen pixel</span>
+    local depth = scale * F
+    local a = math.floor(scale * rx * 256 + 0.5) <span class="c">-- like register A</span>
+    local c = math.floor(scale * ry * 256 + 0.5) <span class="c">-- like register C</span>
+    lines[y] = { a = a, c = c,
+      ox = (cam.x + fx * depth) * 256 - a * SW / 2,
+      oy = (cam.y + fy * depth) * 256 - c * SW / 2 }
+  end
+  return lines
+end
+
+function love.load()
+  data = love.image.newImageData(SW, SH)
+  img = love.graphics.newImage(data)
+  img:setFilter("nearest", "nearest")
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("left") then cam.angle = cam.angle - TURN * dt end
+  if love.keyboard.isDown("right") then cam.angle = cam.angle + TURN * dt end
+  cam.x = (cam.x + math.sin(cam.angle) * SPEED * dt) % 1024
+  cam.y = (cam.y - math.cos(cam.angle) * SPEED * dt) % 1024
+end
+
+function love.draw()
+  local lines = buildLines()
+  for y = 0, SH - 1 do
+    local L = lines[y]
+    for x = 0, SW - 1 do
+      local col = SKY
+      if L then
+<span class="k">        col = mapColour(math.floor((L.ox + L.a * x) / 256), math.floor((L.oy + L.c * x) / 256))</span>
+      end
+      data:setPixel(x, y, col[1], col[2], col[3], 1)
+    end
+  end
+  img:replacePixels(data)
+  love.graphics.draw(img, 0, 0, 0, 3, 3)
+end</code></pre>
+  </div>
+  <p>The screen is drawn three times larger, so set the window to 768 by 672 in <code>conf.lua</code>. <code>mapColour</code> works out the map on the fly; the demo bakes it once into a 1024 by 1024 buffer, closer to video memory. The controls match the demo's <strong>Steer yourself</strong> mode at its default speed.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Dividing by zero at the horizon.</strong> <code>scale = h / n</code> blows up when <code>n</code> is 0. Start the floor one line below the horizon, as <code>buildLines</code> does, and leave the lines above to another layer.</li>
+    <li><strong>Overflowing the fixed-point registers.</strong> <code>A</code> holds at most 32767, which is a scale just under 128. The first floor line has scale <code>h / 1</code>, so a camera height of 128 or more overflows it. The demo stops at 120.</li>
+    <li><strong>Sparkle in the distance.</strong> A far line skips many map pixels per step, with no averaging, so the far track shimmers as the camera moves. Modern GPUs fix this with <dfn>mipmaps</dfn>, smaller pre-averaged copies of a texture.</li>
+    <li><strong>Forgetting that the floor is flat.</strong> Mode 7 cannot do hills or walls. Anything that stands up, such as cars and signs, has to be a sprite scaled by the same <code>h / n</code> rule.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>On the Super Nintendo, Pilotwings and Super Mario Kart also draw their ground with Mode 7, and many games used it without perspective, for one rotating or zooming picture. In all of them, the racers and objects on the ground are sprites. The Game Boy Advance later added rotating and scaling background layers of its own, used for the same kind of floor.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a fog band to the Lua. In <code>love.draw</code>, for each floor line, work out <code>t = math.min(1, depth / 4000)</code> (store <code>depth</code> in the line table), and mix the map colour towards <code>SKY</code> by <code>t</code>: <code>r = col[1] + (SKY[1] - col[1]) * t</code>, and the same for green and blue. You are done when the far track fades into the sky and the sparkle near the horizon goes away.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Mode 7 rotates and scales one 1024 by 1024 pixel layer with a fixed-point 2 by 2 matrix.</li>
+    <li>A new matrix on every line, with <code>scale = height / lines below horizon</code>, turns the flat map into a floor.</li>
+    <li>HDMA feeds a per-line table into the registers, so the processor builds one table per frame.</li>
+    <li>The floor is flat: everything that stands up is a sprite.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Sonic the Hedgehog (1991) uses a different per-line trick on the Mega Drive: scrolling each line of one background by its own amount to make many layers of parallax.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Only GitHub could be reached from this session. The Mode 7 sums, registers, map size and fixed-point format come from the two emulator sources below; HDMA timing and its eight channels from the MAME driver; F-Zero's release dates and cartridge memory from MAME's cartridge list. The last three works are standard references I could not open.</p>
+  <ul>
+    <li>The ares team (descended from byuu's higan), <a href="https://raw.githubusercontent.com/ares-emulator/ares/master/ares/sfc/ppu/mode7.cpp"><cite>ares/sfc/ppu/mode7.cpp</cite></a>. The Mode 7 pixel lookup: line origin, per-pixel step, 128 by 128 tile map, behaviour outside the map.</li>
+    <li>The MAME team, <a href="https://raw.githubusercontent.com/mamedev/mame/master/src/devices/video/snes_ppu.cpp"><cite>snes_ppu.cpp</cite></a>. Register names and addresses <code>$211A</code> to <code>$2120</code>, and the Mode 7 memory layout.</li>
+    <li>The MAME team, <a href="https://raw.githubusercontent.com/mamedev/mame/master/src/mame/nintendo/snes_m.cpp"><cite>snes_m.cpp</cite></a>. HDMA transfers run in the horizontal blank before each visible line.</li>
+    <li>The MAME team, <a href="https://raw.githubusercontent.com/mamedev/mame/master/hash/snes.xml"><cite>hash/snes.xml</cite></a>, entries <code>fzeroj</code> and <code>fzerou</code>. Japanese release 21 November 1990, North American release August 1991, a 512 KB ROM and 2 KB of battery-backed save memory.</li>
+    <li>Nintendo, <cite>Super Nintendo Entertainment System Development Manual</cite>. The official description of Mode 7 and HDMA. Not opened this session.</li>
+    <li>Martin Korth, <cite>fullsnes</cite>, and the SNESdev wiki's <cite>Mode 7</cite> page. Detailed community hardware references. Not opened this session.</li>
+    <li>Rodrigo Copetti, <cite>Super Nintendo Architecture: A Practical Analysis</cite>. A readable overview of the console's graphics hardware. Not opened this session.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SW = 256, SH = 224, F = 256, MAP = 1024, TURN = 1.5;
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // ---- colours of the map (same as the Lua) ----
+  var SKY = [120, 170, 230], ROAD = [96, 96, 104], RED = [200, 56, 48], WHITE = [236, 236, 236];
+  var BLACK = [24, 24, 24], GRASS1 = [70, 150, 70], GRASS2 = [58, 128, 60];
+
+  function mod(v, m) { return ((v % m) + m) % m; }
+
+  function mapColour(mx, my) {
+    mx = mod(mx, 1024); my = mod(my, 1024);
+    var qx = Math.max(Math.abs(mx - 512) - 200, 0);
+    var qy = Math.max(Math.abs(my - 512) - 120, 0);
+    var d = Math.abs(Math.sqrt(qx * qx + qy * qy) - 160);
+    if (d < 36) {
+      if (my > 700 && Math.abs(mx - 512) < 8) {
+        return (Math.floor(mx / 4) + Math.floor(my / 4)) % 2 === 0 ? WHITE : BLACK;
+      }
+      return ROAD;
+    } else if (d < 44) {
+      return (Math.floor(mx / 16) + Math.floor(my / 16)) % 2 === 0 ? RED : WHITE;
+    }
+    return (Math.floor(mx / 64) + Math.floor(my / 64)) % 2 === 0 ? GRASS1 : GRASS2;
+  }
+
+  // ---- bake the 1024 x 1024 map once, like video memory ----
+  var mapBuf = new ArrayBuffer(MAP * MAP * 4);
+  var map8 = new Uint8Array(mapBuf), map32 = new Uint32Array(mapBuf);
+  var x, y, c, i;
+  for (y = 0; y < MAP; y++) {
+    for (x = 0; x < MAP; x++) {
+      c = mapColour(x, y);
+      i = (y * MAP + x) * 4;
+      map8[i] = c[0]; map8[i + 1] = c[1]; map8[i + 2] = c[2]; map8[i + 3] = 255;
+    }
+  }
+  var skyBytes = new Uint8Array([SKY[0], SKY[1], SKY[2], 255]);
+  var SKY32 = new Uint32Array(skyBytes.buffer)[0];
+
+  // thumbnail: every 4th map pixel
+  var thumb = document.createElement('canvas');
+  thumb.width = 256; thumb.height = 256;
+  var tctx = thumb.getContext('2d');
+  var timg = tctx.createImageData(256, 256);
+  var t32 = new Uint32Array(timg.data.buffer);
+  for (y = 0; y < 256; y++) for (x = 0; x < 256; x++) t32[y * 256 + x] = map32[(y * 4) * MAP + x * 4];
+  tctx.putImageData(timg, 0, 0);
+
+  // the screen
+  var off = document.createElement('canvas');
+  off.width = SW; off.height = SH;
+  var o = off.getContext('2d');
+  var simg = o.createImageData(SW, SH);
+  var s32 = new Uint32Array(simg.data.buffer);
+
+  // ---- the track's centre line, for "follow the track" ----
+  var R = 160, HP = Math.PI / 2;
+  var SEGS = [
+    { t: 'line', x0: 512, y0: 792, x1: 312, y1: 792 },
+    { t: 'arc', cx: 312, cy: 632, a0: HP },
+    { t: 'line', x0: 152, y0: 632, x1: 152, y1: 392 },
+    { t: 'arc', cx: 312, cy: 392, a0: Math.PI },
+    { t: 'line', x0: 312, y0: 232, x1: 712, y1: 232 },
+    { t: 'arc', cx: 712, cy: 392, a0: 3 * HP },
+    { t: 'line', x0: 872, y0: 392, x1: 872, y1: 632 },
+    { t: 'arc', cx: 712, cy: 632, a0: 0 },
+    { t: 'line', x0: 712, y0: 792, x1: 512, y1: 792 }
+  ];
+  var TOTAL = 0;
+  SEGS.forEach(function (sg) {
+    sg.len = sg.t === 'line' ? Math.hypot(sg.x1 - sg.x0, sg.y1 - sg.y0) : R * HP;
+    TOTAL += sg.len;
+  });
+  function trackPoint(s) {
+    s = mod(s, TOTAL);
+    for (var k = 0; k < SEGS.length; k++) {
+      var sg = SEGS[k];
+      if (s <= sg.len || k === SEGS.length - 1) {
+        if (sg.t === 'line') {
+          var u = Math.min(1, s / sg.len);
+          return { x: sg.x0 + (sg.x1 - sg.x0) * u, y: sg.y0 + (sg.y1 - sg.y0) * u,
+                   tx: (sg.x1 - sg.x0) / sg.len, ty: (sg.y1 - sg.y0) / sg.len };
+        }
+        var phi = sg.a0 + Math.min(s, sg.len) / R;
+        return { x: sg.cx + R * Math.cos(phi), y: sg.cy + R * Math.sin(phi),
+                 tx: -Math.sin(phi), ty: Math.cos(phi) };
+      }
+      s -= sg.len;
+    }
+    return { x: 512, y: 792, tx: -1, ty: 0 };
+  }
+
+  var cam = { x: 512, y: 792, angle: -Math.PI / 2 };
+  var trackS = 0;
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+  function deg(r) { var d = r * 180 / Math.PI; return mod(d + 180, 360) - 180; }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="mode7-floor"]');
+  var perLine = ui.toggle({ label: 'Per-line scaling (a new matrix on every line)', value: true, onChange: redraw });
+  var camMode = ui.select({ label: 'Camera', value: 'follow',
+    options: [{ value: 'follow', label: 'Follow the track' }, { value: 'free', label: 'Steer yourself' }],
+    onChange: function (v) { if (v === 'follow') placeOnTrack(); redraw(); } });
+  var height = ui.slider({ label: 'Camera height', min: 8, max: 120, step: 1, value: 64, unit: ' map px', onInput: redraw });
+  var horizon = ui.slider({ label: 'Horizon line', min: 40, max: 160, step: 1, value: 80, onInput: redraw });
+  var angle = ui.slider({ label: 'Camera angle', min: -180, max: 180, step: 1, value: -90, unit: '°',
+    onInput: function (v) { cam.angle = v * Math.PI / 180; camMode.set('free'); redraw(); } });
+  var speed = ui.slider({ label: 'Speed', min: 0, max: 240, step: 10, value: 120, unit: ' map px/s', onInput: redraw });
+  var inspect = ui.slider({ label: 'Inspect line', min: 0, max: SH - 1, step: 1, value: 150, onInput: redraw });
+  var outCount = ui.readout({ label: 'Matrices used this frame' });
+  var outRead = ui.readout({ label: 'Map pixels read by the inspected line' });
+
+  function placeOnTrack() {
+    var tp = trackPoint(trackS);
+    cam.x = tp.x; cam.y = tp.y;
+    cam.angle = Math.atan2(tp.tx, -tp.ty);
+    angle.set(Math.round(deg(cam.angle)));
+  }
+
+  // ---- the per-line table (same as buildLines in the Lua) ----
+  var has = new Array(SH), LA = new Float64Array(SH), LC = new Float64Array(SH);
+  var LOX = new Float64Array(SH), LOY = new Float64Array(SH), LS = new Float64Array(SH), LD = new Float64Array(SH);
+
+  function buildLines() {
+    var fx = Math.sin(cam.angle), fy = -Math.cos(cam.angle);
+    var rx = -fy, ry = fx;
+    var H = horizon.value, h = height.value, yy, scale, depth, a, cc;
+    for (yy = 0; yy < SH; yy++) has[yy] = false;
+    if (perLine.value) {
+      for (yy = H + 1; yy < SH; yy++) {
+        scale = h / (yy - H);
+        depth = scale * F;
+        a = Math.round(scale * rx * 256);
+        cc = Math.round(scale * ry * 256);
+        has[yy] = true; LA[yy] = a; LC[yy] = cc; LS[yy] = scale; LD[yy] = depth;
+        LOX[yy] = (cam.x + fx * depth) * 256 - a * SW / 2;
+        LOY[yy] = (cam.y + fy * depth) * 256 - cc * SW / 2;
+      }
+    } else {
+      // one matrix for every line: scale 2, camera point at screen (128, 180)
+      a = Math.round(2 * rx * 256);
+      cc = Math.round(2 * ry * 256);
+      for (yy = 0; yy < SH; yy++) {
+        has[yy] = true; LA[yy] = a; LC[yy] = cc; LS[yy] = 2; LD[yy] = 0;
+        LOX[yy] = (cam.x + fx * 2 * (180 - yy)) * 256 - a * SW / 2;
+        LOY[yy] = (cam.y + fy * 2 * (180 - yy)) * 256 - cc * SW / 2;
+      }
+    }
+  }
+
+  function renderScreen() {
+    var yy, xx, row, ox, oy, a, cc, mx, my, count = 0;
+    for (yy = 0; yy < SH; yy++) {
+      row = yy * SW;
+      if (!has[yy]) {
+        for (xx = 0; xx < SW; xx++) s32[row + xx] = SKY32;
+        continue;
+      }
+      count++;
+      ox = LOX[yy]; oy = LOY[yy]; a = LA[yy]; cc = LC[yy];
+      for (xx = 0; xx < SW; xx++) {
+        mx = Math.floor((ox + a * xx) / 256) & 1023;
+        my = Math.floor((oy + cc * xx) / 256) & 1023;
+        s32[row + xx] = map32[my * MAP + mx];
+      }
+    }
+    o.putImageData(simg, 0, 0);
+    // the craft: a sprite drawn on top, not part of the floor
+    var cy = perLine.value ? Math.min(SH - 6, Math.max(horizon.value + 30, 206)) : 186;
+    o.fillStyle = 'rgb(40,40,48)';
+    o.beginPath(); o.moveTo(128, cy - 17); o.lineTo(142, cy + 1); o.lineTo(114, cy + 1); o.closePath(); o.fill();
+    o.fillStyle = 'rgb(232,140,40)';
+    o.beginPath(); o.moveTo(128, cy - 15); o.lineTo(139, cy); o.lineTo(117, cy); o.closePath(); o.fill();
+    o.fillStyle = 'rgb(70,200,230)';
+    o.fillRect(126, cy - 8, 4, 4);
+    return count;
+  }
+
+  function hex16(v) {
+    var s = (v & 0xFFFF).toString(16).toUpperCase();
+    while (s.length < 4) s = '0' + s;
+    return '0x' + s;
+  }
+
+  var view = { ox: 0, oy: 0, S: 1, sw: SW, sh: SH };
+
+  function draw(ctx, s) {
+    var col = s.colors, W = s.width, Hc = s.height, pad = 12, k;
+    buildLines();
+    var count = renderScreen();
+
+    var wide = W >= 640, panelW = 210;
+    var S = wide ? Math.min((W - panelW - 3 * pad) / SW, (Hc - 2 * pad) / SH)
+                 : Math.min((W - 2 * pad) / SW, (Hc - 3 * pad - 250) / SH);
+    S = Math.max(0.5, S);
+    var sw = Math.round(SW * S), sh = Math.round(SH * S);
+    var ox = wide ? pad : Math.round((W - sw) / 2), oy = pad;
+    view.ox = ox; view.oy = oy; view.S = S; view.sw = sw; view.sh = sh;
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, ox, oy, sw, sh);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = col.line;
+    ctx.strokeRect(ox - 0.5, oy - 0.5, sw + 1, sh + 1);
+
+    var L = inspect.value, ly = oy + L * S, lh = Math.max(2, S);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+    ctx.strokeRect(ox + 1, ly - 1, sw - 2, lh + 2);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(ox + 1, ly - 1, sw - 2, lh + 2);
+
+    // ---- the map panel ----
+    var T, tx, ty, textX, textY;
+    if (wide) {
+      T = 190; tx = ox + sw + 2 * pad; ty = pad + 18;
+      textX = tx; textY = ty + T + 14;
+    } else {
+      T = 130; tx = pad; ty = oy + sh + pad + 18;
+      if (W - T - 3 * pad >= 190) { textX = tx + T + pad; textY = ty; }
+      else { textX = pad; textY = ty + T + 10; }
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = col.ink;
+    ctx.fillText('The flat map, around the camera', tx, ty - 18);
+
+    var VIEW = 2048, kk = T / VIEW;
+    function bx(mx) { return tx + T / 2 + (mx - cam.x) * kk; }
+    function by(my) { return ty + T / 2 + (my - cam.y) * kk; }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(tx, ty, T, T); ctx.clip();
+    var tile = MAP * kk, gx = bx(0), gy = by(0);
+    ctx.imageSmoothingEnabled = true;
+    for (var ix = -2; ix <= 2; ix++) for (var iy = -2; iy <= 2; iy++) {
+      ctx.drawImage(thumb, gx + ix * tile, gy + iy * tile, tile, tile);
+    }
+    // the wedge of map the screen reads
+    var first = -1, last = -1;
+    for (k = 0; k < SH; k++) if (has[k]) { if (first < 0) first = k; last = k; }
+    if (first >= 0) {
+      ctx.beginPath();
+      for (k = first; k <= last; k++) {
+        var px0 = bx(LOX[k] / 256), py0 = by(LOY[k] / 256);
+        if (k === first) ctx.moveTo(px0, py0); else ctx.lineTo(px0, py0);
+      }
+      for (k = last; k >= first; k--) {
+        ctx.lineTo(bx((LOX[k] + LA[k] * (SW - 1)) / 256), by((LOY[k] + LC[k] * (SW - 1)) / 256));
+      }
+      ctx.closePath();
+      ctx.fillStyle = col.topic; ctx.globalAlpha = 0.25; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col.topic; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    if (has[L]) {
+      ctx.beginPath();
+      ctx.moveTo(bx(LOX[L] / 256), by(LOY[L] / 256));
+      ctx.lineTo(bx((LOX[L] + LA[L] * (SW - 1)) / 256), by((LOY[L] + LC[L] * (SW - 1)) / 256));
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // camera
+    var cxp = bx(cam.x), cyp = by(cam.y);
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(cxp, cyp, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cxp, cyp, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+    ctx.strokeRect(tx - 0.5, ty - 0.5, T + 1, T + 1);
+
+    // ---- the inspected line's table entry ----
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = col.ink2;
+    var lines;
+    if (!has[L]) {
+      lines = ['Line ' + L + ': above the horizon.', 'No floor here: the sky', 'is drawn separately.'];
+      outRead.set('none (sky)');
+    } else {
+      var reads = Math.round(SW * LS[L]);
+      lines = [
+        'Line ' + L + (perLine.value ? '  depth ' + Math.round(LD[L]) : '  (flat)'),
+        'scale ' + LS[L].toFixed(2) + ' map px/pixel',
+        'A = ' + hex16(LA[L]) + '  (' + LA[L] + ')',
+        'C = ' + hex16(LC[L]) + '  (' + LC[L] + ')',
+        'start (' + mod(Math.floor(LOX[L] / 256), 1024) + ', ' + mod(Math.floor(LOY[L] / 256), 1024) + ')'
+      ];
+      outRead.set(reads + ' along a ' + SW + ' pixel line');
+    }
+    for (k = 0; k < lines.length; k++) ctx.fillText(lines[k], textX, textY + k * 15);
+    outCount.set(perLine.value ? count + ', one per floor line' : '1, shared by all ' + SH + ' lines');
+  }
+
+  function update(dt, s) {
+    var turn = 0;
+    if (s.keys.has('arrowleft')) turn -= 1;
+    if (s.keys.has('arrowright')) turn += 1;
+    if (turn !== 0 && camMode.value === 'follow') camMode.set('free');
+    if (camMode.value === 'follow') {
+      trackS = mod(trackS + speed.value * dt, TOTAL);
+      placeOnTrack();
+    } else {
+      cam.angle += turn * TURN * dt;
+      cam.x = mod(cam.x + Math.sin(cam.angle) * speed.value * dt, MAP);
+      cam.y = mod(cam.y - Math.cos(cam.angle) * speed.value * dt, MAP);
+      angle.set(Math.round(deg(cam.angle)));
+    }
+  }
+
+  function pickLine(p) {
+    var v = view;
+    if (p.x < v.ox || p.x > v.ox + v.sw || p.y < v.oy || p.y > v.oy + v.sh) return;
+    inspect.set(DemoKit.clamp(Math.floor((p.y - v.oy) / v.S), 0, SH - 1));
+  }
+
+  placeOnTrack();
+
+  handle = DemoKit.canvas('#mode7-floor', {
+    height: 540,
+    drag: true,
+    keys: true,
+    label: 'A 256 by 224 pixel racing view drawn the Mode 7 way: a flat track map shown in perspective, one line at a time. Beside it, a small top-down map shows the wedge of the map the screen reads and the segment read by the inspected line, with that line\'s scale and matrix values. Hold the left and right arrow keys to steer.',
+    update: update,
+    draw: draw,
+    onDown: pickLine,
+    onMove: function (p) { if (p.down) pickLine(p); },
+    onKey: function (key, isDown) {
+      if (!reduced || !isDown) return;
+      if (key === 'arrowleft' || key === 'arrowright') {
+        camMode.set('free');
+        cam.angle += (key === 'arrowleft' ? -5 : 5) * Math.PI / 180;
+        angle.set(Math.round(deg(cam.angle)));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
