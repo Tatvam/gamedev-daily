@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tunnelling · Game Dev Daily</title>
+<meta name="description" content="Why fast or small objects skip through thin walls between two steps, how to predict when it happens, and three ways to stop it.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Tunnelling</h1>
+  <p class="lede">Why fast or small objects skip through thin walls between two steps, how to predict when it happens, and three ways to stop it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You fire a rocket at a closed door and it explodes in the next room. A player falls from a great height and drops straight through a thin floor, but only sometimes. The collision code is correct; it just never looked where the object passed through.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A step only checks where the object lands</h2>
+  <p>The overlap tests from the last few lessons ask: do these two shapes overlap <em>right now</em>? A game moves the object, then asks once per step. This is <dfn>discrete collision detection</dfn>: the object is checked at separate moments and nowhere in between.</p>
+  <p>Between two steps the object teleports. If the old position is in front of a wall and the new one behind it, neither test sees an overlap. That is <dfn>tunnelling</dfn>.</p>
+
+  <h2>The window rule</h2>
+  <p>Take a bullet moving right at speed <code>v</code>, checked every <code>dt</code> seconds. In one step it moves:</p>
+<pre><code>d = v * dt</code></pre>
+  <p>In words: the distance between two checked positions is the speed times the step. At 1800 pixels per second and 60 steps per second, that is 1800 × 1/60 = 30 pixels per step.</p>
+  <p>Now look at where a check would catch it. Call the bullet's left edge <code>x</code>, its size <code>s</code>, the wall's left edge <code>W</code> and its thickness <code>T</code>. The bullet overlaps the wall when <code>x</code> is between <code>W - s</code> and <code>W + T</code>. That range is the <dfn>hit window</dfn>, and its length is:</p>
+<pre><code>window = T + s</code></pre>
+  <p>In words: the wall's thickness plus the bullet's own size. A wall 8 pixels thick and a bullet 6 pixels wide give a window of 14 pixels.</p>
+  <p>The checked positions are spaced <code>d</code> apart. If <code>d</code> is smaller than the window, one of them must land inside it: the bullet is always caught. If <code>d</code> is larger, whether one lands inside depends on where the shot started. Over many shots the share that are caught is:</p>
+<pre><code>hit chance = (T + s) / d</code></pre>
+  <p>In words: the window as a fraction of one step. Here 14 / 30, so about 47% of shots hit. This is why tunnelling bugs are reported as "sometimes".</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 320" role="img" aria-label="Two rows, each with a thin wall and a line of positions where a small box was checked. In the top row the positions are 60 apart, and one step jumps from just before the wall to just after it, so no position lands in the hit window. In the bottom row the positions are 20 apart, and one lands inside the window, overlapping the wall.">
+      <text class="d-text" x="12" y="22">Fast: one step is longer than the window</text>
+      <rect class="d-fill" x="330" y="34" width="16" height="80"/>
+      <rect class="d-box" x="130" y="74" width="12" height="12"/>
+      <rect class="d-box" x="190" y="74" width="12" height="12"/>
+      <rect class="d-box" x="250" y="74" width="12" height="12"/>
+      <rect class="d-box" x="310" y="74" width="12" height="12"/>
+      <rect class="d-box" x="370" y="74" width="12" height="12"/>
+      <rect class="d-box" x="430" y="74" width="12" height="12"/>
+      <rect class="d-box" x="490" y="74" width="12" height="12"/>
+      <path class="d-bad" d="M316 70 Q346 38 374 66"/>
+      <polygon class="d-bad-fill" points="378,71 368,67 375,60"/>
+      <text class="d-text" x="392" y="52">one step jumps over</text>
+      <path class="d-thin" d="M100 126 H530"/>
+      <rect class="d-accent-soft" x="318" y="121" width="28" height="10"/>
+      <path class="d-stroke" d="M130 118 V134 M190 118 V134 M250 118 V134 M310 118 V134 M370 118 V134 M430 118 V134 M490 118 V134"/>
+      <text class="d-label" x="332" y="152" text-anchor="middle">hit window = T + s</text>
+      <text class="d-muted" x="100" y="152" text-anchor="middle">left edges</text>
+
+      <text class="d-text" x="12" y="186">Slow: one step is shorter than the window</text>
+      <rect class="d-fill" x="330" y="198" width="16" height="80"/>
+      <text class="d-text" x="356" y="214">wall</text>
+      <rect class="d-box" x="186" y="232" width="12" height="12"/>
+      <rect class="d-box" x="206" y="232" width="12" height="12"/>
+      <rect class="d-box" x="226" y="232" width="12" height="12"/>
+      <rect class="d-box" x="246" y="232" width="12" height="12"/>
+      <rect class="d-box" x="266" y="232" width="12" height="12"/>
+      <rect class="d-box" x="286" y="232" width="12" height="12"/>
+      <rect class="d-box" x="306" y="232" width="12" height="12"/>
+      <rect class="d-accent-fill" x="326" y="232" width="12" height="12"/>
+      <text class="d-label" x="356" y="243">caught</text>
+      <path class="d-thin" d="M100 290 H530"/>
+      <rect class="d-accent-soft" x="318" y="285" width="28" height="10"/>
+      <path class="d-stroke" d="M186 282 V298 M206 282 V298 M226 282 V298 M246 282 V298 M266 282 V298 M286 282 V298 M306 282 V298"/>
+      <path class="d-accent" d="M326 280 V300" style="stroke-width:3"/>
+      <text class="d-label" x="332" y="316" text-anchor="middle">a check lands inside</text>
+    </svg>
+    <figcaption>The line under each row marks the bullet's left edge at every check. A hit needs one mark inside the shaded window. Marks 60 apart can step over a 28 wide window; marks 20 apart cannot.</figcaption>
+  </figure>
+
+  <p>Anything that lengthens the step makes tunnelling more likely: more speed, a slower physics rate, a long frame with a variable timestep. So does anything that shortens the window: thinner walls, smaller objects.</p>
+
+  <h2>Three fixes</h2>
+  <p><strong>1. Keep the step inside the window.</strong> Turn the rule around and you get the fastest safe speed: <code>v</code> below <code>(T + s) / dt</code>. For the numbers above that is 14 × 60 = 840 pixels per second. Cap the speed, or make walls and objects thicker.</p>
+  <p><strong>2. Substeps.</strong> Split each step into <code>n</code> <dfn>substeps</dfn> and check after each, so each check moves only <code>d / n</code>. Three substeps turn 30 pixels into 10, which fits a 14 pixel window. The cost is <code>n</code> times the tests, and a big enough speed beats any fixed <code>n</code>.</p>
+  <p><strong>3. Test the path, not the point.</strong> During one step the bullet covers everything from its old position to its new one. Test that whole <dfn>swept</dfn> region against the wall. If it overlaps, the bullet hit, and you can place it where it first touched: <code>x = W - s</code> when moving right. Testing the motion instead of the end point is <dfn>continuous collision detection</dfn>, or CCD. For a bullet treated as a point, the swept test is the raycast from the last lesson, with maximum length <code>d</code>.</p>
+
+  <div class="callout">
+    <p class="callout-title">The game answer is often the cheap one</p>
+    <p>The physically correct fix is a swept test for everything. Games rarely do that. Bullets are often not simulated at all: a raycast from the gun decides the hit. Walls get a collision shape thicker than their art, which nobody sees. CCD is switched on only for the few fast objects that still need it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Bullets fly at the wall one after another, each from a different seeded spot. The marks on the line below are the bullet's left edge at every check; the shaded band is the hit window. About half the shots pass through. Press "Fire 100 shots now" and compare the measured share with the prediction.</p>
+  <p>Then fix it four ways: lower the speed below the safe speed, raise the wall thickness to 25 pixels, set substeps to 3, or switch on the swept test and push the speed to the top. A physics rate of 30 makes it worse. Any change, or Reset, restarts the same sequence of shots.</p>
+
+  <figure class="demo" data-demo="tunnel">
+    <canvas id="tunnel"></canvas>
+    <figcaption>Debug drawing shows the outline at every full step, the step that jumped the wall in red, and the region the last swept check covered. The bullet is drawn without interpolation, exactly where the collision test saw it.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A small LÖVE program with the demo's numbers. Press space to fire again; with <code>SUBSTEPS = 1</code> and <code>SWEPT = false</code> roughly half the shots pass through. Set either and they all hit.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A bullet flies right towards a thin wall, checked on a fixed step.</span>
+<span class="c">-- Lengths in pixels, speeds in pixels per second, y grows downwards.</span>
+local STEP = 1 / 60      <span class="c">-- seconds per physics step</span>
+local SUBSTEPS = 1       <span class="c">-- checks per step; 3 is enough for these numbers</span>
+local SWEPT = false      <span class="c">-- true: test the whole path of each check</span>
+local START, GONE = 20, 620
+
+local wall = { x = 380, w = 8 }            <span class="c">-- left edge and thickness</span>
+local bullet = { size = 6, speed = 1800 }
+local accumulator = 0
+
+local function fire()
+  <span class="c">-- start somewhere within one step of START, like a shot fired at any moment</span>
+  bullet.x = START - math.random() * bullet.speed * STEP
+  bullet.hit = false
+end
+
+<span class="c">-- The bullet spans x .. x + size, the wall spans wall.x .. wall.x + wall.w.</span>
+local function overlaps(x)
+  return x + bullet.size &gt; wall.x and x &lt; wall.x + wall.w
+end
+
+local function check(h)
+  local prev = bullet.x
+<span class="k">  local x = prev + bullet.speed * h</span>
+  if SWEPT then
+    <span class="c">-- moving right, the box covered prev .. x + size during this check</span>
+<span class="k">    if prev &lt; wall.x + wall.w and x + bullet.size &gt; wall.x then</span>
+      bullet.x = wall.x - bullet.size      <span class="c">-- stop where it first touches</span>
+      bullet.hit = true
+      return
+    end
+<span class="k">  elseif overlaps(x) then</span>
+    bullet.hit = true                      <span class="c">-- caught, but already inside the wall</span>
+  end
+  bullet.x = x
+end
+
+local function physicsStep()
+  local h = STEP / SUBSTEPS
+  for i = 1, SUBSTEPS do
+    if bullet.hit then return end
+    check(h)
+  end
+end
+
+function love.load()
+  math.randomseed(11)
+  fire()
+end
+
+function love.keypressed(key)
+  if key == "space" then fire() end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    if not bullet.hit and bullet.x &lt; GONE then physicsStep() end
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", wall.x, 50, wall.w, 110)
+  love.graphics.rectangle("line", bullet.x, 105 - bullet.size / 2, bullet.size, bullet.size)
+  local status = "flying"
+  if bullet.hit then status = "hit" elseif bullet.x &gt;= GONE then status = "passed through" end
+  local safe = (wall.w + bullet.size) * SUBSTEPS / STEP
+  love.graphics.print(status, 10, 10)
+  love.graphics.print(string.format("%.1f px per check, safe below %.0f px/s",
+    bullet.speed * STEP / SUBSTEPS, safe), 10, 30)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># fast_body.gd: a fast RigidBody2D. Ask Godot to sweep it between steps.</span>
+extends RigidBody2D
+
+func _ready() -&gt; void:
+<span class="k">    continuous_cd = RigidBody2D.CCD_MODE_CAST_SHAPE</span>
+    <span class="c"># CCD_MODE_CAST_RAY is cheaper and treats the body as a point.</span>
+
+
+<span class="c"># bullet.gd: a bullet you move yourself. Cast a ray along this step's motion.</span>
+extends Node2D
+
+var velocity := Vector2(1800, 0)   <span class="c"># pixels per second</span>
+
+func _physics_process(delta: float) -&gt; void:
+    var from := global_position
+    var to := from + velocity * delta
+    var space := get_world_2d().direct_space_state
+<span class="k">    var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(from, to))</span>
+    if hit.is_empty():
+        global_position = to
+    else:
+        global_position = hit["position"]
+        queue_free()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// In the script of a fast Rigidbody2D: ask Unity to sweep it between steps.</span>
+void Awake()
+{
+<span class="k">    GetComponent&lt;Rigidbody2D&gt;().collisionDetectionMode = CollisionDetectionMode2D.Continuous;</span>
+}
+
+
+<span class="c">// In the script of a bullet you move yourself: cast a ray along this step's motion.</span>
+public Vector2 velocity = new Vector2(30f, 0f);   <span class="c">// units per second</span>
+public LayerMask wallMask;
+
+void FixedUpdate()
+{
+    Vector2 from = transform.position;
+    Vector2 step = velocity * Time.fixedDeltaTime;
+<span class="k">    RaycastHit2D hit = Physics2D.Raycast(from, step.normalized, step.magnitude, wallMask);</span>
+    if (hit.collider != null)
+    {
+        transform.position = hit.point;
+        Destroy(gameObject);
+    }
+    else
+    {
+        transform.position = from + step;
+    }
+}</code></pre>
+  </div>
+  <p>Raising the physics rate is the engines' version of substeps (Physics Ticks per Second in Godot, Fixed Timestep in Unity), but it makes every body cost more. In LÖVE's own <code>love.physics</code>, which wraps Box2D, <code>Body:setBullet(true)</code> asks for the same continuous treatment.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Only thinking about speed.</strong> A slow but tiny object against a one-pixel wall tunnels too. Check your smallest object against your thinnest wall.</li>
+    <li><strong>Long frames with a variable timestep.</strong> A 100 millisecond hitch makes one step six times longer. Use a fixed step and cap the frame time.</li>
+    <li><strong>Caught, but too deep.</strong> A discrete hit can leave the object far inside the wall. If it is past the middle, pushing it out the shortest way pushes it out of the far side, and it tunnels anyway.</li>
+    <li><strong>Two moving objects.</strong> Two bullets flying at each other close the gap at the sum of their speeds, so use that in <code>d</code>. Some engines only sweep fast bodies against static walls by default; Box2D, for example, reserves continuous tests between two moving bodies for bodies marked as bullets.</li>
+    <li><strong>Teleporting a body.</strong> Setting the position directly skips the engine's sweep. Move bodies through velocity or the engine's move functions.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Many shooters treat ordinary bullets as hitscan, a raycast from the gun, so they cannot tunnel. Slower projectiles such as rockets or grenades are often real bodies, and these are the ones that get CCD.</p>
+  <p>The common engines ship the fix as a per-body switch: <code>continuous_cd</code> on Godot's <code>RigidBody2D</code>, <code>collisionDetectionMode</code> on Unity's <code>Rigidbody2D</code>, and the bullet flag in Box2D. Godot's <code>CharacterBody2D</code> tests its whole motion when you call <code>move_and_slide</code>, which is part of why a character moved that way stops at thin walls.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find your fastest object and thinnest wall. Work out <code>d = v * dt</code> at your physics rate and compare it with <code>T + s</code>. Then test it: fire the object at the wall at rising speeds and print the first speed at which it passes through.</p>
+  <p>You are done when the speed you measured is close to <code>(T + s) / dt</code>, and after adding substeps or a swept test, the object stops at the wall even at twice that speed.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Discrete collision checks only where an object lands, never the path in between.</li>
+    <li>An object can skip a wall when it moves further per step than the hit window: <code>v * dt</code> larger than <code>T + s</code>.</li>
+    <li>Past that point a hit is a matter of luck, with a chance of <code>(T + s) / d</code>. That is why the bug appears "sometimes".</li>
+    <li>Fixes: keep the step inside the window, use substeps, or test the swept path (continuous collision detection).</li>
+    <li>Games often use the cheap answer: raycast bullets, thicker invisible walls, and CCD only where it is needed.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The swept test here only said whether the bullet hit; the next lesson, swept AABB tests, calculates exactly when during the step a moving box first touches another.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005), section 5.5 on dynamic intersection tests, which test moving shapes over a whole time interval.</li>
+    <li>Erin Catto, the Box2D manual, sections on continuous collision and bullets. Explains what the bullet flag adds.</li>
+    <li>Godot Engine documentation, <cite>RigidBody2D</cite> class reference, property <code>continuous_cd</code>.</li>
+    <li>Unity documentation, <cite>Rigidbody2D.collisionDetectionMode</cite> scripting reference.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units match the Lua code: pixels, y grows downwards. The bullet's x is its left edge.
+  var W = 600, H = 230;
+  var LANE = 105;          // y of the bullet's centre
+  var START = 20;          // left edge before the seeded offset
+  var WALL_X = 380;        // left edge of the wall
+  var WALL_TOP = 50, WALL_BOTTOM = 160;
+  var AXIS = 184;          // y of the number line of left edges
+  var GONE = 620;          // a shot that gets this far has passed through
+  var SEED = 11;
+
+  var rng, shot, acc, tally, handle = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+
+  var ui = DemoKit.controls('[data-demo="tunnel"]');
+  var speed = ui.slider({ label: 'Bullet speed', min: 300, max: 6000, step: 60, value: 1800, unit: ' px/s', onInput: reset });
+  var thick = ui.slider({ label: 'Wall thickness', min: 2, max: 40, step: 1, value: 8, unit: ' px', onInput: reset });
+  var size = ui.slider({ label: 'Bullet size', min: 2, max: 20, step: 1, value: 6, unit: ' px', onInput: reset });
+  var rate = ui.select({
+    label: 'Physics rate',
+    options: [
+      { value: '30', label: '30 steps per second' },
+      { value: '60', label: '60 steps per second' },
+      { value: '120', label: '120 steps per second' }
+    ],
+    value: '60',
+    onChange: reset
+  });
+  var subs = ui.slider({ label: 'Substeps', min: 1, max: 10, step: 1, value: 1, onInput: reset });
+  var swept = ui.toggle({ label: 'Swept test (check the whole path)', value: false, onChange: reset });
+  var pace = ui.select({
+    label: 'Playback',
+    options: [
+      { value: '1', label: 'Real time' },
+      { value: '0.25', label: '1/4 speed' },
+      { value: '0.05', label: '1/20 speed' }
+    ],
+    value: '0.25'
+  });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: redraw });
+  ui.button({ label: 'Fire 100 shots now', onClick: fire100 });
+  ui.button({ label: 'Reset', onClick: reset });
+  var outStep = ui.readout({ label: 'Per check' });
+  var outChance = ui.readout({ label: 'Predicted hits' });
+  var outTally = ui.readout({ label: 'Measured' });
+  var outSafe = ui.readout({ label: 'Safe speed' });
+
+  function redraw() { if (handle) handle.redraw(); }
+  function stepTime() { return 1 / Number(rate.value); }
+  function window_() { return thick.value + size.value; }
+  function perCheck() { return speed.value * stepTime() / subs.value; }
+
+  function newShot() {
+    var d = speed.value * stepTime();
+    var x = START - rng() * d;
+    return { x: x, done: false, hit: false, counted: false, wait: 0, steps: 0,
+      marks: [{ x: x, full: true }], jump: null, sweepA: null, sweepB: null, hitX: null };
+  }
+
+  // One fixed step with its substeps. Same logic and names as check() in the Lua code.
+  function stepShot(sh) {
+    var n = subs.value, h = stepTime() / n;
+    var s = size.value, T = thick.value;
+    for (var i = 0; i < n; i++) {
+      var prev = sh.x;
+      var x = prev + speed.value * h;
+      if (swept.value) {
+        sh.sweepA = prev;
+        sh.sweepB = x + s;
+        if (prev < WALL_X + T && x + s > WALL_X) {
+          sh.x = WALL_X - s;
+          sh.hit = true;
+        } else {
+          sh.x = x;
+        }
+      } else {
+        sh.x = x;
+        if (x + s > WALL_X && x < WALL_X + T) sh.hit = true;
+        else if (prev + s <= WALL_X && x >= WALL_X + T) sh.jump = { a: prev, b: x };
+      }
+      sh.marks.push({ x: sh.x, full: i === n - 1 || sh.hit });
+      if (sh.hit) {
+        sh.hitX = sh.x;
+        sh.done = true;
+        sh.steps += 1;
+        return;
+      }
+    }
+    sh.steps += 1;
+    if (sh.x > GONE) sh.done = true;
+  }
+
+  function count(sh) {
+    if (sh.counted) return;
+    sh.counted = true;
+    tally.shots += 1;
+    if (sh.hit) tally.hits += 1;
+    showReadouts();
+  }
+
+  function fire100() {
+    var last = null;
+    for (var k = 0; k < 100; k++) {
+      var sh = newShot();
+      var guard = 0;
+      while (!sh.done && guard < 100000) { stepShot(sh); guard += 1; }
+      count(sh);
+      last = sh;
+    }
+    shot = last;
+    acc = 0;
+    redraw();
+  }
+
+  function reset() {
+    rng = DemoKit.rng(SEED);
+    tally = { shots: 0, hits: 0 };
+    acc = 0;
+    shot = newShot();
+    showReadouts();
+    redraw();
+  }
+
+  function pct(p) { return Math.round(p * 100) + '%'; }
+
+  function showReadouts() {
+    var d = perCheck(), win = window_();
+    outStep.set(d.toFixed(1) + ' px moved, window ' + win + ' px');
+    if (swept.value) {
+      outChance.set('100% (the swept test sees the whole path)');
+      outSafe.set('any speed');
+    } else {
+      var p = Math.min(1, win / d);
+      outChance.set(p >= 1 ? '100% (a check always lands in the window)' : pct(p) + ' (window / distance)');
+      outSafe.set('below ' + Math.round(win * subs.value / stepTime()) + ' px/s');
+    }
+    if (tally.shots === 0) outTally.set('no shots finished yet');
+    else outTally.set(tally.shots + ' shots: ' + tally.hits + ' hit, ' + (tally.shots - tally.hits) +
+      ' through (' + pct(tally.hits / tally.shots) + ')');
+  }
+
+  reset();
+
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  handle = DemoKit.canvas('#tunnel', {
+    aspect: W / H,
+    minHeight: 210,
+    maxHeight: 360,
+    label: 'A small square bullet flies right towards a thin wall. Below, a number line marks the bullet position at every collision check and shades the hit window. Shots that have no check inside the window pass through the wall.',
+    update: function (dt) {
+      if (shot.done) {
+        count(shot);
+        shot.wait += dt;
+        if (shot.wait > 0.9) { shot = newShot(); acc = 0; }
+        return;
+      }
+      acc += dt * Number(pace.value);
+      var STEP = stepTime();
+      var guard = 0;
+      while (acc >= STEP && !shot.done && guard < 200) {
+        stepShot(shot);
+        acc -= STEP;
+        guard += 1;
+      }
+      if (shot.done) { acc = 0; count(shot); }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      view.scale = Math.min(s.width / W, s.height / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (s.height - H * view.scale) / 2;
+      var k = view.scale;
+      var bs = size.value, T = thick.value;
+      var i, m;
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.lineCap = 'butt';
+
+      // Status, in screen pixels at the top left.
+      ctx.textAlign = 'left';
+      var status, color;
+      if (!shot.done) { status = 'Shot ' + (tally.shots + 1) + ': in flight'; color = c.ink2; }
+      else if (shot.hit) { status = 'Shot ' + tally.shots + ': hit on step ' + shot.steps; color = c.good; }
+      else { status = 'Shot ' + tally.shots + ': passed through'; color = c.bad; }
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = color;
+      ctx.fillText(status, 10, 20);
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(swept.value ? 'swept test, ' + subs.value + ' per step'
+        : 'overlap test, ' + subs.value + (subs.value === 1 ? ' check' : ' checks') + ' per step', 10, 37);
+
+      // Clip the world so shots starting off screen do not draw over the margin.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx(0), 0, W * k, s.height);
+      ctx.clip();
+
+      // Lane.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, sx(0), sy(LANE), sx(W), sy(LANE));
+
+      // Wall.
+      ctx.fillStyle = c.ink2;
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(sx(WALL_X), sy(WALL_TOP), T * k, (WALL_BOTTOM - WALL_TOP) * k);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx(WALL_X), sy(WALL_TOP), T * k, (WALL_BOTTOM - WALL_TOP) * k);
+
+      if (debug.value) {
+        // Outline at every full step: the previous positions.
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        for (i = 0; i < shot.marks.length; i++) {
+          m = shot.marks[i];
+          if (!m.full || m.x > W || m.x + bs < 0) continue;
+          ctx.strokeRect(sx(m.x), sy(LANE - bs / 2), bs * k, bs * k);
+        }
+        // The region the last swept check covered.
+        if (swept.value && shot.sweepA !== null) {
+          ctx.fillStyle = c.topic;
+          ctx.globalAlpha = 0.2;
+          ctx.fillRect(sx(shot.sweepA), sy(LANE - bs / 2), (shot.sweepB - shot.sweepA) * k, bs * k);
+          ctx.globalAlpha = 1;
+        }
+        // The step that jumped over the wall.
+        if (shot.jump) {
+          var ax = sx(shot.jump.a + bs / 2), bx = sx(shot.jump.b + bs / 2);
+          var ay = sy(LANE - bs / 2) - 4, top = sy(WALL_TOP) + 6;
+          ctx.strokeStyle = c.bad;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.quadraticCurveTo((ax + bx) / 2, top, bx, ay);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(bx, ay + 1);
+          ctx.lineTo(bx - 7, ay - 6);
+          ctx.lineTo(bx + 2, ay - 8);
+          ctx.closePath();
+          ctx.fillStyle = c.bad;
+          ctx.fill();
+          ctx.textAlign = 'center';
+          ctx.fillText('jumped over', (ax + bx) / 2, top - 4);
+        }
+      }
+
+      // The bullet, where the physics left it.
+      if (shot.x < W && shot.x + bs > 0) {
+        ctx.fillStyle = shot.done && !shot.hit ? c.bad : c.topic;
+        ctx.fillRect(sx(shot.x), sy(LANE - bs / 2), bs * k, bs * k);
+        if (shot.hit) {
+          ctx.strokeStyle = c.good;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx(shot.x + bs / 2), sy(LANE), bs * k / 2 + 7, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // Number line of left edges, with the hit window.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      line(ctx, sx(0), sy(AXIS), sx(W), sy(AXIS));
+      ctx.fillStyle = c.topic;
+      ctx.globalAlpha = 0.25;
+      ctx.fillRect(sx(WALL_X - bs), sy(AXIS) - 6, (T + bs) * k, 12);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.topic;
+      ctx.strokeRect(sx(WALL_X - bs), sy(AXIS) - 6, (T + bs) * k, 12);
+      for (i = 0; i < shot.marks.length; i++) {
+        m = shot.marks[i];
+        if (m.x < 0 || m.x > W) continue;
+        var tall = m.full ? 8 : 4;
+        var inWin = m.x > WALL_X - bs - 1e-6 && m.x < WALL_X + T;
+        ctx.strokeStyle = inWin ? c.good : c.ink2;
+        ctx.lineWidth = inWin ? 3 : 1.5;
+        line(ctx, sx(m.x), sy(AXIS) - tall, sx(m.x), sy(AXIS) + tall);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = c.topic;
+      ctx.textAlign = 'center';
+      ctx.fillText('hit window', sx(WALL_X + (T - bs) / 2), sy(AXIS) + 24);
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('left edge at each check', sx(4), sy(AXIS) - 12);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonic the Hedgehog: many layers of parallax from one background · Game Dev Daily</title>
+<meta name="description" content="How Sonic's backgrounds slide at many speeds on a chip with two layers: a table gives every screen line of one background its own scroll value.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sonic the Hedgehog: many layers of parallax from one background</h1>
+  <p class="lede">How Sonic's backgrounds slide at many speeds on a chip with two layers: a table gives every screen line of one background its own scroll value.</p>
+</header>
+
+<section data-section="hook">
+  <p>Run right in the first zone of Sonic the Hedgehog (Sega, 1991) and the world comes apart into layers: clouds drift, far mountains creep, hills slide past and the water speeds up towards the bottom of the screen. It looks like five or six layers stacked up. The Mega Drive's video chip has two, and the level itself uses one of them.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: two layers, one scroll each</h2>
+  <p><dfn>Parallax</dfn> is the train-window effect: near things rush past, far things barely move. Games fake it by scrolling pictures at different speeds.</p>
+  <p>The Mega Drive (sold as the Genesis in North America) draws with a video chip, the <dfn>VDP</dfn> (video display processor). In the 40-column mode Sonic uses, the screen is 320 by 224 pixels. It has two layers built from 8 by 8 pixel tiles, <dfn>plane A</dfn> and <dfn>plane B</dfn>, plus sprites, all in 64 KB of video memory.</p>
+  <p>Normally a plane scrolls as one piece. The level Sonic runs on takes plane A, leaving plane B for everything behind it. One value per plane gives two depths: the level and one flat backdrop.</p>
+
+  <h2>What the chip offers: a scroll value per line</h2>
+  <p>The VDP reads its horizontal scroll values from a <dfn>scroll table</dfn> in video memory. Two bits in register <code>$0B</code> choose how it reads that table:</p>
+  <ul>
+    <li><strong>Whole screen:</strong> one entry for the whole frame.</li>
+    <li><strong>Per row:</strong> a new entry every 8 lines, 28 entries for 224 lines.</li>
+    <li><strong>Per line:</strong> a new entry for every line.</li>
+  </ul>
+  <p>(A fourth setting, which MAME's source calls broken, repeats the first eight entries down the screen.) Each entry is two 16-bit values, one for plane A and one for plane B, so a full per-line table is 224 × 4 = 896 bytes. That is the whole cost: under a kilobyte, and no extra drawing.</p>
+
+  <h2>The trick: cut one picture into bands</h2>
+  <p>Sonic's background is one picture laid out in horizontal strips: clouds, mountains, hills, water. Each frame the game writes the table so that every line of a strip gets that strip's value. Each strip, or <dfn>band</dfn>, slides at its own speed, and the eye reads the bands as separate layers.</p>
+  <p>The table is built in ordinary memory while the frame runs, then copied into video memory by <dfn>DMA</dfn> (direct memory access, a hardware copy that does not need the processor) during the <dfn>vertical blank</dfn>, the pause between two frames. </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 350" role="img" aria-label="Left, a tall strip standing for the background picture, cut into six bands from top to bottom: upper clouds 32 lines, middle clouds 16, lower clouds 16, mountains 48, hills 40, water 72. Right, an arrow for each band whose length is its speed compared with the camera. Mountains 0.375, hills 0.5, the clouds 0.375 plus a drift of their own, and the water a wedge that grows from 0.5 at its top line to about 0.84 at its last. A dashed line marks the camera speed of 1, which the level layer moves at.">
+      <text class="d-label" x="40" y="24">Background picture (plane B)</text>
+      <text class="d-label" x="260" y="24">Speed compared with the camera</text>
+
+      <rect class="d-box" x="40" y="40" width="180" height="38.4"/>
+      <rect class="d-box" x="40" y="78.4" width="180" height="19.2"/>
+      <rect class="d-box" x="40" y="97.6" width="180" height="19.2"/>
+      <rect class="d-box" x="40" y="116.8" width="180" height="57.6"/>
+      <rect class="d-box" x="40" y="174.4" width="180" height="48"/>
+      <rect class="d-box" x="40" y="222.4" width="180" height="86.4"/>
+      <text class="d-text" x="50" y="63">upper clouds, 32</text>
+      <text class="d-text" x="50" y="92">middle clouds, 16</text>
+      <text class="d-text" x="50" y="111">lower clouds, 16</text>
+      <text class="d-text" x="50" y="150">mountains, 48</text>
+      <text class="d-text" x="50" y="203">hills, 40</text>
+      <text class="d-text" x="50" y="270">water, 72</text>
+
+      <path class="d-dash" d="M500 40 V309"/>
+      <text class="d-muted" x="500" y="36" text-anchor="middle">camera = 1</text>
+
+      <path class="d-accent" d="M260 59 H350 M344 54 L350 59 L344 64"/>
+      <path class="d-dash" d="M350 59 H376"/>
+      <path class="d-accent" d="M260 88 H350 M344 83 L350 88 L344 93"/>
+      <path class="d-dash" d="M350 88 H370"/>
+      <path class="d-accent" d="M260 107 H350 M344 102 L350 107 L344 112"/>
+      <path class="d-dash" d="M350 107 H364"/>
+      <text class="d-text" x="384" y="63">0.375 + drift</text>
+
+      <path class="d-accent" d="M260 146 H350 M344 141 L350 146 L344 151"/>
+      <text class="d-text" x="360" y="150">0.375</text>
+
+      <path class="d-accent" d="M260 198 H380 M374 193 L380 198 L374 203"/>
+      <text class="d-text" x="390" y="202">0.5</text>
+
+      <path class="d-accent-soft" d="M260 222.4 H380 L461.5 308.8 H260 Z"/>
+      <path class="d-accent" d="M380 222.4 L461.5 308.8"/>
+      <text class="d-text" x="268" y="270">a little faster</text>
+      <text class="d-text" x="268" y="286">on every line</text>
+      <text class="d-muted" x="40" y="336">Green Hill Zone, later revision. Water: 0.5 at its top line, about 0.84 at its last.</text>
+    </svg>
+    <figcaption>The first zone's background, read from the community disassembly. Solid scenery gets one value per band. The clouds also drift on their own, at 1, 0.75 and 0.5 pixels per frame. The water gets a new value on every line, so it reads as a flat surface stretching towards you.</figcaption>
+  </figure>
+
+  <p>The numbers come from the zone's scroll routine. The mountains move 0.375 pixels for every pixel the camera moves, and the hills 0.5. In the water, the top line moves with the hills, and each line below adds 1/104 of the gap between the hills and the camera. So the band speeds up down the screen, the way a flat surface moves beside you. The game keeps these positions in <dfn>fixed point</dfn>, whole numbers with a fractional part stored in the low bits, so slow bands creep smoothly instead of jumping.</p>
+
+  <h3>Fact and legend</h3>
+  <p>Sonic did not invent line scrolling. The hardware feature was there for every Mega Drive game, and per-line effects were already in use on other machines, such as the Amiga with its copper. The figures above come from the Sonic Retro disassembly, whose labels and comments are written by fans, not Sega. It has two versions of this routine: in the earlier one, the clouds and mountains share one value across the top 112 lines; the separate cloud drift appears in a later revision.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Instead of drawing more layers, give one layer a small table of offsets, one per line, and paint the art so that each band of lines is one depth.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Stacked full-screen see-through layers are still costly on phones and in browsers, because every pixel is drawn once per layer. One picture with a per-row offset draws each pixel once; in a shader, shift the texture coordinate by a value looked up from the row. As with Mode 7, the processor fills a tiny table each frame and simple hardware applies it.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The background is one 512-pixel-wide picture, and the chart shows the speed written for each of the 224 lines. Switch <strong>Scroll mode</strong> between per line, per 8-line row and whole layer and watch the layers merge. Lower <strong>Speeds in each gradient</strong> to cut the clouds and water into fewer bands, and turn on <strong>Show bands</strong> to see which lines share a value. Drag the screen, or click it and hold the arrow keys, to move the camera yourself.</p>
+
+  <figure class="demo wide" data-demo="line-scroll">
+    <canvas id="line-scroll"></canvas>
+    <figcaption>The table is always written in full; the scroll mode decides which entries the chip reads (bright bars). In whole-layer mode it reads only the first entry, so the entire background moves at the top line's speed.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's background in LÖVE, with the same bands and speeds. <code>love.update</code> builds the scroll table, as the game does each frame. <code>tableEntry</code> plays the video chip: it picks which entry each line uses. <code>love.draw</code> draws the picture one line at a time, shifted by that entry.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Line scrolling: one background picture, one scroll value per screen line.</span>
+local SW, SH, PLANE_W = 320, 224, 512
+local BANDS = 88            <span class="c">-- speeds in each gradient, 1 to 88</span>
+local MODE = "line"         <span class="c">-- "line", "cell" (8-line rows) or "full"</span>
+local RUN = 120             <span class="c">-- camera speed in pixels per second</span>
+local camX = 0
+local hscroll = {}          <span class="c">-- the scroll table, entries 0 to 223</span>
+local planeB, lineQuads
+
+local function gradient(line, first, count, from, to)
+  local n = math.min(BANDS, count)
+  local band = math.floor((line - first) * n / count)
+  return from + (to - from) * (band + 0.5) / n
+end
+
+local function speedForLine(line)
+  if line &lt; 48 then return gradient(line, 0, 48, 0.40, 0.20)   <span class="c">-- cloud ceiling</span>
+  elseif line &lt; 104 then return 0.125                          <span class="c">-- far mountains</span>
+  elseif line &lt; 136 then return 0.25                           <span class="c">-- hills</span>
+  end
+  return gradient(line, 136, 88, 0.30, 1.00)                   <span class="c">-- water</span>
+end
+
+local function tableEntry(line)     <span class="c">-- which entry the video chip reads</span>
+  if MODE == "full" then return hscroll[0] end
+  if MODE == "cell" then return hscroll[line - line % 8] end
+  return hscroll[line]
+end
+
+function love.load()
+  love.graphics.setDefaultFilter("nearest", "nearest")
+  planeB = love.graphics.newImage("plane_b.png")   <span class="c">-- your own 512 x 224 picture</span>
+  lineQuads = {}
+  for line = 0, SH - 1 do
+    lineQuads[line] = love.graphics.newQuad(0, line, PLANE_W, 1, PLANE_W, SH)
+  end
+end
+
+function love.update(dt)
+  camX = camX + RUN * dt
+  for line = 0, SH - 1 do                          <span class="c">-- build the table every frame</span>
+<span class="k">    hscroll[line] = -math.floor(camX * speedForLine(line))</span>
+  end
+end
+
+function love.draw()
+  love.graphics.scale(3, 3)
+  for line = 0, SH - 1 do
+<span class="k">    local x = tableEntry(line) % PLANE_W</span>
+    love.graphics.draw(planeB, lineQuads[line], x, line)
+    love.graphics.draw(planeB, lineQuads[line], x - PLANE_W, line)
+  end
+end</code></pre>
+  </div>
+  <p>Set the window to 960 by 672 in <code>conf.lua</code>. Each line is drawn twice, 512 pixels apart, so the picture wraps around like a hardware plane. Lua's <code>%</code> always returns a positive result for a positive divisor, so negative scroll values work. The demo draws a foreground layer on top at speed 1, which is plane A's job on the real machine.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Shearing solid scenery.</strong> A mountain that spans two bands, or sits in a gradient, leans over as you run. Keep solid objects inside one band and save gradients for flat things: water, floors, cloud ceilings. The demo's clouds sit in a gradient and lean slightly; set <strong>Speeds in each gradient</strong> to 1 and they stay round.</li>
+    <li><strong>Bands cannot overlap.</strong> Each line of the plane shows one strip at one offset, so a near tree in front of far mountains on the same lines needs sprites or the other plane.</li>
+    <li><strong>Vertical scrolling moves the bands.</strong> Bands are rows of the picture, but the table is indexed by screen line. When the background scrolls vertically the table must shift too; Sonic's routine trims the top band and lengthens the water.</li>
+    <li><strong>Writing the table while it is being read.</strong> Change it mid-frame and the top and bottom of the screen disagree. Build it in a buffer and copy it between frames.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In Sonic the Hedgehog every zone has its own routine that fills the scroll table, picked from a list by zone number. In the later revision, Labyrinth Zone uses the same table for a different effect: every line below the water surface gets a small extra offset from a wave table, on both planes, so the scene ripples underwater. On the Super Nintendo, games get per-line scrolling by having HDMA (covered in the F-Zero lesson) write a scroll register before each line.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Give the clouds a drift of their own, as Sonic's later revision does. Add <code>local cloudDrift = 0</code>, increase it by <code>20 * dt</code> in <code>love.update</code>, and for lines below 48 write <code>hscroll[line] = -math.floor(camX * speedForLine(line) + cloudDrift)</code>. Then make each third of the cloud band drift at a different rate. You are done when the clouds keep moving with <code>RUN</code> set to 0, and the top third moves fastest.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The Mega Drive has two scrolling planes, but each can take a new horizontal scroll value on every line.</li>
+    <li>A per-line table costs 4 bytes per line, 896 bytes for the screen, and is copied in between frames.</li>
+    <li>Painting the background in horizontal bands lets one plane look like many layers.</li>
+    <li>Solid scenery gets one value per band; flat surfaces get a value that grows line by line.</li>
+    <li>The modern form is a per-row offset in a shader: one draw instead of many stacked layers.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Sonic again: how ground sensors and a single ground speed let him run up walls and round loops.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Only GitHub could be reached from this session. The scroll modes, table layout and per-line lookup come from MAME's VDP source. The band sizes, speeds, cloud drift, DMA copy in the vertical blank and the two versions of the routine come from the Sonic Retro disassembly. The last three works are standard references I could not open.</p>
+  <ul>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_inc/DeformLayers%20(REV01).asm"><cite>s1disasm: DeformLayers (REV01).asm</cite></a> and <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_inc/DeformLayers%20(REV00).asm"><cite>DeformLayers (REV00).asm</cite></a>. The per-zone routines that fill the scroll table, with band sizes and speeds.</li>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/sonic.asm"><cite>s1disasm: sonic.asm</cite></a> and <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_inc/ScrollHoriz%20%26%20ScrollVertical.asm"><cite>ScrollHoriz &amp; ScrollVertical.asm</cite></a>. The line scroll mode setting, the copy of the table during the vertical blank, and the camera movement stored in 8.8 fixed point.</li>
+    <li>The MAME team, <a href="https://raw.githubusercontent.com/mamedev/mame/master/src/devices/video/315_5313.cpp"><cite>315_5313.cpp</cite></a> (the Mega Drive VDP). The four horizontal scroll modes and how each line finds its plane A and plane B entries.</li>
+    <li>Sega, <cite>Genesis Software Manual</cite>. The official description of the VDP registers and scroll table. Not opened this session.</li>
+    <li>Rodrigo Copetti, <cite>Mega Drive / Genesis Architecture: A Practical Analysis</cite>. A readable overview of the console's graphics. Not opened this session.</li>
+    <li><cite>A Guide to the Graphics of the Sega Mega Drive / Genesis</cite> (rasterscroll.com), section on row and column scrolling. Found by search but could not be opened.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SW = 320, SH = 224, PW = 512;
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function mix(c1, c2, t) { return [Math.round(lerp(c1[0], c2[0], t)), Math.round(lerp(c1[1], c2[1], t)), Math.round(lerp(c1[2], c2[2], t))]; }
+  function wrapDx(x, cx) { return ((x - cx) % PW + PW + PW / 2) % PW - PW / 2; }
+
+  // ---- speeds (same as the Lua) ----
+  function gradient(line, first, count, from, to, bands) {
+    var n = Math.min(bands, count);
+    var band = Math.floor((line - first) * n / count);
+    return from + (to - from) * (band + 0.5) / n;
+  }
+  function speedForLine(line, bands) {
+    if (line < 48) return gradient(line, 0, 48, 0.40, 0.20, bands);
+    if (line < 104) return 0.125;
+    if (line < 136) return 0.25;
+    return gradient(line, 136, 88, 0.30, 1.00, bands);
+  }
+
+  // ---- bake plane B (background) and plane A (foreground), original art ----
+  var rng = DemoKit.rng(1991);
+  var bBuf = new ArrayBuffer(PW * SH * 4), b8 = new Uint8Array(bBuf), b32 = new Uint32Array(bBuf);
+  var aBuf = new ArrayBuffer(PW * SH * 4), a8 = new Uint8Array(aBuf), a32 = new Uint32Array(aBuf);
+  function put(buf, x, y, c) {
+    var i = (y * PW + (((x % PW) + PW) % PW)) * 4;
+    buf[i] = c[0]; buf[i + 1] = c[1]; buf[i + 2] = c[2]; buf[i + 3] = 255;
+  }
+  var x, y, k;
+
+  // sky
+  for (y = 0; y < 136; y++) {
+    var sky = mix([92, 140, 214], [178, 210, 240], y / 135);
+    for (x = 0; x < PW; x++) put(b8, x, y, sky);
+  }
+  // clouds: bigger near the top (nearer overhead)
+  var clouds = [];
+  for (k = 0; k < 14; k++) {
+    var cy = 6 + rng() * 34;
+    var near = (48 - cy) / 48;
+    clouds.push({ cx: k * 37 + rng() * 30, cy: cy, hw: 14 + near * 30 + rng() * 10, hh: Math.min(2 + near * 5, cy - 1, 46 - cy) });
+  }
+  for (y = 0; y < 48; y++) {
+    for (x = 0; x < PW; x++) {
+      for (k = 0; k < clouds.length; k++) {
+        var cl = clouds[k], dx = wrapDx(x, cl.cx) / cl.hw, dy = (y - cl.cy) / cl.hh;
+        if (dx * dx + dy * dy <= 1) { put(b8, x, y, dy > 0.3 ? [212, 222, 240] : [242, 246, 252]); break; }
+      }
+    }
+  }
+  // far mountains, base on line 103
+  var peaks = [];
+  for (k = 0; k < 9; k++) {
+    var ht = 22 + rng() * 30;
+    peaks.push({ px: k * 57 + rng() * 30, top: 103 - ht, ht: ht, hw: ht * 1.4, light: k % 2 === 0 });
+  }
+  for (y = 48; y < 104; y++) {
+    for (x = 0; x < PW; x++) {
+      for (k = 0; k < peaks.length; k++) {
+        var pk = peaks[k];
+        if (y < pk.top) continue;
+        var d = wrapDx(x, pk.px), half = pk.hw * (y - pk.top) / pk.ht;
+        if (Math.abs(d) <= half) {
+          var base = pk.light ? [130, 122, 178] : [112, 104, 160];
+          if (d > 0) base = [base[0] - 18, base[1] - 18, base[2] - 18];
+          put(b8, x, y, y < pk.top + 6 ? [236, 236, 248] : base);
+          break;
+        }
+      }
+    }
+  }
+  // hills with round trees
+  function hillTop(xx) { return 116 + 5 * Math.sin(2 * Math.PI * xx * 3 / PW) + 3 * Math.sin(2 * Math.PI * xx * 7 / PW + 1); }
+  var trees = [];
+  for (k = 0; k < 12; k++) { var tx = k * 42 + rng() * 30; trees.push({ x: tx, y: hillTop(tx) + 1, r: 4 + rng() * 3 }); }
+  for (y = 104; y < 136; y++) {
+    for (x = 0; x < PW; x++) {
+      if (y >= hillTop(x)) put(b8, x, y, mix([70, 160, 84], [52, 132, 70], (y - 104) / 31));
+      for (k = 0; k < trees.length; k++) {
+        var tr = trees[k], tdx = wrapDx(x, tr.x), tdy = y - tr.y;
+        if (tdx * tdx + tdy * tdy <= tr.r * tr.r) { put(b8, x, y, [36, 104, 58]); break; }
+      }
+    }
+  }
+  // water: stripes in perspective and sparkles
+  for (y = 136; y < SH; y++) {
+    var t = (y - 136) / 87;
+    var wc = mix([86, 146, 210], [26, 64, 146], t);
+    if (Math.floor(600 / (y - 128)) % 2 === 0) wc = [wc[0] + 14, wc[1] + 14, wc[2] + 14];
+    for (x = 0; x < PW; x++) put(b8, x, y, wc);
+    var count = 2 + Math.floor(rng() * 2), len = Math.round(3 + t * 14);
+    for (k = 0; k < count; k++) {
+      var sx = Math.floor(rng() * PW);
+      for (x = 0; x < len; x++) put(b8, sx + x, y, [206, 232, 255]);
+    }
+  }
+  // foreground (plane A): ground strip, two stone pillars, one platform
+  for (y = 196; y < SH; y++) {
+    for (x = 0; x < PW; x++) {
+      if (y < 200) put(a8, x, y, y === 196 ? [40, 120, 50] : [74, 172, 72]);
+      else put(a8, x, y, ((x + y) >> 3) & 1 ? [150, 96, 56] : [128, 80, 46]);
+    }
+  }
+  function pillar(x0, w, y0) {
+    for (var yy = y0; yy < 196; yy++) for (var xx = x0; xx < x0 + w; xx++) {
+      put(a8, xx, yy, (yy % 8 === 0 || xx === x0 || xx === x0 + w - 1) ? [120, 112, 106] : [172, 164, 154]);
+    }
+  }
+  pillar(80, 24, 140);
+  pillar(340, 18, 164);
+  for (y = 150; y < 158; y++) for (x = 200; x < 264; x++) put(a8, x, y, (y === 150 || y === 157) ? [140, 84, 46] : [196, 126, 72]);
+
+  // the screen
+  var off = document.createElement('canvas');
+  off.width = SW; off.height = SH;
+  var o = off.getContext('2d');
+  var simg = o.createImageData(SW, SH);
+  var s32 = new Uint32Array(simg.data.buffer);
+
+  // ---- controls ----
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+  var ui = DemoKit.controls('[data-demo="line-scroll"]');
+  var mode = ui.select({ label: 'Scroll mode', value: 'line',
+    options: [{ value: 'line', label: 'Per line (224 entries)' },
+              { value: 'cell', label: 'Per 8-line row (28 entries)' },
+              { value: 'full', label: 'Whole layer (1 entry)' }],
+    onChange: redraw });
+  var bands = ui.slider({ label: 'Speeds in each gradient (clouds, water)', min: 1, max: 88, step: 1, value: 88, onInput: redraw });
+  var run = ui.slider({ label: 'Run speed', min: -480, max: 480, step: 20, value: 120, unit: ' px/s', onInput: redraw });
+  var showBands = ui.toggle({ label: 'Show bands (lines that share a value)', value: false, onChange: redraw });
+  var showFg = ui.toggle({ label: 'Foreground layer (plane A)', value: true, onChange: redraw });
+  var outReads = ui.readout({ label: 'Table entries the chip reads' });
+  var outSpeeds = ui.readout({ label: 'Different background speeds on screen' });
+
+  // ---- the table ----
+  var camX = 0;
+  var speeds = new Float64Array(SH), hscroll = new Int32Array(SH), readFrom = new Int32Array(SH);
+
+  function buildTable() {
+    for (var line = 0; line < SH; line++) {
+      speeds[line] = speedForLine(line, bands.value);
+      hscroll[line] = -Math.floor(camX * speeds[line]);
+    }
+  }
+  function entryFor(line) {
+    if (mode.value === 'full') return 0;
+    if (mode.value === 'cell') return line - line % 8;
+    return line;
+  }
+
+  function renderScreen() {
+    var fg = Math.floor(camX), useFg = showFg.value;
+    for (var yy = 0; yy < SH; yy++) {
+      var r = entryFor(yy);
+      readFrom[yy] = r;
+      var sb = -hscroll[r], row = yy * SW, src = yy * PW;
+      for (var xx = 0; xx < SW; xx++) {
+        var px = useFg ? a32[src + ((xx + fg) & 511)] : 0;
+        s32[row + xx] = px !== 0 ? px : b32[src + ((xx + sb) & 511)];
+      }
+    }
+    o.putImageData(simg, 0, 0);
+  }
+
+  var view = { ox: 0, oy: 0, S: 1, sw: SW, sh: SH };
+  var lastX = 0;
+
+  function draw(ctx, s) {
+    var col = s.colors, W = s.width, H = s.height, pad = 12, k;
+    buildTable();
+    renderScreen();
+
+    var wide = W >= 640, gw = 210;
+    var S = wide ? Math.min((W - gw - 3 * pad) / SW, (H - 2 * pad) / SH)
+                 : Math.min((W - 2 * pad) / SW, (H - 4 * pad - 18 - 200) / SH);
+    S = Math.max(0.5, S);
+    var sw = Math.round(SW * S), sh = Math.round(SH * S);
+    var ox = wide ? pad : Math.round((W - sw) / 2), oy = pad;
+    view.ox = ox; view.oy = oy; view.S = S; view.sw = sw; view.sh = sh;
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, ox, oy, sw, sh);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = col.line;
+    ctx.strokeRect(ox - 0.5, oy - 0.5, sw + 1, sh + 1);
+
+    // runs of lines that share one speed
+    var runs = [], start = 0;
+    for (k = 1; k <= SH; k++) {
+      if (k === SH || Math.abs(speeds[readFrom[k]] - speeds[readFrom[start]]) > 1e-9) {
+        runs.push([start, k]); start = k;
+      }
+    }
+    var distinct = {};
+    for (k = 0; k < SH; k++) distinct[speeds[readFrom[k]].toFixed(6)] = true;
+
+    if (showBands.value) {
+      for (k = 0; k < runs.length; k++) {
+        var y0 = oy + runs[k][0] * S, y1 = oy + runs[k][1] * S;
+        if (k % 2 === 1) {
+          ctx.globalAlpha = 0.3; ctx.fillStyle = col.topic;
+          ctx.fillRect(ox, y0, sw, y1 - y0); ctx.globalAlpha = 1;
+        }
+        if (k > 0 && S * (runs[k][1] - runs[k][0]) >= 2) {
+          ctx.fillStyle = '#000'; ctx.fillRect(ox, y0 - 1, sw, 2);
+          ctx.fillStyle = '#fff'; ctx.fillRect(ox, y0 - 0.5, sw, 1);
+        }
+      }
+    }
+
+    // ---- the scroll table graph ----
+    var gx, gy, gh, gwid;
+    if (wide) { gx = ox + sw + 2 * pad; gy = pad + 20; gwid = W - gx - pad; gh = H - gy - 52; }
+    else { gx = pad; gy = oy + sh + pad + 20; gwid = W - 2 * pad; gh = H - gy - pad; }
+    var lh = gh / SH, barMax = Math.min(gwid * 0.6, 160);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = col.ink;
+    ctx.fillText('Scroll table: speed per line', gx, gy - 6);
+    for (k = 0; k < SH; k++) {
+      var read = (mode.value === 'line') || (mode.value === 'cell' && k % 8 === 0) || (mode.value === 'full' && k === 0);
+      ctx.fillStyle = read ? col.topic : col.line;
+      ctx.fillRect(gx, gy + k * lh, Math.max(1, speeds[k] * barMax), Math.max(1, lh - (lh > 2 ? 0.4 : 0)));
+    }
+    ctx.strokeStyle = col.ink3; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(gx + barMax + 0.5, gy); ctx.lineTo(gx + barMax + 0.5, gy + gh); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = col.ink2;
+    var lx = gx + barMax + 8;
+    ctx.fillText('1 = camera', lx, gy + 12);
+    ctx.fillText('clouds', lx, gy + 30 * lh);
+    ctx.fillText('mountains', lx, gy + 80 * lh);
+    ctx.fillText('hills', lx, gy + 124 * lh);
+    ctx.fillText('water', lx, gy + 158 * lh);
+
+    var reads = mode.value === 'line' ? 224 : mode.value === 'cell' ? 28 : 1;
+    outReads.set(reads + ' of 224');
+    outSpeeds.set(String(Object.keys(distinct).length));
+  }
+
+  function update(dt, s) {
+    var move = run.value;
+    if (s.keys.has('arrowleft')) move -= 240;
+    if (s.keys.has('arrowright')) move += 240;
+    camX += move * dt;
+  }
+
+  handle = DemoKit.canvas('#line-scroll', {
+    height: 520,
+    drag: true,
+    keys: true,
+    label: 'A 320 by 224 pixel side-scrolling scene: one background picture of clouds, mountains, hills and water, scrolled by a table with one value per screen line, and a foreground of ground and pillars. Beside it, a bar chart shows the speed written for each of the 224 lines and which entries the chip reads. Drag or hold the arrow keys to move the camera.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { lastX = p.x; },
+    onMove: function (p) {
+      if (!p.down) return;
+      camX -= (p.x - lastX) / view.S;
+      lastX = p.x;
+    },
+    onKey: function (key, isDown) {
+      if (!reduced || !isDown) return;
+      if (key === 'arrowleft') camX -= 16;
+      if (key === 'arrowright') camX += 16;
+    }
+  });
+})();
+</script>
+</body>
+</html>

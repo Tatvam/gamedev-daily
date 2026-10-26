@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jump arcs: height, hang time and fast fall · Game Dev Daily</title>
+<meta name="description" content="How to build a jump from its height and time to the top, then add a slower top and a faster fall so it is easier to aim.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Jump arcs: height, hang time and fast fall</h1>
+  <p class="lede">How to build a jump from its height and time to the top, then add a slower top and a faster fall so it is easier to aim.</p>
+</header>
+
+<section data-section="hook">
+  <p>You jump toward a small platform. The character rises, drifts over the top, and then sinks so slowly that you overshoot while waiting to come down. Nothing is broken, the jump is just a perfect physics arc, and a perfect physics arc is often not the jump players want.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Design the jump, then derive the physics</h2>
+  <p>A jump in most 2D games is two numbers: a <dfn>jump speed</dfn>, the upward speed given on take-off, and <dfn>gravity</dfn>, which drains that speed every frame. Tuning them directly is awkward: raise gravity for a snappier jump and it also gets lower.</p>
+  <p>It is easier to choose what the player experiences: the <dfn>jump height</dfn> in pixels, which decides what can be reached, and the <dfn>time to apex</dfn>, how long it takes to reach the top, which decides whether the jump feels quick or floaty. The physics follows:</p>
+<pre><code>local GRAVITY = 2 * JUMP_HEIGHT / (TIME_TO_APEX * TIME_TO_APEX)
+local JUMP_SPEED = 2 * JUMP_HEIGHT / TIME_TO_APEX</code></pre>
+  <p>For 100 pixels in 0.42 seconds, gravity is about 1134 px/s² and jump speed about 476 px/s. Now you can make the jump quicker without changing its height, so without breaking your levels.</p>
+
+  <h3>The trouble with a symmetric arc</h3>
+  <p>With one gravity the whole way, the fall takes as long as the rise. That tends to feel floaty: half the jump is spent coming down, with nothing left to decide but where to land. Two changes, together or alone, reshape it.</p>
+  <ul>
+    <li><strong>Apex hang.</strong> While the vertical speed is below a small threshold (50 px/s here), multiply gravity by a <dfn>hang gravity</dfn> below 1, such as 0.5. The character lingers at the top, where the player lines up the landing.</li>
+    <li><strong>Fast fall.</strong> While moving down, multiply gravity by a <dfn>fall multiplier</dfn> above 1. The jump lands sooner and with weight. A multiplier of <code>m</code> divides the fall time by the square root of <code>m</code>, so ×2 cuts it to about 71 percent.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="A graph of height over time for two 100 pixel jumps with the same take-off speed and gravity. The dashed plain arc is symmetric and lands at 850 milliseconds. The solid shaped arc has half gravity near the top, so its top is flatter, and double gravity while falling, so its fall is steeper. It lands at 833 milliseconds.">
+      <path class="d-stroke" d="M60 210 H600"/>
+      <path class="d-stroke" d="M60 210 V40"/>
+      <path class="d-stroke d-thin d-dash" d="M60 70 H600"/>
+      <text class="d-muted" x="60" y="30" text-anchor="middle">height</text>
+      <text class="d-muted" x="52" y="74" text-anchor="end">100</text>
+      <text class="d-muted" x="52" y="214" text-anchor="end">0</text>
+      <text class="d-muted" x="60" y="230" text-anchor="middle">0</text>
+      <text class="d-muted" x="276" y="230" text-anchor="middle">400 ms</text>
+      <text class="d-muted" x="492" y="230" text-anchor="middle">800 ms</text>
+
+      <path class="d-stroke d-dash" fill="none" d="M60 210 L78 189 L96 169 L114 151 L132 135 L150 121 L168 108 L186 98 L204 89 L222 81 L240 76 L258 72 L276 70 L294 70 L312 72 L330 75 L348 80 L366 87 L384 96 L402 106 L420 118 L438 132 L456 148 L474 165 L492 185 L510 206 L519 210"/>
+      <path class="d-accent" fill="none" d="M60 210 L78 189 L96 169 L114 151 L132 135 L150 121 L168 108 L186 98 L204 89 L222 81 L240 76 L258 72 L276 70 L294 69 L312 69 L330 70 L348 71 L366 74 L384 80 L402 90 L420 103 L438 119 L456 139 L474 163 L492 190 L510 210"/>
+      <circle class="d-accent-fill" cx="303" cy="69" r="4"/>
+
+      <text class="d-label" x="300" y="56" text-anchor="middle">flatter top</text>
+      <text class="d-label" x="448" y="108">steeper fall</text>
+      <text class="d-label" x="104" y="196">same take-off</text>
+
+      <path class="d-stroke d-dash" d="M60 254 H94"/>
+      <text class="d-text" x="102" y="258">plain arc</text>
+      <path class="d-accent" d="M230 254 H264"/>
+      <text class="d-text" x="272" y="258">shaped: hang ×0.5, fall ×2</text>
+    </svg>
+    <figcaption>Both jumps: 100 px in 0.42 s. Plain: about 80 ms near the top, 420 ms falling. Shaped: about 170 ms near the top, 370 ms falling. Air time barely changes; where it is spent does.</figcaption>
+  </figure>
+
+  <p>The hang also raises the peak slightly (under a pixel here) and makes the real time to the top a little longer than the number you chose. Check your tightest ledge afterwards.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>Pick the height from your level design first. A time to apex of roughly 0.3 to 0.45 seconds is a reasonable place to start for a platformer. Hang gravity of about 0.5 within a narrow speed band, and a fall multiplier of about 1.5 to 2.5. Add a cap on fall speed so long drops stay readable. These are starting points, not rules.</p>
+  </div>
+
+  <h3>What the player feels</h3>
+  <p>Without shaping, jumps feel like tossing a balloon: soft and hard to land precisely. With it, the character pauses for a moment at the top, the player sees the landing spot, and the character drops onto it. The jump feels more controllable and heavier, with the same height and take-off.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Collect the stars with "Hang and fast fall" off, and notice how long you wait in the air. Then switch it on and collect a few more. The counter shows stars and jumps, so you can see whether you land more first tries.</p>
+  <p>Then move the sliders. The dashed arc in front of the square redraws, and the bar at the top splits a flat-ground jump into time going up and coming down. Dots on the arcs are 50 ms apart: bunched dots mean slow, spread dots mean fast.</p>
+
+  <figure class="demo" data-demo="arcshape">
+    <canvas id="arcshape"></canvas>
+    <figcaption>Controls: click the canvas, then use Left and Right (or A and D) to run and Space, W or Up to jump. On a phone, press the canvas to jump and hold to run toward your finger, or use the Left, Jump and Right buttons. Larger dots mark time spent near the top. The hang and fall sliders only apply when "Hang and fast fall" is on. Times are counted in 60 Hz steps, so they can read up to one step (17 ms) longer than the slider.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's jump in LÖVE, with the same numbers. Height <code>y</code> is measured upward from the ground, and running and platforms are left out. The demo runs this update at a fixed 60 steps per second. The marked lines are the technique.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local JUMP_HEIGHT = 100     <span class="c">-- pixels, the demo's slider</span>
+local TIME_TO_APEX = 0.42   <span class="c">-- seconds, the demo's slider</span>
+local SHAPED = true         <span class="c">-- the demo's "Hang and fast fall" toggle</span>
+local HANG_GRAVITY = 0.5    <span class="c">-- gravity multiplier near the top</span>
+local HANG_SPEED = 50       <span class="c">-- "near the top" means slower than this, px/s</span>
+local FALL_MULT = 2         <span class="c">-- gravity multiplier while falling</span>
+local MAX_FALL = 1000       <span class="c">-- cap on falling speed, px/s</span>
+
+<span class="k">local GRAVITY = 2 * JUMP_HEIGHT / (TIME_TO_APEX * TIME_TO_APEX)</span>
+<span class="k">local JUMP_SPEED = 2 * JUMP_HEIGHT / TIME_TO_APEX</span>
+
+local player = { y = 0, vy = 0, grounded = true, jumping = false }
+
+local function gravityFor(p)
+<span class="k">  if SHAPED and p.jumping and math.abs(p.vy) &lt; HANG_SPEED then</span>
+<span class="k">    return GRAVITY * HANG_GRAVITY   <span class="c">-- linger at the top</span></span>
+<span class="k">  elseif SHAPED and p.vy &lt; 0 then</span>
+<span class="k">    return GRAVITY * FALL_MULT      <span class="c">-- come down faster</span></span>
+  end
+  return GRAVITY
+end
+
+function love.keypressed(key)
+  if key == "space" and player.grounded then
+    player.vy = JUMP_SPEED
+    player.grounded = false
+    player.jumping = true
+  end
+end
+
+function love.update(dt)
+  if player.grounded then return end
+  local oldVy = player.vy
+  player.vy = math.max(player.vy - gravityFor(player) * dt, -MAX_FALL)
+  player.y = player.y + (oldVy + player.vy) * 0.5 * dt  <span class="c">-- average speed this step</span>
+  if player.y &lt;= 0 then
+    player.y, player.vy = 0, 0
+    player.grounded, player.jumping = true, false
+  end
+end</code></pre>
+  </div>
+  <p>The <code>jumping</code> flag limits the hang to real jumps, so walking off a ledge does not float. Moving by the average of the old and new speed makes the peak match the height you asked for; with the new speed alone it comes out a few pixels short.</p>
+  <p>This combines with <a href="2026-10-25-variable-jump-height.html">variable jump height</a>. Some games apply the hang only while the button is held, so a tap still gives a crisp hop.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Tuning gravity and jump speed by hand.</strong> Each change breaks the other. Edit height and time to apex and derive the rest. Lock height early, since levels are built around it; time to apex is safe to tune later.</li>
+    <li><strong>A hang band that is too wide.</strong> If "near the top" covers most of the jump, you have only made gravity weaker. Keep it narrow.</li>
+    <li><strong>Fast fall with no cap.</strong> On long drops the player cannot react, and fast bodies can pass through thin floors in one step. Cap the falling speed.</li>
+    <li><strong>Hang on things that are not jumps.</strong> Springs, knock-back and ledge drops usually should not float. Gate it on a flag set at take-off.</li>
+    <li><strong>Step size changing the arc.</strong> With a frame-dependent <code>dt</code>, the peak varies between machines. A <a href="../game-physics/2026-09-27-fix-your-timestep.html">fixed timestep</a> keeps the arc the same everywhere.</li>
+  </ul>
+  <p><strong>When not to use it.</strong> A slow, symmetric arc can be the point: low gravity levels, swimming, or a character whose charm is drifting. Games where players predict arcs from shared physics, such as thrown objects, may want one rule for everything. In a fast game a long hang slows the pace.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Maddy Thorson, one of Celeste's developers, described in a 2020 thread of Celeste design notes that the game halves gravity at the peak of a jump while the jump button is held, to give the player more time to adjust the landing. I found this through press write-ups that reproduce the thread, not the original posts.</p>
+  <p>Kyle Pittman's GDC 2016 talk "Building a Better Jump" presents the same derivation from height and time, and discusses stronger gravity on the way down.</p>
+  <p>In Super Smash Bros. Melee, pressing down while falling makes the character fall faster, turning fall speed into a choice the player makes.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own platformer, replace your gravity and jump speed with <code>JUMP_HEIGHT</code> and <code>TIME_TO_APEX</code>, choosing values that match your current jump. Then add <code>gravityFor</code> with only the fall multiplier, and play the same short section at 1, 1.5, 2 and 3. Add the hang last. You are done when you have picked both values and written one sentence on what each changed for you as a player.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Design a jump by height and time to apex, then derive gravity as 2h / t² and jump speed as 2h / t.</li>
+    <li>A single gravity gives a symmetric arc, which often feels floaty because half the jump is spent falling.</li>
+    <li>Weaker gravity near the top gives time to aim; stronger gravity on the way down gives weight and a quicker landing.</li>
+    <li>Keep the hang band narrow, cap fall speed, and apply the hang only to real jumps.</li>
+    <li>A plain floaty arc is still the right choice for some characters and settings.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next is corner correction: quietly nudging the player around a ledge corner they barely clipped, so a jump that looked right does not end in a bonk.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Kyle Pittman, <cite>Math for Game Programmers: Building a Better Jump</cite>, GDC 2016. I could not open the talk page in this session, so no link is given.</li>
+    <li>Maddy Thorson, a 2020 social media thread of game feel notes on Celeste, as reproduced in English by Gigazine (March 2020). I found this through a search but could not open the article in this session, so no link is given.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // the demo simulates at 60 steps per second
+  var HANG_SPEED = 50;      // "near the top" means slower than this, px/s
+  var MAX_FALL = 1000;      // cap on falling speed, px/s
+  var RUN = 200;            // running speed, px/s
+  var SIZE = 20;            // player square
+  var W = 560, AIR = 300, GROUND = 24;   // world size in world pixels
+  var STRIP_H = 74;         // timeline strip at the top, screen pixels
+  var TL_MS = 1200;         // time shown on the timeline
+
+  var PLATFORMS = [
+    { x: 60, w: 100, top: 70 },
+    { x: 220, w: 80, top: 150 },
+    { x: 370, w: 100, top: 80 },
+    { x: 480, w: 70, top: 170 }
+  ];
+  var STARS = [[110, 95], [260, 175], [335, 215], [515, 195], [190, 55], [420, 105], [25, 150], [300, 268]];
+  var STAR_R = 9;
+
+  var ui = DemoKit.controls('[data-demo="arcshape"]');
+  var shaped = ui.toggle({ label: 'Hang and fast fall', value: false });
+  var height = ui.slider({ label: 'Jump height', min: 40, max: 160, step: 5, value: 100, unit: ' px' });
+  var apex = ui.slider({ label: 'Time to apex', min: 200, max: 700, step: 10, value: 420, unit: ' ms' });
+  var hang = ui.slider({ label: 'Hang gravity', min: 0.2, max: 1, step: 0.05, value: 0.5,
+    format: function (v) { return '×' + v.toFixed(2); } });
+  var fall = ui.slider({ label: 'Fall multiplier', min: 1, max: 4, step: 0.25, value: 2,
+    format: function (v) { return '×' + v.toFixed(2); } });
+  var showArcs = ui.toggle({ label: 'Show arcs', value: true });
+  var flatOut = ui.readout({ label: 'Flat-ground jump' });
+  var scoreOut = ui.readout({ label: 'Stars / jumps' });
+
+  var pendingPress = false;
+  function holdButton(label, onPress) {
+    var state = { held: false };
+    var b = ui.button({ label: label });
+    var el = b.el;
+    el.style.touchAction = 'none';
+    el.style.userSelect = 'none';
+    el.style.webkitUserSelect = 'none';
+    function down() { state.held = true; if (onPress) onPress(); }
+    function up() { state.held = false; }
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      down();
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        if (!e.repeat) down();
+      }
+    });
+    el.addEventListener('keyup', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); up(); }
+    });
+    el.addEventListener('blur', up);
+    return state;
+  }
+  var leftBtn = holdButton('Left');
+  holdButton('Jump', function () { pendingPress = true; });
+  var rightBtn = holdButton('Right');
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  var acc, player, facing, cur, traces, starIndex, collected, jumps;
+  var view = { ox: 0, scale: 1, ground: 300 };
+
+  function physics() {
+    var h = height.value, t = apex.value / 1000;
+    return { G: 2 * h / (t * t), V: 2 * h / t };
+  }
+
+  function gravityFor(b, P) {
+    if (shaped.value && b.jumping && Math.abs(b.vy) < HANG_SPEED) return P.G * hang.value;
+    if (shaped.value && b.vy < 0) return P.G * fall.value;
+    return P.G;
+  }
+
+  function overlapX(x, p) {
+    return x + SIZE / 2 > p.x && x - SIZE / 2 < p.x + p.w;
+  }
+
+  function supported(b) {
+    if (b.y <= 0) return true;
+    for (var i = 0; i < PLATFORMS.length; i++) {
+      var p = PLATFORMS[i];
+      if (Math.abs(b.y - p.top) < 0.01 && overlapX(b.x, p)) return true;
+    }
+    return false;
+  }
+
+  // Platforms can be passed from below and landed on from above.
+  function landingTop(x, prevY, y) {
+    var best = null;
+    for (var i = 0; i < PLATFORMS.length; i++) {
+      var p = PLATFORMS[i];
+      if (prevY >= p.top && y < p.top && overlapX(x, p) && (best === null || p.top > best)) best = p.top;
+    }
+    if (best === null && y <= 0) best = 0;
+    return best;
+  }
+
+  // One fixed step for any body. Returns true on the step it lands.
+  function stepBody(b, dir, P) {
+    b.x = DemoKit.clamp(b.x + dir * RUN * STEP, SIZE / 2, W - SIZE / 2);
+    if (b.grounded) {
+      if (supported(b)) return false;
+      b.grounded = false;     // walked off an edge: falls, but does not hang
+      b.jumping = false;
+    }
+    var prevY = b.y, oldVy = b.vy;
+    b.vy = Math.max(b.vy - gravityFor(b, P) * STEP, -MAX_FALL);
+    b.y += (oldVy + b.vy) * 0.5 * STEP;
+    if (b.vy <= 0) {
+      var top = landingTop(b.x, prevY, b.y);
+      if (top !== null) {
+        b.y = top;
+        b.vy = 0;
+        b.grounded = true;
+        b.jumping = false;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // The same jump on flat ground, for the timeline and readout.
+  function flatStats(P) {
+    var b = { vy: P.V, jumping: true };
+    var y = 0, n = 0, up = 0, near = 0, peak = 0;
+    while (n < 400) {
+      if (Math.abs(b.vy) < HANG_SPEED) near += 1;
+      var oldVy = b.vy;
+      b.vy = Math.max(b.vy - gravityFor(b, P) * STEP, -MAX_FALL);
+      y += (oldVy + b.vy) * 0.5 * STEP;
+      n += 1;
+      if (oldVy > 0) up = n;
+      if (y <= 0) break;
+      if (y > peak) peak = y;
+    }
+    var ms = STEP * 1000;
+    return { peak: peak, up: up * ms, near: near * ms, down: (n - up) * ms, air: n * ms };
+  }
+
+  function predict(P) {
+    var b = { x: player.x, y: player.y, vy: P.V, grounded: false, jumping: true };
+    var pts = [{ x: b.x, y: b.y, near: false }];
+    for (var i = 0; i < 240; i++) {
+      var near = Math.abs(b.vy) < HANG_SPEED;
+      var landed = stepBody(b, facing, P);
+      pts.push({ x: b.x, y: b.y, near: near });
+      if (landed) break;
+    }
+    return pts;
+  }
+
+  function reset() {
+    acc = 0;
+    player = { x: 30, y: 0, vy: 0, grounded: true, jumping: false };
+    facing = 1;
+    cur = null;
+    traces = [];
+    starIndex = 0;
+    collected = 0;
+    jumps = 0;
+    pendingPress = false;
+    report();
+  }
+
+  function report() {
+    scoreOut.set(collected + ' / ' + jumps);
+  }
+
+  function inputDir(s) {
+    var k = s.keys;
+    var left = leftBtn.held || k.has('arrowleft') || k.has('a');
+    var right = rightBtn.held || k.has('arrowright') || k.has('d');
+    if (s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.scale;
+      if (wx < player.x - 6) left = true;
+      else if (wx > player.x + 6) right = true;
+    }
+    return (right ? 1 : 0) - (left ? 1 : 0);
+  }
+
+  function step(s) {
+    var P = physics();
+    var dir = inputDir(s);
+    if (dir !== 0) facing = dir;
+    if (pendingPress) {
+      pendingPress = false;
+      if (player.grounded) {
+        player.vy = P.V;
+        player.grounded = false;
+        player.jumping = true;
+        jumps += 1;
+        cur = { n: 0, pts: [{ x: player.x, y: player.y, near: false }] };
+        report();
+      }
+    }
+    var near = player.jumping && Math.abs(player.vy) < HANG_SPEED;
+    var landed = stepBody(player, dir, P);
+    if (cur) {
+      cur.n += 1;
+      cur.pts.push({ x: player.x, y: player.y, near: near });
+      if (landed || player.grounded) {
+        traces.push(cur);
+        if (traces.length > 2) traces.shift();
+        cur = null;
+      }
+    }
+
+    var star = STARS[starIndex];
+    var cx = DemoKit.clamp(star[0], player.x - SIZE / 2, player.x + SIZE / 2);
+    var cy = DemoKit.clamp(star[1], player.y, player.y + SIZE);
+    var dx = star[0] - cx, dy = star[1] - cy;
+    if (dx * dx + dy * dy <= STAR_R * STAR_R) {
+      starIndex = (starIndex + 1) % STARS.length;
+      collected += 1;
+      report();
+    }
+  }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function drawTimeline(ctx, s, c, st) {
+    var left = 12, right = s.width - 12;
+    function tx(ms) { return left + Math.min(ms, TL_MS) / TL_MS * (right - left); }
+    var barY = 30, barH = 12;
+
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText('flat-ground jump, ' + (shaped.value ? 'shaped' : 'plain'), left, 14);
+    ctx.textAlign = 'right';
+    ctx.fillText('0 to ' + TL_MS + ' ms', right, 14);
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(left, barY, right - left, barH);
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(left, barY, tx(st.up) - left, barH);
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(tx(st.up), barY, tx(st.air) - tx(st.up), barH);
+    // Near-top band, centred where the speed passes through zero.
+    var nearStart = st.up - st.near / 2;
+    ctx.strokeStyle = c.warn;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(tx(nearStart), barY - 3, tx(nearStart + st.near) - tx(nearStart), barH + 6);
+
+    font(ctx, 11, '600');
+    ctx.fillStyle = c.ink2;
+    var upLabel = 'top ' + Math.round(st.up) + ' ms';
+    var upX = DemoKit.clamp(tx(st.up), left + 40, right - 40);
+    ctx.textAlign = 'center';
+    ctx.fillText(upLabel, upX, barY - 7);
+    var landLabel = 'lands ' + Math.round(st.air) + ' ms';
+    var lw = ctx.measureText(landLabel).width;
+    ctx.textAlign = 'left';
+    ctx.fillText(landLabel, DemoKit.clamp(tx(st.air) - lw / 2, left, right - lw), barY + barH + 16);
+    ctx.fillStyle = c.warn;
+    ctx.fillText('near top ' + Math.round(st.near) + ' ms', left, barY + barH + 30);
+
+    // Live cursor: time in the air of the current jump.
+    if (cur) {
+      var x = Math.round(tx(cur.n * STEP * 1000)) + 0.5;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, barY - 4);
+      ctx.lineTo(x, barY + barH + 4);
+      ctx.stroke();
+    }
+  }
+
+  function drawArc(ctx, c, pts, dashed, alpha) {
+    function sx(x) { return view.ox + x * view.scale; }
+    function sy(y) { return view.ground - (y + SIZE / 2) * view.scale; }
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.25;
+    if (dashed) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      if (i === 0) ctx.moveTo(sx(pts[i].x), sy(pts[i].y));
+      else ctx.lineTo(sx(pts[i].x), sy(pts[i].y));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (var j = 0; j < pts.length; j += 3) {
+      var p = pts[j];
+      ctx.fillStyle = p.near ? c.warn : c.topic;
+      ctx.beginPath();
+      ctx.arc(sx(p.x), sy(p.y), p.near ? 3.5 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawStar(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var a = -Math.PI / 2 + i * Math.PI / 5;
+      var rr = i % 2 === 0 ? r : r * 0.45;
+      if (i === 0) ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+      else ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  reset();
+
+  DemoKit.canvas('#arcshape', {
+    aspect: 560 / 420,
+    minHeight: 320,
+    maxHeight: 460,
+    keys: true,
+    drag: true,
+    label: 'A square in a small room with four floating platforms collects stars one at a time. Run with Left and Right, jump with Space, or press the canvas. A dashed arc shows where a jump would go, and a bar at the top shows the time spent rising, near the top and falling.',
+    update: function (dt, s) {
+      acc += dt;
+      var guard = 0;
+      while (acc >= STEP && guard < 12) {
+        acc -= STEP;
+        step(s);
+        guard += 1;
+      }
+      if (guard === 12) acc = 0;
+    },
+    onDown: function () { pendingPress = true; },
+    onKey: function (key, down) {
+      if (down && (key === 'space' || key === 'w' || key === 'arrowup')) pendingPress = true;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var P = physics();
+      var st = flatStats(P);
+      flatOut.set('peak ' + Math.round(st.peak) + ' px, top ' + Math.round(st.up) + ' ms, near top ' +
+        Math.round(st.near) + ' ms, fall ' + Math.round(st.down) + ' ms');
+
+      drawTimeline(ctx, s, c, st);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, STRIP_H + 0.5);
+      ctx.lineTo(s.width, STRIP_H + 0.5);
+      ctx.stroke();
+
+      var areaH = s.height - STRIP_H - 6;
+      var scale = Math.min(s.width / W, areaH / (AIR + GROUND));
+      view.scale = scale;
+      view.ox = (s.width - W * scale) / 2;
+      view.ground = s.height - GROUND * scale;
+      function sx(x) { return view.ox + x * scale; }
+      function sy(y) { return view.ground - y * scale; }
+
+      // Room walls and ground.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(sx(0)) + 0.5, Math.round(sy(AIR)) + 0.5, Math.round(W * scale) - 1, Math.round(AIR * scale));
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(sx(0), view.ground, W * scale, s.height - view.ground);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx(0), view.ground);
+      ctx.lineTo(sx(W), view.ground);
+      ctx.stroke();
+
+      // Platforms.
+      ctx.fillStyle = c.ink2;
+      for (var i = 0; i < PLATFORMS.length; i++) {
+        var p = PLATFORMS[i];
+        ctx.fillRect(sx(p.x), sy(p.top), p.w * scale, 8 * scale);
+      }
+
+      // Star.
+      var star = STARS[starIndex];
+      drawStar(ctx, sx(star[0]), sy(star[1]), STAR_R * scale * 1.2, c.warn);
+
+      if (showArcs.value) {
+        for (var t = 0; t < traces.length; t++) drawArc(ctx, c, traces[t].pts, false, t === traces.length - 1 ? 0.7 : 0.3);
+        if (cur) drawArc(ctx, c, cur.pts, false, 0.9);
+        if (player.grounded) drawArc(ctx, c, predict(P), true, 0.8);
+      }
+
+      // Player.
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(sx(player.x - SIZE / 2), sy(player.y + SIZE), SIZE * scale, SIZE * scale);
+    }
+  });
+})();
+</script>
+</body>
+</html>

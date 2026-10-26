@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The observer pattern: announcing without knowing who listens · Game Dev Daily</title>
+<meta name="description" content="How a subject announces events through a list of subscribed callbacks, in what order they run, who owns the list, and how Godot and Unity provide it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The observer pattern: announcing without knowing who listens</h1>
+  <p class="lede">How a subject announces events through a list of subscribed callbacks, in what order they run, who owns the list, and how Godot and Unity provide it.</p>
+</header>
+
+<section data-section="hook">
+  <p>The player takes a hit. The health bar must shrink, a sound must play, the screen must flash, and an achievement may unlock. The first version of <code>take_damage</code> calls all four directly. Then you open a test scene without the HUD and the player crashes, because it was holding a reference to a health bar that is not there.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Turn the calls around</h2>
+  <p>In the direct version the player knows every system that cares about damage, so each new reaction means editing the player. The <dfn>observer pattern</dfn> reverses who knows whom.</p>
+  <ul>
+    <li>The <dfn>subject</dfn> is the object something happens to, here the player. It keeps a list of functions to call when the event happens, and nothing else about them.</li>
+    <li>An <dfn>observer</dfn> is anything that wants to react. It <dfn>subscribes</dfn> by adding one of its functions to the subject's list, and <dfn>unsubscribes</dfn> by removing it.</li>
+    <li>To <dfn>notify</dfn> is to walk the list and call each function, passing along the facts of the event, such as the new health.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Two designs side by side. Left, direct calls: the Player box has four arrows going straight to Health bar, Achievement, Screen flash and Sound, so the player must know all four. Right, observer: the Player box holds a numbered list called damaged with the same four entries, and an arrow runs from each list entry to its observer, so the player only knows its list.">
+      <defs>
+        <marker id="ob-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+        <marker id="ob-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="20" y="22">Direct calls</text>
+      <text class="d-label" x="336" y="22">Observer</text>
+
+      <rect class="d-box" x="20" y="112" width="96" height="46" rx="6"/>
+      <text class="d-text" x="68" y="140" text-anchor="middle">Player</text>
+      <g>
+        <rect class="d-box" x="176" y="40" width="124" height="36" rx="6"/>
+        <rect class="d-box" x="176" y="95" width="124" height="36" rx="6"/>
+        <rect class="d-box" x="176" y="150" width="124" height="36" rx="6"/>
+        <rect class="d-box" x="176" y="205" width="124" height="36" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="238" y="63">Health bar</text>
+        <text class="d-text" x="238" y="118">Achievement</text>
+        <text class="d-text" x="238" y="173">Screen flash</text>
+        <text class="d-text" x="238" y="228">Sound</text>
+      </g>
+      <g marker-end="url(#ob-ink)">
+        <path class="d-stroke" d="M116 128 L173 60"/>
+        <path class="d-stroke" d="M116 132 L173 114"/>
+        <path class="d-stroke" d="M116 138 L173 166"/>
+        <path class="d-stroke" d="M116 142 L173 220"/>
+      </g>
+
+      <path class="d-thin" d="M318 36 V244"/>
+
+      <rect class="d-box" x="336" y="58" width="140" height="176" rx="6"/>
+      <text class="d-text" x="406" y="80" text-anchor="middle">Player</text>
+      <text class="d-muted" x="350" y="104">damaged</text>
+      <g>
+        <rect class="d-accent-soft" x="350" y="114" width="112" height="24" rx="4"/>
+        <rect class="d-accent-soft" x="350" y="144" width="112" height="24" rx="4"/>
+        <rect class="d-accent-soft" x="350" y="174" width="112" height="24" rx="4"/>
+        <rect class="d-accent-soft" x="350" y="204" width="112" height="24" rx="4"/>
+      </g>
+      <g>
+        <text class="d-mono" x="357" y="130">1 Health bar</text>
+        <text class="d-mono" x="357" y="160">2 Achievement</text>
+        <text class="d-mono" x="357" y="190">3 Screen flash</text>
+        <text class="d-mono" x="357" y="220">4 Sound</text>
+      </g>
+      <g>
+        <rect class="d-box" x="516" y="40" width="116" height="36" rx="6"/>
+        <rect class="d-box" x="516" y="95" width="116" height="36" rx="6"/>
+        <rect class="d-box" x="516" y="150" width="116" height="36" rx="6"/>
+        <rect class="d-box" x="516" y="205" width="116" height="36" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="574" y="63">Health bar</text>
+        <text class="d-text" x="574" y="118">Achievement</text>
+        <text class="d-text" x="574" y="173">Screen flash</text>
+        <text class="d-text" x="574" y="228">Sound</text>
+      </g>
+      <g marker-end="url(#ob-accent)">
+        <path class="d-accent" d="M462 126 L513 60"/>
+        <path class="d-accent" d="M462 156 L513 114"/>
+        <path class="d-accent" d="M462 186 L513 168"/>
+        <path class="d-accent" d="M462 216 L513 222"/>
+      </g>
+
+      <text class="d-muted" x="20" y="262">Player must know all four</text>
+      <text class="d-muted" x="336" y="262">Player only knows its list</text>
+    </svg>
+    <figcaption>Left, the player calls each system by name. Right, each system put a function into the player's <code>damaged</code> list, and the player calls whatever is in it. Adding a fifth reaction no longer touches the player.</figcaption>
+  </figure>
+
+  <h2>What happens, in what order</h2>
+  <p>Notifying is an ordinary function call that loops. When the player runs <code>notify</code>, each observer's function runs to completion before the next one starts, and all of them finish before <code>notify</code> returns. Nothing is queued for later and no frame passes in between. An event like this is <dfn>synchronous</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 170" role="img" aria-label="A timeline of one call to take_damage. First health is set to 90. Then notify runs four observer calls one after another: Health bar, Achievement, Screen flash, Sound. Then take_damage returns. All of it happens inside one frame.">
+      <text class="d-label" x="20" y="22">take_damage(10)</text>
+      <path class="d-thin" d="M20 32 V40 H620 V32"/>
+      <rect class="d-box" x="20" y="52" width="104" height="40" rx="5"/>
+      <text class="d-text" x="72" y="77" text-anchor="middle">health = 90</text>
+      <rect class="d-accent-soft" x="134" y="52" width="388" height="40" rx="5"/>
+      <g>
+        <rect class="d-box" x="140" y="58" width="90" height="28" rx="4"/>
+        <rect class="d-box" x="236" y="58" width="90" height="28" rx="4"/>
+        <rect class="d-box" x="332" y="58" width="90" height="28" rx="4"/>
+        <rect class="d-box" x="428" y="58" width="88" height="28" rx="4"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="185" y="77">Health bar</text>
+        <text class="d-text" x="281" y="77">Achievement</text>
+        <text class="d-text" x="377" y="77">Screen flash</text>
+        <text class="d-text" x="472" y="77">Sound</text>
+      </g>
+      <rect class="d-box" x="532" y="52" width="88" height="40" rx="5"/>
+      <text class="d-text" x="576" y="77" text-anchor="middle">return</text>
+      <path class="d-thin" d="M134 100 V108 H522 V100"/>
+      <text class="d-mono" x="328" y="128" text-anchor="middle">notify(damaged, 90)</text>
+      <text class="d-muted" x="320" y="156" text-anchor="middle">Time runs left to right. Each call finishes before the next starts, all within one frame.</text>
+    </svg>
+    <figcaption>The subject changes its own data first, then notifies. Observers run in list order, and <code>take_damage</code> only continues once the last one is done.</figcaption>
+  </figure>
+
+  <p>Two rules follow. <strong>Change your state, then notify</strong>, or the health bar shows the old value. And <strong>do not depend on the order</strong>: it is just the order in which observers happened to subscribe, which changes when objects load in a different sequence.</p>
+
+  <h2>Who owns what</h2>
+  <p>The subject owns the list. The list holds references to the observers' functions, and through them to the observers. An observer removed from the game that never unsubscribed still gets called, and in a garbage-collected language it is never freed. This is often called the <dfn>lapsed listener</dfn> problem. The rule: whoever subscribes is responsible for unsubscribing.</p>
+  <p>The list can also change during a notify. An achievement that should fire once unsubscribes itself from inside its own call. If the loop walks the live list by index, removing the current entry slides the next one into its slot, and the loop steps over it. That observer silently misses the event. The fix is the one from deferred deletion: <strong>loop over a copy</strong> of the list, so changes take effect from the next notify.</p>
+
+  <h2>How the engines provide it</h2>
+  <p>You rarely write the list yourself in an engine. In <strong>Godot 4</strong>, a <code>signal</code> declared in a script is a subject: <code>connect</code> subscribes a function, <code>disconnect</code> unsubscribes it, and <code>emit</code> notifies. The <code>CONNECT_ONE_SHOT</code> flag makes a connection remove itself after one emission. In <strong>Unity</strong>, the usual tool is a plain C# <code>event</code> holding a delegate: <code>+=</code> subscribes, <code>-=</code> unsubscribes and invoking it notifies.</p>
+  <p>Both already loop over a copy. In Godot 4 the engine source copies the connection list before calling anyone, and removes one-shot connections first. C# delegates cannot be changed in place, so <code>-=</code> builds a new delegate while the call in progress keeps the old one. They differ on ownership: Godot drops a connection on its own when the object that owns the target function is freed, while a C# event keeps its reference until you remove it.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Observers make the subject ignorant of its audience, which is the point. The cost is that reading <code>take_damage</code> no longer tells you what happens on a hit. You have to find every place that subscribes.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The player on the left owns a <code>damaged</code> list. Press <strong>Hit the player</strong> and watch the calls travel out one at a time, in list order. The achievement is a one-shot listener: it unlocks, removes itself, and its switch turns off.</p>
+  <p>Now press <strong>Reset</strong>, set the loop to <strong>the live list</strong> and hit again. Screen flash is skipped, because the achievement removed itself while the loop was standing on it. Then turn Health bar off and on: it moves to the end of the list, and the player's code did not change. </p>
+
+  <figure class="demo wide" data-demo="observer">
+    <canvas id="observer"></canvas>
+    <figcaption>Click the Player box, or focus the canvas and press Space or Enter, to fire the event. "call 2" marks the order of the last notify; a red outline marks an observer that was subscribed but skipped. The model leaves out argument types, deferred and threaded delivery, and errors thrown by observers. The sound is shown, not played.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no built-in events for your own objects, so the subject is a table holding a list of functions. Names and numbers match the demo. Swap the copy loop in <code>notify</code> for a loop over <code>subject.observers</code> to see Screen flash go missing on the first hit.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A subject is a list of functions to call.</span>
+local function newSubject() return { observers = {} } end
+
+local function subscribe(subject, fn)
+  table.insert(subject.observers, fn)
+end
+
+local function unsubscribe(subject, fn)
+  for i = #subject.observers, 1, -1 do
+    if subject.observers[i] == fn then table.remove(subject.observers, i) end
+  end
+end
+
+local function notify(subject, ...)
+<span class="k">  local copy = {}                           <span class="c">-- loop over a copy, so an observer</span>
+  for i, fn in ipairs(subject.observers) do  <span class="c">-- can unsubscribe safely</span>
+    copy[i] = fn
+  end
+  for _, fn in ipairs(copy) do fn(...) end</span>
+end
+
+local player = { health = 100, damaged = newSubject() }
+local shownHealth, flash, message, plays = 100, 0, "", 0
+
+local function healthBar(health) shownHealth = health end
+local function achievement(health)
+  message = "Unlocked: First hit"
+  unsubscribe(player.damaged, achievement)   <span class="c">-- one-shot</span>
+end
+local function screenFlash(health) flash = 0.5 end
+local function hurtSound(health) plays = plays + 1 end
+
+subscribe(player.damaged, healthBar)
+subscribe(player.damaged, achievement)
+subscribe(player.damaged, screenFlash)
+subscribe(player.damaged, hurtSound)
+
+local function takeDamage(amount)
+<span class="k">  player.health = math.max(0, player.health - amount)   <span class="c">-- state first</span>
+  notify(player.damaged, player.health)                  <span class="c">-- then announce</span></span>
+end
+
+function love.keypressed(key)
+  if key == "space" then takeDamage(10) end
+end
+
+function love.update(dt)
+  flash = math.max(0, flash - dt)
+end
+
+function love.draw()
+  if flash &gt; 0 then love.graphics.setColor(1, 0.3, 0.3) else love.graphics.setColor(1, 1, 1) end
+  love.graphics.rectangle("fill", 20, 20, shownHealth * 2, 16)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print(message .. "  sounds: " .. plays, 20, 50)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># player.gd on a Node. Godot 4. Press Space or Enter (ui_accept) to take a hit.</span>
+<span class="c"># The handlers live here so the script runs alone; normally a HUD node would call</span>
+<span class="c"># player.damaged.connect(_on_player_damaged) from its own _ready.</span>
+extends Node
+
+<span class="k">signal damaged(health: int)</span>
+
+var health := 100
+
+func _ready() -&gt; void:
+    damaged.connect(_on_health_bar)
+<span class="k">    damaged.connect(_on_achievement, CONNECT_ONE_SHOT)   <span class="c"># removed after one emit</span></span>
+    damaged.connect(_on_screen_flash)
+    damaged.connect(_on_hurt_sound)
+
+func _process(_delta: float) -&gt; void:
+    if Input.is_action_just_pressed("ui_accept"):
+        take_damage(10)
+
+func take_damage(amount: int) -&gt; void:
+    health = maxi(0, health - amount)   <span class="c"># state first</span>
+<span class="k">    damaged.emit(health)                <span class="c"># then announce</span></span>
+
+func _on_health_bar(new_health: int) -&gt; void:
+    print("Health bar shows ", new_health)
+
+func _on_achievement(_new_health: int) -&gt; void:
+    print("Unlocked: First hit")
+
+func _on_screen_flash(_new_health: int) -&gt; void:
+    print("Screen flash")
+
+func _on_hurt_sound(_new_health: int) -&gt; void:
+    print("Hurt sound")</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Player.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Put it on any GameObject and press Space. Normally each handler would live on</span>
+<span class="c">// its own component, subscribing in OnEnable and unsubscribing in OnDisable.</span>
+using System;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class Player : MonoBehaviour
+{
+<span class="k">    public event Action&lt;int&gt; Damaged;   <span class="c">// the subject's list</span></span>
+    int health = 100;
+
+    void Start()
+    {
+        Damaged += OnHealthBar;
+        Damaged += OnAchievement;
+        Damaged += OnScreenFlash;
+        Damaged += OnHurtSound;
+    }
+
+    void Update()
+    {
+        if (Keyboard.current != null &amp;&amp; Keyboard.current.spaceKey.wasPressedThisFrame)
+            TakeDamage(10);
+    }
+
+    public void TakeDamage(int amount)
+    {
+        health = Mathf.Max(0, health - amount);   <span class="c">// state first</span>
+<span class="k">        Damaged?.Invoke(health);                  <span class="c">// then announce, in order</span></span>
+    }
+
+    void OnHealthBar(int h) { Debug.Log("Health bar shows " + h); }
+
+    void OnAchievement(int h)
+    {
+        Debug.Log("Unlocked: First hit");
+        Damaged -= OnAchievement;   <span class="c">// safe: this Invoke keeps the old list</span>
+    }
+
+    void OnScreenFlash(int h) { Debug.Log("Screen flash"); }
+    void OnHurtSound(int h) { Debug.Log("Hurt sound"); }
+}</code></pre>
+  </div>
+  <p>In all three, the player never names a health bar or a sound. Unity also has <code>UnityEvent</code>, which can be wired up in the Inspector; it and Godot's editor connections are the subject of the next lesson.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting to unsubscribe.</strong> In Unity, a destroyed component still in a C# event's list gets called; touching its <code>transform</code> then throws, and the list keeps the object from being collected. Pair every <code>+=</code> in <code>OnEnable</code> with a <code>-=</code> in <code>OnDisable</code>. Godot drops connections to freed objects by itself; plain Lua functions have no owner to check, so remove them yourself.</li>
+    <li><strong>Changing the list while walking it.</strong> In your own code, loop over a copy, or collect removals and apply them after the loop.</li>
+    <li><strong>Announcing before changing state.</strong> Observers that read the subject during the call see stale values.</li>
+    <li><strong>Depending on order.</strong> Godot 4 currently calls connections in the order they were made, but its documentation does not promise it. C# delegates do promise it. If one observer must run after another, have the first raise its own event.</li>
+    <li><strong>Feedback loops.</strong> An observer that changes the subject in a way that fires the same event again recurses until the stack overflows. Guard it, or let it change something else.</li>
+    <li><strong>One failing observer.</strong> In C#, an exception thrown by one handler stops the rest of the list from being called. Keep handlers small and do not let them throw.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines are built on this idea. Godot's own nodes announce through signals: a <code>Button</code> emits <code>pressed</code>, a <code>Timer</code> emits <code>timeout</code>, an <code>Area2D</code> emits <code>body_entered</code>. In Unity, a UI <code>Button</code> exposes <code>onClick</code>, a <code>UnityEvent</code> you can subscribe to from code or the Inspector. Achievements, tutorials and analytics are classic observers: the gameplay code they watch should not know they exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one place in your project where gameplay code calls UI or audio directly, such as a player script that updates a health label. Give the player a <code>damaged</code> signal or event that carries the new health, make the label subscribe to it, and remove the direct call. Make sure the label unsubscribes when it goes away. You are done when you can delete the label from the scene, play, take a hit, and get no error.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A subject keeps a list of functions and calls them when something happens. It does not know or care what they do.</li>
+    <li>Notifying is synchronous: every observer runs, in list order, before the notify call returns. Change state first, then notify.</li>
+    <li>The subject's list holds the observers, so whoever subscribes must unsubscribe, or the subject keeps calling and holding dead objects.</li>
+    <li>Loop over a copy of the list so observers can unsubscribe during a notify. Godot signals and C# events already do this.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look closely at Godot signals and Unity's C# events and UnityEvents: connecting them in the editor and in code, passing data, and disconnecting safely when objects come and go.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Observer". A thorough walk through the pattern in games, including the lapsed listener problem.</li>
+    <li>Godot Engine documentation (4.5), class reference for <cite>Signal</cite> (<code>connect</code>, <code>disconnect</code>, <code>emit</code>): <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Signal.xml">doc/classes/Signal.xml</a></cite>; and for <cite>Object</cite>, including <code>CONNECT_ONE_SHOT</code> and <code>CONNECT_DEFERRED</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Object.xml">doc/classes/Object.xml</a></cite>.</li>
+    <li>Godot Engine source (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/core/object/object.cpp">core/object/object.cpp</a></cite>, function <code>emit_signalp</code>, which copies the connections before calling them.</li>
+    <li>Microsoft, C# Programming Guide, <cite><a href="https://raw.githubusercontent.com/dotnet/docs/main/docs/csharp/programming-guide/delegates/using-delegates.md">Using Delegates</a></cite>, on multicast delegates: methods are called in order, and an uncaught exception stops the rest.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var DAMAGE = 10;
+  var MAX_HEALTH = 100;
+  var CALL_TIME = 0.45;   // seconds per call in slow motion
+  var IDS = ['health', 'achievement', 'flash', 'sound'];
+  var NAMES = { health: 'Health bar', achievement: 'Achievement', flash: 'Screen flash', sound: 'Sound' };
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var health, list, obs, queue, current, pendingSkipped, payload, callCount, handle = null;
+  var toggles = {};
+
+  function reset() {
+    health = MAX_HEALTH;
+    list = IDS.slice();
+    obs = {};
+    IDS.forEach(function (id) {
+      obs[id] = { lit: 0, order: 0, skipped: false };
+    });
+    obs.health.shown = MAX_HEALTH;
+    obs.achievement.unlocked = false;
+    obs.flash.flash = 0;
+    obs.flash.count = 0;
+    obs.sound.plays = 0;
+    queue = [];
+    current = null;
+    pendingSkipped = [];
+    payload = health;
+    callCount = 0;
+    IDS.forEach(function (id) { if (toggles[id]) toggles[id].set(true); });
+  }
+
+  function removeFromList(id) {
+    var i = list.indexOf(id);
+    if (i !== -1) list.splice(i, 1);
+  }
+
+  // The part of an observer that changes the subject's list runs at once, like real code.
+  function react(id) {
+    if (id === 'achievement') {
+      removeFromList('achievement');   // one-shot: unsubscribes itself
+      toggles.achievement.set(false);
+    }
+  }
+
+  // The visible reaction, replayed in slow motion when that is on.
+  function applyCall(id) {
+    var o = obs[id];
+    callCount += 1;
+    o.order = callCount;
+    o.lit = 1;
+    if (id === 'health') o.shown = payload;
+    if (id === 'achievement') o.unlocked = true;
+    if (id === 'flash') { o.count += 1; o.flash = reduced ? 0 : 0.5; }
+    if (id === 'sound') o.plays += 1;
+  }
+
+  function markSkipped() {
+    pendingSkipped.forEach(function (id) { obs[id].skipped = true; });
+    pendingSkipped = [];
+  }
+
+  function finishAll() {
+    if (current) { applyCall(current.id); current = null; }
+    while (queue.length) applyCall(queue.shift());
+    markSkipped();
+  }
+
+  function fire() {
+    finishAll();
+    health = Math.max(0, health - DAMAGE);   // state first
+    payload = health;
+    callCount = 0;
+    IDS.forEach(function (id) { obs[id].order = 0; obs[id].lit = 0; obs[id].skipped = false; });
+
+    var before = list.slice();
+    var calls = [];
+    var i;
+    if (mode.value === 'copy') {
+      var copy = list.slice();
+      for (i = 0; i < copy.length; i++) { calls.push(copy[i]); react(copy[i]); }
+    } else {
+      // Walking the live list by index: a removal slides the next entry under the cursor.
+      for (i = 0; i < list.length; i++) { calls.push(list[i]); react(list[i]); }
+    }
+    pendingSkipped = before.filter(function (id) { return calls.indexOf(id) === -1; });
+
+    report(calls, pendingSkipped.slice());
+    queue = calls.slice();
+    if (slow.value && !reduced && queue.length) {
+      current = { id: queue.shift(), t: 0 };
+    } else {
+      finishAll();
+    }
+    if (handle) handle.redraw();
+  }
+
+  function names(ids) {
+    return ids.map(function (id) { return NAMES[id]; }).join(', ');
+  }
+
+  function report(calls, skipped) {
+    var text = 'notify(damaged, ' + payload + '): ';
+    if (!calls.length && !skipped.length) text += 'nobody is listening.';
+    else text += 'called ' + (calls.length ? names(calls) : 'nobody') + '.';
+    if (skipped.length) text += ' Skipped ' + names(skipped) + '.';
+    last.set(text);
+  }
+
+  var ui = DemoKit.controls('[data-demo="observer"]');
+  ui.button({ label: 'Hit the player (10 damage)', onClick: fire });
+  IDS.forEach(function (id) {
+    toggles[id] = ui.toggle({
+      label: NAMES[id] + ' listens',
+      value: true,
+      onChange: function (on) {
+        if (on) {
+          if (list.indexOf(id) === -1) list.push(id);   // subscribing appends to the end
+          if (id === 'achievement') obs.achievement.unlocked = false;
+        } else {
+          removeFromList(id);
+        }
+        if (handle) handle.redraw();
+      }
+    });
+  });
+  var mode = ui.select({
+    label: 'Notify loops over',
+    options: [{ value: 'copy', label: 'a copy of the list' }, { value: 'live', label: 'the live list' }],
+    value: 'copy'
+  });
+  var slow = ui.toggle({ label: 'Slow motion', value: true });
+  var last = ui.readout({ label: 'Last notify' });
+  ui.button({ label: 'Reset', onClick: function () { reset(); last.set('none yet'); if (handle) handle.redraw(); } });
+
+  reset();
+  last.set('none yet');
+
+  function layout(s) {
+    var pad = 12;
+    var sw = Math.min(210, s.width * 0.40);
+    var ow = Math.min(200, s.width * 0.42);
+    return {
+      sx: pad, sy: 40, sw: sw, sh: 64 + 4 * 20,
+      ox: s.width - ow - pad, ow: ow, oh: 64, oy0: 14, gap: 10
+    };
+  }
+
+  function obsY(L, id) {
+    return L.oy0 + IDS.indexOf(id) * (L.oh + L.gap);
+  }
+
+  function port(L) {
+    return { x: L.sx + L.sw, y: L.sy + 54 };
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+    return text + '…';
+  }
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#observer', {
+    height: 360,
+    keys: true,
+    label: 'An observer pattern demo. A Player box on the left holds a numbered list of subscribed observers. Firing the damaged event sends a call to each observer in list order: Health bar, Achievement, Screen flash and Sound. Use the controls to subscribe, unsubscribe and switch between looping over a copy and the live list.',
+    onDown: function (p, s) {
+      var L = layout(s);
+      if (p.x >= L.sx && p.x <= L.sx + L.sw && p.y >= L.sy && p.y <= L.sy + L.sh) fire();
+    },
+    onKey: function (key, down) {
+      if (down && (key === 'space' || key === 'enter')) fire();
+    },
+    update: function (dt) {
+      if (current) {
+        current.t += dt / CALL_TIME;
+        if (current.t >= 1) {
+          applyCall(current.id);
+          current = queue.length ? { id: queue.shift(), t: 0 } : null;
+          if (!current) markSkipped();
+        }
+      }
+      IDS.forEach(function (id) { obs[id].lit = Math.max(0, obs[id].lit - dt * 1.5); });
+      obs.flash.flash = Math.max(0, obs.flash.flash - dt);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      var P = port(L);
+      var i;
+
+      // Wires from the subject's damaged port to every subscribed observer.
+      IDS.forEach(function (id) {
+        var y = obsY(L, id) + L.oh / 2;
+        var on = list.indexOf(id) !== -1;
+        ctx.strokeStyle = on ? c.ink2 : c.line;
+        ctx.lineWidth = on ? 1.5 : 1;
+        ctx.setLineDash(on ? [] : [4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(P.x, P.y);
+        ctx.bezierCurveTo(P.x + 30, P.y, L.ox - 30, y, L.ox, y);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Subject box.
+      ctx.fillStyle = c.surface;
+      roundRect(ctx, L.sx, L.sy, L.sw, L.sh, 8);
+      ctx.fill();
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.font = '600 14px ' + FONT;
+      ctx.fillText('Player', L.sx + 10, L.sy + 20);
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('health ' + health + ' / ' + MAX_HEALTH, L.sx + 10, L.sy + 38);
+      ctx.fillStyle = c.topic;
+      ctx.font = '600 12px ' + FONT;
+      ctx.fillText('damaged list', L.sx + 10, L.sy + 58);
+      ctx.font = '12px ' + FONT;
+      if (!list.length) {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('(empty)', L.sx + 10, L.sy + 80);
+      }
+      for (i = 0; i < list.length; i++) {
+        ctx.fillStyle = c.ink;
+        ctx.fillText(fit(ctx, (i + 1) + '  ' + NAMES[list[i]], L.sw - 20), L.sx + 10, L.sy + 80 + i * 20);
+      }
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(fit(ctx, 'click, Space or Enter: hit', L.sw), L.sx, L.sy + L.sh + 20);
+
+      // Observers.
+      IDS.forEach(function (id) {
+        var o = obs[id];
+        var x = L.ox, y = obsY(L, id), w = L.ow, h = L.oh;
+        var on = list.indexOf(id) !== -1;
+        ctx.fillStyle = c.surface;
+        roundRect(ctx, x, y, w, h, 8);
+        ctx.fill();
+        if (id === 'flash' && o.flash > 0) {
+          ctx.globalAlpha = Math.min(1, o.flash / 0.5) * 0.45;
+          ctx.fillStyle = c.bad;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        if (o.lit > 0) {
+          ctx.globalAlpha = o.lit * 0.3;
+          ctx.fillStyle = c.topic;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.setLineDash(on || o.skipped ? [] : [4, 4]);
+        ctx.strokeStyle = o.skipped ? c.bad : (on ? c.ink3 : c.line);
+        ctx.lineWidth = o.skipped ? 2.5 : 1.25;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.textAlign = 'left';
+        ctx.font = '600 13px ' + FONT;
+        ctx.fillStyle = on ? c.ink : c.ink3;
+        ctx.fillText(NAMES[id], x + 10, y + 18);
+
+        ctx.textAlign = 'right';
+        ctx.font = '600 12px ' + FONT;
+        if (o.skipped) {
+          ctx.fillStyle = c.bad;
+          ctx.fillText('skipped', x + w - 8, y + 18);
+        } else if (o.order) {
+          ctx.fillStyle = c.topic;
+          ctx.fillText('call ' + o.order, x + w - 8, y + 18);
+        }
+
+        ctx.textAlign = 'left';
+        ctx.font = '12px ' + FONT;
+        ctx.fillStyle = c.ink2;
+        var line2 = '', line3 = '';
+        if (id === 'health') line2 = on ? 'shows ' + o.shown : 'not listening, shows ' + o.shown;
+        if (id === 'achievement') {
+          line2 = o.unlocked ? 'Unlocked: First hit' : 'waiting for a hit';
+          line3 = 'one-shot listener';
+        }
+        if (id === 'flash') line2 = 'flashes: ' + o.count;
+        if (id === 'sound') { line2 = 'hurt sound: ' + o.plays; line3 = '(shown, not played)'; }
+        if (!on) line3 = 'not listening';
+        ctx.fillText(fit(ctx, line2, w - 20), x + 10, y + 36);
+        if (id === 'health') {
+          ctx.fillStyle = c.surface2;
+          ctx.fillRect(x + 10, y + 44, w - 20, 10);
+          ctx.fillStyle = c.good;
+          ctx.fillRect(x + 10, y + 44, (w - 20) * o.shown / MAX_HEALTH, 10);
+        } else if (line3) {
+          ctx.fillStyle = c.ink3;
+          ctx.fillText(fit(ctx, line3, w - 20), x + 10, y + 54);
+        }
+      });
+
+      // The call in flight, travelling along its wire.
+      if (current) {
+        var ty = obsY(L, current.id) + L.oh / 2;
+        var t = DemoKit.clamp(current.t, 0, 1);
+        var u = 1 - t;
+        var x0 = P.x, y0 = P.y, x1 = P.x + 30, y1 = P.y, x2 = L.ox - 30, y2 = ty, x3 = L.ox, y3 = ty;
+        var bx = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3;
+        var by = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.bezierCurveTo(x1, y1, x2, y2, x3, y3);
+        ctx.stroke();
+        ctx.fillStyle = c.topic;
+        ctx.beginPath();
+        ctx.arc(bx, by, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // The port the event leaves from.
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(P.x, P.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+})();
+</script>
+</body>
+</html>

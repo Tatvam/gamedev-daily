@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotating a vector: where is the tip of the sword? · Game Dev Daily</title>
+<meta name="description" content="How cos and sin rotate a point around the origin, and how subtract, rotate, add back turns a sword or any shape around its own pivot.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-p { color: var(--t-game-physics); font-weight: 650; }
+  .v-r { color: var(--t-game-math); font-weight: 650; }
+  .v-pv { color: var(--warn); font-weight: 650; }
+  .v-a { color: var(--t-game-idea); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Rotating a vector: where is the tip of the sword?</h1>
+  <p class="lede">How cos and sin rotate a point around the origin, and how "subtract, rotate, add back" turns a sword or any shape around its own pivot.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your hero swings a sword. Drawing it is easy: you hand the sprite an angle and the engine turns it. But the hit test needs to know where the <em>tip</em> is after a 90 degree swing, and the engine will not tell you.</p>
+  <p>Or you rotate the points yourself and the sword flies off in a huge circle round the corner of the screen instead of turning in the hero's hand. This lesson fixes both problems with one small formula.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Rotating means turning every step you take</h2>
+  <p>This lesson and its demo use <strong>y pointing down</strong>, as on a screen and in LÖVE. So a positive angle turns <strong>clockwise</strong>, and 90 degrees turns "right" into "down", just as in the atan2 lesson.</p>
+  <p>Start with the case you already know. The unit circle lesson showed that turning the arrow (1, 0) by an angle a lands on <strong>(cos a, sin a)</strong>. Now turn the other basic arrow, (0, 1), which points straight down. It starts a quarter turn ahead, so it lands a quarter turn ahead too: on <strong>(−sin a, cos a)</strong>. At a = 0 that is (0, 1) again, and at a = 90 degrees it is (−1, 0), pointing left. Down turned clockwise by a quarter is left, so that checks out.</p>
+  <p>Any point can be reached with those two arrows. The point <span class="v-p">p = (3, 1)</span> means "3 steps of (1, 0), then 1 step of (0, 1)". A <dfn>rotation</dfn> turns the whole picture around the origin without stretching it, so the rotated point <span class="v-r">p′</span> (say "p prime") is reached by the same steps, taken along the turned arrows.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Two panels with y pointing down. Left: the point p at (3, 1), reached by three steps along x and one step down. Right: the same three steps and one step, but along arrows turned by 30 degrees, end at the rotated point p prime, about (2.10, 2.37).">
+      <path class="d-thin" d="M40 60 H290 M40 60 V210"/>
+      <g class="d-dash"><path d="M90 60 V210 M140 60 V210 M190 60 V210 M240 60 V210 M40 110 H290 M40 160 H290"/></g>
+      <path class="d-stroke" style="stroke-width: 3" d="M40 60 H190 V110"/>
+      <circle cx="90" cy="60" r="3.5" style="fill: var(--ink)"/>
+      <circle cx="140" cy="60" r="3.5" style="fill: var(--ink)"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 3; fill: none" d="M40 60 L180.5 106.8"/>
+      <path style="fill: var(--t-game-physics)" d="M190 110 L176.6 111.1 L180.4 99.7 Z"/>
+      <text class="d-text" x="115" y="50" text-anchor="middle">3 × (1, 0)</text>
+      <text class="d-text" x="198" y="90">1 × (0, 1)</text>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="198" y="128">p (3, 1)</text>
+      <text class="d-muted" x="284" y="52" text-anchor="end">x →</text>
+      <text class="d-muted" x="48" y="206">y ↓</text>
+      <text class="d-muted" x="60" y="232">before: 3 along x, 1 down</text>
+
+      <path class="d-thin" d="M360 50 H620 M360 50 V210"/>
+      <path class="d-stroke" style="stroke-width: 3" d="M360 50 L489.9 125 L464.9 168.3"/>
+      <circle cx="403.3" cy="75" r="3.5" style="fill: var(--ink)"/>
+      <circle cx="446.6" cy="100" r="3.5" style="fill: var(--ink)"/>
+      <path style="stroke: var(--t-game-math); stroke-width: 3; fill: none" d="M360 50 L458.3 160.8"/>
+      <path style="fill: var(--t-game-math)" d="M464.9 168.3 L453.0 162.0 L462.0 154.1 Z"/>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2; fill: none" d="M390 50 A30 30 0 0 1 386 65"/>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="392" y="40">a = 30°</text>
+      <text class="d-text" x="498" y="122">3 × (cos a, sin a)</text>
+      <text class="d-text" x="484" y="162">1 × (−sin a, cos a)</text>
+      <text class="d-mono" style="fill: var(--t-game-math); font-weight: 650" x="464" y="190" text-anchor="middle">p′ (2.10, 2.37)</text>
+      <text class="d-muted" x="380" y="232">after: the same steps, turned by a</text>
+    </svg>
+    <figcaption>Rotation keeps the recipe "3 steps one way, 1 step the other" and only turns the two arrows the steps follow.</figcaption>
+  </figure>
+
+  <h3>The formula</h3>
+  <p>Add up the turned steps: x lots of (cos a, sin a) plus y lots of (−sin a, cos a). Collect the x parts and the y parts and you have the <dfn>rotation formula</dfn>:</p>
+<pre><code>x′ = x × cos a − y × sin a
+y′ = x × sin a + y × cos a</code></pre>
+  <p>Here x and y are the point before, x′ and y′ the point after, and a the angle in radians. Worked example: rotate <span class="v-p">(3, 1)</span> by 90 degrees. cos 90° = 0 and sin 90° = 1, so x′ = 3 × 0 − 1 × 1 = −1 and y′ = 3 × 1 + 1 × 0 = 3. The answer is <span class="v-r">(−1, 3)</span>: down and a little left, a quarter turn clockwise from right and a little down. Its length is √(1 + 9) = √10, the same as before. Rotation never changes a length.</p>
+  <p>Big and negative angles need no special care. cos and sin repeat every full turn, so 450 degrees gives the same (−1, 3) as 90, and −90 degrees gives (1, −3), a quarter turn anticlockwise.</p>
+
+  <h2>Rotating around a pivot</h2>
+  <p>The formula always turns around the origin, (0, 0). A sword should turn around the hand that holds it. That point is the <dfn>pivot</dfn>. The trick is to make the pivot the origin for a moment:</p>
+  <ol>
+    <li><strong>Subtract</strong> the pivot from the point. What is left is the <dfn>offset</dfn>: the point as seen from the pivot.</li>
+    <li><strong>Rotate</strong> the offset with the formula.</li>
+    <li><strong>Add</strong> the pivot back.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Three panels. One: the offset from the pivot (2, 2) to the sword tip (5, 3) is (3, 1). Two: the offset (3, 1) rotated 90 degrees around the origin becomes (-1, 3). Three: adding the pivot back gives the new tip at (1, 5), on a dashed circle around the pivot.">
+      <path class="d-thin" d="M20 40 H180 M20 40 V170"/>
+      <circle cx="64" cy="84" r="5" style="fill: var(--warn)"/>
+      <circle cx="130" cy="106" r="4" style="fill: var(--t-game-physics)"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 2.5; fill: none" d="M64 84 L121 103"/>
+      <path style="fill: var(--t-game-physics)" d="M130 106 L119.3 107.7 L122.1 99.2 Z"/>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="26" y="72">pivot (2, 2)</text>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="112" y="128">tip (5, 3)</text>
+      <text class="d-text" x="24" y="160">offset = (3, 1)</text>
+      <text class="d-muted" x="20" y="200">1. subtract the pivot</text>
+
+      <path class="d-thin" d="M225 60 H400 M265 20 V170"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 2.5; fill: none" d="M265 60 L322.5 79.2"/>
+      <path style="fill: var(--t-game-physics)" d="M331 82 L320.4 83.5 L323.2 75 Z"/>
+      <path style="stroke: var(--t-game-math); stroke-width: 2.5; fill: none" d="M265 60 L245.8 117.5"/>
+      <path style="fill: var(--t-game-math)" d="M243 126 L241.5 115.4 L250 118.2 Z"/>
+      <path style="stroke: var(--t-game-idea); stroke-width: 2; fill: none" d="M282.08 65.69 A18 18 0 0 1 259.31 77.08"/>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="280" y="100">90°</text>
+      <text class="d-mono" style="fill: var(--t-game-physics); font-weight: 650" x="338" y="90">(3, 1)</text>
+      <text class="d-mono" style="fill: var(--t-game-math); font-weight: 650" x="243" y="146" text-anchor="middle">(−1, 3)</text>
+      <text class="d-muted" x="235" y="200">2. rotate the offset</text>
+
+      <path class="d-thin" d="M450 40 H620 M450 40 V170"/>
+      <circle class="d-dash" cx="494" cy="84" r="69.6"/>
+      <circle cx="560" cy="106" r="4" class="d-fill"/>
+      <circle cx="494" cy="84" r="5" style="fill: var(--warn)"/>
+      <path style="stroke: var(--t-game-math); stroke-width: 2.5; fill: none" d="M494 84 L474.8 141.5"/>
+      <path style="fill: var(--t-game-math)" d="M472 150 L470.5 139.4 L479 142.2 Z"/>
+      <circle cx="472" cy="150" r="4" style="fill: var(--t-game-math)"/>
+      <text class="d-mono" style="fill: var(--warn); font-weight: 650" x="502" y="80">pivot</text>
+      <text class="d-mono d-muted" x="568" y="112">old</text>
+      <text class="d-mono" style="fill: var(--t-game-math); font-weight: 650" x="480" y="176">new tip (1, 5)</text>
+      <text class="d-muted" x="450" y="200">3. add the pivot back</text>
+    </svg>
+    <figcaption>Pivot (2, 2), tip (5, 3), 90 degrees: (5, 3) − (2, 2) = (3, 1), which rotates to (−1, 3), and (2, 2) + (−1, 3) = (1, 5).</figcaption>
+  </figure>
+
+  <p>Worked example, the sword from the demo: the hand is at <span class="v-pv">(2, 2)</span> and the tip at <span class="v-p">(5, 3)</span>. Swing 90 degrees. The offset is (5 − 2, 3 − 2) = (3, 1), which rotates to (−1, 3) as before, and (2 + (−1), 2 + 3) = <span class="v-r">(1, 5)</span>. The tip moved round a circle centred on the hand, which is what a swing should do.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">The flying sword</p>
+    <p>Skip steps 1 and 3 and you rotate (5, 3) around the origin instead: it lands on (−3, 5), far from the hand. If a shape swings in a wide circle around the corner of the world, you forgot the pivot.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag anywhere on the grid to swing the sword, or use the <strong>Angle</strong> slider. Drag the orange pivot to choose what the sword turns around. Keyboard: arrow keys move the pivot one square, Q and E turn by 15 degrees.</p>
+  <p>Watch the tip stay on the dashed circle around the pivot, and the readouts follow the three steps. Drag the pivot to the middle of the blade and it spins like a baton. Then switch on <strong>Forget the pivot</strong> and see the sword leave the hand.</p>
+  <figure class="demo" data-demo="rotate-pivot">
+    <canvas id="rotate-pivot"></canvas>
+    <figcaption>One grid square is one unit and y points down, so positive angles turn clockwise. The sword starts at 90 degrees around the pivot (2, 2), the worked example. Blue is the offset before rotating, green after, purple the angle.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Two functions, then the sword from the demo swinging at 90 degrees per second. The tip starts at (5, 3) and is at (1, 5) after one second, as in the worked example.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- y grows downwards, as on LÖVE's screen, so a positive angle turns clockwise.</span>
+<span class="c">-- Angles are in radians.</span>
+local function rotate(x, y, angle)
+  local c, s = math.cos(angle), math.sin(angle)
+<span class="k">  return x * c - y * s, x * s + y * c</span>
+end
+
+local function rotateAround(x, y, pivotX, pivotY, angle)
+  local rx, ry = rotate(x - pivotX, y - pivotY, angle)   <span class="c">-- 1. subtract, 2. rotate</span>
+  return pivotX + rx, pivotY + ry                          <span class="c">-- 3. add back</span>
+end
+
+local UNIT = 40                           <span class="c">-- pixels per grid square</span>
+local ORIGIN_X, ORIGIN_Y = 400, 300       <span class="c">-- where (0, 0) is on screen</span>
+<span class="c">-- The sword at angle 0, in squares: pommel, edge, tip, edge.</span>
+local sword = { {1.4, 1.8}, {2.7, 1.9}, {5, 3}, {2.5, 2.5} }
+local pivot = { x = 2, y = 2 }            <span class="c">-- the hand</span>
+local angle = 0
+local SWING_SPEED = math.rad(90)          <span class="c">-- radians per second</span>
+
+function love.update(dt)
+  angle = angle + SWING_SPEED * dt
+end
+
+function love.draw()
+  local points = {}
+  for _, p in ipairs(sword) do            <span class="c">-- always rotate the ORIGINAL points</span>
+    local x, y = rotateAround(p[1], p[2], pivot.x, pivot.y, angle)
+    table.insert(points, ORIGIN_X + x * UNIT)
+    table.insert(points, ORIGIN_Y + y * UNIT)
+  end
+  love.graphics.polygon("line", points)
+  local tipX, tipY = rotateAround(5, 3, pivot.x, pivot.y, angle)
+  love.graphics.print(string.format("tip (%.2f, %.2f)", tipX, tipY), 10, 10)
+end</code></pre>
+  </div>
+  <p>To check by hand: <code>rotate(3, 1, math.pi / 2)</code> returns about −1 and 3.</p>
+  <p>Built-in versions: Godot has <code>Vector2.rotated(angle)</code>, in radians. Unity has no Vector2 rotate, but <code>Quaternion.Euler(0, 0, degrees) * v</code> does the job, in degrees. Both rotate around the origin, so you still subtract and add the pivot.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the new x to work out the new y.</strong> Writing <code>x = x * c - y * s</code> and then <code>y = x * s + y * c</code> feeds the already-changed x into the second line. (3, 1) at 90 degrees becomes (−1, −1) instead of (−1, 3), and the shape shrinks. Compute both into new names first, as <code>rotate</code> does by returning two values.</li>
+    <li><strong>Forgetting the pivot.</strong> The formula turns around (0, 0). Subtract the pivot first and add it back after, or the shape swings around the world origin.</li>
+    <li><strong>Degrees instead of radians.</strong> <code>math.cos(90)</code> treats 90 as radians, about 14 full turns plus a bit. Convert with <code>math.rad</code>.</li>
+    <li><strong>Rotating the rotated points again each frame.</strong> Turning last frame's result by a small step adds a tiny rounding error every time, and the errors pile up, worse with 32-bit floats. Keep the original points and one angle, and rotate the originals every frame, as the code does.</li>
+    <li><strong>Expecting exact answers.</strong> cos(π / 2) is not exactly 0 in floating point, so you get −0.9999999999999998 instead of −1. Round for display and never compare rotated positions with <code>==</code>.</li>
+    <li><strong>Edge cases that are fine.</strong> A point exactly on the pivot has offset (0, 0) and stays put. Nothing is divided, so no zero-length check is needed. Angles past 180, past 360 or below 0 all work, because cos and sin repeat.</li>
+    <li><strong>The y direction.</strong> With y up, as in maths books and Unity, the same formula turns anticlockwise for positive angles.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Drawing a rotated sprite is done for you: in LÖVE, <code>love.graphics.draw</code> takes a rotation and an origin offset, which is the pivot. You need the formula when you need to know where something <em>is</em>: the tip of a swinging weapon for a hit test, the corners of a turned box for collision, or a muzzle offset to the side of a gun, where the bullets appear.</p>
+  <p>A ship drawn with lines, in the style of classic asteroid-shooting games, can be stored as a list of points and rotated around the ship's centre every frame. Falling-block puzzle games turn a piece a quarter at a time around a pivot cell. At 90 degrees the formula becomes simply (x, y) → (−y, x), as the worked example showed.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the turret from the atan2 lesson and give its gun a muzzle that is <em>not</em> on the centre line: 24 pixels forward and 6 pixels to the side, the offset (24, 6) at angle 0. Each frame, aim at the mouse with <code>math.atan2</code>, then find the muzzle with <code>rotateAround(turret.x + 24, turret.y + 6, turret.x, turret.y, angle)</code> and spawn bullets there.</p>
+  <p>You are done when bullets come out of the same spot on the gun whichever way it points, including when aiming left and straight up, where a muzzle that was not rotated would visibly miss the barrel.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>To rotate (x, y) by a around the origin: x′ = x cos a − y sin a, y′ = x sin a + y cos a.</li>
+    <li>It works because rotation turns the two basic arrows to (cos a, sin a) and (−sin a, cos a) and keeps the recipe of steps.</li>
+    <li>To rotate around a pivot: subtract the pivot, rotate, add the pivot back.</li>
+    <li>Rotation keeps lengths, accepts any angle, and needs radians. With y down, positive is clockwise.</li>
+    <li>Rotate the original points by the total angle each frame, never the previous frame's result.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we describe points by an angle and a radius instead of x and y, which makes rings of bullets and spirals easy to build.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on rotation in 2D and 3D.</li>
+    <li>Eric Lengyel, <cite>Mathematics for 3D Game Programming and Computer Graphics</cite>, on rotation transforms.</li>
+    <li>Godot Engine documentation, <cite>Vector2.rotated</cite>.</li>
+    <li>Unity Scripting API, <cite>Quaternion.Euler</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.draw</cite> and <cite>love.graphics.polygon</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World positions in grid units, y pointing down, origin at the canvas centre.
+  // The sword at angle 0: pommel, edge, tip, edge. The tip (index 2) is tracked.
+  var SWORD = [[1.4, 1.8], [2.7, 1.9], [5, 3], [2.5, 2.5]];
+  var TIP = SWORD[2];
+  var START_PIVOT = { x: 2, y: 2 };
+  var START_ANGLE = 90;
+  var pivot = { x: START_PIVOT.x, y: START_PIVOT.y };
+  var angle = START_ANGLE;      // degrees, the source of truth
+  var draggingPivot = false;
+  var L = { cx: 160, cy: 220, U: 26, maxX: 5, maxY: 5 };
+  var handle = null;
+  var outCache = {};
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="rotate-pivot"]');
+  var angleSlider = ui.slider({ label: 'Angle', min: -360, max: 360, step: 1, value: START_ANGLE, unit: '°',
+    onInput: function (v) { angle = v; redraw(); } });
+  var spin = ui.toggle({ label: 'Spin (90° per second)', value: false, onChange: redraw });
+  var forget = ui.toggle({ label: 'Forget the pivot (rotate around the origin)', value: false, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    pivot.x = START_PIVOT.x; pivot.y = START_PIVOT.y;
+    angle = START_ANGLE; angleSlider.set(angle);
+    spin.set(false); forget.set(false);
+    redraw();
+  } });
+  var outPivot = ui.readout({ label: 'pivot (orange)' });
+  var outOffset = ui.readout({ label: '1. offset = tip − pivot (blue)' });
+  var outRot = ui.readout({ label: '2. rotated offset (green)' });
+  var outTip = ui.readout({ label: '3. new tip = pivot + rotated offset' });
+
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+  function num(n, digits) {
+    var p = Math.pow(10, digits === undefined ? 2 : digits);
+    n = Math.round(n * p) / p;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function br(n, digits) { var t = num(n, digits); return t.charAt(0) === '−' ? '(' + t + ')' : t; }
+  function pair(x, y) { return '(' + num(x) + ', ' + num(y) + ')'; }
+
+  function rotate(x, y, rad) {
+    var c = Math.cos(rad), s = Math.sin(rad);
+    return { x: x * c - y * s, y: x * s + y * c };
+  }
+  // The centre actually used: the pivot, or (0, 0) when the reader "forgets" it.
+  function centre() { return forget.value ? { x: 0, y: 0 } : pivot; }
+  function rotateAround(x, y, rad) {
+    var o = centre();
+    var r = rotate(x - o.x, y - o.y, rad);
+    return { x: o.x + r.x, y: o.y + r.y };
+  }
+
+  function layout(s) {
+    L.U = Math.max(16, Math.floor(Math.min(s.width, s.height - 40) / 2 / 6.5));
+    L.cx = Math.round(s.width / 2);
+    L.cy = Math.round(s.height / 2 + 10);
+    L.maxX = Math.max(1, Math.floor((s.width / 2 - 14) / L.U));
+    L.maxY = Math.max(1, Math.floor((s.height / 2 - 30) / L.U));
+  }
+  function toScreen(x, y) { return { x: L.cx + x * L.U, y: L.cy + y * L.U }; }
+  function clampPivot() {
+    pivot.x = DemoKit.clamp(pivot.x, -L.maxX, L.maxX);
+    pivot.y = DemoKit.clamp(pivot.y, -L.maxY, L.maxY);
+  }
+  function setAngle(deg) {
+    angle = deg;
+    angleSlider.set(Math.round(angle));
+  }
+  function wrap180(d) {
+    d = ((d % 360) + 360) % 360;
+    return d > 180 ? d - 360 : d;
+  }
+
+  // Dragging away from the pivot swings the sword so the tip points at the pointer.
+  function swingTo(p) {
+    var wx = (p.x - L.cx) / L.U - pivot.x;
+    var wy = (p.y - L.cy) / L.U - pivot.y;
+    if (Math.abs(wx) < 1e-6 && Math.abs(wy) < 1e-6) return;
+    var ox = TIP[0] - pivot.x, oy = TIP[1] - pivot.y;
+    var base = (Math.abs(ox) < 1e-9 && Math.abs(oy) < 1e-9) ? 0 : Math.atan2(oy, ox);
+    var deg = (Math.atan2(wy, wx) - base) * 180 / Math.PI;
+    setAngle(Math.round(wrap180(deg)));
+    redraw();
+  }
+  function movePivotTo(p) {
+    pivot.x = Math.round((p.x - L.cx) / L.U);
+    pivot.y = Math.round((p.y - L.cy) / L.U);
+    clampPivot();
+    redraw();
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function arrow(ctx, x1, y1, x2, y2, color, width) {
+    var len = Math.hypot(x2 - x1, y2 - y1);
+    if (len < 1) return;
+    var ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+    var head = Math.min(12, len * 0.5);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    line(ctx, x1, y1, x2 - ux * head * 0.7, y2 - uy * head * 0.7);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * head - uy * head * 0.5, y2 - uy * head + ux * head * 0.5);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.5, y2 - uy * head - ux * head * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function label(ctx, text, x, y, color, bg, align) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    var left = align === 'left' ? x : (align === 'right' ? x - w : x - w / 2);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(left - 3, y - 11, w + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, left, y);
+  }
+  function polygon(ctx, pts) {
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      var q = toScreen(pts[i].x, pts[i].y);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.closePath();
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 13px ui-monospace, Menlo, Consolas, monospace';
+  var BIG = '600 16px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#rotate-pivot', {
+    height: 440,
+    drag: true,
+    keys: true,
+    label: 'A grid with y pointing down and a sword. Drag on the grid to swing the sword around an orange pivot, or drag the pivot itself. The tip is rotated with x cos a minus y sin a, x sin a plus y cos a, after subtracting the pivot, and the pivot is added back. Arrow keys move the pivot, Q and E turn by 15 degrees.',
+    onResize: function (s) { layout(s); clampPivot(); },
+    onDown: function (p) {
+      var P = toScreen(pivot.x, pivot.y);
+      draggingPivot = Math.hypot(p.x - P.x, p.y - P.y) <= 18;
+      if (draggingPivot) movePivotTo(p); else swingTo(p);
+    },
+    onMove: function (p) {
+      if (!p.down) return;
+      if (draggingPivot) movePivotTo(p); else swingTo(p);
+    },
+    onUp: function () { draggingPivot = false; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') pivot.x += 1;
+      else if (key === 'arrowleft') pivot.x -= 1;
+      else if (key === 'arrowdown') pivot.y += 1;
+      else if (key === 'arrowup') pivot.y -= 1;
+      else if (key === 'e') setAngle(Math.min(360, Math.round(angle) + 15));
+      else if (key === 'q') setAngle(Math.max(-360, Math.round(angle) - 15));
+      else return;
+      clampPivot();
+      redraw();
+    },
+    update: function (dt) {
+      if (!spin.value) return;
+      var next = angle + 90 * dt;
+      if (next > 360) next -= 360;
+      setAngle(next);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var green = cssVar('--t-game-math', '#2a7d35');
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      var orange = c.warn;
+      layout(s);
+      var U = L.U, cx = L.cx, cy = L.cy;
+      var rad = angle * Math.PI / 180;
+      var bad = forget.value;
+      var i;
+
+      // Grid and axes.
+      var nx = Math.ceil(cx / U) + 1, ny = Math.ceil(Math.max(cy, s.height - cy) / U) + 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = -nx; i <= nx; i++) line(ctx, cx + i * U + 0.5, 0, cx + i * U + 0.5, s.height);
+      for (i = -ny; i <= ny; i++) line(ctx, 0, cy + i * U + 0.5, s.width, cy + i * U + 0.5);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, 0, cy + 0.5, s.width, cy + 0.5);
+      line(ctx, cx + 0.5, 0, cx + 0.5, s.height);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      var every = U >= 28 ? 1 : 2;
+      for (i = -nx; i <= nx; i++) {
+        if (i !== 0 && i % every === 0) ctx.fillText(String(i).replace('-', '−'), cx + i * U, cy + 14);
+      }
+      ctx.textAlign = 'right';
+      for (i = -ny; i <= ny; i++) {
+        if (i !== 0 && i % every === 0) ctx.fillText(String(i).replace('-', '−'), cx - 4, cy + i * U + 4);
+      }
+      ctx.fillText('x →', s.width - 8, cy - 6);
+      ctx.textAlign = 'left';
+      ctx.fillText('y ↓', cx + 6, s.height - 46);
+
+      var o = centre();
+      var O = toScreen(o.x, o.y);
+      var P = toScreen(pivot.x, pivot.y);
+      var off = { x: TIP[0] - o.x, y: TIP[1] - o.y };
+      var roff = rotate(off.x, off.y, rad);
+      var tip = { x: o.x + roff.x, y: o.y + roff.y };
+      var T0 = toScreen(TIP[0], TIP[1]);
+      var T1 = toScreen(tip.x, tip.y);
+      var radius = Math.hypot(off.x, off.y) * U;
+
+      // Circle the tip travels on.
+      if (radius > 1) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = bad ? c.bad : c.ink3;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(O.x, O.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Original sword, as a faint outline.
+      var orig = [];
+      for (i = 0; i < SWORD.length; i++) orig.push({ x: SWORD[i][0], y: SWORD[i][1] });
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      polygon(ctx, orig);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Angle arc at the rotation centre, from the offset to the rotated offset.
+      if (radius > 1 && Math.abs(rad) > 1e-9) {
+        var a0 = Math.atan2(off.y, off.x);
+        var ar = Math.min(U * 1.4, radius * 0.6);
+        var big = Math.abs(rad) >= 2 * Math.PI - 1e-9;
+        ctx.strokeStyle = purple;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (big) ctx.arc(O.x, O.y, ar, 0, Math.PI * 2);
+        else ctx.arc(O.x, O.y, ar, a0, a0 + rad, rad < 0);
+        ctx.stroke();
+      }
+
+      // Offset before (blue) and after (green).
+      if (radius > 1) {
+        arrow(ctx, O.x, O.y, T0.x, T0.y, blue, 2.5);
+        arrow(ctx, O.x, O.y, T1.x, T1.y, bad ? c.bad : green, 3);
+      }
+
+      // Rotated sword.
+      var pts = [];
+      for (i = 0; i < SWORD.length; i++) pts.push(rotateAround(SWORD[i][0], SWORD[i][1], rad));
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = bad ? c.bad : green;
+      polygon(ctx, pts);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = bad ? c.bad : c.ink;
+      ctx.lineWidth = 2;
+      polygon(ctx, pts);
+      ctx.stroke();
+
+      // Tip markers.
+      ctx.fillStyle = blue;
+      ctx.beginPath(); ctx.arc(T0.x, T0.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = bad ? c.bad : green;
+      ctx.beginPath(); ctx.arc(T1.x, T1.y, 5, 0, Math.PI * 2); ctx.fill();
+
+      // Origin marker when it is wrongly used as the centre.
+      if (bad) {
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 2;
+        line(ctx, O.x - 7, O.y - 7, O.x + 7, O.y + 7);
+        line(ctx, O.x - 7, O.y + 7, O.x + 7, O.y - 7);
+      }
+
+      // The pivot handle (orange ring).
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = orange;
+      ctx.fillStyle = c.surface;
+      ctx.beginPath(); ctx.arc(P.x, P.y, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = orange;
+      ctx.beginPath(); ctx.arc(P.x, P.y, 3.5, 0, Math.PI * 2); ctx.fill();
+
+      // Labels, kept inside the canvas.
+      var onRight = T1.x < s.width - 110;
+      label(ctx, 'tip ' + pair(tip.x, tip.y), T1.x + (onRight ? 12 : -12), T1.y < 70 ? T1.y + 24 : T1.y - 10,
+        bad ? c.bad : green, c.surface, onRight ? 'left' : 'right');
+      var pRight = P.x < s.width - 80;
+      label(ctx, 'pivot', P.x + (pRight ? 14 : -14), P.y + 22, orange, c.surface, pRight ? 'left' : 'right');
+
+      // Summary box, top-left.
+      var line1 = 'angle a = ' + num(angle, 0) + '°  (' + num(rad, 3) + ' rad)';
+      var line2 = bad ? 'rotating around (0, 0): the sword left the hand'
+                      : 'cos a = ' + num(Math.cos(rad), 3) + ', sin a = ' + num(Math.sin(rad), 3);
+      ctx.font = SMALL;
+      var w2 = ctx.measureText(line2).width;
+      ctx.font = BIG;
+      var w1 = ctx.measureText(line1).width;
+      var bw = Math.min(s.width - 16, Math.max(w1, w2) + 20);
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(8, 8, bw, 46);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(8.5, 8.5, bw, 46);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = purple;
+      ctx.fillText(line1, 18, 28);
+      ctx.font = SMALL;
+      ctx.fillStyle = bad ? c.bad : c.ink2;
+      ctx.fillText(line2, 18, 46);
+
+      // Readouts: the three steps with the real numbers.
+      var cosA = Math.cos(rad), sinA = Math.sin(rad);
+      setOut(outPivot, 'p', pair(pivot.x, pivot.y) + (bad ? ' (ignored)' : ''));
+      setOut(outOffset, 'o', bad ? 'skipped: the tip ' + pair(TIP[0], TIP[1]) + ' is rotated as it is'
+        : pair(TIP[0], TIP[1]) + ' − ' + pair(pivot.x, pivot.y) + ' = ' + pair(off.x, off.y));
+      setOut(outRot, 'r', '(' + br(off.x, 2) + ' × ' + br(cosA, 3) + ' − ' + br(off.y, 2) + ' × ' + br(sinA, 3) + ', ' +
+        br(off.x, 2) + ' × ' + br(sinA, 3) + ' + ' + br(off.y, 2) + ' × ' + br(cosA, 3) + ') = ' + pair(roff.x, roff.y));
+      setOut(outTip, 't', bad ? pair(tip.x, tip.y) + ', far from the hand at ' + pair(pivot.x, pivot.y)
+        : pair(pivot.x, pivot.y) + ' + ' + pair(roff.x, roff.y) + ' = ' + pair(tip.x, tip.y));
+    }
+  });
+})();
+</script>
+</body>
+</html>

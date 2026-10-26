@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrolling UVs: conveyors, clouds and parallax layers · Game Dev Daily</title>
+<meta name="description" content="Subtract time times a velocity from the UV and any repeating pattern slides across the surface. Two layers at different speeds give depth.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-26">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Scrolling UVs: conveyors, clouds and parallax layers</h1>
+  <p class="lede">Subtract time times a velocity from the UV and any repeating pattern slides across the surface. Two layers at different speeds give depth.</p>
+</header>
+
+<section data-section="hook">
+  <p>A conveyor belt whose treads roll forward. A waterfall that keeps falling. Clouds drifting behind a title screen. In each case the object never moves; only the pattern painted on it does, and the shader needs one subtraction to slide it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Move the coordinates, not the picture</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For a pattern shader, the input is the pixel's UV and the output is <code>pattern(uv)</code>. The pixel cannot move. What it can change is <em>which point of the pattern it asks about</em>.</p>
+<pre><code>vec2 p = uv - offset;     // the point of the pattern this pixel reads
+vec3 col = pattern(p);</code></pre>
+  <p>The <dfn>offset</dfn> is a vec2 in UV units, the same for every pixel. Follow one feature of the pattern, say a dot that sits at pattern point 0.1. Before, it showed up where <code>uv = 0.1</code>. Now a pixel sees it when <code>uv - offset = 0.1</code>, so at <code>uv = 0.1 + offset</code>. The whole pattern has moved by <code>+offset</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 216" role="img" aria-label="Two copies of the same quad, one above the other. In the top copy the offset is 0 and two dots sit at uv 0.1 and 0.6. In the bottom copy the offset is 0.3 and the pixels read the pattern at uv minus 0.3, so the same two dots now appear at uv 0.4 and 0.9. Dashed outlines show where they were and arrows show they moved right by 0.3.">
+      <!-- Top row: offset 0 -->
+      <rect class="d-box" x="60" y="20" width="400" height="60" rx="6"/>
+      <circle class="d-accent-fill" cx="100" cy="50" r="18"/>
+      <circle class="d-accent-fill" cx="300" cy="50" r="18"/>
+      <text class="d-muted" x="60" y="100" text-anchor="middle">uv 0</text>
+      <text class="d-muted" x="460" y="100" text-anchor="middle">uv 1</text>
+      <text class="d-text" x="484" y="44">offset = 0</text>
+      <text class="d-label d-mono" x="484" y="66">p = uv</text>
+
+      <!-- Bottom row: offset 0.3 -->
+      <rect class="d-box" x="60" y="120" width="400" height="60" rx="6"/>
+      <circle class="d-dash" cx="100" cy="150" r="18"/>
+      <circle class="d-dash" cx="300" cy="150" r="18"/>
+      <circle class="d-accent-fill" cx="220" cy="150" r="18"/>
+      <circle class="d-accent-fill" cx="420" cy="150" r="18"/>
+      <path class="d-stroke" d="M122 150H196M196 150l-8 -5M196 150l-8 5"/>
+      <path class="d-stroke" d="M322 150H396M396 150l-8 -5M396 150l-8 5"/>
+      <text class="d-muted" x="60" y="200" text-anchor="middle">uv 0</text>
+      <text class="d-muted" x="460" y="200" text-anchor="middle">uv 1</text>
+      <text class="d-text" x="484" y="136">offset = 0.3</text>
+      <text class="d-label d-mono" x="484" y="158">p = uv − 0.3</text>
+      <text class="d-muted" x="484" y="180">dots move +0.3</text>
+    </svg>
+    <figcaption>Subtracting the offset from the UV moves every feature of the pattern by the offset. Adding it would move them the other way.</figcaption>
+  </figure>
+
+  <h3>Make the offset grow</h3>
+  <p>To animate, let the offset grow with time: <code>offset = u_time * velocity</code>. The <dfn>velocity</dfn> is a vec2 in UV units per second. Build it from an angle and a speed, <code>speed * vec2(cos(a), sin(a))</code>, so angle 0 moves right and 90 degrees moves up (when y points up, as it does in this demo).</p>
+  <p>A speed of 0.1 means a feature takes 10 seconds to cross the quad's height. The speed is relative to the quad: on a quad twice as tall, the same material moves twice as many pixels per second.</p>
+
+  <h3>The pattern has to repeat</h3>
+  <p>The offset keeps growing, so after a while every pixel reads a point far from where the pattern started. That only works if the pattern exists everywhere. A pattern built with <code>fract</code>, as in the tiling lesson, repeats forever, so any offset is fine. A texture repeats only if its <dfn>wrap mode</dfn> is set to repeat; that setting gets its own lesson soon.</p>
+
+  <h3>Two layers, two speeds</h3>
+  <p>From a train window, nearby fences rush past while distant hills barely move. That difference is <dfn>parallax</dfn>, the cheapest way to fake depth in 2D. Give each layer its own offset, grow the near one faster, and combine them with <code>mix</code>.</p>
+<pre><code>vec2 pf = uv - u_far;     // far layer: slow
+vec2 pn = uv - u_near;    // near layer: same direction, 3 times faster
+float stars = dots(pf, aa);
+float clouds = puffs(pn);</code></pre>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>To move a pattern by <code>v</code> UV units per second, read it at <code>uv - time * v</code>. A plus sign moves it backwards.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The night sky has two layers: distant stars and nearby clouds. Turn <em>Direction</em> and both change course together. Set <em>Near layer rate</em> to 1 and the sky looks flat; push it to 3 or 4 and the clouds float in front of the stars.</p>
+  <p>Set <em>Stage</em> to <em>1. Grid before scrolling</em>, then <em>2. Grid after scrolling</em>. The red and green gradient squares are the near layer's cell coordinates, <code>fract(p * 3.0)</code>. In stage 2 the coordinates themselves slide, and every later stage is built on them.</p>
+
+  <figure class="demo" data-demo="scroll-uv">
+    <canvas id="scroll-uv"></canvas>
+    <figcaption>Stage 3 shows the far layer alone, stage 4 the near layer alone, and stage 5 the two mixed over a sky gradient. The readout shows both offsets, which wrap back after 2 UV units without a visible jump.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. The offsets are added up in <code>love.update(dt)</code>, so turning the direction never makes the pattern jump (see the pitfalls). Left and right turn the direction by 15 degrees, up and down change the speed, Q and E change the near layer rate, S cycles the stage and space pauses.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local angle = 0        <span class="c">-- degrees: 0 moves right, 90 moves up</span>
+local speed = 0.1      <span class="c">-- far layer, uv units per second</span>
+local rate = 3         <span class="c">-- the near layer moves this many times faster</span>
+local stage = 4        <span class="c">-- 0 grid, 1 scrolled grid, 2 far, 3 near, 4 final</span>
+local paused = false
+local far = { 0, 0 }   <span class="c">-- offsets in uv units</span>
+local near = { 0, 0 }
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_far;
+uniform vec2 u_near;
+uniform float u_stage;
+uniform vec4 u_rect;
+
+float dots(vec2 p, float aa) {           // far layer: 6 small dots per uv unit
+    vec2 cell = fract(p * 6.0) - 0.5;
+    float d = length(cell) - 0.12;
+    return 1.0 - smoothstep(-6.0 * aa, 6.0 * aa, d);  // aa in cell units
+}
+
+float puffs(vec2 p) {                    // near layer: 3 soft clouds per uv unit
+    vec2 q = p * 3.0;
+    q.x += 0.5 * mod(floor(q.y), 2.0);   // shift every other row by half a cell
+    vec2 cell = fract(q) - 0.5;
+    float d = length(cell * vec2(1.0, 1.6)) - 0.3;
+    return 1.0 - smoothstep(-0.05, 0.1, d);
+}
+
+vec3 shade(vec2 uv, float aa) {
+    vec2 pf = uv - u_far;                // 1. scroll: subtract the offset
+    vec2 pn = uv - u_near;
+    float stars = dots(pf, aa);          // 2. one mask per layer
+    float clouds = puffs(pn);
+    vec3 sky = mix(vec3(0.2, 0.33, 0.6), vec3(0.07, 0.1, 0.22), uv.y + 0.5);
+    vec3 col = sky + vec3(0.5, 0.6, 0.85) * stars * 0.6;   // 3. far first
+    col = mix(col, vec3(0.95, 0.97, 1.0), clouds * 0.8);   //    near on top
+    if (u_stage &lt; 3.5) col = vec3(clouds);
+    if (u_stage &lt; 2.5) col = vec3(stars);
+    if (u_stage &lt; 1.5) col = vec3(fract(pn * 3.0), 0.0);
+    if (u_stage &lt; 0.5) col = vec3(fract(uv * 3.0), 0.0);
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+<span class="k">local function scroll(offset, vx, vy, dt)
+  offset[1] = (offset[1] + vx * dt) % 2   <span class="c">-- both patterns repeat every 2 uv units</span>
+  offset[2] = (offset[2] + vy * dt) % 2
+end</span>
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  if paused then return end
+  local a = math.rad(angle)
+<span class="k">  local vx = speed * math.cos(a)
+  local vy = speed * math.sin(a)
+  scroll(far, vx, vy, dt)
+  scroll(near, vx * rate, vy * rate, dt)</span>
+end
+
+function love.keypressed(key)
+  if key == "left" then angle = (angle + 15) % 360 end
+  if key == "right" then angle = (angle - 15) % 360 end
+  if key == "up" then speed = math.min(0.5, speed + 0.02) end
+  if key == "down" then speed = math.max(0, speed - 0.02) end
+  if key == "e" then rate = math.min(4, rate + 0.5) end
+  if key == "q" then rate = math.max(0, rate - 0.5) end
+  if key == "s" then stage = (stage + 1) % 5 end
+  if key == "space" then paused = not paused end
+end
+
+function love.draw()
+  shader:send("u_far", far)
+  shader:send("u_near", near)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_far;    // far layer offset, uv units, sent each frame
+uniform vec2 u_near;   // near layer offset
+uniform float u_stage;
+
+float dots(vec2 p, float aa) {           // far layer: 6 small dots per uv unit
+  vec2 cell = fract(p * 6.0) - 0.5;
+  float d = length(cell) - 0.12;
+  return 1.0 - smoothstep(-6.0 * aa, 6.0 * aa, d);  // aa in cell units
+}
+
+float puffs(vec2 p) {                    // near layer: 3 soft clouds per uv unit
+  vec2 q = p * 3.0;
+  q.x += 0.5 * mod(floor(q.y), 2.0);     // shift every other row by half a cell
+  vec2 cell = fract(q) - 0.5;
+  float d = length(cell * vec2(1.0, 1.6)) - 0.3;
+  return 1.0 - smoothstep(-0.05, 0.1, d);
+}
+
+vec3 shade(vec2 uv, float aa) {
+<span class="k">  vec2 pf = uv - u_far;                  // 1. scroll: subtract the offset
+  vec2 pn = uv - u_near;</span>
+  float stars = dots(pf, aa);            // 2. one mask per layer
+  float clouds = puffs(pn);
+  vec3 sky = mix(vec3(0.2, 0.33, 0.6), vec3(0.07, 0.1, 0.22), uv.y + 0.5);
+  vec3 col = sky + vec3(0.5, 0.6, 0.85) * stars * 0.6;   // 3. far first
+  col = mix(col, vec3(0.95, 0.97, 1.0), clouds * 0.8);   //    near on top
+  if (u_stage &lt; 3.5) col = vec3(clouds);
+  if (u_stage &lt; 2.5) col = vec3(stars);
+  if (u_stage &lt; 1.5) col = vec3(fract(pn * 3.0), 0.0);
+  if (u_stage &lt; 0.5) col = vec3(fract(uv * 3.0), 0.0);
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up
+  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Two layers scrolled with the built-in TIME.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 velocity = vec2(0.1, 0.0); // far layer, uv units per second
+uniform float rate = 3.0;               // near layer moves this many times faster
+uniform float aspect = 1.0;             // set to the ColorRect's width / height
+
+float dots(vec2 p, float aa) {
+    vec2 cell = fract(p * 6.0) - 0.5;
+    float d = length(cell) - 0.12;
+    return 1.0 - smoothstep(-6.0 * aa, 6.0 * aa, d);
+}
+
+float puffs(vec2 p) {
+    vec2 q = p * 3.0;
+    q.x += 0.5 * mod(floor(q.y), 2.0);
+    vec2 cell = fract(q) - 0.5;
+    float d = length(cell * vec2(1.0, 1.6)) - 0.3;
+    return 1.0 - smoothstep(-0.05, 0.1, d);
+}
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);  // centred; y points DOWN
+    float aa = fwidth(uv.y);                   // one pixel, in uv units
+<span class="k">    float stars = dots(uv - TIME * velocity, aa);
+    float clouds = puffs(uv - TIME * velocity * rate);</span>
+    vec3 sky = mix(vec3(0.07, 0.1, 0.22), vec3(0.2, 0.33, 0.6), UV.y);
+    vec3 col = sky + vec3(0.5, 0.6, 0.85) * stars * 0.6;
+    col = mix(col, vec3(0.95, 0.97, 1.0), clouds * 0.8);
+    COLOR = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Two layers scrolled with _Time.y.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/ScrollingLayers"
+{
+    Properties
+    {
+        _Velocity ("Velocity (uv per second, xy)", Vector) = (0.1, 0, 0, 0)
+        _Rate ("Near layer rate", Float) = 3
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float4 _Velocity;
+            float _Rate, _Aspect;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float dots (float2 p, float aa)
+            {
+                float2 cell = frac(p * 6.0) - 0.5;
+                float d = length(cell) - 0.12;
+                return 1.0 - smoothstep(-6.0 * aa, 6.0 * aa, d);
+            }
+
+            float puffs (float2 p)
+            {
+                float2 q = p * 3.0;
+                q.x += frac(floor(q.y) * 0.5);  // 0 or 0.5; HLSL fmod differs from GLSL mod
+                float2 cell = frac(q) - 0.5;
+                float d = length(cell * float2(1.0, 1.6)) - 0.3;
+                return 1.0 - smoothstep(-0.05, 0.1, d);
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // y points up
+                float aa = fwidth(uv.y);
+<span class="k">                float2 offset = _Time.y * _Velocity.xy;           // _Time.y is seconds
+                float stars = dots(uv - offset, aa);
+                float clouds = puffs(uv - offset * _Rate);</span>
+                float3 sky = lerp(float3(0.2, 0.33, 0.6), float3(0.07, 0.1, 0.22), i.uv.y);
+                float3 col = sky + float3(0.5, 0.6, 0.85) * stars * 0.6;
+                col = lerp(col, float3(0.95, 0.97, 1.0), clouds * 0.8);
+                return fixed4(col, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions use time times velocity, which is fine while the velocity is fixed. In URP Shader Graph, multiply a <em>Time</em> node by a velocity and feed it into the Offset input of a <em>Tiling And Offset</em> node. That node adds the offset to the UV, so a positive offset moves the picture towards negative x and y.</p>
+  <p>WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up, so a positive y velocity scrolls up. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down, so in Godot a positive y velocity scrolls down; the LÖVE version flips y to match the demo. In a Unity project set to Linear colour space, the hard-coded colours are treated as linear values and look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The pattern moves the wrong way.</strong> <code>uv + offset</code> moves the pattern by <code>-offset</code>. If a conveyor runs backwards, flip the sign rather than the velocity, so the velocity keeps meaning "this way, this fast".</li>
+    <li><strong>Turning the direction makes the pattern jump.</strong> With <code>offset = u_time * velocity</code>, the whole history is recomputed each frame. At 100 seconds, turning a 0.1 speed velocity by 90 degrees moves the offset by about 14 UV units at once. If velocity can change during play, add up the offset on the CPU, <code>offset = offset + velocity * dt</code>, and send it, as the demo and the Lua do.</li>
+    <li><strong>Offsets grow until precision runs out.</strong> An offset of several thousand UV units leaves too few bits for the fraction, and on phones with <code>mediump</code> the pattern starts to wobble and step. Wrap the offset by a distance after which the pattern looks the same. Here both layers repeat every 2 UV units, so <code>% 2</code> is seamless. Wrapping by anything else causes a visible jump.</li>
+    <li><strong>Pixel art shimmers.</strong> A slow scroll moves by a fraction of a pixel each frame, so edges crawl. Snap the offset to whole texels: <code>floor(offset * size) / size</code>, with <code>size</code> the texture size in texels.</li>
+    <li><strong>Seams at the edge of a texture.</strong> A texture that does not tile shows a hard line each time it repeats, and one set to clamp smears its edge pixels across the quad. The art must tile, and the wrap mode must repeat.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The scroll itself is two subtractions per pixel, as close to free as GPU work gets. The cost is in the layers: each one evaluates its pattern again, or samples its texture again, for every pixel. Two or three full-screen layers are fine on a phone; ten blended full-screen layers is a lot of fill work for a mobile GPU.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Scrolling UVs are built into the engines' standard tools. Unity's built-in materials expose a texture offset, which scripts can change through <code>Material.SetTextureOffset</code> or <code>mainTextureOffset</code>, and Shader Graph has the <em>Tiling And Offset</em> node. Godot's <code>StandardMaterial3D</code> has a UV1 Offset property, and its shaders can use <code>TIME</code> directly as above.</p>
+  <p>It shows up wherever something flows over a fixed surface: rivers, lava, waterfalls, conveyor belts, and the layered scrolling backgrounds of 2D shooters and runners.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a waterfall:</p>
+  <ol>
+    <li>Set <code>angle</code> to 270 so both layers fall, and the speed to 0.3.</li>
+    <li>In <code>puffs</code>, stretch the clouds into streaks: change <code>vec2(1.0, 1.6)</code> to <code>vec2(2.5, 0.4)</code>, which makes them narrow and tall.</li>
+    <li>Recolour: make the sky a deep blue-green and the cloud colour a pale aqua.</li>
+    <li>Add a third layer: call <code>puffs</code> again with its own offset, scrolled at <code>rate * 1.7</code>, at half strength, so the streaks do not all fall in lock-step.</li>
+  </ol>
+  <p>You are done when the water falls with three visibly different speeds, and pressing left or right still turns it smoothly without a jump.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader cannot move pixels; it scrolls by changing where each pixel reads the pattern: <code>pattern(uv - offset)</code>.</li>
+    <li>Subtracting the offset moves the pattern by the offset; adding it moves the pattern the other way.</li>
+    <li><code>offset = time * velocity</code> is enough for a fixed velocity; add up <code>velocity * dt</code> on the CPU when the velocity can change.</li>
+    <li>The pattern must repeat, and the offset should wrap by a whole number of repeats to stay precise.</li>
+    <li>Layers with their own offsets and speeds give parallax; each layer costs one more pattern evaluation or texture sample per pixel.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson transforms the UV in other ways, rotating and scaling it around a pivot to spin and zoom a pattern.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Patterns" and "2D Matrices".</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8 "Built-in Functions" (fract, mod, floor).</li>
+    <li>Godot Engine documentation, <cite>CanvasItem shaders</cite> (UV, TIME) and <cite>StandardMaterial3D and ORMMaterial3D</cite> (UV1 offset).</li>
+    <li>Unity Manual and Scripting Reference, <cite>Material.SetTextureOffset</cite>, and the Shader Graph <cite>Tiling And Offset Node</cite> page.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_far;    // far layer offset, uv units, sent each frame",
+    "uniform vec2 u_near;   // near layer offset",
+    "uniform float u_stage;",
+    "",
+    "float dots(vec2 p, float aa) {           // far layer: 6 small dots per uv unit",
+    "  vec2 cell = fract(p * 6.0) - 0.5;",
+    "  float d = length(cell) - 0.12;",
+    "  return 1.0 - smoothstep(-6.0 * aa, 6.0 * aa, d);  // aa in cell units",
+    "}",
+    "",
+    "float puffs(vec2 p) {                    // near layer: 3 soft clouds per uv unit",
+    "  vec2 q = p * 3.0;",
+    "  q.x += 0.5 * mod(floor(q.y), 2.0);     // shift every other row by half a cell",
+    "  vec2 cell = fract(q) - 0.5;",
+    "  float d = length(cell * vec2(1.0, 1.6)) - 0.3;",
+    "  return 1.0 - smoothstep(-0.05, 0.1, d);",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  vec2 pf = uv - u_far;                  // 1. scroll: subtract the offset",
+    "  vec2 pn = uv - u_near;",
+    "  float stars = dots(pf, aa);            // 2. one mask per layer",
+    "  float clouds = puffs(pn);",
+    "  vec3 sky = mix(vec3(0.2, 0.33, 0.6), vec3(0.07, 0.1, 0.22), uv.y + 0.5);",
+    "  vec3 col = sky + vec3(0.5, 0.6, 0.85) * stars * 0.6;   // 3. far first",
+    "  col = mix(col, vec3(0.95, 0.97, 1.0), clouds * 0.8);   //    near on top",
+    "  if (u_stage < 3.5) col = vec3(clouds);",
+    "  if (u_stage < 2.5) col = vec3(stars);",
+    "  if (u_stage < 1.5) col = vec3(fract(pn * 3.0), 0.0);",
+    "  if (u_stage < 0.5) col = vec3(fract(uv * 3.0), 0.0);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var PERIOD = 2; // both layers repeat every 2 uv units, so wrapping here is seamless
+
+  var far = [0, 0];
+  var near = [0, 0];
+  var handle = null;
+
+  function wrap(x) { return x - Math.floor(x / PERIOD) * PERIOD; }
+
+  var ui = DemoKit.controls('[data-demo="scroll-uv"]');
+  var angle = ui.slider({ label: 'Direction', min: 0, max: 360, step: 5, value: 0, unit: '°',
+    onInput: function () { updateReadout(); } });
+  var speed = ui.slider({ label: 'Speed (far layer)', min: 0, max: 0.5, step: 0.01, value: 0.1, unit: ' uv/s',
+    onInput: function () { updateReadout(); } });
+  var rate = ui.slider({ label: 'Near layer rate', min: 0, max: 4, step: 0.1, value: 3, unit: '×',
+    onInput: function () { updateReadout(); } });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Grid before scrolling: fract(uv * 3)' },
+      { value: '1', label: '2. Grid after scrolling: fract((uv - near) * 3)' },
+      { value: '2', label: '3. Far layer mask (stars)' },
+      { value: '3', label: '4. Near layer mask (clouds)' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { if (handle) handle.set('u_stage', Number(v)); }
+  });
+  var paused = ui.toggle({ label: 'Pause', value: false });
+  var readout = ui.readout({ label: 'Offsets' });
+
+  function fmt(v) { return '(' + v[0].toFixed(2) + ', ' + v[1].toFixed(2) + ')'; }
+
+  function updateReadout() {
+    var a = angle.value * Math.PI / 180;
+    var vx = speed.value * Math.cos(a);
+    var vy = speed.value * Math.sin(a);
+    readout.set('far ' + fmt(far) + ', near ' + fmt(near) +
+      ', far velocity ' + fmt([vx, vy]) + ' uv/s');
+  }
+
+  handle = DemoKit.shader('#scroll-uv', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 380,
+    label: 'A live fragment shader showing a night sky with a slow layer of stars and a faster layer of clouds, both scrolled by subtracting an offset from the UV. Use the controls below to change direction, speed and the near layer rate.',
+    uniforms: {
+      u_far: function () { return far; },
+      u_near: function () { return near; },
+      u_stage: 4
+    },
+    update: function (dt) {
+      if (!paused.value) {
+        var a = angle.value * Math.PI / 180;
+        var vx = speed.value * Math.cos(a);
+        var vy = speed.value * Math.sin(a);
+        far[0] = wrap(far[0] + vx * dt);
+        far[1] = wrap(far[1] + vy * dt);
+        near[0] = wrap(near[0] + vx * rate.value * dt);
+        near[1] = wrap(near[1] + vy * rate.value * dt);
+      }
+      updateReadout();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>
