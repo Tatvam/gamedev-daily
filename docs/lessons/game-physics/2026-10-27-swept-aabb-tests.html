@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swept AABB tests · Game Dev Daily</title>
+<meta name="description" content="How to calculate when a moving box first touches another box during a step, stop it there, and find which face it hit, so it cannot tunnel.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Swept AABB tests</h1>
+  <p class="lede">How to calculate when a moving box first touches another box during a step, stop it there, and find which face it hit, so it cannot tunnel.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character dashes at a wall. On a fast dash it ends up on the other side. On a slower one the game sees the overlap, cancels the move, and the character stops several body lengths short. Both bugs come from checking only where the box ends the step. The fix is to ask "when during the step do they first touch?"</p>
+</section>
+
+<section data-section="concept">
+  <h2>Ask when, not whether</h2>
+  <p>The last lesson said: test the path, not the point. For a box, the path is a straight slide by the step's motion <code>d = (dx, dy)</code>, the velocity times the step. Every position along it is described by one number, <code>t</code>:</p>
+<pre><code>position(t) = start + d * t</code></pre>
+  <p>In words: at <code>t = 0</code> the box is at the start, at <code>t = 1</code> at the end, at <code>t = 0.5</code> halfway. The smallest <code>t</code> at which it touches the other box is the <dfn>time of impact</dfn>. Stop the box there and it touches exactly, with no gap and no overlap. A test that finds this time for two axis-aligned boxes is a <dfn>swept AABB test</dfn>.</p>
+
+  <h2>One axis at a time</h2>
+  <p>Two boxes overlap only when they overlap on x <em>and</em> on y, so take each axis alone. Call the moving box A and the wall B. Moving right, A's x span starts to overlap when its right edge reaches B's left edge, and stops when its left edge passes B's right edge:</p>
+<pre><code>xEnter = (B.left - A.right) / dx
+xExit  = (B.right - A.left) / dx</code></pre>
+  <p>In words: the gap still to close, divided by the distance moved in a whole step, is the fraction of the step needed to close it.</p>
+  <p>With the demo's starting numbers: A is 40 by 40 with its top-left corner at (80, 140), the wall spans x from 320 to 370, and the step moves 400 pixels right. So <code>xEnter = (320 - 120) / 400 = 0.5</code> and <code>xExit = (370 - 80) / 400 = 0.725</code>.</p>
+  <p>Moving left, the edges swap roles, and dividing by a negative <code>dx</code> keeps the times positive. When <code>dx</code> is zero, the axis overlaps for the whole step or never, which you check by comparing the spans directly.</p>
+  <p>The y axis works the same way. The demo moves 60 pixels up, so <code>dy = -60</code> (y grows downwards), and A enters when its top reaches the wall's bottom at 240: <code>yEnter = (240 - 140) / -60 = -1.67</code> and <code>yExit = (90 - 180) / -60 = 1.5</code>. A negative entry means y was already overlapping before the step began.</p>
+
+  <h2>Both axes: the later entry, the earlier exit</h2>
+  <p>The boxes touch only while both axes overlap:</p>
+<pre><code>enter = max(xEnter, yEnter)
+exit  = min(xExit, yExit)</code></pre>
+  <p>In words: wait for the later of the two entries, and stop at the earlier of the two exits.</p>
+  <p>There is a hit this step only when <code>enter &lt; exit</code> and <code>enter</code> is between 0 and 1. Otherwise the axes overlap at different moments (the box slips past a corner), the contact is in a later step, or the boxes overlapped before the step began. For the demo: <code>enter = max(0.5, -1.67) = 0.5</code>, <code>exit = min(0.725, 1.5) = 0.725</code>, a hit at <code>t = 0.5</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a box moves up and to the right towards a wall above it. A dashed ghost shows where its x span starts overlapping the wall at t 0.4, while it is still below the wall. A shaded box shows where its y span starts overlapping at t 0.6, touching the bottom of the wall: the first contact. Right: a timeline from 0 to 1 with a bar for when x overlaps, from 0.4, a bar for when y overlaps, from 0.6, and a bar for when both overlap, which starts at 0.6.">
+      <!-- Scene -->
+      <rect class="d-fill" x="200" y="40" width="130" height="80"/>
+      <text class="d-text" x="245" y="66" text-anchor="middle">wall</text>
+      <path class="d-dash" d="M80 215 L326 92"/>
+      <polygon class="d-accent-fill" points="330,90 323.3,99 318.9,90"/>
+      <rect class="d-stroke" x="60" y="195" width="40" height="40"/>
+      <text class="d-muted" x="80" y="254" text-anchor="middle">start, t = 0</text>
+      <rect class="d-dash" x="160" y="145" width="40" height="40"/>
+      <text class="d-muted" x="150" y="150" text-anchor="end">x enters</text>
+      <text class="d-muted" x="150" y="166" text-anchor="end">t = 0.4</text>
+      <rect class="d-accent-soft" x="210" y="120" width="40" height="40"/>
+      <path class="d-accent" d="M230 126 V150"/>
+      <polygon class="d-accent-fill" points="230,156 225,146 235,146"/>
+      <text class="d-label" x="260" y="146">y enters, t = 0.6</text>
+      <text class="d-label" x="260" y="163">hit, normal (0, 1)</text>
+      <rect class="d-dash" x="310" y="70" width="40" height="40"/>
+      <text class="d-muted" x="356" y="94">end</text>
+      <!-- Timeline -->
+      <text class="d-text" x="400" y="34">When does each axis overlap?</text>
+      <rect class="d-fill" x="425" y="54" width="160" height="96"/>
+      <text class="d-text" x="402" y="81">x</text>
+      <rect class="d-box" x="489" y="70" width="109" height="12"/>
+      <text class="d-text" x="402" y="111">y</text>
+      <rect class="d-box" x="521" y="100" width="96" height="12"/>
+      <text class="d-text" x="396" y="141">both</text>
+      <rect class="d-accent-soft" x="521" y="130" width="77" height="12"/>
+      <path class="d-stroke" d="M425 165 H617"/>
+      <path class="d-thin" d="M425 160 V170 M489 160 V170 M521 160 V170 M585 160 V170"/>
+      <path class="d-accent" d="M521 58 V165"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="425" y="184">0</text>
+        <text class="d-mono" x="489" y="184">0.4</text>
+        <text class="d-mono" x="521" y="184">0.6</text>
+        <text class="d-mono" x="585" y="184">1</text>
+        <text class="d-label" x="521" y="206">first contact</text>
+        <text class="d-muted" x="505" y="226">t, as a fraction of the step</text>
+      </g>
+    </svg>
+    <figcaption>The x span reaches the wall at t = 0.4, but the box is still below it. Contact starts when y also arrives, at t = 0.6. The later entry is the real one, and its axis gives the face: the bottom, with the normal (0, 1) pointing down.</figcaption>
+  </figure>
+
+  <h3>Where to stop, and which way the wall faces</h3>
+  <p>Stop at the start plus the motion times <code>enter</code>: <code>(80 + 400 * 0.5, 140 - 60 * 0.5) = (280, 110)</code>. A's right edge is now at 320, exactly on the wall's left edge.</p>
+  <p>The <dfn>contact normal</dfn>, the direction pointing out of the surface that was hit, comes from the axis that entered <em>last</em>, the one still keeping the boxes apart. Here that is x with A moving right, so the normal is <code>(-1, 0)</code>, opposite to the motion on that axis.</p>
+
+  <div class="callout">
+    <p class="callout-title">It is a raycast in disguise</p>
+    <p>Shrink A to its centre point and grow B by half of A's size on every side. A ray from A's centre along <code>d</code> hits the grown box at the same <code>t</code>: the slab test from the raycasts lesson. Check: (300 - 100) / 400 = 0.5.</p>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title">Correct, but not always what you want</p>
+    <p>Stopping dead throws away the rest of the step. Games usually spend the leftover <code>1 - enter</code> sliding along the surface, a later lesson. With several walls, test each and keep the smallest <code>enter</code>.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The arrow is one step's motion, drawn large (about 24,000 pixels per second at 60 steps per second); the maths is the same at any length. Drag the box, the arrow tip or the wall.</p>
+  <p>Switch <strong>Swept test</strong> off: the default dash tunnels. Choose "Short dash": the end overlaps, the move is cancelled, and the box stays 200 pixels short. Switch the swept test on and both stop touching the wall. Then try the corner scenes and watch the timeline: a hit needs the x and y bars to overlap.</p>
+
+  <figure class="demo wide" data-demo="swept">
+    <canvas id="swept"></canvas>
+    <figcaption>Debug drawing shows the swept area, a ghost where each axis starts to overlap, and the normal. The timeline runs from t = -0.25 to 1.5; the shaded part is this step. Keyboard: arrow keys move the box (Shift for 1 pixel); the sliders set the motion.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE program with the demo's starting numbers; space takes one step. The first press prints <code>hit at t = 0.500, normal (-1, 0), stopped at (280, 110)</code>, later presses a hit at <code>t = 0</code>, so the box rests against the wall. In a game, call <code>sweptAABB</code> from your fixed step with <code>vx * STEP, vy * STEP</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Boxes are { x, y, w, h } with x, y the top-left corner. y grows downwards.</span>
+local mover = { x = 80, y = 140, w = 40, h = 40 }
+local wall  = { x = 320, y = 90, w = 50, h = 150 }
+local move  = { x = 400, y = -60 }   <span class="c">-- pixels moved in one step (velocity * STEP)</span>
+
+<span class="c">-- When A's span enters and leaves B's span on one axis, as fractions of the move.</span>
+local function axisTimes(aMin, aSize, bMin, bSize, d)
+  if d &gt; 0 then
+<span class="k">    return (bMin - (aMin + aSize)) / d, (bMin + bSize - aMin) / d</span>
+  elseif d &lt; 0 then
+<span class="k">    return (bMin + bSize - aMin) / d, (bMin - (aMin + aSize)) / d</span>
+  elseif aMin + aSize &gt; bMin and aMin &lt; bMin + bSize then
+    return -math.huge, math.huge   <span class="c">-- not moving, always overlapping on this axis</span>
+  else
+    return math.huge, -math.huge   <span class="c">-- not moving, never overlapping on this axis</span>
+  end
+end
+
+<span class="c">-- Returns t, nx, ny for the first contact during the move, or nil for no hit.</span>
+local function sweptAABB(a, dx, dy, b)
+  local xEnter, xExit = axisTimes(a.x, a.w, b.x, b.w, dx)
+  local yEnter, yExit = axisTimes(a.y, a.h, b.y, b.h, dy)
+<span class="k">  local enter = math.max(xEnter, yEnter)   -- both overlap after the later entry
+  local exit = math.min(xExit, yExit)      -- and until the earlier exit</span>
+  if enter &gt;= exit or enter &lt; 0 or enter &gt; 1 then
+    return nil
+  end
+  if xEnter &gt; yEnter then
+    return enter, (dx &gt; 0) and -1 or 1, 0   <span class="c">-- x entered last: left or right face</span>
+  end
+  return enter, 0, (dy &gt; 0) and -1 or 1     <span class="c">-- y entered last, or a tie: top or bottom</span>
+end
+
+local message = "press space to take one step"
+
+function love.keypressed(key)
+  if key ~= "space" then return end
+  local t, nx, ny = sweptAABB(mover, move.x, move.y, wall)
+  if t then
+<span class="k">    mover.x = mover.x + move.x * t   -- stop at first contact
+    mover.y = mover.y + move.y * t</span>
+    message = string.format("hit at t = %.3f, normal (%d, %d), stopped at (%g, %g)",
+      t, nx, ny, mover.x, mover.y)
+  else
+    mover.x = mover.x + move.x
+    mover.y = mover.y + move.y
+    message = "no hit"
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", wall.x, wall.y, wall.w, wall.h)
+  love.graphics.rectangle("line", mover.x, mover.y, mover.w, mover.h)
+  love.graphics.print(message, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># mover.gd: a CharacterBody2D with a rectangle collision shape.</span>
+extends CharacterBody2D
+
+func _ready() -&gt; void:
+    velocity = Vector2(24000, -3600)   <span class="c"># 400 and -60 pixels per step at 60 steps per second</span>
+
+func _physics_process(delta: float) -&gt; void:
+    <span class="c"># Sweeps the body's shape along the motion and stops it at first contact.</span>
+<span class="k">    var collision := move_and_collide(velocity * delta)</span>
+    if collision:
+        print("hit, normal ", collision.get_normal())
+        velocity = Vector2.ZERO</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Mover.cs: on an object with a BoxCollider2D and a kinematic Rigidbody2D.</span>
+<span class="c">// Assumes the collider has no offset and the object is not scaled.</span>
+using UnityEngine;
+
+public class Mover : MonoBehaviour
+{
+    public Vector2 velocity = new Vector2(40f, -6f);   <span class="c">// units per second</span>
+    public LayerMask wallMask;                          <span class="c">// must not include this object's layer</span>
+    BoxCollider2D box;
+    Rigidbody2D body;
+
+    void Awake()
+    {
+        box = GetComponent&lt;BoxCollider2D&gt;();
+        body = GetComponent&lt;Rigidbody2D&gt;();
+    }
+
+    void FixedUpdate()
+    {
+        Vector2 move = velocity * Time.fixedDeltaTime;
+        if (move == Vector2.zero) return;
+<span class="k">        RaycastHit2D hit = Physics2D.BoxCast(body.position, box.size, 0f,
+                                             move.normalized, move.magnitude, wallMask);</span>
+        if (hit.collider != null)
+        {
+            <span class="c">// hit.fraction is t, hit.normal the normal, hit.centroid the box centre at contact</span>
+            body.MovePosition(hit.centroid);
+            velocity = Vector2.zero;
+        }
+        else
+        {
+            body.MovePosition(body.position + move);
+        }
+    }
+}</code></pre>
+  </div>
+  <p>Godot's <code>move_and_collide</code> keeps a small safe margin, so the body stops a hair before the surface. <code>PhysicsDirectSpaceState2D.cast_motion</code> answers the same question without moving anything, as safe and unsafe fractions of the motion.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Dividing by zero motion.</strong> A falling box has <code>dx = 0</code>. Dividing gives infinities, or not-a-number when the gap is also zero, and every comparison with not-a-number is false. Handle zero explicitly, as <code>axisTimes</code> does.</li>
+    <li><strong>Taking the earlier entry.</strong> The box then stops as soon as its x span lines up with the wall, even far below it, as at t = 0.4 in the diagram.</li>
+    <li><strong>Trusting a box around the whole path.</strong> In "Just misses the corner" it overlaps the wall, yet the path never touches it. A fine cheap first check, not the answer.</li>
+    <li><strong>Starting inside.</strong> If the boxes already overlap, <code>enter</code> is negative, the test reports nothing, and the box walks through. Push it out first; that is a later lesson.</li>
+    <li><strong>Rounding after stopping.</strong> Floating point can leave the box a sliver inside the wall, so the next <code>enter</code> is slightly negative and counts as no hit. If resting boxes creep into walls, accept a small negative tolerance and treat it as 0.</li>
+    <li><strong>Exact corner hits.</strong> When the entries are equal, either face is defensible. The code picks y, so a character falling onto a ledge corner lands instead of being stopped sideways. That is a game choice, not physics.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Engines expose this as a shape cast: move a shape along a path and report the first hit. Godot's <code>move_and_collide</code> returns a <code>KinematicCollision2D</code> with the normal; Unity has <code>Physics2D.BoxCast</code> and <code>Rigidbody2D.Cast</code>. Box2D computes a time of impact for fast bodies during continuous collision detection, with a more general algorithm because its shapes rotate, but the result is the same idea: the fraction of the step at which contact begins.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Extend the Lua program to three walls, one only 10 pixels thick. Call <code>sweptAABB</code> for each and keep the smallest <code>t</code>. Set <code>move.x</code> to 600 and aim through the thin wall. You are done when the box always stops against the first wall in its path with a printed gap of 0.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Write the step's motion as <code>start + d * t</code> and look for the smallest <code>t</code> at which the boxes touch.</li>
+    <li>Each axis gives an entry and exit time: the gap to close divided by the motion on that axis.</li>
+    <li>The boxes touch from the later entry to the earlier exit. A hit needs <code>enter &lt; exit</code> and <code>enter</code> between 0 and 1.</li>
+    <li>The axis that entered last gives the contact normal, pointing against the motion.</li>
+    <li>Zero motion on an axis, a start inside the wall, and rounding at rest are the cases that break naive versions.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Boxes that never rotate are only the start: the next lesson tests rotated shapes and any convex polygon with the separating axis theorem.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Covers intersection tests for moving boxes and the link between moving shapes and rays against grown shapes.</li>
+    <li>Gino van den Bergen, <cite>Collision Detection in Interactive 3D Environments</cite> (Morgan Kaufmann, 2003). The Minkowski sum view behind "grow one shape, shrink the other to a point".</li>
+    <li>Godot Engine documentation, <cite>PhysicsBody2D.move_and_collide</cite> and <cite>PhysicsDirectSpaceState2D.cast_motion</cite>.</li>
+    <li>Unity documentation, <cite>Physics2D.BoxCast</cite> and <cite>RaycastHit2D</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 600, H = 300;     // world size in pixels; y grows downwards
+  var TL = 84;              // height of the timeline strip under the scene, screen pixels
+  var MOTION = 1.2;         // seconds the animation takes to play one step
+  var CYCLE = 2.8;          // seconds per animation loop, including the pause at the end
+  var T0 = -0.25, T1 = 1.5; // range of t shown on the timeline
+
+  var SCENES = {
+    dash:   { ax: 80,  ay: 140, dx: 400, dy: -60 },
+    short:  { ax: 80,  ay: 140, dx: 260, dy: -60 },
+    corner: { ax: 180, ay: 10,  dx: 200, dy: 80 },
+    miss:   { ax: 180, ay: 10,  dx: 300, dy: 60 }
+  };
+
+  var mover = { x: 80, y: 140, w: 40, h: 40 };
+  var wall = { x: 320, y: 90, w: 50, h: 150 };
+  var move = { x: 400, y: -60 };
+  var phase = MOTION + 0.2;
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0, sceneH: 1 };
+  var handle = null;
+
+  // ---- The test itself, the same as the Lua in the lesson ----
+  function axisTimes(aMin, aSize, bMin, bSize, d) {
+    if (d > 0) return [(bMin - (aMin + aSize)) / d, (bMin + bSize - aMin) / d];
+    if (d < 0) return [(bMin + bSize - aMin) / d, (bMin - (aMin + aSize)) / d];
+    if (aMin + aSize > bMin && aMin < bMin + bSize) return [-Infinity, Infinity];
+    return [Infinity, -Infinity];
+  }
+
+  function overlaps(a, b) {
+    return a.x + a.w > b.x && a.x < b.x + b.w && a.y + a.h > b.y && a.y < b.y + b.h;
+  }
+
+  function sweep(a, dx, dy, b) {
+    var tx = axisTimes(a.x, a.w, b.x, b.w, dx);
+    var ty = axisTimes(a.y, a.h, b.y, b.h, dy);
+    var enter = Math.max(tx[0], ty[0]);
+    var exit = Math.min(tx[1], ty[1]);
+    var r = { xE: tx[0], xX: tx[1], yE: ty[0], yX: ty[1], enter: enter, exit: exit,
+      hit: !(enter >= exit || enter < 0 || enter > 1), nx: 0, ny: 0,
+      inside: overlaps(a, b) };
+    if (r.hit) {
+      if (tx[0] > ty[0]) r.nx = dx > 0 ? -1 : 1;
+      else r.ny = dy > 0 ? -1 : 1;
+    }
+    return r;
+  }
+
+  function outcome(r) {
+    var end = { x: mover.x + move.x, y: mover.y + move.y };
+    if (r.inside) return { kind: 'inside', final: end };
+    if (swept.value) {
+      if (r.hit) return { kind: 'stop', final: { x: mover.x + move.x * r.enter, y: mover.y + move.y * r.enter } };
+      return { kind: 'free', final: end };
+    }
+    if (overlaps({ x: end.x, y: end.y, w: mover.w, h: mover.h }, wall)) {
+      return { kind: 'cancel', final: { x: mover.x, y: mover.y } };
+    }
+    if (r.hit) return { kind: 'tunnel', final: end };
+    return { kind: 'free', final: end };
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="swept"]');
+  var scene = ui.select({ label: 'Scene', value: 'dash', options: [
+    { value: 'dash', label: 'Dash into a wall' },
+    { value: 'short', label: 'Short dash' },
+    { value: 'corner', label: 'Fast fall onto a corner' },
+    { value: 'miss', label: 'Just misses the corner' },
+    { value: 'custom', label: 'Custom' }
+  ], onChange: function (v) { if (SCENES[v]) applyScene(v); } });
+  var mx = ui.slider({ label: 'Move x', min: -480, max: 480, step: 10, value: 400, unit: ' px',
+    onInput: function (v) { move.x = v; changed(); } });
+  var my = ui.slider({ label: 'Move y', min: -280, max: 280, step: 10, value: -60, unit: ' px',
+    onInput: function (v) { move.y = v; changed(); } });
+  var thick = ui.slider({ label: 'Wall thickness', min: 10, max: 150, step: 5, value: 50, unit: ' px',
+    onInput: function (v) { wall.w = v; clampWall(); changed(); } });
+  var swept = ui.toggle({ label: 'Swept test', value: true, onChange: function () { changed(true); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { changed(true); } });
+  ui.button({ label: 'Reset', onClick: function () {
+    swept.set(true); debug.set(true); scene.set('dash'); applyScene('dash');
+  } });
+  var outSpeed = ui.readout({ label: 'Speed' });
+  var outX = ui.readout({ label: 'x enter / exit' });
+  var outY = ui.readout({ label: 'y enter / exit' });
+  var outR = ui.readout({ label: 'Result' });
+
+  function applyScene(name) {
+    var sc = SCENES[name];
+    mover.x = sc.ax; mover.y = sc.ay;
+    move.x = sc.dx; move.y = sc.dy;
+    wall.x = 320; wall.y = 90; wall.w = 50;
+    mx.set(move.x); my.set(move.y); thick.set(wall.w);
+    phase = 0;
+    if (handle) handle.redraw();
+  }
+
+  function changed(keepScene) {
+    if (!keepScene) scene.set('custom');
+    phase = MOTION + 0.2;
+    if (handle) handle.redraw();
+  }
+
+  function clampMover() {
+    mover.x = DemoKit.clamp(mover.x, 0, W - mover.w);
+    mover.y = DemoKit.clamp(mover.y, 0, H - mover.h);
+  }
+  function clampWall() {
+    wall.x = DemoKit.clamp(wall.x, 0, W - wall.w);
+    wall.y = DemoKit.clamp(wall.y, 0, H - wall.h);
+  }
+
+  // ---- Drawing helpers ----
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+  function toWorld(p) { return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale }; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color, width) {
+    var ang = Math.atan2(y2 - y1, x2 - x1), h = 9;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width || 2;
+    line(ctx, x1, y1, x2, y2);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - h * Math.cos(ang - 0.45), y2 - h * Math.sin(ang - 0.45));
+    ctx.lineTo(x2 - h * Math.cos(ang + 0.45), y2 - h * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    var left = ctx.textAlign === 'center' ? x - wTxt / 2 : (ctx.textAlign === 'right' ? x - wTxt : x);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.85;
+    ctx.fillRect(left - 3, y - 12, wTxt + 6, 16);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function boxPath(ctx, x, y) {
+    ctx.beginPath();
+    ctx.rect(sx(x), sy(y), mover.w * view.scale, mover.h * view.scale);
+  }
+
+  // Convex hull of the start box and the end box: the area swept during the step.
+  function hull(pts) {
+    pts.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+    var lower = [], upper = [], i;
+    for (i = 0; i < pts.length; i++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) lower.pop();
+      lower.push(pts[i]);
+    }
+    for (i = pts.length - 1; i >= 0; i--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
+      upper.push(pts[i]);
+    }
+    upper.pop(); lower.pop();
+    return lower.concat(upper);
+  }
+
+  function fmtT(t) {
+    if (t === Infinity) return 'never';
+    if (t === -Infinity) return 'always';
+    return t.toFixed(3);
+  }
+  function axisText(e, x, d) {
+    if (d === 0) return e === -Infinity ? 'not moving, always overlapping' : 'not moving, never overlapping';
+    return fmtT(e) + ' / ' + fmtT(x);
+  }
+  function round(v) { return Math.round(v * 100) / 100; }
+
+  // ---- Timeline ----
+  function drawTimeline(ctx, s, r, c) {
+    var top = s.height - TL;
+    var left = 44, right = Math.max(left + 120, s.width - 96);
+    function tx(t) { return left + (DemoKit.clamp(t, T0, T1) - T0) / (T1 - T0) * (right - left); }
+    var rows = [
+      { name: 'x', a: r.xE, b: r.xX, y: top + 10 },
+      { name: 'y', a: r.yE, b: r.yX, y: top + 26 },
+      { name: 'both', a: r.enter, b: r.exit, y: top + 42 }
+    ];
+    var axisY = top + 58;
+
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    line(ctx, 0, top - 0.5, s.width, top - 0.5);
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(tx(0), top + 6, tx(1) - tx(0), axisY - top - 6);
+
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    rows.forEach(function (row, i) {
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(row.name, 8, row.y + 10);
+      if (!(row.a < row.b)) {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText(i === 2 ? 'never at the same time' : 'never', left + 4, row.y + 10);
+        return;
+      }
+      var x1 = tx(row.a), x2 = tx(row.b);
+      if (x2 <= tx(T0) || x1 >= tx(T1)) return;
+      ctx.fillStyle = i === 2 ? (r.hit ? c.topic : c.ink3) : c.ink3;
+      ctx.globalAlpha = i === 2 ? 0.9 : 0.55;
+      ctx.fillRect(x1, row.y + 2, Math.max(2, x2 - x1), 10);
+      ctx.globalAlpha = 1;
+    });
+
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.25;
+    line(ctx, left, axisY, right, axisY);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink2;
+    [0, 1].forEach(function (t) {
+      line(ctx, tx(t), axisY - 4, tx(t), axisY + 4);
+      ctx.fillText(String(t), tx(t), axisY + 17);
+    });
+    ctx.textAlign = 'left';
+    ctx.fillText('t', right + 6, axisY + 4);
+
+    if (r.hit) {
+      ctx.strokeStyle = c.good; ctx.lineWidth = 2;
+      line(ctx, tx(r.enter), top + 6, tx(r.enter), axisY + 4);
+    }
+  }
+
+  // ---- Main draw ----
+  handle = DemoKit.canvas('#swept', {
+    aspect: W / (H + 80),
+    minHeight: 300,
+    maxHeight: 470,
+    drag: true,
+    keys: true,
+    label: 'A box, an arrow showing how far it moves in one step, and a wall. The demo shows where the swept test stops the box and the contact normal, or what goes wrong when only the end position is checked. A timeline below shows when each axis overlaps during the step.',
+    update: function (dt) {
+      phase += dt;
+      if (phase > CYCLE) phase = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var sceneH = s.height - TL;
+      view.scale = Math.min(s.width / W, sceneH / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (sceneH - H * view.scale) / 2;
+      var k = view.scale;
+      var g;
+
+      var r = sweep(mover, move.x, move.y, wall);
+      var o = outcome(r);
+      var end = { x: mover.x + move.x, y: mover.y + move.y };
+      var hw = mover.w / 2, hh = mover.h / 2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, s.width, sceneH);
+      ctx.clip();
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+      // Grid every 50 pixels and the world border.
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      for (g = 50; g < W; g += 50) line(ctx, sx(g), sy(0), sx(g), sy(H));
+      for (g = 50; g < H; g += 50) line(ctx, sx(0), sy(g), sx(W), sy(g));
+      ctx.strokeRect(sx(0), sy(0), W * k, H * k);
+
+      // Swept area.
+      if (debug.value) {
+        var pts = [];
+        [[mover.x, mover.y], [end.x, end.y]].forEach(function (p) {
+          pts.push([p[0], p[1]], [p[0] + mover.w, p[1]], [p[0], p[1] + mover.h], [p[0] + mover.w, p[1] + mover.h]);
+        });
+        var hp = hull(pts);
+        ctx.beginPath();
+        hp.forEach(function (p, i) { if (i === 0) ctx.moveTo(sx(p[0]), sy(p[1])); else ctx.lineTo(sx(p[0]), sy(p[1])); });
+        ctx.closePath();
+        ctx.fillStyle = c.topic; ctx.globalAlpha = 0.08; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.setLineDash([3, 5]); ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      // The wall.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(sx(wall.x), sy(wall.y), wall.w * k, wall.h * k);
+      ctx.strokeStyle = c.ink2; ctx.lineWidth = 2;
+      ctx.strokeRect(sx(wall.x), sy(wall.y), wall.w * k, wall.h * k);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('wall', sx(wall.x + wall.w / 2), sy(wall.y + wall.h) + 16);
+
+      // Ghosts where each axis starts to overlap.
+      if (debug.value) {
+        var ghosts = [];
+        var same = isFinite(r.xE) && Math.abs(r.xE - r.yE) < 1e-9;
+        if (isFinite(r.xE) && r.xE >= T0 && r.xE <= T1) ghosts.push({ t: r.xE, name: same ? 'x and y enter' : 'x enters' });
+        if (!same && isFinite(r.yE) && r.yE >= T0 && r.yE <= T1) ghosts.push({ t: r.yE, name: 'y enters' });
+        ghosts.forEach(function (gh) {
+          var gx = mover.x + move.x * gh.t, gy = mover.y + move.y * gh.t;
+          ctx.setLineDash([4, 4]); ctx.strokeStyle = c.ink3; ctx.lineWidth = 1.25;
+          boxPath(ctx, gx, gy); ctx.stroke(); ctx.setLineDash([]);
+          ctx.textAlign = 'center';
+          label(ctx, gh.name + ' ' + gh.t.toFixed(2), sx(gx + hw), sy(gy) - 6, c.ink2, c);
+        });
+      }
+
+      // Start and end of the step.
+      ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5;
+      boxPath(ctx, mover.x, mover.y); ctx.stroke();
+      var endBad = o.kind === 'cancel' || o.kind === 'tunnel';
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = endBad ? c.bad : c.ink3; ctx.lineWidth = endBad ? 2 : 1.25;
+      boxPath(ctx, end.x, end.y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.textAlign = 'center';
+      label(ctx, 'start', sx(mover.x + hw), sy(mover.y + mover.h) + 15, c.ink2, c);
+      label(ctx, o.kind === 'cancel' ? 'end overlaps' : (o.kind === 'tunnel' ? 'end: passed through' : 'end'),
+        sx(end.x + hw), sy(end.y + mover.h) + 15, endBad ? c.bad : c.ink3, c);
+
+      // Where the box finishes the step.
+      if (o.kind === 'stop') {
+        ctx.strokeStyle = c.good; ctx.lineWidth = 2.5;
+        boxPath(ctx, o.final.x, o.final.y); ctx.stroke();
+      } else if (o.kind === 'cancel') {
+        ctx.strokeStyle = c.bad; ctx.lineWidth = 2.5;
+        boxPath(ctx, o.final.x, o.final.y); ctx.stroke();
+      }
+
+      // The box itself, animated through the step.
+      var t = Math.min(phase / MOTION, 1);
+      var now;
+      if (!swept.value) {
+        now = t < 1 ? { x: mover.x, y: mover.y } : o.final;
+      } else {
+        if (o.kind === 'stop') t = Math.min(t, r.enter);
+        now = { x: mover.x + move.x * t, y: mover.y + move.y * t };
+      }
+      ctx.fillStyle = c.topic; ctx.globalAlpha = 0.8;
+      boxPath(ctx, now.x, now.y); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // The motion arrow and its handle.
+      var ax = sx(mover.x + hw), ay = sy(mover.y + hh);
+      var bx = sx(end.x + hw), by = sy(end.y + hh);
+      if (Math.hypot(bx - ax, by - ay) > 4) arrow(ctx, ax, ay, bx, by, c.ink, 2);
+      ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2);
+      ctx.fillStyle = c.surface; ctx.fill();
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 2; ctx.stroke();
+
+      // Contact normal at the middle of the touching faces.
+      if (debug.value && o.kind === 'stop') {
+        var fx = o.final.x, fy = o.final.y, cx, cy;
+        if (r.nx !== 0) {
+          cx = r.nx < 0 ? wall.x : wall.x + wall.w;
+          cy = (Math.max(fy, wall.y) + Math.min(fy + mover.h, wall.y + wall.h)) / 2;
+        } else {
+          cy = r.ny < 0 ? wall.y : wall.y + wall.h;
+          cx = (Math.max(fx, wall.x) + Math.min(fx + mover.w, wall.x + wall.w)) / 2;
+        }
+        arrow(ctx, sx(cx), sy(cy), sx(cx) + r.nx * 40, sy(cy) + r.ny * 40, c.good, 2.5);
+        ctx.textAlign = r.nx < 0 ? 'right' : 'left';
+        label(ctx, 'normal', sx(cx) + r.nx * 44 + (r.nx === 0 ? 6 : 0), sy(cy) + r.ny * 44 + 4, c.good, c);
+      }
+
+      // Verdict tag.
+      var tags = {
+        stop: ['HIT at t = ' + r.enter.toFixed(2), c.good],
+        free: ['NO HIT', c.ink2],
+        cancel: ['STUCK SHORT', c.bad],
+        tunnel: ['TUNNELLED', c.bad],
+        inside: ['STARTS INSIDE', c.warn]
+      };
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      label(ctx, (swept.value ? 'Swept: ' : 'End only: ') + tags[o.kind][0], 8, 18, tags[o.kind][1], c);
+      ctx.restore();
+
+      drawTimeline(ctx, s, r, c);
+
+      // Readouts.
+      outSpeed.set(move.x + ', ' + move.y + ' px per step = ' + Math.round(Math.hypot(move.x, move.y) * 60) + ' px/s at 60 steps per second');
+      outX.set(axisText(r.xE, r.xX, move.x));
+      outY.set(axisText(r.yE, r.yX, move.y));
+      var msg;
+      if (o.kind === 'inside') msg = 'the boxes already overlap at the start, so the swept test reports nothing';
+      else if (o.kind === 'stop') msg = 'hit at t = ' + r.enter.toFixed(3) + ', normal (' + r.nx + ', ' + r.ny + '), stops at (' + round(o.final.x) + ', ' + round(o.final.y) + ')';
+      else if (o.kind === 'cancel') msg = 'the end overlaps, so the move is cancelled. A swept test would let it move ' + round(r.enter * Math.hypot(move.x, move.y)) + ' px further';
+      else if (o.kind === 'tunnel') msg = 'the end is clear, but the path crossed the wall at t = ' + r.enter.toFixed(3);
+      else msg = r.enter < r.exit ? 'no hit during this step' : 'no hit: x and y never overlap at the same time';
+      outR.set(msg);
+    },
+    onDown: function (p) {
+      var w = toWorld(p);
+      var tipX = mover.x + mover.w / 2 + move.x, tipY = mover.y + mover.h / 2 + move.y;
+      if (Math.hypot(w.x - tipX, w.y - tipY) * view.scale < 20) drag = { t: 'tip' };
+      else if (w.x >= mover.x && w.x <= mover.x + mover.w && w.y >= mover.y && w.y <= mover.y + mover.h) {
+        drag = { t: 'mover', dx: w.x - mover.x, dy: w.y - mover.y };
+      } else if (w.x >= wall.x && w.x <= wall.x + wall.w && w.y >= wall.y && w.y <= wall.y + wall.h) {
+        drag = { t: 'wall', dx: w.x - wall.x, dy: w.y - wall.y };
+      } else drag = null;
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      var w = toWorld(p);
+      if (drag.t === 'tip') {
+        move.x = DemoKit.clamp(Math.round((w.x - mover.x - mover.w / 2) / 10) * 10, -480, 480);
+        move.y = DemoKit.clamp(Math.round((w.y - mover.y - mover.h / 2) / 10) * 10, -280, 280);
+        mx.set(move.x); my.set(move.y);
+      } else if (drag.t === 'mover') {
+        mover.x = Math.round((w.x - drag.dx) / 5) * 5;
+        mover.y = Math.round((w.y - drag.dy) / 5) * 5;
+        clampMover();
+      } else {
+        wall.x = Math.round((w.x - drag.dx) / 5) * 5;
+        wall.y = Math.round((w.y - drag.dy) / 5) * 5;
+        clampWall();
+      }
+      changed();
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var d = s.keys.has('shift') ? 1 : 10;
+      if (key === 'arrowleft') mover.x -= d;
+      else if (key === 'arrowright') mover.x += d;
+      else if (key === 'arrowup') mover.y -= d;
+      else if (key === 'arrowdown') mover.y += d;
+      else return;
+      clampMover();
+      changed();
+    }
+  });
+})();
+</script>
+</body>
+</html>

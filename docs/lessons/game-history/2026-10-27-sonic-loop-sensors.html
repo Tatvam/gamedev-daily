@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonic the Hedgehog: running round a loop with two sensors and one speed · Game Dev Daily</title>
+<meta name="description" content="How Sonic runs up walls and round loops: one speed along the ground, two sensors that read its angle, and a rule that drops him below 2.5 px per frame.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-10-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sonic the Hedgehog: running round a loop with two sensors and one speed</h1>
+  <p class="lede">How Sonic runs up walls and round loops: one speed along the ground, two sensors that read its angle, and a rule that drops him below 2.5 px per frame.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Sonic the Hedgehog (Sega, 1991) the hero runs into a loop, up the wall, upside down across the top and out again. Arrive too slowly and he peels off and drops. No physics engine does this: a few short routines, run once a frame, do all of it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: whole numbers, tables and tiles</h2>
+  <p>The Mega Drive's Motorola 68000 processor has no hardware for decimal (floating-point) maths. Sonic's code uses <dfn>fixed point</dfn>: whole numbers that count 1/256 of a pixel. Every value below is per frame, at 60 frames a second on a North American or Japanese console.</p>
+  <p>An angle is one byte, so a full turn is 256 steps, written in hexadecimal with a $ sign: $40 (64) is a quarter turn, $80 a half. Sine and cosine come from a table. The solid ground is made of 16 by 16 pixel collision blocks, each with a <dfn>height map</dfn> (16 heights, one per pixel column) and one stored surface angle.</p>
+
+  <h2>Part 1: one speed along the ground</h2>
+  <p>On the ground Sonic does not keep a horizontal and a vertical speed. He keeps one number, his <dfn>ground speed</dfn>: how fast he moves along the surface. Each frame the game turns it into screen movement with the surface angle:</p>
+<pre><code>vx = groundSpeed * cos(angle)
+vy = groundSpeed * sin(angle)</code></pre>
+  <p>On flat ground all of the speed is horizontal; on a wall all of it is vertical. Running up a wall is the floor code with a different angle.</p>
+  <p>Slopes act on ground speed directly: before moving, the game adds 0.125 × sin(angle), so uphill slows Sonic and downhill speeds him up. This step is skipped within 45 degrees of upside down.</p>
+
+  <h2>Part 2: two sensors read the ground</h2>
+  <p>After moving, the game finds the surface again with two <dfn>sensors</dfn>: probes 9 pixels either side of Sonic's centre, at his feet 19 pixels below it. Each reads the height map of the block it lands in and returns the distance to the surface and that block's angle.</p>
+  <p>The nearer one wins. Sonic moves by that distance, so his feet touch the surface, and takes its angle as his own. If the surface is more than 14 pixels away, the ground has dropped away and he is in the air.</p>
+  <p>Sensors only look down, right, up or left. The <dfn>mode</dfn>, Sonic's angle rounded to the nearest quarter turn, decides which: down on the floor ($00), right on a wall rising to the right ($C0), up on the ceiling ($80), left on the wall coming down ($40).</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" role="img" aria-label="A loop drawn as a ring. A character stands inside it in four places: on the floor at the bottom, on the right wall, upside down at the top and on the left wall. From each, two short sensor lines point outwards to the ring. Labels give each mode and its angle byte: floor $00, right wall $C0, ceiling $80, left wall $40. An arrow inside the loop shows the direction of travel. On the right, a list of the six steps the game runs each frame on the ground.">
+      <path class="d-fill" fill-rule="evenodd" d="M200 71 A109 109 0 1 0 200 289 A109 109 0 1 0 200 71 Z M200 85 A95 95 0 1 0 200 275 A95 95 0 1 0 200 85 Z"/>
+
+      <rect class="d-box" x="192" y="239" width="16" height="36" rx="4"/>
+      <rect class="d-box" x="259" y="172" width="36" height="16" rx="4"/>
+      <rect class="d-box" x="192" y="85" width="16" height="36" rx="4"/>
+      <rect class="d-box" x="105" y="172" width="36" height="16" rx="4"/>
+
+      <path class="d-accent" d="M196 257 V275 M204 257 V275"/>
+      <path class="d-accent" d="M277 176 H295 M277 184 H295"/>
+      <path class="d-accent" d="M196 103 V85 M204 103 V85"/>
+      <path class="d-accent" d="M123 176 H105 M123 184 H105"/>
+      <circle class="d-accent-fill" cx="196" cy="275" r="2.5"/>
+      <circle class="d-accent-fill" cx="204" cy="275" r="2.5"/>
+      <circle class="d-accent-fill" cx="295" cy="176" r="2.5"/>
+      <circle class="d-accent-fill" cx="295" cy="184" r="2.5"/>
+      <circle class="d-accent-fill" cx="196" cy="85" r="2.5"/>
+      <circle class="d-accent-fill" cx="204" cy="85" r="2.5"/>
+      <circle class="d-accent-fill" cx="105" cy="176" r="2.5"/>
+      <circle class="d-accent-fill" cx="105" cy="184" r="2.5"/>
+
+      <path class="d-stroke d-dash" d="M200 222 A42 42 0 1 0 158 180"/>
+      <path class="d-stroke" d="M153 172 L158 181 L163 172"/>
+      <text class="d-muted" x="200" y="185" text-anchor="middle">travel</text>
+
+      <text class="d-text" x="200" y="310" text-anchor="middle">floor, $00</text>
+      <text class="d-text" x="200" y="58" text-anchor="middle">ceiling, $80</text>
+      <text class="d-text" x="318" y="176">right wall</text>
+      <text class="d-text" x="318" y="194">$C0</text>
+      <text class="d-text" x="82" y="176" text-anchor="end">left wall</text>
+      <text class="d-text" x="82" y="194" text-anchor="end">$40</text>
+
+      <text class="d-label" x="410" y="70">Every frame on the ground</text>
+      <text class="d-text" x="410" y="100">1. Slope pulls on ground speed</text>
+      <text class="d-text" x="410" y="124">2. Buttons change ground speed</text>
+      <text class="d-text" x="410" y="148">3. Move along the angle</text>
+      <text class="d-text" x="410" y="172">4. Mode = angle to nearest 90°</text>
+      <text class="d-text" x="410" y="196">5. Sensors find surface, snap</text>
+      <text class="d-text" x="410" y="220">6. On a wall below 2.5? Let go</text>
+      <text class="d-muted" x="410" y="256">Sensors point straight down,</text>
+      <text class="d-muted" x="410" y="274">right, up or left, set by the mode.</text>
+    </svg>
+    <figcaption>The four sensor modes. As Sonic runs round, his angle passes $C0, $80 and $40, and at each 45-degree boundary his sensors turn to face the next quarter of the loop. The step list is the order of the ground routine in the disassembly.</figcaption>
+  </figure>
+
+  <h2>Part 3: letting go of the wall</h2>
+  <p>With sensors alone Sonic would creep across a ceiling at any speed, like a fly. So one more check runs: in any mode other than floor, if his ground speed is below 2.5 pixels per frame (150 a second), it is set to zero, he is put in the air, and left and right are ignored for 30 frames. Then ordinary falling takes over: 0.21875 pixels per frame added to his downward speed each frame.</p>
+  <p>The rule ignores the size of the loop. A real ball needs more speed on the ceiling of a bigger loop; Sonic needs 2.5 everywhere.</p>
+
+  <h2>Part 4: a loop that crosses itself</h2>
+  <p>A loop's way in and way out overlap: running in along the bottom, Sonic would hit the side he will later come down. Sonic 1 keeps a flag that changes as his angle passes the top of the loop, and while it is set the collision lookup reads a different version of that piece of level. One version is open on the way in, the other on the way out. The demo does the same with two paths.</p>
+
+  <h3>Fact and legend</h3>
+  <p>The numbers here come from the Sonic Retro disassembly of Sonic 1: the machine code turned back into readable form, labelled by fans, not Sega. Later Sonic games changed some details, so do not assume these values for them.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Keep one speed along the surface, measure the surface every frame with short probes, turn the probes with the angle, and add a plain rule for when to let go.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>Modern character controllers start the same way: short rays at the feet keep the character pressed to the ground and report its angle. Most treat anything steeper than a set angle as a wall. To run up walls, do what Sonic does: turn the probes with the mode, and decide yourself when to let go.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The character enters the loop at the <strong>Start speed</strong> you choose. At 2.5, watch where it lets go, then raise the speed until it gets round. Set <strong>Controller</strong> to "Let go" to see how much more speed it needs with no button held. Turn off <strong>Fall off walls below 2.5</strong> to watch a slow character crawl across the ceiling.</p>
+
+  <figure class="demo wide" data-demo="loop-sensors">
+    <canvas id="loop-sensors"></canvas>
+    <figcaption>The lines from the feet are the sensors; the thicker one is nearer and sets the angle. The trail changes colour in the air. The faded quarter of the loop is off on the current path. A cross marks where it let go.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's ground and air steps in LÖVE, with the same names and numbers. The values are per frame, so <code>love.update</code> runs whole 1/60 second steps. <code>findSurface</code> stands in for your level; this one is a flat floor at y = 400.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Sonic-style ground movement. Units are pixels and frames, 60 frames a second.</span>
+local SLOPE, ACC, DEC, TOP = 0.125, 0.046875, 0.5, 6
+local FALL_SPEED, SNAP, GRAVITY, W, H = 2.5, 14, 0.21875, 9, 19
+local p = { x = 290, y = 381, gs = 3, vx = 0, vy = 0, angle = 0, air = false, lock = 0 }
+local holdRight, timeLeft = true, 0
+
+local function findSurface(x, y, dx, dy)    <span class="c">-- your level: distance, angle</span>
+  if dy &gt; 0 then return 400 - y, 0 else return math.huge, 0 end
+end
+
+local function groundStep()
+  <span class="c">-- slope pull, skipped within 45 degrees of upside down</span>
+  if math.cos(p.angle) &gt; -0.7071 then p.gs = p.gs + SLOPE * math.sin(p.angle) end
+  if not holdRight then p.gs = p.gs &gt; 0 and math.max(0, p.gs - ACC) or math.min(0, p.gs + ACC)
+  elseif p.lock &gt; 0 then                        <span class="c">-- buttons ignored after letting go</span>
+  elseif p.gs &lt; 0 then p.gs = p.gs + DEC
+  elseif p.gs &lt; TOP then p.gs = math.min(TOP, p.gs + ACC) end
+<span class="k">  p.vx, p.vy = p.gs * math.cos(p.angle), p.gs * math.sin(p.angle)</span>
+  p.x, p.y = p.x + p.vx, p.y + p.vy
+  local mode = math.floor(p.angle / (2 * math.pi) * 4 + 0.5) % 4
+  local tx, ty = math.cos(mode * math.pi / 2), math.sin(mode * math.pi / 2)
+  local dx, dy = -ty, tx                       <span class="c">-- sensors look this way</span>
+  local d1, a1 = findSurface(p.x - tx * W + dx * H, p.y - ty * W + dy * H, dx, dy)
+  local d2, a2 = findSurface(p.x + tx * W + dx * H, p.y + ty * W + dy * H, dx, dy)
+  if d2 &lt; d1 then d1, a1 = d2, a2 end          <span class="c">-- the nearer sensor wins</span>
+  if d1 &gt; SNAP then p.air = true return end
+<span class="k">  p.x, p.y, p.angle = p.x + dx * d1, p.y + dy * d1, a1</span>
+  if p.lock &gt; 0 then p.lock = p.lock - 1
+<span class="k">  elseif mode ~= 0 and math.abs(p.gs) &lt; FALL_SPEED then</span>
+    p.gs, p.air, p.lock = 0, true, 30           <span class="c">-- too slow: let go</span>
+  end
+end
+
+local function airStep()
+  p.x, p.y, p.vy = p.x + p.vx, p.y + p.vy, p.vy + GRAVITY
+  local d, a = findSurface(p.x, p.y + H, 0, 1)
+  if p.vy &gt;= 0 and d &lt;= 0 then                 <span class="c">-- landed</span>
+    p.y, p.angle, p.air = p.y + d, a, false
+    p.gs = p.vx * math.cos(a) + p.vy * math.sin(a)
+  end
+end
+
+function love.update(dt)
+  timeLeft = timeLeft + dt
+  while timeLeft &gt;= 1 / 60 do
+    timeLeft = timeLeft - 1 / 60
+    if p.air then airStep() else groundStep() end
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", p.x - W, p.y - H, W * 2, H * 2)
+end</code></pre>
+  </div>
+  <p>Angles are radians in the game's direction: with y pointing down, a wall rising to the right is 3π/2 ($C0). Keep <code>p.angle</code> between 0 and 2π. The demo also pushes the character out of walls in the air and lands with two sensors; both are left out here.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>One sensor in the middle.</strong> It drops into small dips and misses the edge of a step. Two side probes, taking the nearer surface, ride over both.</li>
+    <li><strong>Mode flicker at 45 degrees.</strong> An angle on a boundary can flip the sensors every frame. The original nudges angles near each boundary by one step before rounding, and the size of the nudge depends on the quarter.</li>
+    <li><strong>Snap distance.</strong> With a 14 pixel snap, a fast character leaves the ground over a hilltop. Sometimes that launch is what you want; decide on purpose.</li>
+    <li><strong>Per-frame numbers with a variable timestep.</strong> Scaling them by a changing <code>dt</code> moves the point where the character lets go. Run at a fixed 60 steps a second.</li>
+    <li><strong>Landing on a slope.</strong> Air speed must become ground speed. The demo projects the velocity onto the surface; Sonic 1 has its own cases by angle, not covered here.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In Sonic 1 the loop path switch runs only in Green Hill Zone and Star Light Zone; every other zone skips it. While Sonic rolls, the same ground routine runs with different slope factors: 0.3125 downhill and 0.078125 uphill. The wall-release check runs either way.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add rolling to the Lua. Give <code>p</code> a <code>rolling</code> flag. When it is set, replace the slope line with Sonic 1's rolling values: use 0.3125 when the slope adds to the speed in the direction of travel, and 0.078125 when it takes away, and skip the <code>holdRight</code> acceleration. Then build a loop in <code>findSurface</code> (or use the demo's numbers: centre 420, 304, inner radius 96) and find the lowest start speed that gets a rolling character round. You are done when you can say whether rolling needs more or less speed than running with the button held.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>On the ground Sonic has one speed along the surface; the angle turns it into horizontal and vertical movement.</li>
+    <li>Two sensors at the feet find the surface each frame; the nearer one sets his position and his angle.</li>
+    <li>The sensors look in one of four directions, chosen by rounding the angle to a quarter turn, which is how floor code runs walls and ceilings.</li>
+    <li>A plain rule, below 2.5 pixels per frame on a wall or ceiling, decides when he lets go.</li>
+    <li>A loop needs two collision paths, switched when the character passes the top.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Another World: how Eric Chahi fitted fluid, cinematic animation into very little space by drawing everything as flat polygons.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Only GitHub could be reached from this session. Every number on this page was read from the Sonic Retro disassembly of Sonic 1, below. The Sonic Physics Guide covers the same ground and compares the games; I could not open it.</p>
+  <ul>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_incObj/01%20Sonic.asm"><cite>s1disasm: 01 Sonic.asm</cite></a>. The ground routine order, top speed and acceleration, ground speed turned into velocity, slope factors for running and rolling, the 2.5 release check with its 30-frame lock, and the loop path switch.</li>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_incObj/Sonic%20AnglePos.asm"><cite>s1disasm: Sonic AnglePos.asm</cite></a>. The two sensors, the four modes, the nearer-sensor rule and the 14-pixel snap.</li>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_incObj/sub%20FindNearestTile%20%26%20FindFloor%20%26%20FindWall.asm"><cite>s1disasm: FindNearestTile, FindFloor and FindWall</cite></a>. Height maps, block angles, and the alternative loop piece used while the loop flag is set.</li>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_incObj/sub%20CalcSine.asm"><cite>s1disasm: sub CalcSine.asm</cite></a> and <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_incObj/sub%20ObjectFall%20%26%20SpeedToPos.asm"><cite>sub ObjectFall &amp; SpeedToPos.asm</cite></a>. The sine table and the gravity value.</li>
+    <li>Sonic Retro, <a href="https://raw.githubusercontent.com/sonicretro/s1disasm/master/_Constants.asm"><cite>s1disasm: _Constants.asm</cite></a>. Sonic's collision width and height.</li>
+    <li>Sonic Retro community, <cite>Sonic Physics Guide</cite>, especially its pages on slope physics and solid tiles. Not opened this session.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- world and constants (same numbers as the Lua) ----
+  var G = 400, R = 96, T = 24, CX = 420, CY = G - R;
+  var W = 9, H = 19, PUSH = 10;
+  var SLOPE = 0.125, ACC = 0.046875, DEC = 0.5, TOP = 6, GRAVITY = 0.21875;
+  var FALL_SPEED = 2.5, SNAP = 14, LOCK = 30;
+  var START_X = CX - 130, EXIT_X = CX + 250, LEFT_X = CX - 260;
+  var VIEW_X0 = CX - 270, VIEW_W = 540, VIEW_Y0 = CY - R - T - 26, VIEW_H = 300;
+  var TAU = Math.PI * 2;
+  var MODE_NAMES = ['floor', 'left wall', 'ceiling', 'right wall'];
+  var MAX_FRAMES = 600;
+
+  // ---- solid shape: signed distance, positive in empty space ----
+  var layer = 'A';
+  function sdf(x, y) {
+    var ground = G - y;
+    var d = Math.sqrt((x - CX) * (x - CX) + (y - CY) * (y - CY));
+    var ring = Math.max(d - (R + T), R - d);
+    // Path A: the way in, bottom-left quarter of the loop switched off.
+    // Path B: the way out, bottom-right quarter switched off.
+    var region = layer === 'A' ? Math.min(CX - x, y - CY) : Math.min(x - CX, y - CY);
+    return Math.min(ground, Math.max(ring, region));
+  }
+  function solid(x, y) { return sdf(x, y) < 0; }
+  function wrapAngle(a) { a = a % TAU; return a < 0 ? a + TAU : a; }
+  function angleAt(x, y) {
+    var e = 0.5;
+    var nx = sdf(x + e, y) - sdf(x - e, y);
+    var ny = sdf(x, y + e) - sdf(x, y - e);
+    return wrapAngle(Math.atan2(nx, -ny));
+  }
+  function toByte(a) { return Math.round(a / TAU * 256) & 255; }
+  function hex(b) { return '$' + (b < 16 ? '0' : '') + b.toString(16).toUpperCase(); }
+  function modeOf(a) { return Math.floor(a / TAU * 4 + 0.5) % 4; }
+
+  // A sensor: from (px, py) along (dx, dy), find the signed distance to the surface.
+  function sensor(px, py, dx, dy) {
+    var t, lo, hi, i, mid;
+    if (solid(px, py)) {
+      for (t = 1; t <= 32; t++) if (!solid(px - dx * t, py - dy * t)) break;
+      if (t > 32) return { px: px, py: py, dist: -Infinity };
+      lo = -t; hi = -(t - 1);
+    } else {
+      for (t = 1; t <= 32; t++) if (solid(px + dx * t, py + dy * t)) break;
+      if (t > 32) return { px: px, py: py, dx: dx, dy: dy, dist: Infinity };
+      lo = t - 1; hi = t;
+    }
+    for (i = 0; i < 10; i++) {
+      mid = (lo + hi) / 2;
+      if (solid(px + dx * mid, py + dy * mid)) hi = mid; else lo = mid;
+    }
+    var hx = px + dx * hi, hy = py + dy * hi;
+    return { px: px, py: py, dx: dx, dy: dy, dist: hi, hx: hx, hy: hy, angle: angleAt(hx, hy) };
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="loop-sensors"]');
+  var startSpeed = ui.slider({ label: 'Start speed', min: 0, max: 10, step: 0.25, value: 2.5, unit: ' px/frame', onInput: reset });
+  var controller = ui.select({ label: 'Controller', value: 'hold',
+    options: [{ value: 'hold', label: 'Hold right' }, { value: 'off', label: 'Let go (friction)' }],
+    onChange: reset });
+  var fallRule = ui.toggle({ label: 'Fall off walls below 2.5', value: true, onChange: reset });
+  var showSensors = ui.toggle({ label: 'Show sensors', value: true });
+  var slow = ui.toggle({ label: 'Slow motion (quarter speed)', value: false });
+  ui.button({ label: 'Run again', onClick: reset });
+  var outSpeed = ui.readout({ label: 'Ground speed' });
+  var outAngle = ui.readout({ label: 'Angle' });
+  var outMode = ui.readout({ label: 'Sensor mode' });
+  var outResult = ui.readout({ label: 'Result' });
+
+  // ---- simulation state ----
+  var p, trail, frame, fellAt, result, doneTime, acc, sensors;
+
+  function reset() {
+    layer = 'A';
+    p = { x: START_X, y: G - H, gs: startSpeed.value, vx: startSpeed.value, vy: 0, a: 0, air: false, lock: 0 };
+    trail = [];
+    frame = 0;
+    fellAt = null;
+    result = 'running';
+    doneTime = -1;
+    acc = 0;
+    sensors = groundSensors();
+    if (handle) handle.redraw();
+  }
+
+  function groundSensors() {
+    var m = modeOf(p.a), ma = m * Math.PI / 2;
+    var tx = Math.cos(ma), ty = Math.sin(ma), dx = -ty, dy = tx;
+    return [sensor(p.x - tx * W + dx * H, p.y - ty * W + dy * H, dx, dy),
+            sensor(p.x + tx * W + dx * H, p.y + ty * W + dy * H, dx, dy)];
+  }
+
+  function groundStep() {
+    var hold = controller.value === 'hold';
+    if (Math.cos(p.a) > -0.7071) p.gs += SLOPE * Math.sin(p.a);
+    if (hold) {
+      if (p.lock === 0 && p.gs < 0) p.gs += DEC;
+      else if (p.lock === 0 && p.gs < TOP) p.gs = Math.min(TOP, p.gs + ACC);
+    } else if (p.gs > 0) p.gs = Math.max(0, p.gs - ACC);
+    else p.gs = Math.min(0, p.gs + ACC);
+
+    p.vx = p.gs * Math.cos(p.a);
+    p.vy = p.gs * Math.sin(p.a);
+    p.x += p.vx;
+    p.y += p.vy;
+
+    var mode = modeOf(p.a);
+    sensors = groundSensors();
+    var s = sensors[1].dist < sensors[0].dist ? sensors[1] : sensors[0];
+    s.near = true;
+    if (s.dist > SNAP) { p.air = true; return; }
+    if (s.dist >= -SNAP) {
+      p.x += s.dx * s.dist;
+      p.y += s.dy * s.dist;
+      p.a = s.angle;
+    }
+    if (p.lock > 0) p.lock -= 1;
+    else if (fallRule.value && mode !== 0 && Math.abs(p.gs) < FALL_SPEED) {
+      if (!fellAt) fellAt = { x: p.x, y: p.y, a: p.a, gs: p.gs, mode: mode };
+      p.gs = 0; p.air = true; p.lock = LOCK;
+    }
+    // Choose the loop path from the angle: past the top means the way out.
+    var b = toByte(p.a);
+    if (!p.air) {
+      if (b > 0 && b < 128) layer = 'B';
+      else if (b > 128) layer = 'A';
+    }
+  }
+
+  function airStep() {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += GRAVITY;
+    // turn the drawing angle back to upright, 2 steps of 256 per frame
+    var b = toByte(p.a);
+    if (b !== 0) b = b < 128 ? Math.max(0, b - 2) : (b + 2 >= 256 ? 0 : b + 2);
+    p.a = b / 256 * TAU;
+    var side, k;
+    for (side = -1; side <= 1; side += 2) {
+      if (solid(p.x + side * PUSH, p.y)) {
+        for (k = 0; k < 40 && solid(p.x + side * PUSH, p.y); k++) p.x -= side * 0.5;
+        if (p.vx * side > 0) p.vx = 0;
+      }
+    }
+    if (p.vy < 0) {
+      if (solid(p.x - W, p.y - H) || solid(p.x + W, p.y - H)) {
+        for (k = 0; k < 40 && (solid(p.x - W, p.y - H) || solid(p.x + W, p.y - H)); k++) p.y += 0.5;
+        p.vy = 0;
+      }
+      sensors = null;
+      return;
+    }
+    sensors = [sensor(p.x - W, p.y + H, 0, 1), sensor(p.x + W, p.y + H, 0, 1)];
+    var s = sensors[1].dist < sensors[0].dist ? sensors[1] : sensors[0];
+    s.near = true;
+    if (s.dist <= 0 && s.dist >= -16) {
+      p.y += s.dist;
+      p.a = s.angle;
+      p.air = false;
+      p.gs = p.vx * Math.cos(p.a) + p.vy * Math.sin(p.a);
+    }
+  }
+
+  function step() {
+    if (p.air) airStep(); else groundStep();
+    if (p.x > CX + R + T + 20) layer = 'A';
+    frame += 1;
+    trail.push({ x: p.x, y: p.y, air: p.air });
+    if (trail.length > 1200) trail.shift();
+    if (p.x > EXIT_X) finish(fellAt ? 'got through after falling' : 'made it round');
+    else if (p.x < LEFT_X) finish(fellAt ? 'fell, rolled back out' : 'rolled back out');
+    else if (!p.air && toByte(p.a) === 0 && p.gs === 0 && controller.value === 'off') finish(fellAt ? 'fell off, then stopped' : 'came to a stop');
+    else if (frame >= MAX_FRAMES) finish(fellAt ? 'fell off, never got round' : 'never got round');
+  }
+
+  function finish(text) { result = text; doneTime = 0; }
+
+  function update(dt) {
+    if (doneTime >= 0) {
+      doneTime += dt;
+      if (doneTime > 2.5) reset();
+      return;
+    }
+    acc += dt * 60 * (slow.value ? 0.25 : 1);
+    var n = 0;
+    while (acc >= 1 && n < 8 && doneTime < 0) { step(); acc -= 1; n += 1; }
+    if (n === 8) acc = 0;
+  }
+
+  // ---- drawing ----
+  function ring(ctx) {
+    ctx.beginPath();
+    ctx.arc(CX, CY, R + T, 0, TAU);
+    ctx.moveTo(CX + R, CY);
+    ctx.arc(CX, CY, R, 0, TAU, true);
+  }
+
+  var last = { speed: '', angle: '', mode: '', result: '' };
+  function setOut(key, out, text) { if (last[key] !== text) { last[key] = text; out.set(text); } }
+
+  function draw(ctx, s) {
+    var col = s.colors, Wd = s.width, Ht = s.height;
+    var sc = Math.min(Wd / VIEW_W, Ht / VIEW_H);
+    var ox = (Wd - VIEW_W * sc) / 2 - VIEW_X0 * sc;
+    var oy = (Ht - VIEW_H * sc) / 2 - VIEW_Y0 * sc;
+    var lw = 1 / sc, i;
+
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(sc, sc);
+
+    // ground
+    ctx.fillStyle = col.surface2;
+    ctx.fillRect(VIEW_X0 - 400, G, VIEW_W + 800, 200);
+    ctx.strokeStyle = col.ink3;
+    ctx.lineWidth = 2 * lw;
+    ctx.beginPath(); ctx.moveTo(VIEW_X0 - 400, G); ctx.lineTo(VIEW_X0 + VIEW_W + 400, G); ctx.stroke();
+
+    // loop: faded everywhere, solid on the active path
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = col.ink3;
+    ring(ctx); ctx.fill('evenodd');
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.beginPath();
+    if (layer === 'A') ctx.rect(CX, CY - R - T - 10, R + T + 10, 2 * (R + T) + 20);
+    else ctx.rect(CX - R - T - 10, CY - R - T - 10, R + T + 10, 2 * (R + T) + 20);
+    ctx.rect(CX - R - T - 10, CY - R - T - 10, 2 * (R + T) + 20, R + T + 10);
+    ctx.clip();
+    ctx.fillStyle = col.ink2;
+    ring(ctx); ctx.fill('evenodd');
+    ctx.restore();
+
+    // trail
+    ctx.fillStyle = col.topic;
+    for (i = 0; i < trail.length; i += 2) {
+      var tp = trail[i];
+      if (tp.air && (i % 6) !== 0) continue;
+      ctx.globalAlpha = tp.air ? 0.9 : 0.45;
+      ctx.fillStyle = tp.air ? col.warn : col.topic;
+      ctx.fillRect(tp.x - 1.5 * lw, tp.y - 1.5 * lw, 3 * lw, 3 * lw);
+    }
+    ctx.globalAlpha = 1;
+
+    // where it let go
+    if (fellAt) {
+      ctx.strokeStyle = col.bad;
+      ctx.lineWidth = 3 * lw;
+      var fx = fellAt.x, fy = fellAt.y, r = 7;
+      ctx.beginPath();
+      ctx.moveTo(fx - r, fy - r); ctx.lineTo(fx + r, fy + r);
+      ctx.moveTo(fx + r, fy - r); ctx.lineTo(fx - r, fy + r);
+      ctx.stroke();
+    }
+
+    // sensors
+    if (showSensors.value && sensors) {
+      for (i = 0; i < 2; i++) {
+        var sn = sensors[i];
+        var len = isFinite(sn.dist) ? sn.dist : 32;
+        var found = isFinite(sn.dist) && Math.abs(sn.dist) <= SNAP + 2;
+        ctx.strokeStyle = found ? col.good : col.bad;
+        ctx.lineWidth = (sn.near ? 3 : 1.5) * lw;
+        var sx = sn.px - (sn.dx || 0) * H, sy = sn.py - (sn.dy || 0) * H;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sn.px + (sn.dx || 0) * len, sn.py + (sn.dy || 0) * len);
+        ctx.stroke();
+        if (isFinite(sn.dist)) {
+          ctx.fillStyle = found ? col.good : col.bad;
+          ctx.beginPath(); ctx.arc(sn.hx, sn.hy, 3 * lw, 0, TAU); ctx.fill();
+        }
+      }
+    }
+
+    // the character: an original rounded block with a nose showing its front
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.a);
+    ctx.fillStyle = col.topic;
+    ctx.globalAlpha = showSensors.value ? 0.75 : 1;
+    ctx.beginPath();
+    var rr = 7;
+    ctx.moveTo(-W + rr, -H); ctx.lineTo(W - rr, -H); ctx.arcTo(W, -H, W, -H + rr, rr);
+    ctx.lineTo(W, H - rr); ctx.arcTo(W, H, W - rr, H, rr); ctx.lineTo(-W + rr, H);
+    ctx.arcTo(-W, H, -W, H - rr, rr); ctx.lineTo(-W, -H + rr); ctx.arcTo(-W, -H, -W + rr, -H, rr);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = col.surface;
+    ctx.beginPath(); ctx.arc(3, -H + 9, 3, 0, TAU); ctx.fill();
+    ctx.fillStyle = col.topic;
+    ctx.beginPath(); ctx.moveTo(W, -H + 4); ctx.lineTo(W + 7, -H + 10); ctx.lineTo(W, -H + 15); ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    // ground speed arrow
+    if (!p.air && Math.abs(p.gs) > 0.05) {
+      var ax = Math.cos(p.a), ay = Math.sin(p.a), L = p.gs * 7;
+      var bx = p.x, by = p.y;
+      ctx.strokeStyle = col.ink;
+      ctx.lineWidth = 2 * lw;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + ax * L, by + ay * L); ctx.stroke();
+      var hx = bx + ax * L, hy = by + ay * L, sg = L > 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(hx - sg * (ax * 6 - ay * 4), hy - sg * (ay * 6 + ax * 4));
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(hx - sg * (ax * 6 + ay * 4), hy - sg * (ay * 6 - ax * 4));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // labels in screen space
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = col.ink2;
+    ctx.fillText('Path ' + (layer === 'A' ? 'A (way in)' : 'B (way out)'), 10, 10);
+    if (fellAt) {
+      ctx.fillStyle = col.bad;
+      ctx.fillText('Let go: ' + Math.abs(fellAt.gs).toFixed(2) + ' < 2.5 on the ' + MODE_NAMES[fellAt.mode], 10, 28);
+    }
+
+    // readouts
+    var b = toByte(p.a);
+    setOut('speed', outSpeed, p.air ? 'in the air' : Math.abs(p.gs).toFixed(2) + ' px/frame (' + Math.round(Math.abs(p.gs) * 60) + ' px/s)');
+    setOut('angle', outAngle, hex(b) + ' (' + Math.round(b * 360 / 256) + '°)');
+    setOut('mode', outMode, p.air ? 'in the air: down' : MODE_NAMES[modeOf(p.a)]);
+    setOut('result', outResult, result);
+  }
+
+  var handle = null;
+  reset();
+  handle = DemoKit.canvas('#loop-sensors', {
+    aspect: VIEW_W / VIEW_H,
+    minHeight: 220,
+    maxHeight: 440,
+    label: 'Side view of a loop. A rounded block representing the character starts on the left at the chosen speed, runs into the loop and either gets round or lets go of the wall and falls. Two sensor lines from its feet show where it measures the ground, and a trail shows its path.',
+    update: update,
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

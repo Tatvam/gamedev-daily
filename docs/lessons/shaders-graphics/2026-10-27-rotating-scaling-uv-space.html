@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotating and scaling UV space: spin and zoom around a pivot · Game Dev Daily</title>
+<meta name="description" content="Move the pivot to zero, turn the coordinates back by the angle, divide by the zoom, move back: four lines spin and zoom any pattern around any point.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Rotating and scaling UV space: spin and zoom around a pivot</h1>
+  <p class="lede">Move the pivot to zero, turn the coordinates back by the angle, divide by the zoom, move back: four lines spin and zoom any pattern around any point.</p>
+</header>
+
+<section data-section="hook">
+  <p>A magic circle that turns slowly under the player. A radar screen that zooms in on a blip. A portal whose swirl spins around its own centre, not around the corner of the screen. None of these move any geometry. The quad stays still and the shader turns and stretches the coordinates it reads the pattern with.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Transform the question, not the answer</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For a pattern shader the input is the pixel's UV and the output is <code>pattern(uv)</code>. Last lesson showed that a pixel cannot move; it can only change which point of the pattern it asks about. Scrolling changed that point with a subtraction. Rotating and zooming change it with a little more maths.</p>
+  <p>The point the pixel finally asks about is the <dfn>sample point</dfn>, written <code>q</code> here. Everything in this lesson is a recipe for turning <code>uv</code> into <code>q</code>.</p>
+
+  <h3>Rotation turns around (0, 0)</h3>
+  <p>Rotating a 2D point by an angle <code>a</code> counter-clockwise uses one cosine and one sine:</p>
+<pre><code>vec2 rotate(vec2 p, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}</code></pre>
+  <p>That formula always turns around the origin, the point (0, 0). In this series the UV is centred, so (0, 0) is the middle of the picture, with y pointing up. GLSL can write the same thing as a matrix, <code>mat2(c, s, -s, c) * p</code>. Matrices in GLSL are filled column by column, so the first two numbers are the first column; reading them as a row turns the pattern the wrong way.</p>
+
+  <h3>Why the angle has a minus sign</h3>
+  <p>Suppose you want the pattern to appear turned 30 degrees counter-clockwise. A feature that used to sit at pattern point <code>P</code> should now show up at <code>rotate(P, a)</code>. The pixel at that new spot must therefore ask for <code>P</code>, which means each pixel undoes the turn: <code>q = rotate(uv, -a)</code>.</p>
+  <p>Zoom works the same way backwards. To make the pattern look twice as big, each pixel must ask about a point half as far out, so you <em>divide</em> by the zoom. Multiplying the UV by 2 does the opposite: it fits twice as many repeats into the same space, and the pattern looks smaller.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 250" role="img" aria-label="A pivot point near the bottom left and a pixel above and to the right of it. An arc shows the pixel's offset from the pivot turned clockwise by the angle a, which lands on a point labelled after rotating. A dashed line from the pivot to that point has a second point halfway along it, labelled q, the sample point, reached by dividing by a zoom of 2.">
+      <path class="d-stroke d-thin" d="M60 210 L145 62.8"/>
+      <path class="d-accent" d="M145 62.8 A170 170 0 0 1 219.7 151.9"/>
+      <path class="d-stroke d-dash" d="M60 210 L219.7 151.9"/>
+      <circle class="d-fill" cx="60" cy="210" r="6"/>
+      <circle class="d-fill" cx="145" cy="62.8" r="6"/>
+      <circle class="d-stroke" cx="219.7" cy="151.9" r="5"/>
+      <circle class="d-accent-fill" cx="139.9" cy="180.9" r="6"/>
+      <text class="d-text" x="60" y="236" text-anchor="middle">pivot</text>
+      <text class="d-text" x="156" y="58">pixel (uv)</text>
+      <text class="d-label" x="206" y="100">rotate by −a</text>
+      <text class="d-muted" x="232" y="150">after rotating</text>
+      <text class="d-label" x="166" y="156" text-anchor="middle">÷ zoom</text>
+      <text class="d-text" x="150" y="206">q, the sample point</text>
+    </svg>
+    <figcaption>The pixel stays put and works out where to look. Its offset from the pivot is turned back by the angle, then shrunk by the zoom (here 2). Done for every pixel, the pattern appears turned forward and twice as large.</figcaption>
+  </figure>
+
+  <h3>Turning around a pivot</h3>
+  <p>A <dfn>pivot</dfn> is the point the pattern should spin and zoom around: the centre of the magic circle, the blip on the radar. Since <code>rotate</code> and division only work around (0, 0), you move the pivot there first, transform, then move it back:</p>
+<pre><code>vec2 p = uv - u_pivot;      // 1. the pivot is now at (0, 0)
+p = rotate(p, -u_angle);    // 2. turn the coordinates back
+p = p / u_zoom;             // 3. divide to zoom in
+vec2 q = p + u_pivot;       // 4. put the pivot back
+vec3 col = tiles(q);</code></pre>
+  <p>Check it with the pixel that sits exactly on the pivot. Step 1 gives (0, 0). Turning and dividing (0, 0) leaves it at (0, 0). Step 4 gives back the pivot. So that pixel always reads the same pattern point, whatever the angle and zoom: the pivot never moves, and everything else turns and grows around it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 124" role="img" aria-label="A row of six boxes joined by arrows: uv, minus pivot, rotate by minus a, divide by zoom, plus pivot, pattern of q. Under them: pixel, pivot to 0, turn back, shrink, pivot back, colour.">
+      <rect class="d-box" x="4" y="24" width="84" height="44" rx="6"/>
+      <rect class="d-box" x="112" y="24" width="84" height="44" rx="6"/>
+      <rect class="d-box" x="220" y="24" width="96" height="44" rx="6"/>
+      <rect class="d-box" x="340" y="24" width="84" height="44" rx="6"/>
+      <rect class="d-box" x="448" y="24" width="84" height="44" rx="6"/>
+      <rect class="d-box" x="556" y="24" width="80" height="44" rx="6"/>
+      <path class="d-accent" d="M88 46H106M106 46l-6 -4M106 46l-6 4"/>
+      <path class="d-accent" d="M196 46H214M214 46l-6 -4M214 46l-6 4"/>
+      <path class="d-accent" d="M316 46H334M334 46l-6 -4M334 46l-6 4"/>
+      <path class="d-accent" d="M424 46H442M442 46l-6 -4M442 46l-6 4"/>
+      <path class="d-accent" d="M532 46H550M550 46l-6 -4M550 46l-6 4"/>
+      <text class="d-text d-mono" x="46" y="51" text-anchor="middle">uv</text>
+      <text class="d-text d-mono" x="154" y="51" text-anchor="middle">− pivot</text>
+      <text class="d-text d-mono" x="268" y="51" text-anchor="middle">rotate(−a)</text>
+      <text class="d-text d-mono" x="382" y="51" text-anchor="middle">÷ zoom</text>
+      <text class="d-text d-mono" x="490" y="51" text-anchor="middle">+ pivot</text>
+      <text class="d-text d-mono" x="596" y="51" text-anchor="middle">tiles(q)</text>
+      <text class="d-muted" x="46" y="92" text-anchor="middle">pixel</text>
+      <text class="d-muted" x="154" y="92" text-anchor="middle">pivot to 0</text>
+      <text class="d-muted" x="268" y="92" text-anchor="middle">turn back</text>
+      <text class="d-muted" x="382" y="92" text-anchor="middle">shrink</text>
+      <text class="d-muted" x="490" y="92" text-anchor="middle">pivot back</text>
+      <text class="d-muted" x="596" y="92" text-anchor="middle">colour</text>
+    </svg>
+    <figcaption>The whole recipe. Each box is one line of the shader, and the demo's Stage menu shows the coordinates after each one.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>To do something to the pattern, do the opposite to the coordinates: turn them by <code>-a</code>, divide by the zoom, subtract the offset. And do it around the pivot, never around a corner by accident.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Each tile has an orange hand pointing along its +x axis, so you can see which way the pattern is turned. Drag <em>Angle</em> and <em>Zoom</em>, then drag on the picture (or use the <em>Pivot</em> sliders) to move the white ring. Notice that the tile under the ring never moves.</p>
+  <p>Now switch on <em>Ignore the pivot</em>: the pattern swings around the middle of the picture and slides out from under the ring. Then walk the <em>Stage</em> menu from 1 to 6. Each stage shows the coordinates after one line of the recipe as red and green gradient squares, <code>fract(p * 4.0)</code>, one square per tile.</p>
+
+  <figure class="demo" data-demo="rotate-uv">
+    <canvas id="rotate-uv"></canvas>
+    <figcaption>Stage 2 slides the grid so a corner lands on the pivot. Stage 3 turns it, stage 4 grows it, stage 5 slides it back, and stage 6 draws the tiles at those coordinates. The readout shows the sample point of the pixel in the middle of the picture.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Click to set the pivot. Left and right turn by 15 degrees, up and down zoom, space toggles the spin, P toggles <em>Ignore the pivot</em> and S cycles the stage.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local angle = 30            <span class="c">-- degrees, counter-clockwise</span>
+local zoom = 1.5            <span class="c">-- above 1 zooms in</span>
+local pivot = { 0.2, 0.1 }  <span class="c">-- in uv units</span>
+local usePivot = 1          <span class="c">-- 0 turns around the centre instead</span>
+local spin = false          <span class="c">-- when on, the angle grows 45 degrees per second</span>
+local stage = 5             <span class="c">-- 0 uv, 1 minus pivot, 2 turned, 3 zoomed, 4 q, 5 final</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_angle;      // radians, counter-clockwise
+uniform float u_zoom;       // above 1 zooms in
+uniform vec2 u_pivot;       // centred uv units
+uniform float u_usepivot;   // 1.0 uses the pivot, 0.0 turns around the centre
+uniform float u_stage;
+uniform vec4 u_rect;
+
+vec2 rotate(vec2 p, float a) {             // turns p counter-clockwise by a
+    float c = cos(a);
+    float s = sin(a);
+    return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+vec3 tiles(vec2 q, float w) {              // w is one pixel, in cell units
+    vec2 g = q * 4.0;                      // 4 tiles per uv unit
+    vec2 id = floor(g);
+    vec2 f = fract(g);
+    float checker = mod(id.x + id.y, 2.0);
+    vec3 col = mix(vec3(0.15, 0.2, 0.36), vec3(0.24, 0.33, 0.56), checker);
+    vec2 e = min(f, 1.0 - f);              // distance to the tile edge on each axis
+    float grid = 1.0 - smoothstep(0.03 - w, 0.03 + w, min(e.x, e.y));
+    col = mix(col, vec3(0.88, 0.91, 0.96), grid);
+    vec2 h = vec2(f.x - clamp(f.x, 0.5, 0.8), f.y - 0.5);   // a hand pointing +x
+    float d = min(length(h) - 0.06, length(f - 0.5) - 0.13);
+    float hand = 1.0 - smoothstep(-w, w, d);
+    return mix(col, vec3(1.0, 0.62, 0.2), hand);
+}
+
+vec3 shade(vec2 uv, float aa) {
+    vec2 pivot = u_pivot * u_usepivot;
+    vec2 p0 = uv - pivot;                  // 1. move the pivot to (0, 0)
+    vec2 p1 = rotate(p0, -u_angle);        // 2. turn the coordinates back
+    vec2 p2 = p1 / u_zoom;                 // 3. divide to zoom in
+    vec2 q = p2 + pivot;                   // 4. move the pivot back
+    vec3 col = tiles(q, aa / u_zoom * 4.0);
+    if (u_stage &lt; 4.5) col = vec3(fract(q * 4.0), 0.0);
+    if (u_stage &lt; 3.5) col = vec3(fract(p2 * 4.0), 0.0);
+    if (u_stage &lt; 2.5) col = vec3(fract(p1 * 4.0), 0.0);
+    if (u_stage &lt; 1.5) col = vec3(fract(p0 * 4.0), 0.0);
+    if (u_stage &lt; 0.5) col = vec3(fract(uv * 4.0), 0.0);
+    float ring = abs(length(uv - u_pivot) - 0.03);         // mark the pivot
+    col = mix(col, vec3(0.0), 1.0 - smoothstep(2.0 * aa, 3.5 * aa, ring));
+    col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, ring));
+    return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+    vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+    uv.y = -uv.y;                     // y points down here; make it point up
+    float aa = 1.0 / u_rect.w;        // one pixel, in uv units
+    return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  if spin then
+    angle = (angle + 45 * dt) % 360
+  end
+end
+
+function love.keypressed(key)
+  if key == "left" then angle = (angle + 15) % 360 end
+  if key == "right" then angle = (angle - 15) % 360 end
+  if key == "up" then zoom = math.min(4, zoom * 1.25) end
+  if key == "down" then zoom = math.max(0.25, zoom / 1.25) end
+  if key == "space" then spin = not spin end
+  if key == "p" then usePivot = 1 - usePivot end
+  if key == "s" then stage = (stage + 1) % 6 end
+end
+
+function love.mousepressed(x, y, button)
+<span class="k">  <span class="c">-- screen pixels to centred uv with y up: the same maths as the shader</span>
+  pivot[1] = (x - rect[1] - 0.5 * rect[3]) / rect[4]
+  pivot[2] = -(y - rect[2] - 0.5 * rect[4]) / rect[4]</span>
+end
+
+function love.draw()
+  shader:send("u_angle", math.rad(angle))
+  shader:send("u_zoom", zoom)
+  shader:send("u_pivot", pivot)
+  shader:send("u_usepivot", usePivot)
+  shader:send("u_stage", stage)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_angle;      // radians, counter-clockwise
+uniform float u_zoom;       // above 1 zooms in
+uniform vec2 u_pivot;       // centred uv units
+uniform float u_usepivot;   // 1.0 uses the pivot, 0.0 turns around the centre
+uniform float u_stage;
+
+vec2 rotate(vec2 p, float a) {             // turns p counter-clockwise by a
+  float c = cos(a);
+  float s = sin(a);
+  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+vec3 tiles(vec2 q, float w) {              // w is one pixel, in cell units
+  vec2 g = q * 4.0;                        // 4 tiles per uv unit
+  vec2 id = floor(g);
+  vec2 f = fract(g);
+  float checker = mod(id.x + id.y, 2.0);
+  vec3 col = mix(vec3(0.15, 0.2, 0.36), vec3(0.24, 0.33, 0.56), checker);
+  vec2 e = min(f, 1.0 - f);                // distance to the tile edge on each axis
+  float grid = 1.0 - smoothstep(0.03 - w, 0.03 + w, min(e.x, e.y));
+  col = mix(col, vec3(0.88, 0.91, 0.96), grid);
+  vec2 h = vec2(f.x - clamp(f.x, 0.5, 0.8), f.y - 0.5);   // a hand pointing +x
+  float d = min(length(h) - 0.06, length(f - 0.5) - 0.13);
+  float hand = 1.0 - smoothstep(-w, w, d);
+  return mix(col, vec3(1.0, 0.62, 0.2), hand);
+}
+
+vec3 shade(vec2 uv, float aa) {
+  vec2 pivot = u_pivot * u_usepivot;
+<span class="k">  vec2 p0 = uv - pivot;                    // 1. move the pivot to (0, 0)
+  vec2 p1 = rotate(p0, -u_angle);          // 2. turn the coordinates back
+  vec2 p2 = p1 / u_zoom;                   // 3. divide to zoom in
+  vec2 q = p2 + pivot;                     // 4. move the pivot back</span>
+  vec3 col = tiles(q, aa / u_zoom * 4.0);
+  if (u_stage &lt; 4.5) col = vec3(fract(q * 4.0), 0.0);
+  if (u_stage &lt; 3.5) col = vec3(fract(p2 * 4.0), 0.0);
+  if (u_stage &lt; 2.5) col = vec3(fract(p1 * 4.0), 0.0);
+  if (u_stage &lt; 1.5) col = vec3(fract(p0 * 4.0), 0.0);
+  if (u_stage &lt; 0.5) col = vec3(fract(uv * 4.0), 0.0);
+  float ring = abs(length(uv - u_pivot) - 0.03);         // mark the pivot
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(2.0 * aa, 3.5 * aa, ring));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, ring));
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up
+  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Spin and zoom a tile pattern around a pivot.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float angle_degrees = 30.0;          // counter-clockwise, after the y flip below
+uniform float zoom : hint_range(0.25, 4.0) = 1.5;
+uniform vec2 pivot = vec2(0.2, 0.1);         // centred uv units, y up
+uniform float aspect = 1.0;                  // set to the ColorRect's width / height
+
+vec2 rotate(vec2 p, float a) {
+    float c = cos(a);
+    float s = sin(a);
+    return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+vec3 tiles(vec2 q, float w) {
+    vec2 g = q * 4.0;
+    vec2 id = floor(g);
+    vec2 f = fract(g);
+    float checker = mod(id.x + id.y, 2.0);
+    vec3 col = mix(vec3(0.15, 0.2, 0.36), vec3(0.24, 0.33, 0.56), checker);
+    vec2 e = min(f, 1.0 - f);
+    float grid = 1.0 - smoothstep(0.03 - w, 0.03 + w, min(e.x, e.y));
+    col = mix(col, vec3(0.88, 0.91, 0.96), grid);
+    vec2 h = vec2(f.x - clamp(f.x, 0.5, 0.8), f.y - 0.5);
+    float d = min(length(h) - 0.06, length(f - 0.5) - 0.13);
+    float hand = 1.0 - smoothstep(-w, w, d);
+    return mix(col, vec3(1.0, 0.62, 0.2), hand);
+}
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);  // centred
+    uv.y = -uv.y;                              // UV.y points down in Godot; make it point up
+<span class="k">    vec2 p = rotate(uv - pivot, -radians(angle_degrees)) / zoom;
+    vec2 q = p + pivot;</span>
+    float w = fwidth(q.y) * 4.0;               // one pixel, in cell units
+    COLOR = vec4(tiles(q, w), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Spin and zoom a tile pattern around a pivot.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/RotateZoomUV"
+{
+    Properties
+    {
+        _Angle ("Angle (degrees, counter-clockwise)", Float) = 30
+        _Zoom ("Zoom", Range(0.25, 4)) = 1.5
+        _Pivot ("Pivot (centred uv, xy)", Vector) = (0.2, 0.1, 0, 0)
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float _Angle, _Zoom, _Aspect;
+            float4 _Pivot;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float2 rotate (float2 p, float a)
+            {
+                float c = cos(a);
+                float s = sin(a);
+                return float2(c * p.x - s * p.y, s * p.x + c * p.y);
+            }
+
+            float3 tiles (float2 q, float w)
+            {
+                float2 g = q * 4.0;
+                float2 id = floor(g);
+                float2 f = frac(g);
+                float checker = frac((id.x + id.y) * 0.5) * 2.0;  // 0 or 1; HLSL fmod differs from GLSL mod
+                float3 col = lerp(float3(0.15, 0.2, 0.36), float3(0.24, 0.33, 0.56), checker);
+                float2 e = min(f, 1.0 - f);
+                float grid = 1.0 - smoothstep(0.03 - w, 0.03 + w, min(e.x, e.y));
+                col = lerp(col, float3(0.88, 0.91, 0.96), grid);
+                float2 h = float2(f.x - clamp(f.x, 0.5, 0.8), f.y - 0.5);
+                float d = min(length(h) - 0.06, length(f - 0.5) - 0.13);
+                float hand = 1.0 - smoothstep(-w, w, d);
+                return lerp(col, float3(1.0, 0.62, 0.2), hand);
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // centred, y up
+<span class="k">                float2 p = rotate(uv - _Pivot.xy, -radians(_Angle)) / _Zoom;
+                float2 q = p + _Pivot.xy;</span>
+                float w = fwidth(q.y) * 4.0;
+                return fixed4(tiles(q, w), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up, so a positive angle turns the pattern counter-clockwise. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down, where the same formula turns it clockwise; both versions above flip y so that all four agree with the demo. In URP Shader Graph, the <em>Rotate</em> node takes a UV, a Center and a Rotation, so it does steps 1, 2 and 4 for you; check its direction in your project with an asymmetric test pattern. In a Unity project set to Linear colour space, the hard-coded colours are treated as linear values and look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Everything goes the opposite way.</strong> Rotating the coordinates by <code>+a</code> turns the pattern by <code>-a</code>, and multiplying by the zoom zooms out. That is not a bug in your maths; it is what transforming the coordinates means. Keep the minus sign and the division, so that the uniforms mean what their names say.</li>
+    <li><strong>The pattern swings around a corner.</strong> Without steps 1 and 4 everything turns around (0, 0). With UVs that run 0 to 1, that is the bottom-left or top-left corner, depending on the engine. The <em>Ignore the pivot</em> toggle shows this.</li>
+    <li><strong>The pattern squashes as it turns.</strong> On a quad that is wider than it is tall, a 0 to 1 UV has short units across and long units down. Rotate in it and squares become rhombuses partway through the turn. Correct the aspect ratio before rotating, as all four versions do.</li>
+    <li><strong>Degrees fed into sin and cos.</strong> GLSL's <code>sin</code> and <code>cos</code> take radians. A slider in degrees needs <code>radians()</code> in the shader or <code>math.rad</code> in Lua.</li>
+    <li><strong>Order matters once the zoom is not the same on both axes.</strong> With a single zoom, rotating then dividing gives the same result as dividing then rotating. With a <code>vec2</code> stretch it does not: stretch after rotating and the pattern stretches along the pattern's own axes; stretch before and it stretches along the screen's axes.</li>
+    <li><strong>Zooming far out shimmers.</strong> At a zoom of 0.25, each tile is only a few pixels wide and fine lines flicker as the pattern turns. The demo widens its soft edges by one pixel measured in pattern space (<code>aa / u_zoom</code>) to hide this. Textures need mipmaps, a later lesson.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The transform is a subtraction, four multiplies and two adds for the rotation, one divide, and an add, per pixel. That is nothing, even on a phone. The only notable cost is <code>cos</code> and <code>sin</code>, and the angle is the same for every pixel. In a real game, work them out once on the CPU and send the two numbers, or send <code>1.0 / zoom</code> as well and multiply instead of dividing. The demo keeps them in the shader so it stays readable.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Scaling the UV is built into almost every material editor. A Unity material's Tiling setting and Godot's <code>StandardMaterial3D</code> UV1 Scale multiply the UV, so a value of 2 repeats the texture twice across the surface and makes it look smaller: the same "opposite" effect as in this lesson. Shader Graph's <em>Tiling And Offset</em> node does the same multiply in a graph.</p>
+  <p>Rotated UVs are how spinning effects are usually drawn on a flat quad: rotating magic circles and portals, radar sweeps, loading spinners, and spinning pickups in 2D games. Unity's built-in cubemap skybox shader has a Rotation property in degrees, which turns the direction it samples with rather than the sky itself.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE example:</p>
+  <ol>
+    <li>Make the zoom breathe: keep a <code>time</code> variable that grows in <code>love.update(dt)</code>, and send <code>zoom * (1 + 0.2 * math.sin(time * 2))</code> instead of <code>zoom</code>. Click somewhere and check that the tile under the pivot ring stays still while everything else pulses.</li>
+    <li>Change <code>u_zoom</code> to a <code>vec2</code> called <code>u_stretch</code> and send <code>{ 2, 1 }</code>. Swap lines 2 and 3 of the recipe and compare the two results with the spin on.</li>
+  </ol>
+  <p>You are done when you can say which order keeps the stretch along the orange hands, and which keeps it along the screen.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader turns and zooms a pattern by transforming the point each pixel reads, <code>q</code>, not by moving the pattern.</li>
+    <li>Do the opposite to the coordinates: rotate by <code>-a</code> and divide by the zoom to turn by <code>a</code> and grow by the zoom.</li>
+    <li>Rotation and division work around (0, 0), so subtract the pivot first and add it back after.</li>
+    <li>Correct the aspect ratio before rotating, and pass radians to <code>sin</code> and <code>cos</code>.</li>
+    <li>The transform is cheap; compute <code>cos</code> and <code>sin</code> of a shared angle once on the CPU.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson converts the UV into an angle and a distance from a centre, polar coordinates, to draw radial bars, spirals and a cooldown indicator.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "2D Matrices".</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 5.4.2 "Vector and Matrix Constructors" (matrices are filled column by column) and section 8 "Built-in Functions".</li>
+    <li>Godot Engine documentation, <cite>CanvasItem shaders</cite> (UV) and <cite>StandardMaterial3D and ORMMaterial3D</cite> (UV1 scale).</li>
+    <li>Unity Shader Graph documentation, <cite>Rotate Node</cite> and <cite>Tiling And Offset Node</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_angle;      // radians, counter-clockwise",
+    "uniform float u_zoom;       // above 1 zooms in",
+    "uniform vec2 u_pivot;       // centred uv units",
+    "uniform float u_usepivot;   // 1.0 uses the pivot, 0.0 turns around the centre",
+    "uniform float u_stage;",
+    "",
+    "vec2 rotate(vec2 p, float a) {             // turns p counter-clockwise by a",
+    "  float c = cos(a);",
+    "  float s = sin(a);",
+    "  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);",
+    "}",
+    "",
+    "vec3 tiles(vec2 q, float w) {              // w is one pixel, in cell units",
+    "  vec2 g = q * 4.0;                        // 4 tiles per uv unit",
+    "  vec2 id = floor(g);",
+    "  vec2 f = fract(g);",
+    "  float checker = mod(id.x + id.y, 2.0);",
+    "  vec3 col = mix(vec3(0.15, 0.2, 0.36), vec3(0.24, 0.33, 0.56), checker);",
+    "  vec2 e = min(f, 1.0 - f);                // distance to the tile edge on each axis",
+    "  float grid = 1.0 - smoothstep(0.03 - w, 0.03 + w, min(e.x, e.y));",
+    "  col = mix(col, vec3(0.88, 0.91, 0.96), grid);",
+    "  vec2 h = vec2(f.x - clamp(f.x, 0.5, 0.8), f.y - 0.5);   // a hand pointing +x",
+    "  float d = min(length(h) - 0.06, length(f - 0.5) - 0.13);",
+    "  float hand = 1.0 - smoothstep(-w, w, d);",
+    "  return mix(col, vec3(1.0, 0.62, 0.2), hand);",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  vec2 pivot = u_pivot * u_usepivot;",
+    "  vec2 p0 = uv - pivot;                    // 1. move the pivot to (0, 0)",
+    "  vec2 p1 = rotate(p0, -u_angle);          // 2. turn the coordinates back",
+    "  vec2 p2 = p1 / u_zoom;                   // 3. divide to zoom in",
+    "  vec2 q = p2 + pivot;                     // 4. move the pivot back",
+    "  vec3 col = tiles(q, aa / u_zoom * 4.0);",
+    "  if (u_stage < 4.5) col = vec3(fract(q * 4.0), 0.0);",
+    "  if (u_stage < 3.5) col = vec3(fract(p2 * 4.0), 0.0);",
+    "  if (u_stage < 2.5) col = vec3(fract(p1 * 4.0), 0.0);",
+    "  if (u_stage < 1.5) col = vec3(fract(p0 * 4.0), 0.0);",
+    "  if (u_stage < 0.5) col = vec3(fract(uv * 4.0), 0.0);",
+    "  float ring = abs(length(uv - u_pivot) - 0.03);         // mark the pivot",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(2.0 * aa, 3.5 * aa, ring));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, ring));",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var SPIN_SPEED = 45; // degrees per second, as in the Lua
+  var spinAngle = 0;
+  var pivot = [0.2, 0.1];
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="rotate-uv"]');
+  var angle = ui.slider({ label: 'Angle', min: 0, max: 360, step: 5, value: 30, unit: '°', onInput: redraw });
+  var zoom = ui.slider({ label: 'Zoom', min: 0.25, max: 4, step: 0.05, value: 1.5, unit: '×', onInput: redraw });
+  var pivotX = ui.slider({ label: 'Pivot x', min: -0.8, max: 0.8, step: 0.01, value: 0.2,
+    onInput: function (v) { pivot[0] = v; redraw(); } });
+  var pivotY = ui.slider({ label: 'Pivot y', min: -0.5, max: 0.5, step: 0.01, value: 0.1,
+    onInput: function (v) { pivot[1] = v; redraw(); } });
+  var ignorePivot = ui.toggle({ label: 'Ignore the pivot (turn around the centre)', value: false, onChange: redraw });
+  var spin = ui.toggle({ label: 'Spin', value: false, onChange: redraw });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Centred uv: fract(uv * 4)' },
+      { value: '1', label: '2. Pivot moved to 0: uv - pivot' },
+      { value: '2', label: '3. Turned back: rotate(p, -angle)' },
+      { value: '3', label: '4. Zoomed: p / zoom' },
+      { value: '4', label: '5. Pivot moved back: q = p + pivot' },
+      { value: '5', label: '6. Final colour: tiles(q)' }
+    ],
+    value: '5',
+    onChange: function (v) { if (handle) { handle.set('u_stage', Number(v)); } redraw(); }
+  });
+  var readout = ui.readout({ label: 'Sample point of the middle pixel' });
+
+  function totalAngle() {
+    return (angle.value + spinAngle) % 360;
+  }
+
+  function samplePoint(ux, uy) {
+    var use = ignorePivot.value ? 0 : 1;
+    var a = -totalAngle() * Math.PI / 180;
+    var px = ux - pivot[0] * use;
+    var py = uy - pivot[1] * use;
+    var c = Math.cos(a);
+    var s = Math.sin(a);
+    var rx = (c * px - s * py) / zoom.value;
+    var ry = (s * px + c * py) / zoom.value;
+    return [rx + pivot[0] * use, ry + pivot[1] * use];
+  }
+
+  function updateReadout() {
+    var q = samplePoint(0, 0);
+    readout.set('uv (0.00, 0.00) reads q = (' + q[0].toFixed(2) + ', ' + q[1].toFixed(2) +
+      '); angle ' + totalAngle().toFixed(0) + '°, zoom ' + zoom.value.toFixed(2) + '×');
+  }
+
+  function placePivot(p, s) {
+    if (!p.down || s.height <= 0) return;
+    var x = DemoKit.clamp((p.x - 0.5 * s.width) / s.height, -0.8, 0.8);
+    var y = DemoKit.clamp((0.5 * s.height - p.y) / s.height, -0.5, 0.5);
+    pivot[0] = x;
+    pivot[1] = y;
+    pivotX.set(Math.round(x * 100) / 100);
+    pivotY.set(Math.round(y * 100) / 100);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#rotate-uv', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    label: 'A live fragment shader showing a grid of tiles, each with an orange hand pointing along its x axis. The tiles are rotated and zoomed around a pivot marked by a white ring. Drag on the picture to move the pivot, or use the controls below.',
+    uniforms: {
+      u_angle: function () { return totalAngle() * Math.PI / 180; },
+      u_zoom: function () { return zoom.value; },
+      u_pivot: function () { return pivot; },
+      u_usepivot: function () { return ignorePivot.value ? 0 : 1; },
+      u_stage: 5
+    },
+    onDown: placePivot,
+    onMove: placePivot,
+    update: function (dt) {
+      if (spin.value) {
+        spinAngle = (spinAngle + SPIN_SPEED * dt) % 360;
+      }
+      updateReadout();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

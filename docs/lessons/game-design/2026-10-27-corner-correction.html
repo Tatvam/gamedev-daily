@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corner correction: sliding past the edge you barely hit · Game Dev Daily</title>
+<meta name="description" content="How quietly nudging a rising player sideways around a ceiling corner they clipped by a few pixels saves jumps that should have worked.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-10-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Corner correction: sliding past the edge you barely hit</h1>
+  <p class="lede">How quietly nudging a rising player sideways around a ceiling corner they clipped by a few pixels saves jumps that should have worked.</p>
+</header>
+
+<section data-section="hook">
+  <p>You run at a narrow gap in the ceiling, jump, and stop dead in mid-air. The corner of your character's head caught the edge of the gap by two pixels. On screen it looked like you were through. The game was right by the numbers and wrong by the player.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Why near misses happen</h2>
+  <p>Most 2D games test collisions with a <dfn>hitbox</dfn>: an invisible rectangle around the character. The test is exact: overlap a wall by a fraction of a pixel and the move is blocked.</p>
+  <p>Players do not see that precisely. They judge by eye, mid-jump, while the character moves several pixels per frame. Take the demo below: the player is 20 pixels wide and the gap is 24 pixels wide, so the player's centre must be inside a 4 pixel window when the head reaches the ceiling. Running at 160 pixels per second, the player crosses 4 pixels in 25 milliseconds, about one and a half frames at 60 frames per second. Almost every running jump will clip a corner.</p>
+  <p>When it happens, the player gets a <dfn>bonk</dfn>: upward speed drops to zero and the character falls back down. A bonk from a large overlap feels deserved; one from two pixels feels like cheating.</p>
+
+  <h2>The fix: slide around small overlaps</h2>
+  <p><dfn>Corner correction</dfn> means that when a rising character would hit a ceiling, the game first checks whether shifting it sideways by a few pixels would clear the obstacle. If a small shift works, the character is moved over and keeps rising. If none does, it bonks as usual.</p>
+  <p>The limit on that shift is the <dfn>forgiven overlap</dfn>: the largest number of pixels the game will slide the character. The test tries 1 pixel left, 1 pixel right, 2 pixels left, and so on up to the limit, and takes the first spot that is free. Trying the smallest shift first keeps the correction as small as possible.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="A ceiling with a gap. A rising square would overlap the right edge of the gap by 3 pixels at its top right corner. Because 3 pixels is within a 4 pixel limit, the square is slid 3 pixels left to a dashed position inside the gap. Below, two bars compare where the square's centre may be: a 4 pixel window without correction and a 12 pixel window with 4 pixels of correction.">
+      <rect class="d-fill" x="40" y="40" width="232" height="40"/>
+      <rect class="d-fill" x="368" y="40" width="232" height="40"/>
+      <text class="d-muted" x="156" y="30" text-anchor="middle">ceiling</text>
+      <text class="d-muted" x="484" y="30" text-anchor="middle">ceiling</text>
+
+      <rect class="d-accent-soft" x="300" y="72" width="80" height="80"/>
+      <rect class="d-bad-fill" x="368" y="72" width="12" height="8"/>
+      <rect class="d-accent" fill="none" x="288" y="72" width="80" height="80" stroke-dasharray="5 4"/>
+      <path class="d-accent" d="M336 168 H312"/>
+      <path class="d-accent" fill="none" d="M318 162 L312 168 L318 174"/>
+      <text class="d-label" x="324" y="190" text-anchor="middle">slide 3 px</text>
+
+      <path class="d-stroke d-thin" d="M382 82 L420 112"/>
+      <text class="d-text" x="424" y="118">overlap 3 px</text>
+      <text class="d-muted" x="424" y="136">3 ≤ 4 px limit:</text>
+      <text class="d-muted" x="424" y="154">slide and keep rising</text>
+      <text class="d-muted" x="40" y="118">solid: would hit</text>
+      <text class="d-muted" x="40" y="136">dashed: after the slide</text>
+
+      <path class="d-stroke d-thin d-dash" d="M272 80 V270"/>
+      <path class="d-stroke d-thin d-dash" d="M368 80 V270"/>
+      <text class="d-muted" x="40" y="214">centre window</text>
+      <text class="d-text" x="40" y="236">no correction: 4 px</text>
+      <rect class="d-good-fill" x="312" y="226" width="16" height="12"/>
+      <text class="d-text" x="40" y="264">4 px correction: 12 px</text>
+      <rect class="d-accent-fill" x="296" y="254" width="48" height="12"/>
+      <rect class="d-good-fill" x="312" y="254" width="16" height="12"/>
+      <text class="d-muted" x="384" y="236">gap 24 px, player 20 px</text>
+      <text class="d-muted" x="384" y="264">4 + 2 × 4 = 12</text>
+    </svg>
+    <figcaption>Drawn at 4 units per pixel. Each pixel of forgiven overlap widens the window by one pixel on each side, so the window is the gap minus the player width plus twice the limit.</figcaption>
+  </figure>
+
+  <h3>Rules that keep it honest</h3>
+  <ul>
+    <li><strong>Only while moving up.</strong> The bonk is the problem being solved. Sliding a falling character sideways is a different feature with different risks.</li>
+    <li><strong>Only small overlaps.</strong> The limit should be a fraction of the character's width, so a head that clearly hit the ceiling still bonks.</li>
+    <li><strong>The new spot must be free.</strong> Test the shifted box against everything solid before moving it, or the fix will push the character into another wall.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>For a character 16 to 20 pixels wide, try a limit of 2 to 4 pixels, about a fifth of the width or less. Scale it with your art: a 64 pixel character might take 8 to 12. Shift by whole pixels in pixel-art games. These are places to start, not rules.</p>
+  </div>
+
+  <p>The same idea is commonly applied sideways: a character dashing into the lip of a ledge a few pixels too high can be popped up onto it.</p>
+
+  <h3>What the player feels</h3>
+  <p>Without correction, near misses end in a sudden stop that reads as unfair, and players learn to slow down and line up every gap. With it, the player simply gets through. Done well, nobody notices it at all: the shift is a few pixels in one frame, too small to see at full speed.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Run at the gap and jump through it to the top floor with "Corner correction" off, counting your tries. Then switch it on. Turn on slow motion to see the slide happen, and push the slider to 10 to feel where forgiveness starts to look like a glitch.</p>
+  <p>The strip at the top is a zoomed view of the gap. Its bar shows where the player's centre must be when the head reaches the ceiling; dots mark your recent jumps.</p>
+
+  <figure class="demo" data-demo="cornerfix">
+    <canvas id="cornerfix"></canvas>
+    <figcaption>Controls: click the canvas, then use Left and Right (or A and D) to run and Space, W or Up to jump. On a phone, press the canvas to jump and hold to run toward your finger, or use the Left, Jump and Right buttons. In the strip, green means through cleanly, blue (the topic colour) means saved by a slide, and red means a bonk.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's vertical movement in LÖVE, with the same sizes and numbers. Running and side walls are left out, and the demo runs this at a fixed 60 steps per second. The player starts at <code>x = 205</code>, 3 pixels past the window: it bonks with the correction off and slides through with it on. The marked lines are the technique.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SIZE = 20             <span class="c">-- the player is a 20 by 20 box</span>
+local CORRECTION = 4        <span class="c">-- forgiven overlap in pixels, the demo's slider</span>
+local CORRECTION_ON = true  <span class="c">-- the demo's toggle</span>
+local GRAVITY, JUMP_SPEED = 1875, 750   <span class="c">-- 150 px high, 0.4 s to the top</span>
+
+<span class="c">-- Boxes: x, y is the bottom-left corner, y measured up from the ground.</span>
+local solids = {
+  { x = 0,   y = 100, w = 188, h = 16 },  <span class="c">-- ceiling left of the gap</span>
+  { x = 212, y = 100, w = 188, h = 16 },  <span class="c">-- ceiling right of the gap</span>
+}
+local player = { x = 205, y = 0, vy = 0 }  <span class="c">-- x is the centre, y the feet</span>
+
+local function hitAt(px, py)
+  for _, s in ipairs(solids) do
+    if px + SIZE / 2 &gt; s.x and px - SIZE / 2 &lt; s.x + s.w
+      and py + SIZE &gt; s.y and py &lt; s.y + s.h then
+      return s
+    end
+  end
+  return nil
+end
+
+local function moveUp(p, newY)
+  local hit = hitAt(p.x, newY)
+  if not hit then
+    p.y = newY
+    return
+  end
+<span class="k">  if CORRECTION_ON then</span>
+<span class="k">    for d = 1, CORRECTION do</span>
+<span class="k">      if not hitAt(p.x - d, newY) then p.x = p.x - d; p.y = newY; return end</span>
+<span class="k">      if not hitAt(p.x + d, newY) then p.x = p.x + d; p.y = newY; return end</span>
+<span class="k">    end</span>
+<span class="k">  end</span>
+  p.y = hit.y - SIZE  <span class="c">-- no small slide clears it: bonk</span>
+  p.vy = 0
+end
+
+local function moveDown(p, newY)
+  local hit = hitAt(p.x, newY)
+  if newY &lt;= 0 then newY = 0; p.vy = 0
+  elseif hit then newY = hit.y + hit.h; p.vy = 0 end
+  p.y = newY
+end
+
+function love.keypressed(key)
+  if key == "space" and player.y == 0 then player.vy = JUMP_SPEED end
+end
+
+function love.update(dt)
+  local oldVy = player.vy
+  player.vy = math.max(player.vy - GRAVITY * dt, -900)
+  local newY = player.y + (oldVy + player.vy) * 0.5 * dt
+  if newY &gt; player.y then moveUp(player, newY) else moveDown(player, newY) end
+end</code></pre>
+  </div>
+  <p>Notice that <code>moveUp</code> tests the shifted box with the same <code>hitAt</code> it uses for the bonk. That is what makes "the new spot must be free" automatic, whatever else is in the level.</p>
+  <p>In a full game, move horizontally first and vertically second in each step, as the demo does, so the gap's walls hold a running player in place while it rises through.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A limit that is too large.</strong> At half the character's width, players slip through gaps you meant to block and visibly jump sideways around corners they plainly hit. That reads as a bug. Try 10 in the demo and watch for the jump.</li>
+    <li><strong>Sliding into danger.</strong> The shifted spot may be free of walls but full of spikes. Either test hazards too, or skip the slide when the new spot would hurt.</li>
+    <li><strong>Correcting against one-way platforms.</strong> Platforms you can jump up through should never cause a bonk, so they should not trigger a correction either. Leave them out of the upward test.</li>
+    <li><strong>Pushing against the player's input.</strong> A slide away from the direction the player is holding can feel odd. Some games skip that side or prefer the side the player is moving toward. Test both in your own game.</li>
+  </ul>
+  <p><strong>When not to use it.</strong> If exact clearance is the puzzle, for example a gap that is deliberately one pixel too narrow until the character crouches, correction removes the rule the player was meant to learn. In a slow game with wide gaps the problem may never come up.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Maddy Thorson, one of Celeste's developers, lists jump corner correction among the game's forgiveness mechanics in a 2020 thread of design notes, later collected as an article called "Celeste &amp; Forgiveness": if you bump your head on a corner, the game tries to move you sideways around it. I found this through search results and press write-ups of the thread; I could not open the original in this session.</p>
+  <p>Many 3D games get a similar effect from the shape of the collider. Unity's built-in CharacterController, for example, is a capsule, and a rounded top tends to glance off an edge instead of stopping dead on it.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build a test room with a ceiling gap a few pixels wider than your character, and count bonks over ten running jumps. Then add the <code>for d = 1, CORRECTION</code> loop to your upward move, starting at a fifth of your character's width, and make ten more. You are done when bonks from small overlaps are gone and a jump that is clearly off still bonks. Write down the limit you chose.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Exact hitboxes plus fast movement turn narrow gaps into frame-perfect jumps, and small overlaps feel unfair.</li>
+    <li>Corner correction tries small sideways shifts, smallest first, when a rising character would hit a ceiling.</li>
+    <li>Each pixel of forgiven overlap widens the window by a pixel on both sides.</li>
+    <li>Keep the limit to about a fifth of the character's width, apply it only while rising, and test that the new spot is safe.</li>
+    <li>Leave it out where exact clearance is part of the challenge.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next is generous hitboxes: why the box that can hurt the player is usually smaller than the sprite, and pickups reach further than they look.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Maddy Thorson, <cite>Celeste &amp; Forgiveness</cite>, an article version of a 2020 thread of design notes. I found it through a search but could not open it in this session, so no link is given.</li>
+    <li>Maddy Thorson and Noel Berry published Celeste's player movement code (the <cite>Player</cite> class) on GitHub. I did not open it in this session.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // the demo simulates at 60 steps per second
+  var SIZE = 20;            // player box
+  var W = 400, AIR = 220, GROUND = 20;   // world size in world pixels
+  var CEIL_Y = 100, CEIL_H = 16;
+  var GAP_L = 188, GAP_R = 212, GAP_MID = 200;
+  var SOLIDS = [
+    { x: 0, y: CEIL_Y, w: GAP_L, h: CEIL_H },
+    { x: GAP_R, y: CEIL_Y, w: W - GAP_R, h: CEIL_H }
+  ];
+  var JUMP_HEIGHT = 150, TIME_TO_APEX = 0.4;
+  var GRAVITY = 2 * JUMP_HEIGHT / (TIME_TO_APEX * TIME_TO_APEX);   // 1875 px/s²
+  var JUMP_SPEED = 2 * JUMP_HEIGHT / TIME_TO_APEX;                 // 750 px/s
+  var MAX_FALL = 900;
+  var RUN = 160;            // running speed, px/s
+  var STRIP_H = 92;         // zoomed strip at the top, screen pixels
+  var ZOOM_HALF = 24;       // world pixels shown either side of the gap centre
+  var RESPAWN = 0.7;        // seconds on the top floor before going back down
+  var SPAWNS = [40, 360];
+  var FX_TIME = 1.6;        // seconds a slide or bonk marker stays visible
+
+  var ui = DemoKit.controls('[data-demo="cornerfix"]');
+  var correctOn = ui.toggle({ label: 'Corner correction', value: false });
+  var amount = ui.slider({ label: 'Forgiven overlap', min: 0, max: 10, step: 1, value: 4, unit: ' px' });
+  var slow = ui.toggle({ label: 'Slow motion (quarter speed)', value: false });
+
+  var pendingPress = false;
+  function holdButton(label, onPress) {
+    var state = { held: false };
+    var b = ui.button({ label: label });
+    var el = b.el;
+    el.style.touchAction = 'none';
+    el.style.userSelect = 'none';
+    el.style.webkitUserSelect = 'none';
+    function down() { state.held = true; if (onPress) onPress(); }
+    function up() { state.held = false; }
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      down();
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        if (!e.repeat) down();
+      }
+    });
+    el.addEventListener('keyup', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); up(); }
+    });
+    el.addEventListener('blur', up);
+    return state;
+  }
+  var leftBtn = holdButton('Left');
+  holdButton('Jump', function () { pendingPress = true; });
+  var rightBtn = holdButton('Right');
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  var windowOut = ui.readout({ label: 'Ceiling window' });
+  var scoreOut = ui.readout({ label: 'Made it / bonks / saved' });
+  var lastOut = ui.readout({ label: 'Last jump' });
+
+  var acc, player, spawnIndex, frozen, jump, marks, made, bonks, saved, ghost, bonkFx;
+  var view = { ox: 0, scale: 1, ground: 300 };
+
+  function limit() { return correctOn.value ? amount.value : 0; }
+
+  function hitAt(px, py) {
+    for (var i = 0; i < SOLIDS.length; i++) {
+      var s = SOLIDS[i];
+      if (px + SIZE / 2 > s.x && px - SIZE / 2 < s.x + s.w &&
+          py + SIZE > s.y && py < s.y + s.h) return s;
+    }
+    return null;
+  }
+
+  // How far the player's box reaches sideways into a solid.
+  function overlapX(px, s) {
+    return Math.min(px + SIZE / 2 - s.x, s.x + s.w - (px - SIZE / 2));
+  }
+
+  function supported(b) {
+    if (b.y <= 0) return true;
+    for (var i = 0; i < SOLIDS.length; i++) {
+      var s = SOLIDS[i];
+      if (Math.abs(b.y - (s.y + s.h)) < 0.01 && b.x + SIZE / 2 > s.x && b.x - SIZE / 2 < s.x + s.w) return true;
+    }
+    return false;
+  }
+
+  function moveX(b, dx) {
+    if (dx === 0) return;
+    var nx = DemoKit.clamp(b.x + dx, SIZE / 2, W - SIZE / 2);
+    var hit = hitAt(nx, b.y);
+    if (hit) nx = dx > 0 ? hit.x - SIZE / 2 : hit.x + hit.w + SIZE / 2;
+    b.x = nx;
+  }
+
+  function moveY(b, ny) {
+    if (ny <= 0) {
+      b.y = 0; b.vy = 0; b.grounded = true;
+      return { kind: 'land' };
+    }
+    var hit = hitAt(b.x, ny);
+    if (!hit) { b.y = ny; return { kind: 'free' }; }
+    if (ny > b.y) {
+      var over = overlapX(b.x, hit);
+      var n = limit();
+      for (var d = 1; d <= n; d++) {
+        if (!hitAt(b.x - d, ny)) return slide(b, -d, ny, over);
+        if (!hitAt(b.x + d, ny)) return slide(b, d, ny, over);
+      }
+      b.y = hit.y - SIZE;
+      b.vy = 0;
+      return { kind: 'bonk', overlap: over };
+    }
+    b.y = hit.y + hit.h; b.vy = 0; b.grounded = true;
+    return { kind: 'land' };
+  }
+
+  function slide(b, d, ny, over) {
+    var fromX = b.x;
+    b.x += d;
+    b.y = ny;
+    return { kind: 'slide', d: d, fromX: fromX, overlap: over };
+  }
+
+  function respawn() {
+    player = { x: SPAWNS[spawnIndex], y: 0, vy: 0, grounded: true };
+    spawnIndex = 1 - spawnIndex;
+    frozen = 0;
+    jump = null;
+  }
+
+  function reset() {
+    acc = 0;
+    spawnIndex = 0;
+    marks = [];
+    made = 0; bonks = 0; saved = 0;
+    ghost = null; bonkFx = null;
+    pendingPress = false;
+    respawn();
+    lastOut.set('none yet');
+    report();
+  }
+
+  function report() {
+    scoreOut.set(made + ' / ' + bonks + ' / ' + saved);
+  }
+
+  function inputDir(s) {
+    var k = s.keys;
+    var left = leftBtn.held || k.has('arrowleft') || k.has('a');
+    var right = rightBtn.held || k.has('arrowright') || k.has('d');
+    if (s.pointer.down && s.pointer.inside && s.pointer.y > STRIP_H) {
+      var wx = (s.pointer.x - view.ox) / view.scale;
+      if (wx < player.x - 6) left = true;
+      else if (wx > player.x + 6) right = true;
+    }
+    return (right ? 1 : 0) - (left ? 1 : 0);
+  }
+
+  function addMark(x, kind) {
+    marks.push({ x: x, kind: kind });
+    if (marks.length > 8) marks.shift();
+  }
+
+  function step(s) {
+    if (frozen > 0) {
+      pendingPress = false;
+      frozen -= STEP;
+      if (frozen <= 0) respawn();
+      return;
+    }
+    if (pendingPress) {
+      pendingPress = false;
+      if (player.grounded) {
+        player.vy = JUMP_SPEED;
+        player.grounded = false;
+        jump = { slid: false };
+      }
+    }
+    moveX(player, inputDir(s) * RUN * STEP);
+    if (player.grounded) {
+      if (supported(player)) return;
+      player.grounded = false;
+    }
+    var oldVy = player.vy;
+    player.vy = Math.max(player.vy - GRAVITY * STEP, -MAX_FALL);
+    var ny = player.y + (oldVy + player.vy) * 0.5 * STEP;
+    var crossing = player.y + SIZE <= CEIL_Y && ny + SIZE > CEIL_Y;
+    var entryX = player.x;
+    var r = moveY(player, ny);
+
+    if (crossing && jump) {
+      if (r.kind === 'free') {
+        addMark(entryX, 'clean');
+        lastOut.set('through cleanly, centre ' + Math.abs(entryX - GAP_MID).toFixed(1) + ' px from the middle');
+      } else if (r.kind === 'slide') {
+        addMark(entryX, 'saved');
+        saved += 1;
+        jump.slid = true;
+        ghost = { x: r.fromX, toX: player.x, y: player.y, age: 0 };
+        lastOut.set('saved: overlap ' + r.overlap.toFixed(1) + ' px, slid ' + Math.abs(r.d) + ' px ' + (r.d < 0 ? 'left' : 'right'));
+      } else if (r.kind === 'bonk') {
+        addMark(entryX, 'bonk');
+        bonks += 1;
+        bonkFx = { x: player.x, y: player.y + SIZE, age: 0 };
+        if (r.overlap >= SIZE) lastOut.set('bonked: nowhere near the gap');
+        else lastOut.set('bonked: overlap ' + r.overlap.toFixed(1) + ' px, limit ' + limit() + ' px');
+      }
+      report();
+    }
+
+    if (r.kind === 'land' && jump) {
+      if (Math.abs(player.y - (CEIL_Y + CEIL_H)) < 0.01) {
+        made += 1;
+        frozen = RESPAWN;
+        report();
+      }
+      jump = null;
+    }
+  }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function markColor(c, kind) {
+    if (kind === 'clean') return c.good;
+    if (kind === 'saved') return c.topic;
+    return c.bad;
+  }
+
+  function drawStrip(ctx, s, c) {
+    var left = 14, right = s.width - 14;
+    var lo = GAP_MID - ZOOM_HALF, hi = GAP_MID + ZOOM_HALF;
+    function tx(x) { return left + (DemoKit.clamp(x, lo, hi) - lo) / (hi - lo) * (right - left); }
+    var n = limit();
+
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText('zoomed gap: where the centre meets the ceiling', left, 14);
+
+    // Ceiling ends either side of the gap.
+    var ceilY = 22, ceilH = 10;
+    ctx.fillStyle = c.ink2;
+    ctx.fillRect(left, ceilY, tx(GAP_L) - left, ceilH);
+    ctx.fillRect(tx(GAP_R), ceilY, right - tx(GAP_R), ceilH);
+
+    // Window bar for the player's centre.
+    var barY = 40, barH = 12;
+    ctx.fillStyle = c.bad;
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(left, barY, right - left, barH);
+    ctx.globalAlpha = 1;
+    var cleanL = GAP_L + SIZE / 2, cleanR = GAP_R - SIZE / 2;
+    if (n > 0) {
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(tx(cleanL - n), barY, tx(cleanR + n) - tx(cleanL - n), barH);
+    }
+    ctx.fillStyle = c.good;
+    ctx.fillRect(tx(cleanL), barY, tx(cleanR) - tx(cleanL), barH);
+
+    // Recent jumps.
+    for (var i = 0; i < marks.length; i++) {
+      var m = marks[i];
+      if (m.x < lo || m.x > hi) continue;
+      var latest = i === marks.length - 1;
+      ctx.fillStyle = markColor(c, m.kind);
+      ctx.globalAlpha = latest ? 1 : 0.55;
+      ctx.beginPath();
+      if (latest) {
+        ctx.moveTo(tx(m.x), barY + barH + 2);
+        ctx.lineTo(tx(m.x) - 6, barY + barH + 13);
+        ctx.lineTo(tx(m.x) + 6, barY + barH + 13);
+        ctx.closePath();
+      } else {
+        ctx.arc(tx(m.x), barY + barH + 8, 4, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Player's current centre.
+    if (player.x >= lo && player.x <= hi) {
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(tx(player.x)) + 0.5, barY - 4);
+      ctx.lineTo(Math.round(tx(player.x)) + 0.5, barY + barH + 2);
+      ctx.stroke();
+    }
+
+    var px = (GAP_R - GAP_L - SIZE) + 2 * n;
+    font(ctx, 12, '600');
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'left';
+    ctx.fillText('window ' + px + ' px, about ' + Math.round(px / RUN * 1000) + ' ms at a run', left, barY + barH + 32);
+  }
+
+  function drawWorld(ctx, s, c) {
+    var areaH = s.height - STRIP_H - 6;
+    var scale = Math.min(s.width / W, areaH / (AIR + GROUND));
+    view.scale = scale;
+    view.ox = (s.width - W * scale) / 2;
+    view.ground = s.height - GROUND * scale;
+    function sx(x) { return view.ox + x * scale; }
+    function sy(y) { return view.ground - y * scale; }
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(sx(0)) + 0.5, Math.round(sy(AIR)) + 0.5, Math.round(W * scale) - 1, Math.round(AIR * scale));
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(sx(0), view.ground, W * scale, s.height - view.ground);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx(0), view.ground);
+    ctx.lineTo(sx(W), view.ground);
+    ctx.stroke();
+
+    ctx.fillStyle = c.ink2;
+    for (var i = 0; i < SOLIDS.length; i++) {
+      var so = SOLIDS[i];
+      ctx.fillRect(sx(so.x), sy(so.y + so.h), so.w * scale, so.h * scale);
+    }
+
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    ctx.fillText('top floor: jump up through the gap', sx(W / 2), sy(AIR) + 18);
+
+    // Slide marker: where the box would have hit, and where it went.
+    if (ghost && ghost.age < FX_TIME) {
+      ctx.globalAlpha = 1 - ghost.age / FX_TIME;
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(sx(ghost.x - SIZE / 2), sy(ghost.y + SIZE), SIZE * scale, SIZE * scale);
+      ctx.setLineDash([]);
+      var ay = sy(ghost.y + SIZE / 2);
+      var x0 = sx(ghost.x), x1 = sx(ghost.toX);
+      var dirn = x1 < x0 ? -1 : 1;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x0 - dirn * 10, ay);
+      ctx.lineTo(x1 + dirn * 4, ay);
+      ctx.lineTo(x1 - dirn * 2, ay - 5);
+      ctx.moveTo(x1 + dirn * 4, ay);
+      ctx.lineTo(x1 - dirn * 2, ay + 5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Bonk marker: short lines above the head.
+    if (bonkFx && bonkFx.age < FX_TIME) {
+      ctx.globalAlpha = 1 - bonkFx.age / FX_TIME;
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2;
+      var bx = sx(bonkFx.x), by = sy(bonkFx.y) + 2;
+      ctx.beginPath();
+      for (var k = -1; k <= 1; k++) {
+        ctx.moveTo(bx + k * 7, by + 6);
+        ctx.lineTo(bx + k * 11, by + 14);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(sx(player.x - SIZE / 2), sy(player.y + SIZE), SIZE * scale, SIZE * scale);
+
+    if (frozen > 0) {
+      font(ctx, 13, '600');
+      ctx.fillStyle = c.good;
+      ctx.textAlign = 'center';
+      ctx.fillText('Made it', sx(player.x), sy(player.y + SIZE) - 8);
+    }
+  }
+
+  reset();
+
+  DemoKit.canvas('#cornerfix', {
+    aspect: 400 / 340,
+    minHeight: 320,
+    maxHeight: 480,
+    keys: true,
+    drag: true,
+    label: 'A square on the ground below a ceiling with one narrow gap. Run with Left and Right and jump with Space, or press the canvas, to get up through the gap to the top floor. A zoomed strip at the top shows the window the square must hit and marks each recent jump.',
+    update: function (dt, s) {
+      if (ghost) ghost.age += dt;
+      if (bonkFx) bonkFx.age += dt;
+      acc += slow.value ? dt * 0.25 : dt;
+      var guard = 0;
+      while (acc >= STEP && guard < 12) {
+        acc -= STEP;
+        step(s);
+        guard += 1;
+      }
+      if (guard === 12) acc = 0;
+    },
+    onDown: function (p) { if (p.y > STRIP_H) pendingPress = true; },
+    onKey: function (key, down) {
+      if (down && (key === 'space' || key === 'w' || key === 'arrowup')) pendingPress = true;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var px = (GAP_R - GAP_L - SIZE) + 2 * limit();
+      windowOut.set(px + ' px (' + Math.round(px / RUN * 1000) + ' ms at a run)');
+      drawStrip(ctx, s, c);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, STRIP_H + 0.5);
+      ctx.lineTo(s.width, STRIP_H + 0.5);
+      ctx.stroke();
+      drawWorld(ctx, s, c);
+    }
+  });
+})();
+</script>
+</body>
+</html>

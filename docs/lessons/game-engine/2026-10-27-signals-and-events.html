@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signals in Godot, events in Unity: connecting and disconnecting safely · Game Dev Daily</title>
+<meta name="description" content="How Godot signals, C# events and UnityEvents store connections, what each does when a listener is freed, and where to connect and disconnect.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Signals in Godot, events in Unity: connecting and disconnecting safely</h1>
+  <p class="lede">How Godot signals, C# events and UnityEvents store connections, what each does when a listener is freed, and where to connect and disconnect.</p>
+</header>
+
+<section data-section="hook">
+  <p>You go back to the main menu and load the level again. The first hit on the player fills the Unity console with <code>MissingReferenceException</code>, and the hurt sound stops playing. Or, in Godot, the console prints "already connected" every time a menu opens. Both engines are telling you the same thing: a connection outlived its listener.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A connection is a record the subject keeps</h2>
+  <p>In the observer pattern a subject keeps a list of functions and calls them all when something happens. Engines give you that list ready-made. Each entry in it is a <dfn>connection</dfn>: a record saying "when this happens, call this method on this object". The record lives in the <em>subject</em>, the object that announces. The listener is only pointed at.</p>
+  <p>So the question for every engine is the same: when the listener goes away, who removes the record? Godot and Unity answer differently, and Unity has two tools that answer differently from each other.</p>
+
+  <h3>Godot 4: signals</h3>
+  <p>A <dfn>signal</dfn> is declared in a script with <code>signal health_changed(new_health: int)</code> and fired with <code>health_changed.emit(health)</code>. You connect a listener in one of two places:</p>
+  <ul>
+    <li><strong>In the editor</strong>, from the Node dock's Signals tab. The connection is saved in the scene file, and the engine makes it again every time the scene is loaded.</li>
+    <li><strong>In code</strong>, usually in the listener's <code>_ready</code>: <code>player.health_changed.connect(_on_health_changed)</code>.</li>
+  </ul>
+  <p>The thing you connect is a <dfn>Callable</dfn>: a method together with the object it belongs to. Because the record knows that object, Godot can clean up. When an object is freed, the engine walks every connection that points at it and removes it from its subject. Godot also refuses to connect the same Callable to the same signal twice: <code>connect</code> prints an error and returns <code>ERR_INVALID_PARAMETER</code>.</p>
+
+  <h3>Unity: C# events</h3>
+  <p>A C# <dfn>event</dfn>, such as <code>public event Action&lt;int&gt; HealthChanged;</code>, is a language feature, not a Unity one. It holds a <dfn>delegate</dfn>: a list of methods, each paired with the object to call it on. <code>+=</code> adds an entry and <code>-=</code> removes the last matching one. Adding the same method twice puts it in the list twice, and it is called twice.</p>
+  <p>C# knows nothing about <code>Destroy</code>. A destroyed component is still an ordinary C# object as far as the delegate is concerned, so it keeps being called. The moment its handler touches anything Unity owns, such as its <code>transform</code>, Unity throws <code>MissingReferenceException</code>. An exception inside a delegate call also stops the rest of the list from running, so every listener after the dead one misses the event too.</p>
+
+  <h3>Unity: UnityEvent</h3>
+  <p>A <code>UnityEvent&lt;int&gt;</code> is a serialised field, so it appears in the Inspector as a list you can fill by dragging objects in and picking a method. Those <dfn>persistent listeners</dfn> are saved with the scene or prefab. Code can add more with <code>AddListener</code> and take them off with <code>RemoveListener</code>, which removes every matching entry added from code. <code>RemoveAllListeners</code> clears only the entries added from code, never the ones from the Inspector.</p>
+  <p>Before each call, a UnityEvent checks whether the target is a destroyed Unity object and skips it if so. You get no exception, but the entry and its reference stay in the list until you remove them.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Three rows, one per tool, each showing a Player whose list points at a Health bar that has just been freed. Godot signal: the arrow is gone because the engine removed the connection. C# event: the arrow remains and the call throws MissingReferenceException, so later listeners are not called. UnityEvent: the arrow remains but the call is skipped.">
+      <defs>
+        <marker id="se-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="20" y="22">Tool</text>
+      <text class="d-label" x="168" y="22">Subject's list</text>
+      <text class="d-label" x="350" y="22">Freed listener</text>
+      <text class="d-label" x="490" y="22">Next hit</text>
+
+      <text class="d-text" x="20" y="72">Godot signal</text>
+      <rect class="d-box" x="168" y="50" width="120" height="36" rx="6"/>
+      <text class="d-mono" x="180" y="73">(empty)</text>
+      <rect class="d-box d-dash" x="350" y="50" width="110" height="36" rx="6"/>
+      <text class="d-muted" x="405" y="73" text-anchor="middle">Health bar</text>
+      <text class="d-text" x="490" y="66">nobody called,</text>
+      <text class="d-text" x="490" y="82">no error</text>
+      <text class="d-muted" x="20" y="104">engine removed the record</text>
+
+      <path class="d-thin" d="M20 120 H620"/>
+
+      <text class="d-text" x="20" y="162">C# event</text>
+      <rect class="d-box" x="168" y="140" width="120" height="36" rx="6"/>
+      <rect class="d-accent-soft" x="176" y="146" width="104" height="24" rx="4"/>
+      <text class="d-mono" x="184" y="163">1 Health bar</text>
+      <rect class="d-box d-dash" x="350" y="140" width="110" height="36" rx="6"/>
+      <text class="d-muted" x="405" y="163" text-anchor="middle">Health bar</text>
+      <path class="d-stroke" d="M280 158 H346" marker-end="url(#se-ink)"/>
+      <text class="d-bad-fill" x="490" y="156">throws Missing-</text>
+      <text class="d-bad-fill" x="490" y="172">ReferenceException</text>
+      <text class="d-muted" x="20" y="194">record stays until -=</text>
+
+      <path class="d-thin" d="M20 210 H620"/>
+
+      <text class="d-text" x="20" y="252">UnityEvent</text>
+      <rect class="d-box" x="168" y="230" width="120" height="36" rx="6"/>
+      <rect class="d-accent-soft" x="176" y="236" width="104" height="24" rx="4"/>
+      <text class="d-mono" x="184" y="253">1 Health bar</text>
+      <rect class="d-box d-dash" x="350" y="230" width="110" height="36" rx="6"/>
+      <text class="d-muted" x="405" y="253" text-anchor="middle">Health bar</text>
+      <path class="d-stroke" d="M280 248 H346" marker-end="url(#se-ink)"/>
+      <text class="d-text" x="490" y="246">call skipped,</text>
+      <text class="d-text" x="490" y="262">no error</text>
+      <text class="d-muted" x="20" y="284">record stays, checked each call</text>
+    </svg>
+    <figcaption>The same moment in three tools: the health bar has just been freed and the player is hit. What differs is who removes the record from the subject's list, and what happens to a record that was not removed.</figcaption>
+  </figure>
+
+  <h2>What happens, in what order</h2>
+  <p>Neither engine deletes an object the instant you ask. <code>queue_free</code> and <code>Destroy</code> both wait until the end of the current frame. The listener's clean-up runs at that point, so this is where the connection should end.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Two timelines. Godot: _ready connects, frames pass, queue_free is called, and at the end of the frame the node is freed and the engine removes its connections. Unity: OnEnable runs plus-equals, frames pass, Destroy is called, and at the end of the frame OnDisable runs minus-equals, then OnDestroy.">
+      <defs>
+        <marker id="se-time" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="20" y="24">Godot</text>
+      <path class="d-stroke" d="M20 60 H620" marker-end="url(#se-time)"/>
+      <rect class="d-accent-soft" x="20" y="38" width="120" height="44" rx="5"/>
+      <text class="d-mono" x="80" y="58" text-anchor="middle">_ready</text>
+      <text class="d-text" x="80" y="75" text-anchor="middle">connect</text>
+      <text class="d-muted" x="215" y="56" text-anchor="middle">frames…</text>
+      <rect class="d-box" x="290" y="38" width="120" height="44" rx="5"/>
+      <text class="d-mono" x="350" y="65" text-anchor="middle">queue_free()</text>
+      <rect class="d-accent-soft" x="430" y="38" width="180" height="44" rx="5"/>
+      <text class="d-text" x="520" y="58" text-anchor="middle">end of frame: freed,</text>
+      <text class="d-text" x="520" y="75" text-anchor="middle">links removed</text>
+
+      <text class="d-label" x="20" y="124">Unity</text>
+      <path class="d-stroke" d="M20 160 H620" marker-end="url(#se-time)"/>
+      <rect class="d-accent-soft" x="20" y="138" width="120" height="44" rx="5"/>
+      <text class="d-mono" x="80" y="158" text-anchor="middle">OnEnable</text>
+      <text class="d-mono" x="80" y="175" text-anchor="middle">+=</text>
+      <text class="d-muted" x="215" y="156" text-anchor="middle">frames…</text>
+      <rect class="d-box" x="290" y="138" width="120" height="44" rx="5"/>
+      <text class="d-mono" x="350" y="165" text-anchor="middle">Destroy()</text>
+      <rect class="d-accent-soft" x="430" y="138" width="90" height="44" rx="5"/>
+      <text class="d-mono" x="475" y="158" text-anchor="middle">OnDisable</text>
+      <text class="d-mono" x="475" y="175" text-anchor="middle">-=</text>
+      <rect class="d-box" x="526" y="138" width="84" height="44" rx="5"/>
+      <text class="d-mono" x="568" y="165" text-anchor="middle">OnDestroy</text>
+      <text class="d-muted" x="320" y="202" text-anchor="middle">Time runs left to right. In Godot the engine does the last step; in Unity you write it.</text>
+    </svg>
+    <figcaption>Connect at the start of the listener's life, disconnect at the end of it. Godot ends code connections for you when the target is freed. In Unity, <code>OnDisable</code> runs when a component is disabled and also when it is destroyed, so pairing <code>+=</code> in <code>OnEnable</code> with <code>-=</code> in <code>OnDisable</code> covers both.</figcaption>
+  </figure>
+
+  <h2>Side by side</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Question</th><th>Godot signal</th><th>C# event</th><th>UnityEvent</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Wire in the editor?</td><td>Yes, Node dock</td><td>No, code only</td><td>Yes, Inspector</td></tr>
+      <tr><td>Same handler twice</td><td>Error, refused</td><td>Called twice</td><td>Called twice</td></tr>
+      <tr><td>Listener freed, not disconnected</td><td>Engine removes it</td><td>Still called, may throw</td><td>Skipped, entry kept</td></tr>
+      <tr><td>Disconnect what is not there</td><td>Error</td><td>Silently nothing</td><td>Silently nothing</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>The listener connects itself and disconnects itself, at matching points of its own life. Let the subject stay ignorant of who is listening.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag from the dot on the Player to a listener to connect it; each wire is one <code>connect</code>, <code>+=</code> or <code>AddListener</code>. Tap a listener to disconnect it. Tap the Player to hit it. The numbers on the wires are the order of the list.</p>
+  <p>Start with <strong>Unity C# event, no cleanup</strong>. Connect Health bar, then Sound, then free the health bar and hit. Health bar throws, and Sound is never reached. Switch to <strong>Godot 4 signal</strong> or <strong>-= in OnDisable</strong> and repeat. Then try connecting Sound twice in each model.</p>
+
+  <figure class="demo wide" data-demo="signals">
+    <canvas id="signals"></canvas>
+    <figcaption>Keyboard: use the Listener menu and its buttons, or focus the canvas and press 1, 2 or 3 to connect, Space to hit, F to free the health bar. The model frees objects at once, not at the end of the frame, and leaves out deferred and one-shot connections and editor wiring. The sound is shown, not played.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no signals, so the Lua version builds one that behaves like Godot's: it refuses duplicates, and freeing an object removes every connection that points at it. Space hits, F frees the health bar.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A signal is a list of connections: which object, which method.</span>
+local function newSignal() return { connections = {} } end
+
+local function find(sig, target, method)
+  for i, c in ipairs(sig.connections) do
+    if c.target == target and c.method == method then return i end
+  end
+  return nil
+end
+
+local function connect(sig, target, method)
+  if find(sig, target, method) then
+    print("error: already connected")              <span class="c">-- refuse a duplicate</span>
+    return false
+  end
+  table.insert(sig.connections, { target = target, method = method })
+<span class="k">  table.insert(target.incoming, sig)               <span class="c">-- the target remembers who calls it</span></span>
+  return true
+end
+
+local function disconnect(sig, target, method)
+  local i = find(sig, target, method)
+  if i then table.remove(sig.connections, i) else print("error: not connected") end
+end
+
+local function emit(sig, ...)
+  local copy = {}
+  for i, c in ipairs(sig.connections) do copy[i] = c end
+  for _, c in ipairs(copy) do c.target[c.method](c.target, ...) end
+end
+
+<span class="c">-- Freeing an object removes every connection that points at it.</span>
+local function freeObject(obj)
+<span class="k">  for _, sig in ipairs(obj.incoming) do
+    for i = #sig.connections, 1, -1 do
+      if sig.connections[i].target == obj then table.remove(sig.connections, i) end
+    end
+  end</span>
+  obj.incoming = {}
+  obj.freed = true
+end
+
+local player = { health = 100, health_changed = newSignal() }
+local healthBar = { incoming = {}, shown = 100 }
+function healthBar:on_health_changed(h) self.shown = h end
+local sound = { incoming = {}, plays = 0 }
+function sound:on_health_changed(h) self.plays = self.plays + 1 end
+local flash = { incoming = {}, time = 0 }
+function flash:on_health_changed(h) self.time = 0.5 end
+
+connect(player.health_changed, healthBar, "on_health_changed")
+connect(player.health_changed, sound, "on_health_changed")
+connect(player.health_changed, sound, "on_health_changed")   <span class="c">-- prints the error</span>
+connect(player.health_changed, flash, "on_health_changed")
+
+function love.keypressed(key)
+  if key == "space" then
+    player.health = math.max(0, player.health - 10)   <span class="c">-- state first</span>
+    emit(player.health_changed, player.health)        <span class="c">-- then announce</span>
+  elseif key == "f" and not healthBar.freed then
+    freeObject(healthBar)
+  end
+end
+
+function love.update(dt) flash.time = math.max(0, flash.time - dt) end
+
+function love.draw()
+  if not healthBar.freed then love.graphics.rectangle("fill", 20, 20, healthBar.shown * 2, 16) end
+  love.graphics.print("sounds: " .. sound.plays .. "  listeners: " .. #player.health_changed.connections, 20, 50)
+  if flash.time &gt; 0 then love.graphics.print("FLASH", 20, 80) end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># main.gd on a Node in a new scene. Godot 4.</span>
+<span class="c"># Space or Enter (ui_accept) hits the player. F frees the health bar.</span>
+extends Node
+
+signal health_changed(new_health: int)
+
+class HealthBar extends Label:
+    func on_health_changed(new_health: int) -&gt; void:
+        text = "Health %d" % new_health
+
+var health := 100
+var bar: HealthBar
+
+func _ready() -&gt; void:
+    bar = HealthBar.new()
+    bar.text = "Health 100"
+    add_child(bar)
+<span class="k">    health_changed.connect(bar.on_health_changed)   <span class="c"># the Callable knows its object: bar</span></span>
+    <span class="c"># Connecting again would print an error, so check first.</span>
+    if not health_changed.is_connected(bar.on_health_changed):
+        health_changed.connect(bar.on_health_changed)
+    health_changed.connect(_on_sound)
+
+func _process(_delta: float) -&gt; void:
+    if Input.is_action_just_pressed("ui_accept"):
+        health = maxi(0, health - 10)
+        health_changed.emit(health)
+        print("listeners: ", health_changed.get_connections().size())
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event is InputEventKey and event.pressed and event.keycode == KEY_F:
+        if is_instance_valid(bar):
+<span class="k">            bar.queue_free()   <span class="c"># at the end of the frame Godot drops its connection</span></span>
+
+func _on_sound(_new_health: int) -&gt; void:
+    print("Hurt sound")</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS with the Input System package. Two files.</span>
+
+<span class="c">// Player.cs: put on any GameObject. Space hits the player.</span>
+using System;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.InputSystem;
+
+public class Player : MonoBehaviour
+{
+    public event Action&lt;int&gt; HealthChanged;   <span class="c">// code-only listeners</span>
+    public UnityEvent&lt;int&gt; onHealthChanged;   <span class="c">// can also be wired in the Inspector</span>
+    int health = 100;
+
+    void Update()
+    {
+        if (Keyboard.current != null &amp;&amp; Keyboard.current.spaceKey.wasPressedThisFrame)
+        {
+            health = Mathf.Max(0, health - 10);
+            HealthChanged?.Invoke(health);
+            onHealthChanged?.Invoke(health);
+        }
+    }
+}
+
+<span class="c">// HealthBar.cs: put on a Cube or Sprite and drag the Player into its field. F destroys it.</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class HealthBar : MonoBehaviour
+{
+    public Player player;
+
+<span class="k">    void OnEnable()  { player.HealthChanged += OnHealthChanged; }
+    void OnDisable() { if (player != null) player.HealthChanged -= OnHealthChanged; }</span>
+    <span class="c">// OnDisable also runs on Destroy. Delete it to see MissingReferenceException.</span>
+
+    void OnHealthChanged(int health)
+    {
+        transform.localScale = new Vector3(health / 100f, 1f, 1f);   <span class="c">// throws if destroyed</span>
+    }
+
+    void Update()
+    {
+        if (Keyboard.current != null &amp;&amp; Keyboard.current.fKey.wasPressedThisFrame)
+            Destroy(gameObject);
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Subscribing in Start, unsubscribing in OnDisable.</strong> In Unity, <code>Start</code> runs once but <code>OnDisable</code> runs every time the object is switched off. After one off and on cycle the listener is no longer subscribed. Pair <code>OnEnable</code> with <code>OnDisable</code>, or <code>Awake</code> with <code>OnDestroy</code>.</li>
+    <li><strong>Subscribing twice.</strong> A C# event or UnityEvent calls a duplicate twice, and one <code>-=</code> removes only one copy. If a sound plays twice per hit, look for a second <code>+=</code>. In Godot, guard repeated code connections with <code>is_connected</code>.</li>
+    <li><strong>Lambdas you cannot remove.</strong> In both engines, removing a handler needs the same function value you added. A lambda written inline creates a new one each time, so <code>-=</code> or <code>disconnect</code> with a fresh lambda removes nothing. Keep it in a variable if you will need to remove it.</li>
+    <li><strong>Removed but not freed.</strong> Godot's clean-up only happens when an object is freed. A node taken out of the tree with <code>remove_child</code>, or parked in a pool, still exists and is still called. Disconnect it yourself, or check in the handler.</li>
+    <li><strong>Expecting RemoveAllListeners to clear the Inspector.</strong> It removes only listeners added from code. Inspector entries stay.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines use these tools for their own built-in parts. Godot's <code>Button</code> has a <code>pressed</code> signal and its <code>Timer</code> has <code>timeout</code>, and most projects connect them in the editor. Unity's UI <code>Button</code> exposes <code>onClick</code>, a UnityEvent, which is why button actions can be picked in the Inspector. A common split in Unity projects is C# events between scripts and UnityEvents where designers wire things up without code.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one listener in your project that connects to a signal or event in code. Write down where it connects and where it disconnects. If there is no disconnect, or the two are not a matching pair (<code>OnEnable</code> and <code>OnDisable</code>, or connect in <code>_ready</code> and freed with the node), fix it. You are done when you can free or destroy the listener while the game runs, fire the event, and see no errors and no duplicate calls.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A connection is a record kept by the subject. The listener is only pointed at, so ending the connection is someone's job.</li>
+    <li>Godot removes connections to an object when that object is freed, and refuses duplicates.</li>
+    <li>A C# event keeps calling a destroyed component until you remove it with <code>-=</code>; an exception there stops later listeners too.</li>
+    <li>A UnityEvent skips destroyed targets, but keeps their entries; <code>RemoveAllListeners</code> leaves Inspector entries alone.</li>
+    <li>Connect and disconnect from the listener, at matching points of its life.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at loading assets: <code>load</code> and <code>preload</code> in Godot, Resources and Addressables in Unity, and the frame hitch each choice can cause.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite>Signal</cite>, on <code>connect</code>, <code>disconnect</code> and <code>is_connected</code>: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Signal.xml">doc/classes/Signal.xml</a></cite>; and for <cite>Object</cite>, including the connect flags: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Object.xml">doc/classes/Object.xml</a></cite>.</li>
+    <li>Godot Engine source (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/core/object/object.cpp">core/object/object.cpp</a></cite>: the destructor of <code>Object</code> disconnects every signal that connects to the object being freed.</li>
+    <li>Unity Technologies, C# reference source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Runtime/Export/UnityEvent/UnityEvent.cs">Runtime/Export/UnityEvent/UnityEvent.cs</a></cite>: <code>AllowInvoke</code> skips destroyed targets, and <code>RemoveListener</code> and <code>RemoveAllListeners</code> act only on listeners added from code.</li>
+    <li>Microsoft, C# Programming Guide, <cite><a href="https://raw.githubusercontent.com/dotnet/docs/main/docs/csharp/programming-guide/events/how-to-subscribe-to-and-unsubscribe-from-events.md">How to subscribe to and unsubscribe from events</a></cite>, on unsubscribing and anonymous handlers.</li>
+    <li>Microsoft, .NET API reference, <cite><a href="https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System/Delegate.xml">Delegate.Remove</a></cite>: removes the last occurrence of a method from the list.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var DAMAGE = 10;
+  var MAX_HEALTH = 100;
+  var CALL_TIME = 0.35;   // seconds for a call to travel along its wire
+  var FLASH_TIME = 0.5;
+  var IDS = ['bar', 'sound', 'flash'];
+  var NAMES = { bar: 'Health bar', sound: 'Sound', flash: 'Screen flash' };
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var health, conns, freed, view, anim, drag = null, handle = null;
+
+  function reset() {
+    health = MAX_HEALTH;
+    conns = [];        // the subject's list, in call order, of listener ids
+    freed = false;     // has the health bar been freed or destroyed?
+    view = {};
+    IDS.forEach(function (id) { view[id] = { lit: 0, tag: '', kind: '' }; });
+    view.bar.shown = MAX_HEALTH;
+    view.sound.plays = 0;
+    view.flash.count = 0;
+    view.flash.flash = 0;
+    anim = null;
+  }
+
+  function count(id) {
+    var n = 0;
+    for (var i = 0; i < conns.length; i++) if (conns[i] === id) n++;
+    return n;
+  }
+
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  // ---- The three models -------------------------------------------------------------------
+
+  function connectTo(id) {
+    finishAll();
+    var m = model.value;
+    if (id === 'bar' && freed) {
+      log('The health bar is gone, so there is nothing to connect. Press Reset to bring it back.');
+    } else if (m === 'godot') {
+      if (count(id)) {
+        log('Error: health_changed is already connected to ' + NAMES[id] + '. connect() returned ERR_INVALID_PARAMETER and added nothing.');
+      } else {
+        conns.push(id);
+        log('connect: ' + NAMES[id] + ' is entry ' + conns.length + ' in the list.');
+      }
+    } else {
+      conns.push(id);
+      var n = count(id);
+      var verb = m === 'ue' ? 'AddListener' : '+=';
+      log(verb + ': ' + NAMES[id] + ' is entry ' + conns.length + '.' +
+        (n > 1 ? ' It is now in the list ' + n + ' times, so it will be called ' + n + ' times per hit.' : ''));
+    }
+    redraw();
+  }
+
+  function disconnectFrom(id) {
+    finishAll();
+    var m = model.value;
+    var n = count(id);
+    if (m === 'godot') {
+      if (!n) log('Error: ' + NAMES[id] + ' is not connected, so disconnect() reports an error.');
+      else { conns.splice(conns.indexOf(id), 1); log('disconnect: ' + NAMES[id] + ' removed.'); }
+    } else if (m === 'ue') {
+      if (!n) log('RemoveListener: nothing matched, so nothing happened.');
+      else {
+        conns = conns.filter(function (c) { return c !== id; });
+        log('RemoveListener: removed ' + plural(n, 'entry', 'entries') + ' for ' + NAMES[id] + '.');
+      }
+    } else {
+      if (!n) log('-=: nothing matched, so nothing happened. C# does not complain.');
+      else {
+        conns.splice(conns.lastIndexOf(id), 1);
+        log('-=: removed the last ' + NAMES[id] + ' entry.' + (n > 1 ? ' ' + plural(n - 1, 'copy is', 'copies are') + ' still in the list.' : ''));
+      }
+    }
+    redraw();
+  }
+
+  function freeBar() {
+    finishAll();
+    var m = model.value;
+    if (freed) { log('The health bar is already gone.'); redraw(); return; }
+    freed = true;
+    var n = count('bar');
+    if (m === 'godot') {
+      conns = conns.filter(function (c) { return c !== 'bar'; });
+      log('queue_free: the node is freed at the end of the frame, and Godot removes ' + plural(n, 'connection', 'connections') + ' to it.');
+    } else if (m === 'csd') {
+      if (n) conns.splice(conns.lastIndexOf('bar'), 1);
+      if (n > 1) log('Destroy: OnDisable runs one -=, but the bar was added ' + n + ' times. ' + plural(n - 1, 'entry still points', 'entries still point') + ' at the destroyed bar.');
+      else if (n === 1) log('Destroy: OnDisable runs -= and the list is clean.');
+      else log('Destroy: OnDisable runs -=, which finds nothing to remove.');
+    } else if (m === 'cs') {
+      log('Destroy: the bar is destroyed, but the event still holds ' + plural(n, 'reference', 'references') + ' to its handler.');
+    } else {
+      log('Destroy: the bar is destroyed. The UnityEvent keeps ' + plural(n, 'entry', 'entries') + ' for it, but checks each target before calling.');
+    }
+    redraw();
+  }
+
+  function hit() {
+    finishAll();
+    var m = model.value;
+    health = Math.max(0, health - DAMAGE);   // state first, then announce
+    IDS.forEach(function (id) { view[id].tag = ''; view[id].kind = ''; });
+
+    var copy = conns.slice();
+    var steps = [];
+    var seen = {}, total = {};
+    var thrown = false;
+    var i, id;
+    for (i = 0; i < copy.length; i++) total[copy[i]] = (total[copy[i]] || 0) + 1;
+    for (i = 0; i < copy.length; i++) {
+      id = copy[i];
+      var k = seen[id] || 0;
+      seen[id] = k + 1;
+      var outcome = 'ok';
+      if (thrown) outcome = 'unreached';
+      else if (id === 'bar' && freed) {
+        if (m === 'ue') outcome = 'skipped';
+        else { outcome = 'throw'; thrown = true; }
+      }
+      steps.push({ id: id, k: k, tot: total[id], n: i + 1, outcome: outcome });
+    }
+
+    summarise(steps);
+    anim = { steps: steps, i: 0, t: 0, payload: health };
+    if (reduced) finishAll();
+    redraw();
+  }
+
+  function summarise(steps) {
+    var m = model.value;
+    var call = m === 'godot' ? 'health_changed.emit(' : (m === 'ue' ? 'onHealthChanged.Invoke(' : 'HealthChanged?.Invoke(');
+    var text = call + health + '): ';
+    if (!steps.length) { log(text + 'nobody is listening.'); return; }
+    var called = [], unreached = [], threw = false, skipped = false;
+    steps.forEach(function (s) {
+      if (s.outcome === 'ok') called.push(NAMES[s.id]);
+      if (s.outcome === 'unreached') unreached.push(NAMES[s.id]);
+      if (s.outcome === 'throw') threw = true;
+      if (s.outcome === 'skipped') skipped = true;
+    });
+    text += called.length ? 'called ' + called.join(', ') + '.' : 'nobody was called.';
+    if (threw) {
+      text += ' The destroyed Health bar threw MissingReferenceException';
+      text += unreached.length ? ', so ' + unreached.join(', ') + ' never ran.' : '.';
+    }
+    if (skipped) text += ' Skipped the destroyed Health bar.';
+    log(text);
+  }
+
+  function applyStep(st, payload) {
+    var v = view[st.id];
+    if (st.outcome === 'ok') {
+      v.lit = 1;
+      v.tag = v.tag && v.kind === '' ? v.tag + ', ' + st.n : 'call ' + st.n;
+      v.kind = '';
+      if (st.id === 'bar') v.shown = payload;
+      if (st.id === 'sound') v.plays += 1;
+      if (st.id === 'flash') { v.count += 1; v.flash = reduced ? 0 : FLASH_TIME; }
+    } else if (st.outcome === 'throw') {
+      v.lit = 1; v.tag = 'exception'; v.kind = 'bad';
+    } else if (st.outcome === 'skipped') {
+      v.tag = 'skipped'; v.kind = 'muted';
+    } else {
+      v.tag = 'not reached'; v.kind = 'bad';
+    }
+  }
+
+  function finishAll() {
+    if (!anim) return;
+    while (anim.i < anim.steps.length) {
+      applyStep(anim.steps[anim.i], anim.payload);
+      anim.i++;
+    }
+    anim = null;
+  }
+
+  // ---- Controls ---------------------------------------------------------------------------
+
+  var MODEL_INFO = {
+    godot: 'Godot 4 signal: connect, disconnect, queue_free.',
+    cs: 'Unity C# event: += and -=, and nobody unsubscribes on Destroy.',
+    csd: 'Unity C# event: the listener runs -= in OnDisable, which also runs on Destroy.',
+    ue: 'UnityEvent: AddListener, RemoveListener, Destroy.'
+  };
+
+  var ui = DemoKit.controls('[data-demo="signals"]');
+  var model = ui.select({
+    label: 'Engine model',
+    options: [
+      { value: 'godot', label: 'Godot 4 signal' },
+      { value: 'cs', label: 'Unity C# event, no cleanup' },
+      { value: 'csd', label: 'Unity C# event, -= in OnDisable' },
+      { value: 'ue', label: 'UnityEvent' }
+    ],
+    value: 'cs',
+    onChange: function (v) { reset(); log(MODEL_INFO[v] + ' Everything was reset.'); redraw(); }
+  });
+  var target = ui.select({
+    label: 'Listener',
+    options: IDS.map(function (id) { return { value: id, label: NAMES[id] }; }),
+    value: 'bar'
+  });
+  ui.button({ label: 'Connect', onClick: function () { connectTo(target.value); } });
+  ui.button({ label: 'Disconnect', onClick: function () { disconnectFrom(target.value); } });
+  ui.button({ label: 'Hit the player (10 damage)', onClick: hit });
+  ui.button({ label: 'Free the health bar', onClick: freeBar });
+  ui.button({ label: 'Reset', onClick: function () { reset(); log('Reset. Drag from the Player’s dot to a listener to connect it.'); redraw(); } });
+  var logOut = ui.readout({ label: 'Log' });
+  function log(text) { logOut.set(text); }
+
+  reset();
+  log('Drag from the Player’s dot to a listener to connect it. ' + MODEL_INFO[model.value]);
+
+  // ---- Layout and drawing -----------------------------------------------------------------
+
+  function layout(s) {
+    var pad = 12;
+    var sw = Math.min(170, s.width * 0.36);
+    var ow = Math.min(200, s.width * 0.42);
+    var shown = Math.max(1, Math.min(conns.length, 5));
+    return {
+      pad: pad, sx: pad, sy: 56, sw: sw, sh: 72 + shown * 17 + 6,
+      ox: s.width - ow - pad, ow: ow, oh: 72, oy0: 14, gap: 14
+    };
+  }
+
+  function boxY(L, id) { return L.oy0 + IDS.indexOf(id) * (L.oh + L.gap); }
+  function port(L) { return { x: L.sx + L.sw, y: L.sy + 52 }; }
+
+  function wire(L, id, k, tot) {
+    var P = port(L);
+    var spacing = tot > 4 ? 48 / (tot - 1) : 16;
+    var y = boxY(L, id) + L.oh / 2 + (k - (tot - 1) / 2) * spacing;
+    var dx = Math.max(20, (L.ox - P.x) * 0.45);
+    return { x0: P.x, y0: P.y, x1: P.x + dx, y1: P.y, x2: L.ox - dx, y2: y, x3: L.ox, y3: y };
+  }
+
+  function bez(w, t) {
+    var u = 1 - t;
+    return {
+      x: u * u * u * w.x0 + 3 * u * u * t * w.x1 + 3 * u * t * t * w.x2 + t * t * t * w.x3,
+      y: u * u * u * w.y0 + 3 * u * u * t * w.y1 + 3 * u * t * t * w.y2 + t * t * t * w.y3
+    };
+  }
+
+  function inside(p, x, y, w, h) { return p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h; }
+
+  function listenerAt(L, p) {
+    for (var i = 0; i < IDS.length; i++) {
+      if (inside(p, L.ox, boxY(L, IDS[i]), L.ow, L.oh)) return IDS[i];
+    }
+    return null;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxWidth) {
+    if (maxWidth <= 0) return '';
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+    return text + '…';
+  }
+
+  handle = DemoKit.canvas('#signals', {
+    height: 320,
+    drag: true,
+    keys: true,
+    label: 'A signal wiring demo. A Player box on the left holds a numbered list of connections. Three listeners on the right: Health bar, Sound and Screen flash. Drag from the Player to a listener to connect it, tap a listener to disconnect it, and tap the Player to damage it. Use the Engine model menu to compare Godot signals, C# events and UnityEvents when the health bar is freed.',
+    onDown: function (p, s) {
+      var L = layout(s);
+      var P = port(L);
+      var near = Math.abs(p.x - P.x) < 20 && Math.abs(p.y - P.y) < 20;
+      if (near || inside(p, L.sx, L.sy, L.sw, L.sh)) {
+        drag = { from: 'player', x0: p.x, y0: p.y, x: p.x, y: p.y };
+      } else {
+        var id = listenerAt(L, p);
+        drag = id ? { from: 'listener', id: id, x0: p.x, y0: p.y, x: p.x, y: p.y } : null;
+      }
+    },
+    onMove: function (p) {
+      if (drag) { drag.x = p.x; drag.y = p.y; }
+    },
+    onUp: function (p, s) {
+      if (!drag) return;
+      var L = layout(s);
+      var moved = Math.abs(p.x - drag.x0) + Math.abs(p.y - drag.y0);
+      var d = drag;
+      drag = null;
+      if (d.from === 'player') {
+        var id = listenerAt(L, p);
+        if (id) connectTo(id);
+        else if (moved < 8 && inside(p, L.sx, L.sy, L.sw, L.sh)) hit();
+      } else if (moved < 8 && listenerAt(L, p) === d.id) {
+        disconnectFrom(d.id);
+      }
+      redraw();
+    },
+    onKey: function (key, down) {
+      if (!down) return;
+      if (key === 'space' || key === 'enter') hit();
+      else if (key === '1') connectTo('bar');
+      else if (key === '2') connectTo('sound');
+      else if (key === '3') connectTo('flash');
+      else if (key === 'f') freeBar();
+    },
+    update: function (dt) {
+      if (anim) {
+        while (anim.i < anim.steps.length && anim.steps[anim.i].outcome === 'unreached') {
+          applyStep(anim.steps[anim.i], anim.payload);
+          anim.i++;
+        }
+        if (anim.i >= anim.steps.length) {
+          anim = null;
+        } else {
+          anim.t += dt / CALL_TIME;
+          if (anim.t >= 1) {
+            applyStep(anim.steps[anim.i], anim.payload);
+            anim.i++;
+            anim.t = 0;
+            if (anim.i >= anim.steps.length) anim = null;
+          }
+        }
+      }
+      IDS.forEach(function (id) { view[id].lit = Math.max(0, view[id].lit - dt * 1.5); });
+      view.flash.flash = Math.max(0, view.flash.flash - dt);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      var P = port(L);
+      var m = model.value;
+      var i;
+
+      // Wires, one per entry in the list.
+      var seen = {}, total = {};
+      conns.forEach(function (id) { total[id] = (total[id] || 0) + 1; });
+      var badges = [];
+      for (i = 0; i < conns.length; i++) {
+        var id = conns[i];
+        var k = seen[id] || 0;
+        seen[id] = k + 1;
+        var w = wire(L, id, k, total[id]);
+        var dead = id === 'bar' && freed;
+        ctx.strokeStyle = dead ? c.bad : c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash(dead ? [5, 4] : []);
+        ctx.beginPath();
+        ctx.moveTo(w.x0, w.y0);
+        ctx.bezierCurveTo(w.x1, w.y1, w.x2, w.y2, w.x3, w.y3);
+        ctx.stroke();
+        badges.push({ pt: bez(w, 0.8), n: i + 1, dead: dead });
+      }
+      ctx.setLineDash([]);
+
+      // The call in flight.
+      if (anim && anim.i < anim.steps.length) {
+        var st = anim.steps[anim.i];
+        var fw = wire(L, st.id, st.k, st.tot);
+        var t = DemoKit.clamp(anim.t, 0, 1);
+        var dot = bez(fw, t);
+        ctx.strokeStyle = st.outcome === 'ok' ? c.topic : (st.outcome === 'throw' ? c.bad : c.ink3);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(fw.x0, fw.y0);
+        ctx.bezierCurveTo(fw.x1, fw.y1, fw.x2, fw.y2, fw.x3, fw.y3);
+        ctx.stroke();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Order badges on the wires.
+      ctx.textAlign = 'center';
+      ctx.font = '600 11px ' + FONT;
+      badges.forEach(function (b) {
+        ctx.fillStyle = c.surface;
+        ctx.beginPath();
+        ctx.arc(b.pt.x, b.pt.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = b.dead ? c.bad : c.ink3;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = b.dead ? c.bad : c.ink;
+        ctx.fillText(String(b.n), b.pt.x, b.pt.y + 4);
+      });
+
+      // Drag preview.
+      if (drag && drag.from === 'player') {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(P.x, P.y);
+        ctx.lineTo(drag.x, drag.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Subject box.
+      ctx.fillStyle = c.surface;
+      roundRect(ctx, L.sx, L.sy, L.sw, L.sh, 8);
+      ctx.fill();
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.font = '600 14px ' + FONT;
+      ctx.fillText('Player', L.sx + 10, L.sy + 20);
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(fit(ctx, 'health ' + health + ' / ' + MAX_HEALTH, L.sw - 20), L.sx + 10, L.sy + 38);
+      ctx.fillStyle = c.topic;
+      ctx.font = '600 12px ' + FONT;
+      var listName = m === 'godot' ? 'health_changed' : (m === 'ue' ? 'onHealthChanged' : 'HealthChanged');
+      ctx.fillText(fit(ctx, listName, L.sw - 24), L.sx + 10, L.sy + 56);
+      ctx.font = '12px ' + FONT;
+      if (!conns.length) {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('(empty)', L.sx + 10, L.sy + 76);
+      }
+      var lines = Math.min(conns.length, 5);
+      for (i = 0; i < lines; i++) {
+        var text;
+        if (i === 4 && conns.length > 5) text = '+ ' + (conns.length - 4) + ' more';
+        else text = (i + 1) + '  ' + NAMES[conns[i]];
+        ctx.fillStyle = conns[i] === 'bar' && freed ? c.bad : c.ink;
+        ctx.fillText(fit(ctx, text, L.sw - 20), L.sx + 10, L.sy + 76 + i * 17);
+      }
+
+      // The port.
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(P.x, P.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Hints under the subject.
+      ctx.fillStyle = c.ink3;
+      ctx.font = '12px ' + FONT;
+      var hw = L.ox - L.pad - 16;
+      var hy = L.sy + L.sh + 20;
+      ctx.fillText(fit(ctx, 'drag from the dot to connect', hw), L.sx, hy);
+      ctx.fillText(fit(ctx, 'tap a listener to disconnect', hw), L.sx, hy + 16);
+      ctx.fillText(fit(ctx, 'tap Player to hit', hw), L.sx, hy + 32);
+
+      // Listeners.
+      IDS.forEach(function (id) {
+        var v = view[id];
+        var x = L.ox, y = boxY(L, id), bw = L.ow, bh = L.oh;
+        var gone = id === 'bar' && freed;
+        var n = count(id);
+        ctx.fillStyle = c.surface;
+        roundRect(ctx, x, y, bw, bh, 8);
+        ctx.fill();
+        if (id === 'flash' && v.flash > 0) {
+          ctx.globalAlpha = Math.min(1, v.flash / FLASH_TIME) * 0.45;
+          ctx.fillStyle = c.bad;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        if (v.lit > 0) {
+          ctx.globalAlpha = v.lit * 0.3;
+          ctx.fillStyle = v.kind === 'bad' ? c.bad : c.topic;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.setLineDash(gone ? [5, 4] : []);
+        ctx.strokeStyle = v.kind === 'bad' ? c.bad : (n ? c.ink2 : c.line);
+        ctx.lineWidth = v.kind === 'bad' ? 2.5 : 1.25;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.textAlign = 'left';
+        ctx.font = '600 13px ' + FONT;
+        ctx.fillStyle = gone ? c.ink3 : c.ink;
+        var tagW = 0;
+        if (v.tag) {
+          ctx.font = '600 12px ' + FONT;
+          tagW = Math.min(bw * 0.5, ctx.measureText(v.tag).width);
+          ctx.font = '600 13px ' + FONT;
+        }
+        ctx.fillText(fit(ctx, NAMES[id], bw - 26 - tagW), x + 10, y + 18);
+
+        if (v.tag) {
+          ctx.textAlign = 'right';
+          ctx.font = '600 12px ' + FONT;
+          ctx.fillStyle = v.kind === 'bad' ? c.bad : (v.kind === 'muted' ? c.ink3 : c.topic);
+          ctx.fillText(fit(ctx, v.tag, bw * 0.5), x + bw - 8, y + 18);
+        }
+
+        ctx.textAlign = 'left';
+        ctx.font = '12px ' + FONT;
+        var line2 = '', line3 = '';
+        if (id === 'bar') line2 = gone ? (m === 'godot' ? 'freed' : 'destroyed') : 'shows ' + v.shown;
+        if (id === 'sound') { line2 = 'hurt sound: ' + v.plays; line3 = '(shown, not played)'; }
+        if (id === 'flash') line2 = 'flashes: ' + v.count;
+        if (gone) line3 = n ? 'still in the list ' + n + '×' : 'not in the list';
+        else if (n > 1) line3 = 'in the list ' + n + '×';
+        else if (!n) line3 = 'not connected';
+        ctx.fillStyle = gone ? c.bad : c.ink2;
+        ctx.fillText(fit(ctx, line2, bw - 20), x + 10, y + 38);
+        if (id === 'bar' && !gone) {
+          ctx.fillStyle = c.surface2;
+          ctx.fillRect(x + 10, y + 46, bw - 20, 9);
+          ctx.fillStyle = c.good;
+          ctx.fillRect(x + 10, y + 46, (bw - 20) * v.shown / MAX_HEALTH, 9);
+          if (line3) {
+            ctx.fillStyle = c.ink3;
+            ctx.fillText(fit(ctx, line3, bw - 20), x + 10, y + 67);
+          }
+        } else if (line3) {
+          ctx.fillStyle = gone && n ? c.bad : c.ink3;
+          ctx.fillText(fit(ctx, line3, bw - 20), x + 10, y + 58);
+        }
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>
