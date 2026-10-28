@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polar coordinates in shaders: slices, spirals and a cooldown ring · Game Dev Daily</title>
+<meta name="description" content="Turn each pixel's UV into an angle and a radius, and a circle becomes a strip where fract slices it, a twist spirals it and step fills it.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Polar coordinates in shaders: slices, spirals and a cooldown ring</h1>
+  <p class="lede">Turn each pixel's UV into an angle and a radius, and a circle becomes a strip where fract slices it, a twist spirals it and step fills it.</p>
+</header>
+
+<section data-section="hook">
+  <p>An ability icon with a ring that sweeps around like a clock hand while the spell recharges. A health ring split into eight segments. A sunburst of rays behind a "Level complete" banner. All three are hard to draw with x and y, and each takes only a few lines once the shader asks "which way, and how far?" instead.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Ask the pixel a different question</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far its input has been the centred UV: x and y, with (0, 0) in the middle and y up. <dfn>Polar coordinates</dfn> describe the same point by its <dfn>radius</dfn>, how far it is from the centre, and its <dfn>angle</dfn>, which direction it lies in. The pixel does not move; it describes itself differently.</p>
+
+  <h3>The radius</h3>
+  <p>From the circles lesson: <code>float r = length(uv);</code>. A band of <code>r</code> gives a ring.</p>
+
+  <h3>The angle</h3>
+  <p>GLSL's two-argument <code>atan(y, x)</code> returns the angle of (x, y) in radians, from −π to π. Zero points right and the angle grows counter-clockwise when y points up. A cooldown starts at the top and runs clockwise instead, and swapping the arguments gives exactly that:</p>
+<pre><code>float a = atan(uv.x, uv.y);          // 0 at the top, growing clockwise
+float t = fract(a / 6.2831853);      // in turns: 0 to 1 once around</code></pre>
+  <p><code>atan(x, y)</code> measures from the +y axis towards +x, which is clockwise when y is up. Dividing by 2π, one turn in radians, gives −0.5 to 0.5, and <code>fract</code> wraps the negative half on to 0.5 to 1. So <code>t</code> is the angle in <dfn>turns</dfn>: 0 at the top, 0.25 right, 0.5 bottom, 0.75 left, then back to 0 at the top. That jump is the <dfn>seam</dfn>.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 275" role="img" aria-label="A circle around the origin with x and y axes. The top is labelled t equals 0, the right t equals 0.25, the bottom t equals 0.5 and the left t equals 0.75. A pixel up and to the right of the centre is joined to the centre by a line labelled r, and an arc from the top round to that line is labelled t.">
+      <circle class="d-stroke d-dash" cx="180" cy="140" r="100"/>
+      <path class="d-stroke d-thin" d="M70 140 H290 M180 30 V250"/>
+      <path class="d-accent" d="M180 100 A40 40 0 0 1 214.6 120"/>
+      <path class="d-stroke" d="M180 140 L266.6 90"/>
+      <circle class="d-accent-fill" cx="266.6" cy="90" r="6"/>
+      <circle class="d-fill" cx="180" cy="140" r="4"/>
+      <text class="d-text" x="180" y="22" text-anchor="middle">t = 0</text>
+      <text class="d-text" x="296" y="145">t = 0.25</text>
+      <text class="d-text" x="180" y="268" text-anchor="middle">t = 0.5</text>
+      <text class="d-text" x="64" y="145" text-anchor="end">t = 0.75</text>
+      <text class="d-label" x="206" y="92">t</text>
+      <text class="d-label" x="232" y="132">r</text>
+      <text class="d-text" x="279" y="82">uv</text>
+    </svg>
+    <figcaption>With <code>atan(uv.x, uv.y)</code>, the angle starts at the top and runs clockwise. <code>r</code> is the length of the line from the centre to the pixel.</figcaption>
+  </figure>
+
+  <h3>A circle becomes a strip</h3>
+  <p>Treat (t, r) as a new pair of coordinates and a ring becomes a straight band, each wedge a column. In that strip the earlier tools work unchanged: <code>fract</code> and <code>floor</code> cut cells, <code>step</code> and <code>smoothstep</code> draw edges.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 232" role="img" aria-label="On the left, a ring cut into six slices with the first slice, from the top clockwise, highlighted. An arrow labelled unroll points to a rectangle on the right whose horizontal axis is t from 0 to 1 and whose vertical axis is r. The ring has become a band across the top of the rectangle, cut into six columns, with the first column highlighted.">
+      <path class="d-accent-soft" d="M120 25 A90 90 0 0 1 197.9 70 L159 92.5 A45 45 0 0 0 120 70 Z"/>
+      <circle class="d-stroke" cx="120" cy="115" r="90"/>
+      <circle class="d-stroke" cx="120" cy="115" r="45"/>
+      <path class="d-stroke d-thin" d="M120 25 L120 70 M197.9 70 L159 92.5 M197.9 160 L159 137.5 M120 205 L120 160 M42.1 160 L81 137.5 M42.1 70 L81 92.5"/>
+      <path class="d-accent" d="M232 115 H326 M326 115 l-7 -5 M326 115 l-7 5"/>
+      <text class="d-label" x="279" y="104" text-anchor="middle">unroll</text>
+      <text class="d-muted d-mono" x="279" y="136" text-anchor="middle">(t, r)</text>
+      <rect class="d-box" x="360" y="30" width="260" height="170"/>
+      <rect class="d-accent-soft" x="360" y="30" width="43.3" height="85"/>
+      <path class="d-stroke" d="M360 115 H620"/>
+      <path class="d-stroke d-thin" d="M403.3 30 V115 M446.7 30 V115 M490 30 V115 M533.3 30 V115 M576.7 30 V115"/>
+      <text class="d-muted" x="490" y="160" text-anchor="middle">r below the ring: the hole</text>
+      <text class="d-text" x="360" y="220" text-anchor="middle">0</text>
+      <text class="d-text" x="620" y="220" text-anchor="middle">1</text>
+      <text class="d-text" x="490" y="220" text-anchor="middle">t (turns)</text>
+      <text class="d-text" x="352" y="44" text-anchor="end">r</text>
+    </svg>
+    <figcaption>In (t, r) space the ring is a band and each slice is a column. Cutting the band with <code>fract(t * 6.0)</code> is the same tiling trick as on ordinary UVs.</figcaption>
+  </figure>
+
+  <h3>Building the cooldown ring, one line at a time</h3>
+  <p>Each step adds one line; the demo's Stage menu shows each result.</p>
+  <ol>
+    <li><strong>Slices.</strong> <code>float s = t * u_segments;</code> then <code>floor(s)</code> is the slice number and <code>fract(s)</code> the position inside it, 0 to 1: the tiling from the fract lesson, done on the angle.</li>
+    <li><strong>A twist.</strong> Before slicing, add an angle that grows with the radius: <code>fract(t + u_twist * r)</code>. The columns lean, and wrapped back into a circle they become <dfn>spiral</dfn> arms.</li>
+    <li><strong>The ring.</strong> One minus a <code>smoothstep</code> of <code>abs(r - 0.32)</code> keeps radii from 0.22 to 0.42.</li>
+    <li><strong>Gaps.</strong> A slice is a fixed fraction of a turn, so it gets wider the further out you go. For gaps of even width, convert the distance to the slice edge into length along the arc: multiply by 2π and by <code>r</code>, divide by the slice count.</li>
+    <li><strong>The fill.</strong> The cooldown is <code>t &lt; u_fill</code>. For a soft edge, measure along the arc too: <code>smoothstep(-aa, aa, (u_fill - t) * 6.2831853 * r)</code>, where <code>aa</code> is one pixel in UV units.</li>
+  </ol>
+  <p>For a sunburst, colour alternate slices with <code>mod(floor(s), 2.0)</code>. The demo draws one behind the ring.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>If a shape goes around a point, convert to (t, r) and draw it as if it were straight. Widths in turns grow with the radius, so multiply by <code>r</code> for an even width.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag <em>Fill</em> and watch the sweep start at the top and run clockwise, or switch on <em>Run the cooldown</em>. Change <em>Slices</em> and <em>Gap</em>: the gaps stay the same width across the ring. Drag <em>Twist</em> to bend everything into spirals.</p>
+  <p>Drag on the picture to move the probe; the readout gives its angle and radius. Walk the <em>Stage</em> menu from 1 to 7. In stage 2, look straight up from the centre to find the seam. Try an odd slice count and find where two rays of the same colour meet.</p>
+
+  <figure class="demo" data-demo="polar-uv">
+    <canvas id="polar-uv"></canvas>
+    <figcaption>Stage 2 shows the angle as grey, stage 3 the radius, stage 4 the slices (red: position inside the slice, green: slice number). <em>Maths angle</em> starts at the right and runs counter-clockwise.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Click to place the probe. Left and right change the slice count, up and down change the twist, space starts and stops the cooldown, M toggles the maths angle and S cycles the stage.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local segments = 8          <span class="c">-- slices around the ring</span>
+local twist = 0             <span class="c">-- extra turns per uv unit of radius</span>
+local fill = 0.65           <span class="c">-- 0 to 1, how much has recharged</span>
+local gap = 0.012           <span class="c">-- gap between slices, in uv units</span>
+local mathAngle = 0         <span class="c">-- 1 starts at the right and turns counter-clockwise</span>
+local running = false       <span class="c">-- when on, the ring refills every 3 seconds</span>
+local duration = 3
+local stage = 6             <span class="c">-- 0 uv, 1 angle, 2 radius, 3 slices, 4 mask, 5 fill, 6 final</span>
+local probe = { 0.25, 0.2 } <span class="c">-- in uv units</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_segments;   // slices around the ring
+uniform float u_twist;      // extra turns per uv unit of radius
+uniform float u_fill;       // 0 to 1, how much has recharged
+uniform float u_gap;        // gap between slices, in uv units
+uniform float u_math;       // 1.0 starts at the right and turns counter-clockwise
+uniform float u_stage;
+uniform vec2 u_probe;       // centred uv of the probe
+uniform vec4 u_rect;        // x, y, width, height in pixels
+
+const float TWO_PI = 6.2831853;
+
+vec3 shade(vec2 uv, float aa) {
+  float r = length(uv);                            // radius: distance from the centre
+  vec2 p = r &gt; 0.0001 ? uv : vec2(0.0, 1.0);       // atan(0, 0) is undefined
+<span class="k">  float a = atan(p.x, p.y);                        // 0 at the top, clockwise
+  if (u_math &gt; 0.5) a = atan(p.y, p.x);            // 0 at the right, counter-clockwise
+  float t = fract(a / TWO_PI);                     // angle in turns, 0 to 1</span>
+  float s = fract(t + u_twist * r) * u_segments;   // twisted angle, in slices
+  float id = floor(s);                             // which slice
+  float f = fract(s);                              // where inside the slice, 0 to 1
+  float edge = min(f, 1.0 - f) * TWO_PI * r / u_segments;   // to the slice edge, uv units
+  float ring = 1.0 - smoothstep(0.1 - aa, 0.1 + aa, abs(r - 0.32));   // radius 0.22 to 0.42
+  float gaps = smoothstep(0.5 * u_gap - aa, 0.5 * u_gap + aa, edge);
+  float mask = ring * gaps;
+  float filled = smoothstep(-aa, aa, (u_fill - t) * TWO_PI * r);   // edge along the arc
+  if (u_fill &lt;= 0.0) filled = 0.0;
+  if (u_fill &gt;= 1.0) filled = 1.0;
+
+  vec3 dark = vec3(0.1, 0.12, 0.2);
+  vec3 light = vec3(0.17, 0.2, 0.32);
+  vec3 bg = mix(dark, light, mod(id, 2.0));                            // sunburst rays
+  bg = mix(0.5 * (dark + light), bg, smoothstep(0.0, 1.5 * aa, edge));  // soften ray edges
+  vec3 ringCol = mix(vec3(0.3, 0.34, 0.44), vec3(1.0, 0.62, 0.2), filled);
+  vec3 col = mix(bg, ringCol, mask);
+
+  if (u_stage &lt; 5.5) col = vec3(filled);
+  if (u_stage &lt; 4.5) col = vec3(mask);
+  if (u_stage &lt; 3.5) col = vec3(f, id / u_segments, 0.0);
+  if (u_stage &lt; 2.5) col = vec3(r * 2.0);
+  if (u_stage &lt; 1.5) col = vec3(t);
+  if (u_stage &lt; 0.5) col = vec3(uv + 0.5, 0.0);
+
+  float h = clamp(dot(uv, u_probe) / max(dot(u_probe, u_probe), 0.0001), 0.0, 1.0);
+  float line = length(uv - u_probe * h);           // the probe's radius line
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, line));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, line));
+  float pd = length(uv - u_probe) - 0.012;         // the probe's dot
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));
+  return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+  uv.y = -uv.y;                      // y points down here; make it point up
+  float aa = 1.0 / u_rect.w;         // one pixel, in uv units
+  return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  if running then
+<span class="k">    fill = fill + dt / duration
+    if fill &gt;= 1 then fill = fill - 1 end</span>
+  end
+end
+
+function love.keypressed(key)
+  if key == "right" then segments = math.min(16, segments + 1) end
+  if key == "left" then segments = math.max(1, segments - 1) end
+  if key == "up" then twist = math.min(3, twist + 0.5) end
+  if key == "down" then twist = math.max(-3, twist - 0.5) end
+  if key == "space" then running = not running end
+  if key == "m" then mathAngle = 1 - mathAngle end
+  if key == "s" then stage = (stage + 1) % 7 end
+end
+
+function love.mousepressed(x, y, button)
+  <span class="c">-- screen pixels to centred uv with y up: the same maths as the shader</span>
+  probe[1] = (x - rect[1] - 0.5 * rect[3]) / rect[4]
+  probe[2] = -(y - rect[2] - 0.5 * rect[4]) / rect[4]
+end
+
+function love.draw()
+  shader:send("u_segments", segments)
+  shader:send("u_twist", twist)
+  shader:send("u_fill", fill)
+  shader:send("u_gap", gap)
+  shader:send("u_math", mathAngle)
+  shader:send("u_stage", stage)
+  shader:send("u_probe", probe)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_segments;   // slices around the ring
+uniform float u_twist;      // extra turns per uv unit of radius
+uniform float u_fill;       // 0 to 1, how much has recharged
+uniform float u_gap;        // gap between slices, in uv units
+uniform float u_math;       // 1.0 starts at the right and turns counter-clockwise
+uniform float u_stage;
+uniform vec2 u_probe;       // centred uv of the probe
+
+const float TWO_PI = 6.2831853;
+
+vec3 shade(vec2 uv, float aa) {
+  float r = length(uv);                            // radius: distance from the centre
+  vec2 p = r &gt; 0.0001 ? uv : vec2(0.0, 1.0);       // atan(0, 0) is undefined
+<span class="k">  float a = atan(p.x, p.y);                        // 0 at the top, clockwise
+  if (u_math &gt; 0.5) a = atan(p.y, p.x);            // 0 at the right, counter-clockwise
+  float t = fract(a / TWO_PI);                     // angle in turns, 0 to 1</span>
+  float s = fract(t + u_twist * r) * u_segments;   // twisted angle, in slices
+  float id = floor(s);                             // which slice
+  float f = fract(s);                              // where inside the slice, 0 to 1
+  float edge = min(f, 1.0 - f) * TWO_PI * r / u_segments;   // to the slice edge, uv units
+  float ring = 1.0 - smoothstep(0.1 - aa, 0.1 + aa, abs(r - 0.32));   // radius 0.22 to 0.42
+  float gaps = smoothstep(0.5 * u_gap - aa, 0.5 * u_gap + aa, edge);
+  float mask = ring * gaps;
+  float filled = smoothstep(-aa, aa, (u_fill - t) * TWO_PI * r);   // edge along the arc
+  if (u_fill &lt;= 0.0) filled = 0.0;
+  if (u_fill &gt;= 1.0) filled = 1.0;
+
+  vec3 dark = vec3(0.1, 0.12, 0.2);
+  vec3 light = vec3(0.17, 0.2, 0.32);
+  vec3 bg = mix(dark, light, mod(id, 2.0));                            // sunburst rays
+  bg = mix(0.5 * (dark + light), bg, smoothstep(0.0, 1.5 * aa, edge));  // soften ray edges
+  vec3 ringCol = mix(vec3(0.3, 0.34, 0.44), vec3(1.0, 0.62, 0.2), filled);
+  vec3 col = mix(bg, ringCol, mask);
+
+  if (u_stage &lt; 5.5) col = vec3(filled);
+  if (u_stage &lt; 4.5) col = vec3(mask);
+  if (u_stage &lt; 3.5) col = vec3(f, id / u_segments, 0.0);
+  if (u_stage &lt; 2.5) col = vec3(r * 2.0);
+  if (u_stage &lt; 1.5) col = vec3(t);
+  if (u_stage &lt; 0.5) col = vec3(uv + 0.5, 0.0);
+
+  float h = clamp(dot(uv, u_probe) / max(dot(u_probe, u_probe), 0.0001), 0.0, 1.0);
+  float line = length(uv - u_probe * h);           // the probe's radius line
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, line));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, line));
+  float pd = length(uv - u_probe) - 0.012;         // the probe's dot
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up
+  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. A segmented cooldown ring with a sunburst behind it.
+// Put this in a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform float segments : hint_range(1.0, 16.0, 1.0) = 8.0;
+uniform float twist = 0.0;                   // extra turns per uv unit of radius
+uniform float fill : hint_range(0.0, 1.0) = 0.65;
+uniform float gap = 0.012;                   // in uv units
+uniform float aspect = 1.0;                  // set to the ColorRect's width / height
+
+const float TWO_PI = 6.2831853;
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * vec2(aspect, 1.0);  // centred
+    uv.y = -uv.y;                              // UV.y points down in Godot; make it point up
+    float aa = fwidth(uv.y);                   // one pixel, in uv units
+    float r = length(uv);
+    vec2 p = uv;
+    if (r &lt; 0.0001) { p = vec2(0.0, 1.0); }    // atan(0, 0) is undefined
+<span class="k">    float t = fract(atan(p.x, p.y) / TWO_PI);  // 0 at the top, clockwise</span>
+    float s = fract(t + twist * r) * segments;
+    float f = fract(s);
+    float edge = min(f, 1.0 - f) * TWO_PI * r / segments;
+    float ring = 1.0 - smoothstep(0.1 - aa, 0.1 + aa, abs(r - 0.32));
+    float mask = ring * smoothstep(0.5 * gap - aa, 0.5 * gap + aa, edge);
+    float filled = smoothstep(-aa, aa, (fill - t) * TWO_PI * r);
+    if (fill &lt;= 0.0) { filled = 0.0; }
+    if (fill &gt;= 1.0) { filled = 1.0; }
+    vec3 ray_a = vec3(0.1, 0.12, 0.2);
+    vec3 ray_b = vec3(0.17, 0.2, 0.32);
+    vec3 bg = mix(ray_a, ray_b, mod(floor(s), 2.0));
+    bg = mix(0.5 * (ray_a + ray_b), bg, smoothstep(0.0, 1.5 * aa, edge));
+    vec3 ring_col = mix(vec3(0.3, 0.34, 0.44), vec3(1.0, 0.62, 0.2), filled);
+    COLOR = vec4(mix(bg, ring_col, mask), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. A segmented cooldown ring with a sunburst behind it.
+// Put it on a material and apply it to a Quad.
+Shader "GameDevDaily/PolarCooldown"
+{
+    Properties
+    {
+        _Segments ("Slices", Range(1, 16)) = 8
+        _Twist ("Twist (turns per uv unit)", Float) = 0
+        _Fill ("Fill", Range(0, 1)) = 0.65
+        _Gap ("Gap (uv units)", Float) = 0.012
+        _Aspect ("Aspect (width / height)", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+
+            float _Segments, _Twist, _Fill, _Gap, _Aspect;
+            static const float TWO_PI = 6.2831853;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * float2(_Aspect, 1.0);  // centred, y up
+                float aa = fwidth(uv.y);
+                float r = length(uv);
+                float2 p = uv;
+                if (r &lt; 0.0001) p = float2(0.0, 1.0);             // atan2(0, 0) is undefined
+<span class="k">                float t = frac(atan2(p.x, p.y) / TWO_PI);         // 0 at the top, clockwise</span>
+                float segs = floor(_Segments);
+                float s = frac(t + _Twist * r) * segs;
+                float f = frac(s);
+                float edge = min(f, 1.0 - f) * TWO_PI * r / segs;
+                float ring = 1.0 - smoothstep(0.1 - aa, 0.1 + aa, abs(r - 0.32));
+                float mask = ring * smoothstep(0.5 * _Gap - aa, 0.5 * _Gap + aa, edge);
+                float filled = smoothstep(-aa, aa, (_Fill - t) * TWO_PI * r);
+                if (_Fill &lt;= 0.0) filled = 0.0;
+                if (_Fill &gt;= 1.0) filled = 1.0;
+                float3 dark = float3(0.1, 0.12, 0.2);
+                float3 light = float3(0.17, 0.2, 0.32);
+                float ray = frac(floor(s) * 0.5) * 2.0;  // 0 or 1; HLSL fmod differs from GLSL mod
+                float3 bg = lerp(dark, light, ray);
+                bg = lerp(0.5 * (dark + light), bg, smoothstep(0.0, 1.5 * aa, edge));
+                float3 ringCol = lerp(float3(0.3, 0.34, 0.44), float3(1.0, 0.62, 0.2), filled);
+                return fixed4(lerp(bg, ringCol, mask), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up, so <code>atan(x, y)</code> runs clockwise from the top. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down; without the y flip, the same line would start at the <em>bottom</em> and run counter-clockwise. HLSL's <code>atan2</code> takes y first, like GLSL's <code>atan</code>. In URP Shader Graph, the <em>Polar Coordinates</em> node outputs a radius and an angle; check where its angle starts and which way it runs before relying on it. In a Unity project set to Linear colour space, the hard-coded colours look lighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>One-argument atan.</strong> <code>atan(y / x)</code> only returns −π/2 to π/2, so the left half copies the right half. Use the two-argument form.</li>
+    <li><strong>Swapped arguments by accident.</strong> Swapping them changes both where the angle starts and which way it turns. Do it on purpose or not at all.</li>
+    <li><strong>A line along the seam.</strong> Anything that compares neighbouring pixels sees a huge jump at the seam: <code>fwidth(t)</code> for anti-aliasing, or a texture sampled with <code>t</code>, can draw a thin line there. Measure edges in UV units, as this shader does.</li>
+    <li><strong>The centre pixel.</strong> <code>atan(0.0, 0.0)</code> is undefined in GLSL. The guard costs one comparison.</li>
+    <li><strong>Odd slice counts.</strong> With 7 slices, slices 6 and 0 are both even, so two same-coloured rays meet at the seam. Use an even count for sunbursts.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p><code>length</code> is a square root, which GPUs do quickly. <code>atan</code> is the expensive line: on most GPUs it is not one instruction but a short sequence the compiler expands, so it costs several times a multiply. One per pixel is fine even on a phone, especially on an icon a few thousand pixels big. Be more careful with full-screen effects that call it several times per pixel on low-end mobiles.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The radial cooldown sweep over an ability icon is a long-standing convention in MMOs and action games; World of Warcraft's action bar is a familiar example. Games draw it in different ways, with a shader or with a fan of triangles, so this is one way, not how a particular game does it.</p>
+  <p>Both engines ship the same parameters. Unity's UI <em>Image</em> has an Image Type of <em>Filled</em> with a Fill Method of <em>Radial 360</em>, a Fill Origin, a Fill Amount and a Clockwise option. Godot's <code>TextureProgressBar</code> has clockwise and counter-clockwise fill modes and a <code>radial_initial_angle</code> property. A custom shader earns its place when you want even gaps, spirals or a sunburst.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE example:</p>
+  <ol>
+    <li>Add a bright line at the leading edge of the fill, like a clock hand: inside the ring, add white where <code>abs(u_fill - t) * 6.2831853 * r</code> is less than two pixels.</li>
+    <li>Make the sunburst turn: keep a <code>time</code> variable that grows in <code>love.update(dt)</code>, send it as <code>u_spin</code>, and add it to <code>t</code> before slicing for the background rays only.</li>
+  </ol>
+  <p>You are done when the hand has the same width at the inside and the outside of the ring, and the rays turn while the ring's slices stay still.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>r = length(uv)</code> and <code>t = fract(atan(uv.x, uv.y) / 2π)</code> describe a pixel by how far and which way, with t in turns from the top, clockwise when y points up.</li>
+    <li>In (t, r) space a ring is a straight band, so <code>fract</code>, <code>floor</code> and <code>step</code> slice it and fill it as on ordinary UVs.</li>
+    <li>Adding <code>twist * r</code> to the angle before slicing turns slices into spirals.</li>
+    <li>Distances in turns grow with the radius; multiply by 2π·r to get even widths.</li>
+    <li>Watch the seam at t = 0 and the undefined centre; <code>atan</code> is the one costly line.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson bends coordinates with a wave, UV distortion, to make a checker pattern ripple like water or heat haze.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Shapes" (polar shapes).</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.1 "Angle and Trigonometry Functions" (atan with two arguments, undefined at 0, 0).</li>
+    <li>Unity documentation, <cite>Image</cite> (UI, Filled image type) and Shader Graph <cite>Polar Coordinates Node</cite>.</li>
+    <li>Godot Engine documentation, <cite>TextureProgressBar</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_segments;   // slices around the ring",
+    "uniform float u_twist;      // extra turns per uv unit of radius",
+    "uniform float u_fill;       // 0 to 1, how much has recharged",
+    "uniform float u_gap;        // gap between slices, in uv units",
+    "uniform float u_math;       // 1.0 starts at the right and turns counter-clockwise",
+    "uniform float u_stage;",
+    "uniform vec2 u_probe;       // centred uv of the probe",
+    "",
+    "const float TWO_PI = 6.2831853;",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  float r = length(uv);                            // radius: distance from the centre",
+    "  vec2 p = r > 0.0001 ? uv : vec2(0.0, 1.0);       // atan(0, 0) is undefined",
+    "  float a = atan(p.x, p.y);                        // 0 at the top, clockwise",
+    "  if (u_math > 0.5) a = atan(p.y, p.x);            // 0 at the right, counter-clockwise",
+    "  float t = fract(a / TWO_PI);                     // angle in turns, 0 to 1",
+    "  float s = fract(t + u_twist * r) * u_segments;   // twisted angle, in slices",
+    "  float id = floor(s);                             // which slice",
+    "  float f = fract(s);                              // where inside the slice, 0 to 1",
+    "  float edge = min(f, 1.0 - f) * TWO_PI * r / u_segments;   // to the slice edge, uv units",
+    "  float ring = 1.0 - smoothstep(0.1 - aa, 0.1 + aa, abs(r - 0.32));   // radius 0.22 to 0.42",
+    "  float gaps = smoothstep(0.5 * u_gap - aa, 0.5 * u_gap + aa, edge);",
+    "  float mask = ring * gaps;",
+    "  float filled = smoothstep(-aa, aa, (u_fill - t) * TWO_PI * r);   // edge along the arc",
+    "  if (u_fill <= 0.0) filled = 0.0;",
+    "  if (u_fill >= 1.0) filled = 1.0;",
+    "",
+    "  vec3 dark = vec3(0.1, 0.12, 0.2);",
+    "  vec3 light = vec3(0.17, 0.2, 0.32);",
+    "  vec3 bg = mix(dark, light, mod(id, 2.0));                            // sunburst rays",
+    "  bg = mix(0.5 * (dark + light), bg, smoothstep(0.0, 1.5 * aa, edge));  // soften ray edges",
+    "  vec3 ringCol = mix(vec3(0.3, 0.34, 0.44), vec3(1.0, 0.62, 0.2), filled);",
+    "  vec3 col = mix(bg, ringCol, mask);",
+    "",
+    "  if (u_stage < 5.5) col = vec3(filled);",
+    "  if (u_stage < 4.5) col = vec3(mask);",
+    "  if (u_stage < 3.5) col = vec3(f, id / u_segments, 0.0);",
+    "  if (u_stage < 2.5) col = vec3(r * 2.0);",
+    "  if (u_stage < 1.5) col = vec3(t);",
+    "  if (u_stage < 0.5) col = vec3(uv + 0.5, 0.0);",
+    "",
+    "  float h = clamp(dot(uv, u_probe) / max(dot(u_probe, u_probe), 0.0001), 0.0, 1.0);",
+    "  float line = length(uv - u_probe * h);           // the probe's radius line",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, line));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, line));",
+    "  float pd = length(uv - u_probe) - 0.012;         // the probe's dot",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var DURATION = 3; // seconds for one full cooldown, as in the Lua
+  var TWO_PI = Math.PI * 2;
+  var fillValue = 0.65;
+  var probe = [0.25, 0.2];
+  var handle = null;
+
+  function fract(x) { return x - Math.floor(x); }
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="polar-uv"]');
+  var fillS = ui.slider({ label: 'Fill', min: 0, max: 1, step: 0.01, value: 0.65,
+    onInput: function (v) { fillValue = v; redraw(); } });
+  var segments = ui.slider({ label: 'Slices', min: 1, max: 16, step: 1, value: 8, onInput: redraw });
+  var gap = ui.slider({ label: 'Gap', min: 0, max: 0.04, step: 0.002, value: 0.012, unit: ' uv', onInput: redraw });
+  var twist = ui.slider({ label: 'Twist', min: -3, max: 3, step: 0.1, value: 0, unit: ' turns per uv unit', onInput: redraw });
+  var run = ui.toggle({ label: 'Run the cooldown', value: false, onChange: redraw });
+  var mathAngle = ui.toggle({ label: 'Maths angle (start at the right, counter-clockwise)', value: false, onChange: redraw });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Centred uv as red and green' },
+      { value: '1', label: '2. Angle t in turns' },
+      { value: '2', label: '3. Radius r (white at 0.5)' },
+      { value: '3', label: '4. Slices: fract(s) and floor(s)' },
+      { value: '4', label: '5. Ring with gaps (mask)' },
+      { value: '5', label: '6. Fill: t below fill' },
+      { value: '6', label: '7. Final colour' }
+    ],
+    value: '6',
+    onChange: function (v) { if (handle) { handle.set('u_stage', Number(v)); } redraw(); }
+  });
+  var readout = ui.readout({ label: 'Probe' });
+
+  function polar(x, y) {
+    var r = Math.sqrt(x * x + y * y);
+    var px = r > 0.0001 ? x : 0;
+    var py = r > 0.0001 ? y : 1;
+    var a = mathAngle.value ? Math.atan2(py, px) : Math.atan2(px, py);
+    var t = fract(a / TWO_PI);
+    var slice = Math.floor(fract(t + twist.value * r) * segments.value);
+    return { r: r, t: t, slice: slice };
+  }
+
+  function updateReadout() {
+    var q = polar(probe[0], probe[1]);
+    readout.set('uv (' + probe[0].toFixed(2) + ', ' + probe[1].toFixed(2) + '): t = ' +
+      q.t.toFixed(3) + ' turns (' + (q.t * 360).toFixed(0) + '°), r = ' + q.r.toFixed(3) +
+      ', slice ' + q.slice + ' (counting from 0); fill ' + fillValue.toFixed(2));
+  }
+
+  function placeProbe(p, s) {
+    if (!p.down || s.height <= 0) return;
+    var halfW = 0.5 * s.width / s.height;
+    probe[0] = DemoKit.clamp((p.x - 0.5 * s.width) / s.height, -halfW, halfW);
+    probe[1] = DemoKit.clamp((0.5 * s.height - p.y) / s.height, -0.5, 0.5);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#polar-uv', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 380,
+    drag: true,
+    label: 'A live fragment shader showing a ring split into slices around the centre, with an orange fill sweeping clockwise from the top and a sunburst of rays behind it. A white probe line runs from the centre to a dot. Drag on the picture to move the probe, or use the controls below.',
+    uniforms: {
+      u_segments: function () { return segments.value; },
+      u_twist: function () { return twist.value; },
+      u_fill: function () { return fillValue; },
+      u_gap: function () { return gap.value; },
+      u_math: function () { return mathAngle.value ? 1 : 0; },
+      u_stage: 6,
+      u_probe: function () { return probe; }
+    },
+    onDown: placeProbe,
+    onMove: placeProbe,
+    update: function (dt) {
+      if (run.value) {
+        fillValue = fillValue + dt / DURATION;
+        if (fillValue >= 1) fillValue = fillValue - 1;
+        fillS.set(Math.round(fillValue * 100) / 100);
+      }
+      updateReadout();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

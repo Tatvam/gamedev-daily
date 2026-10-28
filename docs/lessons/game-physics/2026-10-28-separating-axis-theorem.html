@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The separating axis theorem · Game Dev Daily</title>
+<meta name="description" content="How to test two convex polygons, rotated boxes included, for overlap by looking for one axis on which their shadows have a gap.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The separating axis theorem</h1>
+  <p class="lede">How to test two convex polygons, rotated boxes included, for overlap by looking for one axis on which their shadows have a gap.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your spinning saw blade hits the player while it is still visibly a hand's width away. Both were wrapped in axis-aligned boxes, and the boxes overlapped even though the shapes inside did not. Once things rotate or slope, you need a test that looks at the real outline.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Shadows on a line</h2>
+  <p>The test in this lesson works on <dfn>convex</dfn> shapes: shapes where a straight line between any two points inside stays inside. Boxes, triangles and regular hexagons are convex. An L shape or a star is not.</p>
+  <p>Pick a direction, an <dfn>axis</dfn>, as a vector of length 1, <code>(ax, ay)</code>. Shine a light at right angles to it and every shape casts a shadow onto it. The shadow of one corner is a dot product:</p>
+<pre><code>local s = x * ax + y * ay</code></pre>
+  <p>In words: <code>s</code> is how far the corner lies along the axis. The smallest and largest <code>s</code> over all corners give the polygon's shadow, also called its <dfn>projection</dfn>.</p>
+  <p>The <dfn>separating axis theorem</dfn> (SAT) says that two convex shapes do not overlap if and only if some axis shows a gap between their shadows. One gap proves they are apart. One overlap proves nothing: you must check every axis that could show a gap.</p>
+
+  <h2>The bug: x and y are not enough</h2>
+  <p>The AABB test from earlier lessons is the SAT with only x and y. That is enough for boxes that never rotate, and nothing else.</p>
+  <p>Take a triangle with corners (100, 100), (200, 100) and (100, 200), and a box from (170, 170) to (230, 230). On x the triangle covers 100 to 200 and the box 170 to 230: an overlap of 30. The same on y. An AABB test reports a hit.</p>
+  <p>Now try the diagonal axis <code>(0.707, 0.707)</code>, perpendicular to the triangle's long edge. The triangle's corners give 141.4, 212.1 and 212.1. The box's give 240.4, 282.8, 282.8 and 325.3. The gap is <code>240.4 - 212.1 = 28.3</code> pixels: the shapes are apart.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a triangle and a box, with dashed lines dropping their corners onto a diagonal axis below them. Their shadows on that axis have a gap of 28.3 pixels. Right: three rows of shadow intervals. On the x axis and on the y axis the shadows overlap by 30. On the diagonal axis they have a gap of 28.3.">
+      <!-- Shapes: the lesson's triangle and box, moved 100 right and 80 up -->
+      <polygon class="d-accent-soft" points="140,20 240,20 140,120"/>
+      <text class="d-label" x="164" y="52">A</text>
+      <rect class="d-box" x="210" y="90" width="60" height="60"/>
+      <text class="d-text" x="240" y="125" text-anchor="middle">B</text>
+      <!-- Projection lines from the extreme corners onto the axis -->
+      <path class="d-dash" d="M140 20 L69.9 90.1"/>
+      <path class="d-dash" d="M240 20 L119.9 140.1"/>
+      <path class="d-dash" d="M210 90 L139.9 160.1"/>
+      <path class="d-dash" d="M270 150 L199.9 220.1"/>
+      <!-- The axis -->
+      <path class="d-thin" d="M44 64 L222 242"/>
+      <text class="d-muted" x="214" y="258" text-anchor="end">axis (0.707, 0.707)</text>
+      <!-- Shadows -->
+      <path class="d-accent" style="stroke-width:5" d="M69.9 90.1 L119.9 140.1"/>
+      <path class="d-stroke" style="stroke-width:5" d="M139.9 160.1 L199.9 220.1"/>
+      <path class="d-good" style="stroke-width:3" d="M121.5 141.7 L138.3 158.5"/>
+      <text class="d-text" x="122" y="172" text-anchor="end">gap 28.3</text>
+
+      <!-- Rows of shadows on three axes -->
+      <text class="d-text" x="340" y="30">Shadows on three axes</text>
+      <g>
+        <text class="d-text" x="340" y="66">x axis</text>
+        <rect class="d-accent-soft" x="417" y="52" width="84.5" height="8"/>
+        <rect class="d-box" x="476" y="64" width="51" height="8"/>
+        <path class="d-bad" d="M476 80 H501.5"/>
+        <text class="d-muted" x="536" y="72">overlap 30</text>
+      </g>
+      <g>
+        <text class="d-text" x="340" y="126">y axis</text>
+        <rect class="d-accent-soft" x="417" y="112" width="84.5" height="8"/>
+        <rect class="d-box" x="476" y="124" width="51" height="8"/>
+        <path class="d-bad" d="M476 140 H501.5"/>
+        <text class="d-muted" x="536" y="132">overlap 30</text>
+      </g>
+      <g>
+        <text class="d-text" x="340" y="186">diagonal</text>
+        <rect class="d-accent-soft" x="420" y="172" width="59.8" height="8"/>
+        <rect class="d-box" x="503.7" y="184" width="71.9" height="8"/>
+        <path class="d-good" d="M479.8 200 H503.7"/>
+        <text class="d-label" x="430" y="220">gap 28.3: separated</text>
+      </g>
+      <rect class="d-accent-soft" x="340" y="238" width="14" height="10"/>
+      <text class="d-muted" x="360" y="247">triangle A</text>
+      <rect class="d-box" x="440" y="238" width="14" height="10"/>
+      <text class="d-muted" x="460" y="247">box B</text>
+    </svg>
+    <figcaption>The x and y axes, the only two an AABB test looks at, both see an overlap. The axis perpendicular to the triangle's long edge sees a gap, and one gap is enough. Notice that the long edge itself casts a shadow of a single point on its own axis.</figcaption>
+  </figure>
+
+  <h2>Which axes to test</h2>
+  <p>For two convex polygons in 2D you only need the <dfn>edge normals</dfn>: the directions perpendicular to each edge of either shape. Why: if the shapes are apart, slide a straight line into the gap and turn it until it lies flat against an edge of one shape. It still separates them, and the axis perpendicular to it is that edge's normal.</p>
+<pre><code>local ex, ey = q.x - p.x, q.y - p.y     -- the edge from corner p to corner q
+local len = math.sqrt(ex * ex + ey * ey)
+local ax, ay = -ey / len, ex / len      -- turned a quarter turn, length 1</code></pre>
+  <p>In words: swap the edge's two parts, negate one, and divide by the length. Which way it points does not matter; flipping it flips both shadows and keeps the gap.</p>
+  <p>The full test: for every edge of A, then of B, project both shapes and compare. Stop at the first gap. If none shows one, they overlap. The triangle and box give 3 + 4 = 7 axes; the test stops at the second.</p>
+  <p>For rotated shapes, turn each local corner into a world position first, <code>x = cx + lx * cos(a) - ly * sin(a)</code> and <code>y = cy + lx * sin(a) + ly * cos(a)</code>, then run the same test.</p>
+
+  <div class="callout">
+    <p class="callout-title">The overlap is a number too</p>
+    <p>With no gap, each axis still says how much the shadows overlap: the code computes it as a negative gap. The smallest overlap is the shortest way to push the shapes apart, the next lesson.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the diagram's shapes. The dashed bounding boxes overlap, but the SAT finds a gap of 28.3 pixels on axis A2. Drag the box into the triangle's long edge and watch the gap shrink to zero and become an overlap.</p>
+  <p>Then rotate shapes with their round handles or the sliders, and swap shapes. Each row below the scene is one axis. The scene draws the first gap, or the smallest overlap; press <strong>Next axis</strong> or tap a row to see others.</p>
+
+  <figure class="demo wide" data-demo="sat">
+    <canvas id="sat"></canvas>
+    <figcaption>Dashed lines drop each shape's outermost corners onto the drawn axis. Rows after the first gap are dimmed because the test never needs them. Keyboard: arrow keys move shape B (hold Shift for 1 pixel), Q and E rotate it.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE program with the diagram's shapes as flat lists of corners, the format <code>love.graphics.polygon</code> takes. It prints <code>gap 28.3 px on axis (-0.71, -0.71)</code>: the diagram's axis, pointing the other way.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Convex polygons as flat lists of corners: x1, y1, x2, y2, ...</span>
+local triangle = { 100, 100,  200, 100,  100, 200 }
+local box      = { 170, 170,  230, 170,  230, 230,  170, 230 }
+
+<span class="c">-- The shadow of a polygon on the unit axis (ax, ay): smallest and largest value.</span>
+local function project(poly, ax, ay)
+  local lo, hi = math.huge, -math.huge
+  for i = 1, #poly, 2 do
+<span class="k">    local d = poly[i] * ax + poly[i + 1] * ay   -- dot product</span>
+    lo = math.min(lo, d)
+    hi = math.max(hi, d)
+  end
+  return lo, hi
+end
+
+<span class="c">-- Tries the normal of every edge of shape. Returns gap, ax, ay at the first gap.</span>
+local function findGap(shape, a, b)
+  for i = 1, #shape, 2 do
+    local j = i + 2
+    if j &gt; #shape then j = 1 end               <span class="c">-- the last edge closes the loop</span>
+    local ex, ey = shape[j] - shape[i], shape[j + 1] - shape[i + 1]
+    local len = math.sqrt(ex * ex + ey * ey)
+    local ax, ay = -ey / len, ex / len          <span class="c">-- the edge turned a quarter turn</span>
+    local aLo, aHi = project(a, ax, ay)
+    local bLo, bHi = project(b, ax, ay)
+<span class="k">    local gap = math.max(bLo - aHi, aLo - bHi)  -- negative means overlap</span>
+    if gap &gt; 0 then return gap, ax, ay end
+  end
+  return nil
+end
+
+<span class="c">-- Separated if either shape has an edge whose normal shows a gap.</span>
+local function separation(a, b)
+  local gap, ax, ay = findGap(a, a, b)
+  if not gap then gap, ax, ay = findGap(b, a, b) end
+  return gap, ax, ay
+end
+
+function love.draw()
+  love.graphics.polygon("line", triangle)
+  love.graphics.polygon("line", box)
+  local gap, ax, ay = separation(triangle, box)
+  if gap then
+    love.graphics.print(string.format("gap %.1f px on axis (%.2f, %.2f)", gap, ax, ay), 10, 10)
+  else
+    love.graphics.print("overlap", 10, 10)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot shapes can test themselves against each other with Shape2D.collide.</span>
+extends Node2D
+
+func _ready() -&gt; void:
+    var tri := ConvexPolygonShape2D.new()
+    tri.points = PackedVector2Array([Vector2(100, 100), Vector2(200, 100), Vector2(100, 200)])
+    var box := RectangleShape2D.new()
+    box.size = Vector2(60, 60)                  <span class="c"># centred on its transform</span>
+    <span class="c"># Each shape is placed by a Transform2D(rotation, position).</span>
+<span class="k">    var hit := tri.collide(Transform2D.IDENTITY, box, Transform2D(0.0, Vector2(200, 200)))</span>
+    print(hit)   <span class="c"># false: the shapes are apart</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// GapCheck.cs: assign a PolygonCollider2D and a BoxCollider2D in the Inspector.</span>
+using UnityEngine;
+
+public class GapCheck : MonoBehaviour
+{
+    public PolygonCollider2D triangle;
+    public BoxCollider2D box;
+
+    void FixedUpdate()
+    {
+<span class="k">        ColliderDistance2D d = Physics2D.Distance(triangle, box);</span>
+        if (!d.isValid) return;
+        <span class="c">// distance is the gap, negative when the colliders overlap; normal is the direction</span>
+        if (d.isOverlapped) Debug.Log("overlap " + (-d.distance));
+        else Debug.Log("gap " + d.distance + " along " + d.normal);
+    }
+}</code></pre>
+  </div>
+  <p>In Godot or Unity you rarely write this yourself: a <code>CollisionPolygon2D</code> or <code>PolygonCollider2D</code> is tested every physics step for you. Neither engine documents which algorithm it uses inside; only the answer is promised.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Testing only one shape's normals.</strong> In the demo's starting scene the only gap is on the triangle's axis A2. Test only the box's normals, x and y, and the bounding-box bug is back.</li>
+    <li><strong>Concave shapes.</strong> A box inside the notch of a U shape can be clear of it while every axis shows an overlap. Split concave shapes into convex pieces. Godot's <code>CollisionPolygon2D</code> does this in its default Solids build mode.</li>
+    <li><strong>Skipping the normalising.</strong> The yes or no answer survives, but gaps and overlaps get multiplied by the edge length, so you cannot compare them between axes.</li>
+    <li><strong>Circles.</strong> A circle's shadow is its centre's value plus and minus the radius, and it needs one extra axis: from its centre to the polygon's nearest corner.</li>
+    <li><strong>Touching.</strong> The code treats a gap of exactly zero as an overlap. Either choice works if every test in your game agrees.</li>
+    <li><strong>Cost.</strong> Work grows with corners times edges. Skip parallel edges (a box has only two directions; the demo does this) and run a cheap bounding-box test first: AABBs remain a good quick rejection.</li>
+    <li><strong>3D needs more axes.</strong> Besides face normals, test the cross products of pairs of edges, one from each shape.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D version 2, the 2D physics engine behind many games, tests two polygons by searching the edge normals of both for the axis of largest separation (<code>b2FindMaxSeparation</code> in its source): the SAT, also reporting the least overlap. Godot's 2D physics server has a separating-axis collision solver too.</p>
+  <p>In 3D, the 15-axis test for two rotated boxes (3 face normals from each plus 9 edge cross products) was popularised by the OBBTree paper of Gottschalk, Lin and Manocha in 1996.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Extend the Lua program. Store the box as a centre, an angle and four local corners from (-30, -30) to (30, 30), and rebuild its world corners every frame with the rotation formula. Move it with the arrow keys and rotate it with Q and E in <code>love.update(dt)</code>. Draw both shapes red while they overlap.</p>
+  <p>You are done when sliding the box into the triangle's long edge turns them red only as they visibly touch, with the box straight and turned 45 degrees.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The shadow of a polygon on an axis is the smallest and largest dot product of its corners with that axis.</li>
+    <li>Two convex shapes are apart if and only if some axis shows a gap between their shadows. One gap is proof; one overlap is not.</li>
+    <li>For two polygons in 2D, test the edge normals of both shapes and stop at the first gap.</li>
+    <li>The AABB test is the SAT with only x and y, which is why rotated shapes fool it.</li>
+    <li>The SAT works only on convex shapes; split concave ones into convex pieces.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Knowing that two shapes overlap is half the job: the next lesson uses the axis of smallest overlap as the minimum translation vector that pushes them apart.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Explains the separating axis test for boxes, triangles and polygons, in 2D and 3D.</li>
+    <li>Stefan Gottschalk, Ming C. Lin and Dinesh Manocha, <cite>OBBTree: A Hierarchical Structure for Rapid Interference Detection</cite> (SIGGRAPH 1996). The 15-axis box test.</li>
+    <li>Erin Catto, <cite>Box2D</cite>, source file <code>b2_collide_polygon.cpp</code> in version 2.4.</li>
+    <li>Metanet Software, <cite>N Tutorial A: Collision Detection and Response</cite>. A game studio's walkthrough of the SAT as used in their game N.</li>
+    <li>Godot Engine documentation, <cite>Shape2D</cite> and <cite>CollisionPolygon2D</cite>. Unity documentation, <cite>Physics2D.Distance</cite> and <cite>ColliderDistance2D</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 600, H = 320;      // world size in pixels; y grows downwards
+  var ROW = 18;              // height of one axis row under the scene
+  var MAX_ROWS = 6;          // the most axes any pair of demo shapes needs
+  var TL = 12 + MAX_ROWS * ROW + 8;
+  var THIRD = 100 / 3;
+
+  function regular(n, r, start) {
+    var pts = [];
+    for (var i = 0; i < n; i++) {
+      var a = start + i * 2 * Math.PI / n;
+      pts.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    return pts;
+  }
+
+  // Corners around each shape's centre, in order.
+  var SHAPES = {
+    triangle: [[-THIRD, -THIRD], [2 * THIRD, -THIRD], [-THIRD, 2 * THIRD]],
+    square: [[-30, -30], [30, -30], [30, 30], [-30, 30]],
+    plank: [[-70, -18], [70, -18], [70, 18], [-70, 18]],
+    hexagon: regular(6, 45, 0)
+  };
+  var SHAPE_OPTIONS = [
+    { value: 'triangle', label: 'Triangle' },
+    { value: 'square', label: 'Square' },
+    { value: 'plank', label: 'Plank' },
+    { value: 'hexagon', label: 'Hexagon' }
+  ];
+
+  var A = { name: 'A', kind: 'triangle', x: 400 / 3, y: 400 / 3, angle: 0 };
+  var B = { name: 'B', kind: 'square', x: 200, y: 200, angle: 0 };
+  var sel = -1;            // -1: automatic choice of the axis to draw
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+  var handle = null;
+  var last = null;         // last SAT result, used by pointer input on the rows
+
+  // ---- Geometry, the same test as the Lua in the lesson ----
+  function corners(b) {
+    var r = b.angle * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    return SHAPES[b.kind].map(function (p) {
+      return [b.x + p[0] * c - p[1] * s, b.y + p[0] * s + p[1] * c];
+    });
+  }
+
+  function project(poly, ax, ay) {
+    var lo = Infinity, hi = -Infinity, loI = 0, hiI = 0;
+    for (var i = 0; i < poly.length; i++) {
+      var d = poly[i][0] * ax + poly[i][1] * ay;
+      if (d < lo) { lo = d; loI = i; }
+      if (d > hi) { hi = d; hiI = i; }
+    }
+    return { lo: lo, hi: hi, loI: loI, hiI: hiI };
+  }
+
+  function addAxes(poly, owner, list) {
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var ex = q[0] - p[0], ey = q[1] - p[1];
+      var len = Math.hypot(ex, ey);
+      var ax = -ey / len, ay = ex / len;
+      var dup = null;
+      for (var k = 0; k < list.length; k++) {
+        if (Math.abs(list[k].ax * ay - list[k].ay * ax) < 1e-6) { dup = list[k]; break; }
+      }
+      if (dup) dup.names.push(owner + (i + 1));
+      else list.push({ ax: ax, ay: ay, names: [owner + (i + 1)] });
+    }
+  }
+
+  function sat(pa, pb) {
+    var list = [];
+    addAxes(pa, 'A', list);
+    addAxes(pb, 'B', list);
+    var firstGap = -1, least = 0;
+    list.forEach(function (axis, i) {
+      axis.a = project(pa, axis.ax, axis.ay);
+      axis.b = project(pb, axis.ax, axis.ay);
+      axis.gap = Math.max(axis.b.lo - axis.a.hi, axis.a.lo - axis.b.hi);
+      if (axis.gap > 0 && firstGap < 0) firstGap = i;
+      if (axis.gap > list[least].gap) least = i;
+    });
+    return { axes: list, firstGap: firstGap, least: least, overlap: firstGap < 0 };
+  }
+
+  function bounds(poly) {
+    var r = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    poly.forEach(function (p) {
+      r.x0 = Math.min(r.x0, p[0]); r.x1 = Math.max(r.x1, p[0]);
+      r.y0 = Math.min(r.y0, p[1]); r.y1 = Math.max(r.y1, p[1]);
+    });
+    return r;
+  }
+
+  function insideConvex(poly, x, y) {
+    var sign = 0;
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var cr = (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]);
+      if (cr !== 0) {
+        var sg = cr > 0 ? 1 : -1;
+        if (sign === 0) sign = sg;
+        else if (sg !== sign) return false;
+      }
+    }
+    return true;
+  }
+
+  function radius(b) {
+    var r = 0;
+    SHAPES[b.kind].forEach(function (p) { r = Math.max(r, Math.hypot(p[0], p[1])); });
+    return r;
+  }
+
+  function handlePos(b) {
+    var r = radius(b) + 18, a = b.angle * Math.PI / 180;
+    return [b.x + r * Math.sin(a), b.y - r * Math.cos(a)];
+  }
+
+  function wrapAngle(d) {
+    d = Math.round(d);
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    return d;
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="sat"]');
+  var kindA = ui.select({ label: 'Shape A', options: SHAPE_OPTIONS, value: 'triangle',
+    onChange: function (v) { A.kind = v; changed(); } });
+  var kindB = ui.select({ label: 'Shape B', options: SHAPE_OPTIONS, value: 'square',
+    onChange: function (v) { B.kind = v; changed(); } });
+  var rotA = ui.slider({ label: 'Rotate A', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { A.angle = v; changed(); } });
+  var rotB = ui.slider({ label: 'Rotate B', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { B.angle = v; changed(); } });
+  var showBoxes = ui.toggle({ label: 'Show bounding boxes', value: true, onChange: function () { changed(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { changed(); } });
+  ui.button({ label: 'Next axis', onClick: function () {
+    var n = last ? last.axes.length : 0;
+    sel = sel + 1;
+    if (sel >= n) sel = -1;
+    changed();
+  } });
+  ui.button({ label: 'Reset', onClick: reset });
+  var outBox = ui.readout({ label: 'Bounding-box test' });
+  var outSat = ui.readout({ label: 'Separating axis test' });
+  var outAxis = ui.readout({ label: 'Axis drawn' });
+
+  function reset() {
+    A.kind = 'triangle'; A.x = 400 / 3; A.y = 400 / 3; A.angle = 0;
+    B.kind = 'square'; B.x = 200; B.y = 200; B.angle = 0;
+    kindA.set('triangle'); kindB.set('square');
+    rotA.set(0); rotB.set(0);
+    showBoxes.set(true); debug.set(true);
+    sel = -1;
+    changed();
+  }
+
+  function changed() {
+    if (handle) handle.redraw();
+  }
+
+  // ---- Drawing helpers ----
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+  function toWorld(p) { return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale }; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function polyPath(ctx, poly) {
+    ctx.beginPath();
+    poly.forEach(function (p, i) {
+      if (i === 0) ctx.moveTo(sx(p[0]), sy(p[1])); else ctx.lineTo(sx(p[0]), sy(p[1]));
+    });
+    ctx.closePath();
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    var left = ctx.textAlign === 'center' ? x - wTxt / 2 : (ctx.textAlign === 'right' ? x - wTxt : x);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.85;
+    ctx.fillRect(left - 3, y - 12, wTxt + 6, 16);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function fmt(v) { return (Math.round(v * 10) / 10).toFixed(1); }
+
+  function gapText(g) { return g > 0 ? 'gap ' + fmt(g) : 'overlap ' + fmt(-g); }
+
+  function drawnIndex(r) {
+    if (sel >= 0 && sel < r.axes.length) return sel;
+    return r.firstGap >= 0 ? r.firstGap : r.least;
+  }
+
+  // The chosen axis drawn as a long line beside the shapes, with both shadows on it.
+  function drawAxis(ctx, c, axis, pa, pb) {
+    var nx = axis.ax, ny = axis.ay, px = -ny, py = nx;
+    var cx = W / 2, cy = H / 2;
+    var qlo = Infinity, qhi = -Infinity;
+    pa.concat(pb).forEach(function (v) {
+      var q = (v[0] - cx) * px + (v[1] - cy) * py;
+      qlo = Math.min(qlo, q); qhi = Math.max(qhi, q);
+    });
+    var ext = (W / 2) * Math.abs(px) + (H / 2) * Math.abs(py) - 14;
+    var c1 = qhi + 34, c2 = qlo - 34;
+    var fit1 = Math.abs(c1) <= ext, fit2 = Math.abs(c2) <= ext;
+    var off;
+    if (fit1 && fit2) off = Math.abs(c1) < Math.abs(c2) ? c1 : c2;
+    else if (fit1) off = c1;
+    else if (fit2) off = c2;
+    else off = DemoKit.clamp(Math.abs(c1) < Math.abs(c2) ? c1 : c2, -ext, ext);
+    var out = off >= 0 ? 1 : -1;        // which side of the line faces away from the shapes
+    var ox = cx + px * off, oy = cy + py * off;
+    var base = ox * nx + oy * ny;
+    function foot(d, shift) {
+      var s = d - base;
+      return [ox + nx * s + px * shift, oy + ny * s + py * shift];
+    }
+
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+    line(ctx, sx(ox - nx * 900), sy(oy - ny * 900), sx(ox + nx * 900), sy(oy + ny * 900));
+
+    var k = 4 / view.scale;             // shadows drawn 4 screen pixels either side of the line
+    [[pa, axis.a, c.topic, -k], [pb, axis.b, c.ink2, k]].forEach(function (it) {
+      var poly = it[0], pr = it[1], col = it[2], shift = it[3];
+      var f1 = foot(pr.lo, shift), f2 = foot(pr.hi, shift);
+      ctx.setLineDash([3, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1;
+      line(ctx, sx(poly[pr.loI][0]), sy(poly[pr.loI][1]), sx(f1[0]), sy(f1[1]));
+      line(ctx, sx(poly[pr.hiI][0]), sy(poly[pr.hiI][1]), sx(f2[0]), sy(f2[1]));
+      ctx.setLineDash([]);
+      ctx.lineWidth = 5; ctx.lineCap = 'round';
+      line(ctx, sx(f1[0]), sy(f1[1]), sx(f2[0]), sy(f2[1]));
+      ctx.lineCap = 'butt';
+    });
+
+    var g = axis.gap, from, to;
+    if (g > 0) {
+      if (axis.b.lo - axis.a.hi > axis.a.lo - axis.b.hi) { from = axis.a.hi; to = axis.b.lo; }
+      else { from = axis.b.hi; to = axis.a.lo; }
+    } else {
+      from = Math.max(axis.a.lo, axis.b.lo); to = Math.min(axis.a.hi, axis.b.hi);
+    }
+    var shiftOut = out * 12 / view.scale;
+    var g1 = foot(from, shiftOut), g2 = foot(to, shiftOut);
+    ctx.strokeStyle = g > 0 ? c.good : c.bad; ctx.lineWidth = 3;
+    line(ctx, sx(g1[0]), sy(g1[1]), sx(g2[0]), sy(g2[1]));
+    var mid = foot((from + to) / 2, out * 30 / view.scale);
+    ctx.textAlign = 'center';
+    ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    label(ctx, axis.names[0] + ': ' + gapText(g), sx(mid[0]), sy(mid[1]) + 4, g > 0 ? c.good : c.bad, c);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function drawEdgeLabels(ctx, c, b, poly) {
+    ctx.textAlign = 'center';
+    ctx.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+      var dx = mx - b.x, dy = my - b.y, d = Math.hypot(dx, dy) || 1;
+      var lx = mx + dx / d * 11 / view.scale, ly = my + dy / d * 11 / view.scale;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(b.name + (i + 1), sx(lx), sy(ly) + 4);
+    }
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function drawRows(ctx, s, r, c, drawn) {
+    var top = s.height - TL;
+    var left = 78, right = Math.max(left + 80, s.width - 112);
+    var widest = 1;
+    r.axes.forEach(function (a) {
+      widest = Math.max(widest, Math.max(a.a.hi, a.b.hi) - Math.min(a.a.lo, a.b.lo));
+    });
+    var k = Math.min(view.scale, (right - left - 8) / widest);
+    var centre = (left + right) / 2;
+
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    line(ctx, 0, top - 0.5, s.width, top - 0.5);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+    r.axes.forEach(function (a, i) {
+      var y = top + 12 + i * ROW;
+      if (i === drawn) {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(0, y - 2, s.width, ROW);
+      }
+      var skipped = r.firstGap >= 0 && i > r.firstGap;
+      ctx.globalAlpha = skipped ? 0.4 : 1;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(a.names.join(', '), 8, y + 11);
+      var mid = (Math.min(a.a.lo, a.b.lo) + Math.max(a.a.hi, a.b.hi)) / 2;
+      function X(v) { return centre + (v - mid) * k; }
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(X(a.a.lo), y + 1, Math.max(2, (a.a.hi - a.a.lo) * k), 6);
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(X(a.b.lo), y + 8, Math.max(2, (a.b.hi - a.b.lo) * k), 6);
+      ctx.fillStyle = a.gap > 0 ? c.good : c.ink3;
+      ctx.fillText(gapText(a.gap) + (i === r.firstGap ? ', stop' : ''), right + 8, y + 11);
+      ctx.globalAlpha = 1;
+    });
+    if (r.axes.length < MAX_ROWS) {
+      ctx.fillStyle = c.ink3; ctx.textAlign = 'left';
+      ctx.fillText('Top bar: A. Bottom bar: B. Tap a row.',
+        8, top + 12 + r.axes.length * ROW + 11);
+    }
+  }
+
+  // ---- Main ----
+  handle = DemoKit.canvas('#sat', {
+    aspect: W / (H + TL),
+    minHeight: 340,
+    maxHeight: 500,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Two convex shapes you can drag and rotate. Debug drawing shows one test axis with the shadow of each shape on it and the gap or overlap between them. Rows below list the shadows on every axis the separating axis test checks.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var sceneH = s.height - TL;
+      view.scale = Math.min(s.width / W, sceneH / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (sceneH - H * view.scale) / 2;
+      var g;
+
+      var pa = corners(A), pb = corners(B);
+      var r = sat(pa, pb);
+      last = r;
+      if (sel >= r.axes.length) sel = -1;
+      var drawn = drawnIndex(r);
+      var ba = bounds(pa), bb = bounds(pb);
+      var boxHit = !(ba.x1 < bb.x0 || bb.x1 < ba.x0 || ba.y1 < bb.y0 || bb.y1 < ba.y0);
+
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, s.width, sceneH); ctx.clip();
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      for (g = 50; g < W; g += 50) line(ctx, sx(g), sy(0), sx(g), sy(H));
+      for (g = 50; g < H; g += 50) line(ctx, sx(0), sy(g), sx(W), sy(g));
+      ctx.strokeRect(sx(0), sy(0), W * view.scale, H * view.scale);
+
+      if (showBoxes.value) {
+        ctx.setLineDash([5, 4]); ctx.lineWidth = 1.25;
+        ctx.strokeStyle = boxHit ? c.warn : c.ink3;
+        [ba, bb].forEach(function (b) {
+          ctx.strokeRect(sx(b.x0), sy(b.y0), (b.x1 - b.x0) * view.scale, (b.y1 - b.y0) * view.scale);
+        });
+        ctx.setLineDash([]);
+      }
+
+      if (debug.value) drawAxis(ctx, c, r.axes[drawn], pa, pb);
+
+      // The shapes. Outlines turn red when the SAT finds no gap.
+      polyPath(ctx, pa);
+      ctx.fillStyle = c.topic; ctx.globalAlpha = 0.2; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = r.overlap ? c.bad : c.topic; ctx.lineWidth = r.overlap ? 3 : 2; ctx.stroke();
+      polyPath(ctx, pb);
+      ctx.fillStyle = c.ink2; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = r.overlap ? c.bad : c.ink2; ctx.lineWidth = r.overlap ? 3 : 2; ctx.stroke();
+
+      if (debug.value) { drawEdgeLabels(ctx, c, A, pa); drawEdgeLabels(ctx, c, B, pb); }
+
+      // Names and rotation handles.
+      [[A, c.topic], [B, c.ink2]].forEach(function (it) {
+        var b = it[0], hp = handlePos(b);
+        ctx.strokeStyle = it[1]; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        line(ctx, sx(b.x), sy(b.y), sx(hp[0]), sy(hp[1]));
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(sx(hp[0]), sy(hp[1]), 7, 0, Math.PI * 2);
+        ctx.fillStyle = c.surface; ctx.fill();
+        ctx.lineWidth = 2; ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.fillStyle = it[1];
+        ctx.fillText(b.name, sx(b.x), sy(b.y) + 5);
+      });
+
+      // Verdicts.
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      var satMsg = r.overlap ? 'SAT: overlapping' : 'SAT: separated';
+      label(ctx, satMsg, 8, 18, r.overlap ? c.bad : c.good, c);
+      if (showBoxes.value) {
+        var wrong = boxHit && !r.overlap;
+        label(ctx, 'Bounding boxes: ' + (boxHit ? 'overlap' : 'apart') + (wrong ? ' (wrong)' : ''),
+          8, 38, wrong ? c.warn : c.ink2, c);
+      }
+      ctx.restore();
+
+      drawRows(ctx, s, r, c, drawn);
+
+      outBox.set(boxHit ? (r.overlap ? 'overlap' : 'overlap, but the shapes are apart') : 'apart');
+      outSat.set(r.overlap
+        ? 'overlap on all ' + r.axes.length + ' axes, so the shapes overlap'
+        : 'gap of ' + fmt(r.axes[r.firstGap].gap) + ' px on ' + r.axes[r.firstGap].names.join(', ') +
+          ', found after testing ' + (r.firstGap + 1) + ' of ' + r.axes.length + ' axes');
+      var d = r.axes[drawn];
+      outAxis.set(d.names.join(', ') + ' (' + d.ax.toFixed(2) + ', ' + d.ay.toFixed(2) + '), ' +
+        (sel < 0 ? (r.overlap ? 'chosen as the smallest overlap' : 'chosen as the first gap') : 'chosen by you'));
+    },
+    onDown: function (p, s) {
+      var sceneH = s.height - TL;
+      if (p.y > sceneH) {
+        var i = Math.floor((p.y - sceneH - 12 + 2) / ROW);
+        if (last && i >= 0 && i < last.axes.length) { sel = i; changed(); }
+        drag = null;
+        return;
+      }
+      var w = toWorld(p);
+      drag = null;
+      [B, A].some(function (b) {
+        var hp = handlePos(b);
+        if (Math.hypot(w.x - hp[0], w.y - hp[1]) * view.scale < 16) { drag = { t: 'rotate', b: b }; return true; }
+        return false;
+      });
+      if (drag) return;
+      [B, A].some(function (b) {
+        if (insideConvex(corners(b), w.x, w.y)) { drag = { t: 'move', b: b, dx: w.x - b.x, dy: w.y - b.y }; return true; }
+        return false;
+      });
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      var w = toWorld(p), b = drag.b;
+      if (drag.t === 'rotate') {
+        b.angle = wrapAngle(Math.atan2(w.x - b.x, -(w.y - b.y)) * 180 / Math.PI);
+        (b === A ? rotA : rotB).set(b.angle);
+      } else {
+        b.x = DemoKit.clamp(w.x - drag.dx, 0, W);
+        b.y = DemoKit.clamp(w.y - drag.dy, 0, H);
+      }
+      changed();
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var step = s.keys.has('shift') ? 1 : 5;
+      if (key === 'arrowleft') B.x -= step;
+      else if (key === 'arrowright') B.x += step;
+      else if (key === 'arrowup') B.y -= step;
+      else if (key === 'arrowdown') B.y += step;
+      else if (key === 'q') B.angle = wrapAngle(B.angle - 5);
+      else if (key === 'e') B.angle = wrapAngle(B.angle + 5);
+      else return;
+      B.x = DemoKit.clamp(B.x, 0, W);
+      B.y = DemoKit.clamp(B.y, 0, H);
+      rotB.set(B.angle);
+      changed();
+    }
+  });
+})();
+</script>
+</body>
+</html>

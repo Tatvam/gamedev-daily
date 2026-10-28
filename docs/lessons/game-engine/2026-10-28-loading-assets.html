@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading assets: preload, load, and loading in the background · Game Dev Daily</title>
+<meta name="description" content="When an asset is loaded up front, on demand or in the background, who pays for it, and how Godot and Unity let you choose each one.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Loading assets: preload, load, and loading in the background</h1>
+  <p class="lede">When an asset is loaded up front, on demand or in the background, who pays for it, and how Godot and Unity let you choose each one.</p>
+</header>
+
+<section data-section="hook">
+  <p>The hero walks through the boss door and the whole game freezes for half a second. Nothing moves. Then the boss is suddenly there, and the hero has jumped a few steps forward. Nothing is wrong with the boss code. The game loaded the boss's art at the moment it needed it, on the same thread that draws the frames.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Loading is work, and someone has to do it</h2>
+  <p>An <dfn>asset</dfn> is a file in your project: a texture, a sound, a scene. A <dfn>resource</dfn> is that asset turned into a live object in memory that the engine can draw or play. Getting there means reading bytes from disk, decoding them, building objects and often handing data to the GPU. Bigger assets take longer.</p>
+  <p>Your game code runs on the <dfn>main thread</dfn>, which also prepares each frame. Anything it does that takes 300 ms makes that frame 300 ms long: a <dfn>hitch</dfn>.</p>
+  <p>So the choice is <em>when</em> to pay for loading, and <em>which thread</em> pays.</p>
+  <ol>
+    <li><strong>Up front.</strong> Load everything before the level starts. Play is smooth, but the player waits at a loading screen, and the boss sits in memory all level.</li>
+    <li><strong>On demand.</strong> Load the boss when code first asks for it. No memory is used early, but the main thread stops until the load is done: the freeze in the hook.</li>
+    <li><strong>In the background.</strong> Ask early, let a worker thread read and decode the boss while the game runs, and collect it when ready. Play stays smooth if you asked early enough, though the main thread still does a small share each frame.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 318" role="img" aria-label="Three timelines of the same level. Up front: a long load block sits before the first frame, then even frames all the way through the door. On demand: even frames until the door, where one very long frame holds the load. In the background: the main thread keeps drawing even frames with a small slice of extra work in each, while a worker lane below reads the boss from the request point until before the door.">
+      <defs>
+        <marker id="la-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <path class="d-dash" d="M470 30 V300"/>
+      <text class="d-label" x="470" y="22" text-anchor="middle">door: boss needed</text>
+
+      <text class="d-text" x="12" y="62">Up front</text>
+      <text class="d-muted" x="12" y="78">main thread</text>
+      <rect class="d-accent-soft" x="112" y="48" width="110" height="34" rx="4"/>
+      <text class="d-text" x="167" y="70" text-anchor="middle">load boss</text>
+      <g>
+        <rect class="d-box" x="226" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="256" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="286" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="316" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="346" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="376" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="406" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="436" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="476" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="506" y="52" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="536" y="52" width="26" height="26" rx="3"/>
+      </g>
+      <text class="d-muted" x="112" y="102">wait before play, boss in memory all level</text>
+
+      <path class="d-thin" d="M12 116 H628"/>
+
+      <text class="d-text" x="12" y="152">On demand</text>
+      <text class="d-muted" x="12" y="168">main thread</text>
+      <g>
+        <rect class="d-box" x="226" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="256" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="286" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="316" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="346" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="376" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="406" y="142" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="436" y="142" width="26" height="26" rx="3"/>
+      </g>
+      <rect class="d-accent-soft" x="474" y="138" width="110" height="34" rx="4"/>
+      <text class="d-bad-fill" x="529" y="160" text-anchor="middle">load = hitch</text>
+      <rect class="d-box" x="588" y="142" width="26" height="26" rx="3"/>
+      <text class="d-muted" x="226" y="192">no wait, one very long frame at the door</text>
+
+      <path class="d-thin" d="M12 206 H628"/>
+
+      <text class="d-text" x="12" y="238">Background</text>
+      <text class="d-muted" x="12" y="254">main thread</text>
+      <g>
+        <rect class="d-box" x="226" y="228" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="256" y="228" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="286" y="228" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="316" y="228" width="30" height="26" rx="3"/>
+        <rect class="d-box" x="350" y="228" width="30" height="26" rx="3"/>
+        <rect class="d-box" x="384" y="228" width="30" height="26" rx="3"/>
+        <rect class="d-box" x="418" y="228" width="30" height="26" rx="3"/>
+        <rect class="d-box" x="476" y="228" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="506" y="228" width="26" height="26" rx="3"/>
+        <rect class="d-box" x="536" y="228" width="26" height="26" rx="3"/>
+      </g>
+      <text class="d-muted" x="12" y="292">worker</text>
+      <path class="d-stroke" d="M316 264 V276" marker-end="url(#la-arrow)"/>
+      <text class="d-label" x="310" y="226" text-anchor="end">request</text>
+      <rect class="d-accent-soft" x="316" y="278" width="132" height="24" rx="4"/>
+      <text class="d-text" x="382" y="295" text-anchor="middle">read boss</text>
+    </svg>
+    <figcaption>The same level three ways. The boss costs the same to load in every row. What changes is when the cost lands and which thread carries it. In the background row, frames after the request are a little wider: the main thread still does a small share of the work.</figcaption>
+  </figure>
+
+  <h2>Who owns a loaded asset</h2>
+  <p>Both engines keep a <dfn>cache</dfn> from asset path to the resource already in memory, so asking twice gives the same object almost for free. The cache does not decide when memory is freed, though.</p>
+  <ul>
+    <li><strong>Godot</strong> resources are reference counted: one stays while anything points at it and is freed when the last reference goes.</li>
+    <li><strong>Unity</strong> assets loaded through a scene or <code>Resources</code> stay in memory until Unity unloads unused assets, which happens when a scene is loaded in single mode or when you call <code>Resources.UnloadUnusedAssets</code>. Addressables are explicit: each load gives you a handle, and you call <code>Addressables.Release</code> on it when done.</li>
+  </ul>
+
+  <h2>How Godot 4 expresses it</h2>
+  <p><code>preload("res://boss.png")</code> is a keyword that needs a constant path. The resource loads when the script loads, so its cost is paid while loading the scene that uses the script. That is up front.</p>
+  <p><code>load(path)</code> loads when called and blocks until done, unless the path is cached. That is on demand.</p>
+  <p>In the background, <code>ResourceLoader.load_threaded_request(path)</code> starts the load on another thread. Poll <code>load_threaded_get_status(path)</code> each frame until it returns <code>THREAD_LOAD_LOADED</code>, then <code>load_threaded_get(path)</code> hands you the resource. Call that early and it blocks until the load finishes.</p>
+
+  <h2>How Unity expresses it</h2>
+  <p>An Inspector field that points at the boss texture is a direct reference: the texture loads with the scene or prefab holding the field. That is up front, and the usual Unity default.</p>
+  <p><code>Resources.Load&lt;Texture2D&gt;("Boss")</code> loads from a folder named <code>Resources</code>, by path without extension, and blocks. <code>Resources.LoadAsync</code> returns a <code>ResourceRequest</code> with <code>isDone</code> and <code>progress</code>. Reading its <code>asset</code> early finishes the load at once, on the main thread.</p>
+  <p>The Addressables package is the more modern route: <code>Addressables.LoadAssetAsync&lt;T&gt;(key)</code> returns a handle with a <code>Completed</code> event, and <code>WaitForCompletion()</code> is its blocking escape hatch. Unity steers larger projects away from <code>Resources</code>, partly because everything in those folders ships in the build, used or not.</p>
+  <p>Unity's asynchronous loads read on a background thread, then <dfn>integrate</dfn> the result on the main thread, for example uploading a texture to the GPU. <code>Application.backgroundLoadingPriority</code> caps the milliseconds per frame integration may take: low for smooth play, high behind a loading screen.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>When</th><th>Godot 4</th><th>Unity 6 / 2022 LTS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Up front</td><td><code>preload</code>, or a scene that references it</td><td>Inspector reference in the scene</td></tr>
+      <tr><td>On demand, blocking</td><td><code>load</code></td><td><code>Resources.Load</code>, <code>WaitForCompletion</code></td></tr>
+      <tr><td>Background</td><td><code>ResourceLoader.load_threaded_request</code></td><td><code>Resources.LoadAsync</code>, <code>Addressables.LoadAssetAsync</code></td></tr>
+      <tr><td>Who frees it</td><td>Last reference gone</td><td>Scene unload, <code>UnloadUnusedAssets</code>, or <code>Release</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Load up front what every moment of the level needs. Load in the background what you can predict a few seconds ahead. Load on demand only what is small, or what you need behind a screen that is already still.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The hero crosses the level in 5 seconds and needs the boss at the door, 80% of the way. Pick a strategy and press <strong>Start level</strong>. The graph shows main-thread time per frame against a 16.7 ms budget.</p>
+  <p>Start with <strong>Load at the door</strong> and watch the freeze and the jump after it. Then try <strong>Background</strong>, move the request to 75% and raise the boss size: the load is unfinished at the door, so the game waits for the rest.</p>
+
+  <figure class="demo wide" data-demo="loading">
+    <canvas id="loading"></canvas>
+    <figcaption>The freeze lasts as long as the simulated frame, then the hero catches up using the long delta. Keyboard: focus the canvas, Space starts, S skips to the result. The model reads 200 MB per second and charges 2 ms per frame while a background load runs; it leaves out decoding, GPU upload spikes and disk contention.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE gives you the parts to build all three yourself. A thread reads and decodes the image, because decoding is allowed off the main thread. Creating the GPU image with <code>love.graphics.newImage</code> is only allowed on the main thread, so the last step always happens there, just like Unity's integration step. Put any large PNG named <code>boss.png</code> next to <code>main.lua</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua. Change MODE to compare. Same numbers as the demo.</span>
+local MODE = "background"   <span class="c">-- "preload", "blocking" or "background"</span>
+local LEVEL_TIME = 5        <span class="c">-- seconds to cross the level</span>
+local REQUEST = 0.3         <span class="c">-- background load starts at 30%</span>
+local DOOR = 0.8            <span class="c">-- the boss is needed at 80%</span>
+
+<span class="c">-- Runs on a worker. Threads start with only love.thread and love.filesystem.</span>
+local LOADER = [[
+require("love.image")
+local path = ...
+local data = love.image.newImageData(path)   -- read and decode, off the main thread
+love.thread.getChannel("boss"):push(data)
+]]
+
+local t, boss, thread = 0, nil, nil
+
+local function finish(data)
+  boss = love.graphics.newImage(data)        <span class="c">-- GPU upload: main thread only</span>
+end
+
+function love.load()
+<span class="k">  if MODE == "preload" then finish(love.image.newImageData("boss.png")) end</span>
+end
+
+function love.update(dt)
+  t = t + dt
+  local progress = t / LEVEL_TIME
+  if MODE == "background" and not thread and progress &gt;= REQUEST then
+<span class="k">    thread = love.thread.newThread(LOADER)
+    thread:start("boss.png")</span>
+  end
+  if not boss and thread then
+    local data = love.thread.getChannel("boss"):pop()   <span class="c">-- nil until ready</span>
+    if data then finish(data) end
+  end
+  if not boss and progress &gt;= DOOR then
+    if MODE == "blocking" then
+<span class="k">      finish(love.image.newImageData("boss.png"))         <span class="c">-- the hitch</span></span>
+    else
+      if thread:getError() then error(thread:getError()) end
+      finish(love.thread.getChannel("boss"):demand())     <span class="c">-- wait for the rest</span>
+    end
+  end
+end
+
+function love.draw()
+  local x = math.min(t / LEVEL_TIME, 1) * 700
+  love.graphics.rectangle("fill", 50 + x, 300, 20, 40)
+  if boss and t / LEVEL_TIME &gt;= DOOR then love.graphics.draw(boss, 600, 60, 0, 0.25) end
+  love.graphics.print("last frame: " .. math.floor(love.timer.getDelta() * 1000) .. " ms", 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># level.gd on a Node2D in a new scene. Godot 4. Put a large texture at res://boss.png.</span>
+extends Node2D
+
+enum Mode { PRELOAD, BLOCKING, BACKGROUND }
+@export var mode := Mode.BACKGROUND
+
+const LEVEL_TIME := 5.0
+const REQUEST := 0.3
+const DOOR := 0.8
+const BOSS_PATH := "res://boss.png"
+
+<span class="c"># Loaded when this script loads. While this line exists the boss is in the cache,</span>
+<span class="c"># so load() is instant too. Comment it out to test the other two modes.</span>
+<span class="k">const BOSS_PRELOADED := preload("res://boss.png")</span>
+
+var t := 0.0
+var requested := false
+var boss: Texture2D
+
+func _process(delta: float) -&gt; void:
+    t += delta
+    var progress := t / LEVEL_TIME
+    if mode == Mode.BACKGROUND and not requested and progress &gt;= REQUEST:
+<span class="k">        ResourceLoader.load_threaded_request(BOSS_PATH)</span>
+        requested = true
+    if requested and boss == null:
+        if ResourceLoader.load_threaded_get_status(BOSS_PATH) == ResourceLoader.THREAD_LOAD_LOADED:
+            boss = ResourceLoader.load_threaded_get(BOSS_PATH)
+    if boss == null and progress &gt;= DOOR:
+        var start := Time.get_ticks_usec()
+        match mode:
+            Mode.PRELOAD:
+                boss = BOSS_PRELOADED
+            Mode.BLOCKING:
+<span class="k">                boss = load(BOSS_PATH)   <span class="c"># the hitch</span></span>
+            Mode.BACKGROUND:
+                boss = ResourceLoader.load_threaded_get(BOSS_PATH)   <span class="c"># blocks for the rest</span>
+        print("getting the boss took %.1f ms" % ((Time.get_ticks_usec() - start) / 1000.0))
+    queue_redraw()
+
+func _draw() -&gt; void:
+    var x := minf(t / LEVEL_TIME, 1.0) * 700.0
+    draw_rect(Rect2(50.0 + x, 300.0, 20.0, 40.0), Color.WHITE)
+    if boss != null and t / LEVEL_TIME &gt;= DOOR:
+        draw_texture(boss, Vector2(600, 60))</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Level.cs. Unity 6 or 2022 LTS. Put a large texture at Assets/Resources/Boss.png.</span>
+<span class="c">// Reference mode: also drag that texture into the Boss Reference field.</span>
+<span class="c">// While that field is filled, the texture is already loaded, so Resources.Load is instant.</span>
+using UnityEngine;
+
+public class Level : MonoBehaviour
+{
+    public enum Mode { Reference, Blocking, Background }
+    public Mode mode = Mode.Background;
+<span class="k">    public Texture2D bossReference;   // loads with the scene: up front</span>
+
+    const float LevelTime = 5f, Request = 0.3f, Door = 0.8f;
+    float t;
+    ResourceRequest request;
+    Texture2D boss;
+
+    void Update()
+    {
+        t += Time.deltaTime;
+        float progress = t / LevelTime;
+        if (mode == Mode.Background &amp;&amp; request == null &amp;&amp; progress &gt;= Request)
+<span class="k">            request = Resources.LoadAsync&lt;Texture2D&gt;("Boss");</span>
+
+        if (boss == null &amp;&amp; progress &gt;= Door)
+        {
+            float start = Time.realtimeSinceStartup;
+            if (mode == Mode.Reference) boss = bossReference;
+<span class="k">            else if (mode == Mode.Blocking) boss = Resources.Load&lt;Texture2D&gt;("Boss");   // the hitch</span>
+            else boss = (Texture2D)request.asset;   // finishes the load now if not done
+            Debug.Log($"Getting the boss took {(Time.realtimeSinceStartup - start) * 1000f:F1} ms");
+        }
+    }
+
+    void OnGUI()
+    {
+        if (boss != null) GUI.DrawTexture(new Rect(600, 60, 256, 256), boss);
+    }
+}
+
+<span class="c">// BossAddressable.cs. Needs the Addressables package.</span>
+<span class="c">// Mark the texture as Addressable with the address "Boss".</span>
+using UnityEngine;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
+
+public class BossAddressable : MonoBehaviour
+{
+    AsyncOperationHandle&lt;Texture2D&gt; handle;
+
+    void Start()
+    {
+<span class="k">        handle = Addressables.LoadAssetAsync&lt;Texture2D&gt;("Boss");</span>
+        handle.Completed += h =&gt; Debug.Log("Boss loaded: " + h.Result.name);
+    }
+
+    void OnDestroy()
+    {
+        if (handle.IsValid()) Addressables.Release(handle);   // you own the handle
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Collecting a background load too early.</strong> <code>load_threaded_get</code>, <code>ResourceRequest.asset</code> and <code>WaitForCompletion</code> all turn a background load back into a blocking one if it is not finished. Check the status first, or start the request earlier.</li>
+    <li><strong>Testing with a warm cache.</strong> If something else already references the asset, such as a <code>preload</code>, an Inspector field or an earlier load, the "slow" load is instant in your test and slow for players who reach it by another route. Measure from a fresh start.</li>
+    <li><strong>Forgetting the step after loading.</strong> A loaded <code>PackedScene</code> or prefab must still be instantiated on the main thread, and a huge one can hitch on <code>instantiate()</code> or <code>Instantiate</code> even after a background load.</li>
+    <li><strong>Preloading everything.</strong> Every preloaded asset stays in memory as long as its script or scene. On phones and consoles, memory runs out first.</li>
+    <li><strong>Leaking Addressables handles.</strong> An Addressables asset stays loaded until every handle to it is released. A load with no matching <code>Release</code> is a slow memory leak.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Loading screens are the up-front strategy made visible. Long elevator rides, tight corridors and doors that open slowly are a common way to hide background loading: the game asks for the next area while you walk somewhere that needs little memory. Open-world games stream nearby areas in the background all the time and unload those behind you. In both engines, the blocking functions are fine behind a loading screen, because nothing on screen needs to move smoothly while they run.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one place in your project where a large asset or scene is loaded during play, such as a <code>load</code>, a <code>Resources.Load</code> or a spawn of a big prefab. Wrap it with a timer like the one in the code and print the milliseconds. If it is over about 5 ms, switch it to a background load that starts a few seconds earlier, at a moment you can predict. You are done when the printed time at the point of use drops near zero and the frame graph in your engine's profiler shows no spike there.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Loading always costs time. You choose when it happens and which thread pays.</li>
+    <li>Up front means a wait before play and memory held all level; on demand means a hitch at first use; background means smooth play if you ask early enough.</li>
+    <li>Godot: <code>preload</code>, <code>load</code>, and <code>ResourceLoader.load_threaded_request</code>. Unity: Inspector references, <code>Resources.Load</code>, and <code>LoadAsync</code> or Addressables.</li>
+    <li>Collecting a background load before it finishes blocks, just like a normal load.</li>
+    <li>Godot frees a resource when its last reference goes; Addressables free when you release every handle.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we follow the references: how one link to a scene can pull dozens of textures and sounds into memory, and how soft references break that chain.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite>ResourceLoader</cite>, on <code>load_threaded_request</code>, <code>load_threaded_get</code> and the cache modes: <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/ResourceLoader.xml">doc/classes/ResourceLoader.xml</a></cite>.</li>
+    <li>Godot Engine documentation (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/modules/gdscript/doc_classes/%40GDScript.xml">@GDScript</a></cite>, on <code>preload</code> being a keyword resolved when the script loads.</li>
+    <li>Unity Technologies, C# reference source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Runtime/Export/Resources/Resources.bindings.cs">Runtime/Export/Resources/Resources.bindings.cs</a></cite>: <code>ResourceRequest.asset</code> calls <code>Resources.Load</code>, which is why reading it early blocks.</li>
+    <li>Unity Technologies, Scripting API, <cite>Application.backgroundLoadingPriority</cite>, on the per-frame main-thread budget for integrating asynchronously loaded assets.</li>
+    <li>LÖVE source (11.5), <cite><a href="https://raw.githubusercontent.com/love2d/love/11.5/src/modules/thread/LuaThread.cpp">src/modules/thread/LuaThread.cpp</a></cite>: a new thread loads only <code>love.thread</code> and <code>love.filesystem</code>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua code.
+  var LEVEL_TIME = 5;          // seconds to cross the level
+  var DOOR = 0.8;              // the boss is needed at 80%
+  var READ_SPEED = 200;        // MB per second
+  var FRAME = 1 / 60;          // one frame at 60 fps
+  var BUDGET_MS = 1000 / 60;   // 16.7 ms
+  var BG_COST_MS = 2;          // main-thread share per frame while a background load runs
+  var GRAPH_MAX = 40;          // ms at the top of the graph
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var MODES = {
+    preload: 'Preload with the level',
+    blocking: 'Load at the door',
+    background: 'Background, requested early'
+  };
+
+  var sim, handle = null;
+
+  function loadTime() { return size.value / READ_SPEED; }
+
+  function reset() {
+    sim = {
+      phase: 'idle',        // idle | screen | play | done
+      t: 0,                 // world time in the level, seconds
+      nextDt: FRAME,        // the delta the next frame will see
+      acc: 0,
+      rand: DemoKit.rng(7),
+      load: 'none',         // none | loading | ready
+      loadDone: 0,          // seconds of loading finished
+      loadBy: '',           // 'main thread' or 'worker'
+      bossShown: false,
+      memFrom: -1,          // world time the boss entered memory
+      wait: 0,              // seconds spent before play (loading screen)
+      frames: [],           // { ms, kind }
+      worst: 0,
+      stall: null,          // { left, total, ms, label } while a long frame is in progress
+      lastEvent: ''
+    };
+  }
+
+  function baseWork() { return 5 + sim.rand() * 2.5; }
+
+  // One frame of the game. Returns the frame's main-thread time in ms.
+  function doFrame() {
+    var dt = sim.nextDt;
+    sim.t += dt;
+    var progress = sim.t / LEVEL_TIME;
+    var work = baseWork();
+    var kind = 'normal';
+    var label = '';
+
+    if (mode.value === 'background' && sim.load === 'none' && progress >= request.value / 100) {
+      sim.load = 'loading';
+      sim.loadBy = 'worker';
+      sim.loadDone = 0;
+      sim.memFrom = sim.t;
+      sim.lastEvent = 'Requested the boss at ' + sim.t.toFixed(2) + ' s. A worker is reading it.';
+    } else if (sim.load === 'loading') {
+      sim.loadDone += dt;
+      work += BG_COST_MS;
+      if (sim.loadDone >= loadTime()) {
+        sim.load = 'ready';
+        sim.lastEvent = 'The worker finished at ' + sim.t.toFixed(2) + ' s, before the door.';
+      }
+    }
+
+    if (progress >= DOOR && !sim.bossShown) {
+      sim.bossShown = true;
+      if (sim.load === 'none') {
+        // Load on demand: the main thread does it all, inside this frame.
+        work += loadTime() * 1000;
+        sim.load = 'ready';
+        sim.memFrom = sim.t;
+        sim.loadBy = 'main thread';
+        kind = 'spike';
+        label = 'load at the door';
+        sim.lastEvent = 'load() at the door: the main thread read the boss for ' + Math.round(loadTime() * 1000) + ' ms.';
+      } else if (sim.load === 'loading') {
+        var left = Math.max(0, loadTime() - sim.loadDone);
+        work += left * 1000;
+        sim.load = 'ready';
+        kind = 'spike';
+        label = 'waiting for the worker';
+        sim.lastEvent = 'Reached the door with the load ' + Math.round(sim.loadDone / loadTime() * 100) + '% done. The game blocked for the last ' + Math.round(left * 1000) + ' ms.';
+      } else {
+        sim.lastEvent = 'At the door the boss was already in memory. No hitch.';
+      }
+    }
+
+    if (progress >= 1) {
+      sim.phase = 'done';
+      sim.t = LEVEL_TIME;
+    }
+
+    pushFrame(work, kind);
+    sim.nextDt = Math.max(FRAME, work / 1000);
+    if (work > BUDGET_MS) sim.stall = { left: work / 1000 - FRAME, total: work / 1000, ms: work, label: label };
+    return work;
+  }
+
+  function pushFrame(ms, kind) {
+    sim.frames.push({ ms: ms, kind: kind });
+    if (sim.frames.length > 600) sim.frames.shift();
+    if (kind !== 'screen') sim.worst = Math.max(sim.worst, ms);
+  }
+
+  function start() {
+    reset();
+    if (mode.value === 'preload') {
+      sim.phase = 'screen';
+      sim.load = 'loading';
+      sim.loadBy = 'main thread';
+      sim.memFrom = 0;
+      sim.wait = loadTime();
+      sim.stall = { left: loadTime(), total: loadTime(), ms: loadTime() * 1000, label: 'loading screen' };
+      sim.lastEvent = 'Loading the level, boss included, before the first frame.';
+    } else {
+      sim.phase = 'play';
+      sim.lastEvent = mode.value === 'blocking' ? 'Playing. Nothing is loaded until the door.' : 'Playing. The request point is the flag.';
+    }
+    if (handle) handle.play();
+    report();
+  }
+
+  function finishScreen() {
+    pushFrame(loadTime() * 1000, 'screen');
+    sim.load = 'ready';
+    sim.loadDone = loadTime();
+    sim.phase = 'play';
+    sim.lastEvent = 'Loaded in ' + Math.round(loadTime() * 1000) + ' ms behind the loading screen. Play starts.';
+  }
+
+  function skip() {
+    if (sim.phase === 'idle' || sim.phase === 'done') start();
+    var guard = 0;
+    while (sim.phase !== 'done' && guard < 10000) {
+      if (sim.stall) {
+        if (sim.phase === 'screen') finishScreen();
+        sim.stall = null;
+        continue;
+      }
+      doFrame();
+      guard++;
+    }
+    sim.stall = null;
+    report();
+    if (handle) handle.redraw();
+  }
+
+  function advance(dt) {
+    if (sim.phase === 'idle' || sim.phase === 'done') return;
+    if (sim.stall) {
+      sim.stall.left -= dt;
+      if (sim.stall.left > 0) return;
+      dt = -sim.stall.left;
+      if (sim.phase === 'screen') finishScreen();
+      sim.stall = null;
+      sim.acc = 0;
+      report();
+    }
+    sim.acc += dt;
+    while (sim.acc >= FRAME && !sim.stall && sim.phase !== 'done') {
+      sim.acc -= FRAME;
+      doFrame();
+      if (sim.stall || sim.phase === 'done') { sim.acc = 0; report(); }
+    }
+  }
+
+  function report() {
+    if (sim.phase === 'idle') {
+      outWorst.set('–');
+      outMem.set('–');
+      outEvent.set('Pick a strategy and press Start level.');
+      return;
+    }
+    outWorst.set(sim.worst ? sim.worst.toFixed(1) + ' ms' + (sim.worst > BUDGET_MS ? ' (over budget)' : '') : '–');
+    var held = sim.memFrom < 0 ? 'not loaded yet' : (LEVEL_TIME - sim.memFrom).toFixed(1) + ' s of 5.0 s';
+    var waitText = sim.wait > 0 ? ', wait before play ' + Math.round(sim.wait * 1000) + ' ms' : '';
+    outMem.set(held + waitText);
+    outEvent.set(sim.lastEvent || '');
+  }
+
+  // ---- Controls ---------------------------------------------------------------------------
+
+  var ui = DemoKit.controls('[data-demo="loading"]');
+  var mode = ui.select({
+    label: 'Strategy',
+    options: [
+      { value: 'preload', label: MODES.preload },
+      { value: 'blocking', label: MODES.blocking },
+      { value: 'background', label: MODES.background }
+    ],
+    value: 'blocking',
+    onChange: function () { reset(); report(); if (handle) handle.redraw(); }
+  });
+  var size = ui.slider({
+    label: 'Boss size', min: 20, max: 400, step: 10, value: 120, unit: ' MB',
+    onInput: function () { reset(); report(); if (handle) handle.redraw(); }
+  });
+  var request = ui.slider({
+    label: 'Background request at', min: 0, max: 75, step: 5, value: 30, unit: '% of level',
+    onInput: function () { reset(); report(); if (handle) handle.redraw(); }
+  });
+  ui.button({ label: 'Start level', onClick: start });
+  ui.button({ label: 'Skip to result', onClick: skip });
+  var outWorst = ui.readout({ label: 'Worst frame in play' });
+  var outMem = ui.readout({ label: 'Boss in memory for' });
+  var outEvent = ui.readout({ label: 'What happened' });
+
+  reset();
+  report();
+
+  // ---- Drawing ----------------------------------------------------------------------------
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxWidth) {
+    if (maxWidth <= 0) return '';
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+    return text + '…';
+  }
+
+  function drawWorld(ctx, s, c, L) {
+    var x0 = L.pad + 10, x1 = s.width - L.pad - 10;
+    var groundY = L.gameH - 18;
+    var span = x1 - x0;
+
+    ctx.fillStyle = c.surface2;
+    roundRect(ctx, L.pad, 8, s.width - 2 * L.pad, L.gameH - 8, 8);
+    ctx.fill();
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x0, groundY);
+    ctx.lineTo(x1, groundY);
+    ctx.stroke();
+
+    // Request flag.
+    if (mode.value === 'background') {
+      var rx = x0 + span * request.value / 100;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(rx, groundY);
+      ctx.lineTo(rx, groundY - 44);
+      ctx.stroke();
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.moveTo(rx, groundY - 44);
+      ctx.lineTo(rx + 14, groundY - 38);
+      ctx.lineTo(rx, groundY - 32);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = '12px ' + FONT;
+      ctx.textAlign = 'right';
+      ctx.fillText('request', rx - 4, groundY - 34);
+    }
+
+    // Door.
+    var dx = x0 + span * DOOR;
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dx - 9, groundY - 50, 18, 50);
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.fillText('door', dx, groundY + 14);
+
+    // Boss, past the door.
+    var bx = dx + Math.min(60, (x1 - dx) * 0.5);
+    var br = Math.min(26, (x1 - dx) * 0.35);
+    var bossIn = sim.load === 'ready';
+    var visible = sim.bossShown;
+    ctx.lineWidth = 2;
+    if (visible) {
+      ctx.fillStyle = c.bad;
+      ctx.beginPath();
+      ctx.arc(bx, groundY - br - 4, br, Math.PI, 0);
+      ctx.lineTo(bx + br, groundY);
+      ctx.lineTo(bx - br, groundY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(bx - br * 0.45, groundY - br - 10, 7, 7);
+      ctx.fillRect(bx + br * 0.2, groundY - br - 10, 7, 7);
+    } else {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.arc(bx, groundY - br - 4, br, Math.PI, 0);
+      ctx.lineTo(bx + br, groundY);
+      ctx.lineTo(bx - br, groundY);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px ' + FONT;
+    ctx.fillText(visible ? 'boss' : (bossIn ? 'in memory' : 'not loaded'), bx, 26);
+
+    // Hero.
+    var hx = x0 + span * Math.min(1, sim.t / LEVEL_TIME);
+    ctx.fillStyle = c.topic;
+    roundRect(ctx, hx - 8, groundY - 30, 16, 30, 4);
+    ctx.fill();
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(hx + 1, groundY - 24, 4, 4);
+
+    // Overlays.
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px ' + FONT;
+    if (sim.phase === 'idle') {
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(fit(ctx, 'Press Start level', span), x0, 26);
+    } else if (sim.phase === 'screen') {
+      ctx.fillStyle = c.surface;
+      roundRect(ctx, L.pad, 8, s.width - 2 * L.pad, L.gameH - 8, 8);
+      ctx.fill();
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'center';
+      ctx.font = '600 14px ' + FONT;
+      ctx.fillText('Loading…', s.width / 2, L.gameH / 2);
+      ctx.textAlign = 'left';
+    } else if (sim.stall) {
+      ctx.fillStyle = c.bad;
+      ctx.fillText(fit(ctx, 'Frozen: ' + sim.stall.label, span * 0.6), x0, 26);
+    } else if (sim.phase === 'done') {
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(fit(ctx, 'Level complete', span * 0.6), x0, 26);
+    }
+  }
+
+  function drawLoadLane(ctx, s, c, L) {
+    var y = L.laneY;
+    var x = L.pad, w = s.width - 2 * L.pad;
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'left';
+    var frac = 0;
+    var who = '';
+    if (sim.phase === 'screen' && sim.stall) {
+      frac = 1 - sim.stall.left / sim.stall.total;
+      who = 'main thread, behind the loading screen';
+    } else if (sim.stall && sim.stall.label === 'load at the door') {
+      frac = 1 - sim.stall.left / sim.stall.total;
+      who = 'main thread: every frame waits';
+    } else if (sim.stall && sim.stall.label === 'waiting for the worker') {
+      var before = Math.min(1, sim.loadDone / loadTime());
+      frac = before + (1 - before) * (1 - sim.stall.left / sim.stall.total);
+      who = 'worker, main thread blocked waiting';
+    } else if (sim.load === 'loading') {
+      frac = Math.min(1, sim.loadDone / loadTime());
+      who = 'worker thread, game keeps running';
+    } else if (sim.load === 'ready') {
+      frac = 1;
+      who = 'boss in memory (' + sim.loadBy + ')';
+    } else {
+      who = 'boss not loaded';
+    }
+    var labelW = Math.min(110, w * 0.3);
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Boss load', x, y + 13);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(x + labelW * 0.75, y + 2, w - labelW * 0.75, 14);
+    ctx.fillStyle = sim.stall && sim.phase !== 'screen' ? c.bad : c.topic;
+    ctx.fillRect(x + labelW * 0.75, y + 2, (w - labelW * 0.75) * DemoKit.clamp(frac, 0, 1), 14);
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(fit(ctx, who, w), x, y + 34);
+  }
+
+  function drawGraph(ctx, s, c, L) {
+    var gx = L.pad + 34, gy = L.graphY, gw = s.width - L.pad - gx, gh = L.graphH;
+    var bw = 3;
+    var n = Math.max(1, Math.floor(gw / bw));
+    var frames = sim.frames.slice(-n + (sim.stall && sim.phase !== 'screen' ? 1 : 0));
+    var yOf = function (ms) { return gy + gh - Math.min(ms, GRAPH_MAX) / GRAPH_MAX * gh; };
+
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('0', gx - 4, gy + gh);
+    ctx.fillText('40', gx - 4, gy + 10);
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(gx, gy, gw, gh);
+
+    var labels = [];
+    for (var i = 0; i < frames.length; i++) {
+      var f = frames[i];
+      var x = gx + i * bw;
+      var top = yOf(f.ms);
+      ctx.fillStyle = f.kind === 'screen' ? c.ink3 : (f.ms > BUDGET_MS ? c.bad : c.topic);
+      ctx.fillRect(x, top, bw - 1, gy + gh - top);
+      if (f.ms > GRAPH_MAX) labels.push({ x: x, ms: f.ms, kind: f.kind });
+    }
+
+    // A long frame still in progress grows in real time.
+    if (sim.stall) {
+      var sx = gx + frames.length * bw;
+      var grown = (1 - sim.stall.left / sim.stall.total) * sim.stall.ms;
+      var t2 = yOf(grown);
+      ctx.fillStyle = sim.phase === 'screen' ? c.ink3 : c.bad;
+      ctx.fillRect(Math.min(sx, gx + gw - bw), t2, bw - 1, gy + gh - t2);
+      labels.push({ x: Math.min(sx, gx + gw - bw), ms: grown, kind: sim.phase === 'screen' ? 'screen' : 'spike', live: true });
+    }
+
+    // Budget line.
+    var by = yOf(BUDGET_MS);
+    ctx.strokeStyle = c.warn;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(gx, by);
+    ctx.lineTo(gx + gw, by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.warn;
+    ctx.fillText('16.7 ms budget', gx + 4, by - 4);
+
+    ctx.textAlign = 'left';
+    labels.forEach(function (lb) {
+      var text = Math.round(lb.ms) + ' ms' + (lb.kind === 'screen' ? ' (loading screen)' : '');
+      ctx.font = '600 12px ' + FONT;
+      var tw = ctx.measureText(text).width;
+      var tx = Math.min(lb.x + 5, gx + gw - tw - 4);
+      tx = Math.max(gx + 4, tx);
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(tx - 2, gy + 3, tw + 4, 15);
+      ctx.fillStyle = lb.kind === 'screen' ? c.ink2 : c.bad;
+      ctx.fillText(text, tx, gy + 15);
+    });
+
+    ctx.fillStyle = c.ink3;
+    ctx.font = '12px ' + FONT;
+    ctx.fillText(fit(ctx, 'main thread ms per frame', s.width - 2 * L.pad - 90), L.pad, gy + gh + 16);
+  }
+
+  function layout(s) {
+    var pad = 10;
+    var gameH = 130;
+    var laneY = gameH + 10;
+    var graphY = laneY + 50;
+    var graphH = Math.max(60, s.height - graphY - 46);
+    return { pad: pad, gameH: gameH, laneY: laneY, graphY: graphY, graphH: graphH };
+  }
+
+  handle = DemoKit.canvas('#loading', {
+    height: 380,
+    keys: true,
+    label: 'A level loading demo. A hero walks right towards a door where a boss is needed. Below it, a load progress bar shows whether the main thread or a worker is loading the boss, and a graph shows main-thread milliseconds per frame against a 16.7 millisecond budget. Choose preload, load at the door or background loading and press Start level.',
+    onKey: function (key, down) {
+      if (!down) return;
+      if (key === 'space' || key === 'enter') start();
+      else if (key === 's') skip();
+    },
+    update: function (dt) { advance(dt); },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      drawWorld(ctx, s, c, L);
+      drawLoadLane(ctx, s, c, L);
+      drawGraph(ctx, s, c, L);
+    }
+  });
+})();
+</script>
+</body>
+</html>

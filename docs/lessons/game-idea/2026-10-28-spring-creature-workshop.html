@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spring Creature Workshop: build a body, then teach it to walk · Game Dev Daily</title>
+<meta name="description" content="A sandbox where you build creatures from points, springs and pulsing muscles and race them, with a playable prototype and the muscle physics in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Spring Creature Workshop: build a body, then teach it to walk</h1>
+  <p class="lede">A sandbox where you build creatures from points, springs and pulsing muscles and race them, with a playable prototype and the muscle physics in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>You stick four dots together, mark one line as a muscle, and press Run. Your creature twitches on the spot for ten seconds. Then you move one muscle half a beat later, and the same body gets up and marches off the screen.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: build, run, watch the feet</h2>
+  <p>Spring Creature Workshop is a sandbox racing game where you never steer. You build a body from <dfn>points</dfn> (small masses that gravity pulls down) joined by <dfn>springs</dfn> (links that try to keep their length). Some links can be <dfn>muscles</dfn>: springs whose length grows and shrinks on a steady rhythm. Then you press Run, and the creature has ten seconds to get as far right as it can.</p>
+  <p>The player does not move the creature. They design its rhythm. Every few seconds they change one link and run again. Every minute they find a gait (a pattern of steps) that is better than the last. Every session they take a favourite creature through a series of tracks.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: build by adding points and links, run for ten seconds, then watch which feet grip and which slide, which leads back to building. Beside it, two longer loops: every minute a new best distance, and every session a favourite creature taken through new tracks.">
+      <defs>
+        <marker id="sc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Build</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">change one link</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Run</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">ten seconds, no input</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Watch</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">which foot slides?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#sc-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#sc-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#sc-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 15 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a new gait and a</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">new best distance</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a favourite creature</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">on new tracks</text>
+    </svg>
+    <figcaption>A run never deletes the creature. The player changes one thing and runs again, so every attempt teaches one fact.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Body.</strong> Up to ten points and as many links as you like between them. Points are the only things that touch the ground.</li>
+    <li><strong>Muscles.</strong> Any link can be a muscle. Muscles stretch and shrink by a quarter of their length, following a sine wave (a smooth up-and-down curve). There are two kinds: <strong>A</strong> moves on the beat, and <strong>B</strong> moves half a beat later, so B is long while A is short.</li>
+    <li><strong>Rhythm.</strong> One slider sets the tempo for every muscle, in beats per second.</li>
+    <li><strong>Grip.</strong> A point on the ground resists sliding, and it resists harder the more weight presses on it. A foot carrying the body grips; a foot that is only brushing the ground slides.</li>
+    <li><strong>The race.</strong> Ten seconds. The score is how far the middle of the creature moved to the right, in metres. Going left counts as negative.</li>
+  </ul>
+
+  <p>The grip rule is what makes walking possible. A single muscle between two feet pulls them together, then pushes them apart. Both feet carry the same weight, so they slide by the same amount and the creature shuffles on the spot. To move, the body must shift its weight onto one foot at the moment the muscle pulls, so the light foot slides and the heavy foot stays planted. Getting that timing right is the whole game.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Two sine waves over one beat of time. Muscle A starts at its rest length, peaks long at a quarter beat and is shortest at three quarters. Muscle B is the same curve shifted by half a beat, so it is short when A is long and long when A is short.">
+      <path class="d-thin d-stroke" d="M70 115 H600"/>
+      <text class="d-muted" x="60" y="56" text-anchor="end">long</text>
+      <text class="d-muted" x="60" y="119" text-anchor="end">rest</text>
+      <text class="d-muted" x="60" y="182" text-anchor="end">short</text>
+      <path class="d-thin d-dash" d="M70 52 V178 M330 52 V178 M590 52 V178"/>
+      <text class="d-text" x="70" y="206" text-anchor="middle">0</text>
+      <text class="d-text" x="330" y="206" text-anchor="middle">half a beat</text>
+      <text class="d-text" x="590" y="206" text-anchor="middle">1 beat</text>
+      <path class="d-accent" d="M70 115 C113 72 157 52 200 52 C243 52 287 72 330 115 C373 158 417 178 460 178 C503 178 547 158 590 115"/>
+      <path class="d-stroke d-dash" d="M70 115 C113 158 157 178 200 178 C243 178 287 158 330 115 C373 72 417 52 460 52 C503 52 547 72 590 115"/>
+      <text class="d-label" x="200" y="38" text-anchor="middle">A long</text>
+      <text class="d-text" x="460" y="38" text-anchor="middle">B long</text>
+      <rect class="d-accent-fill" x="456" y="212" width="18" height="4"/>
+      <text class="d-text" x="480" y="221">A, on the beat</text>
+      <path class="d-stroke d-dash" d="M126 214 H144"/>
+      <text class="d-text" x="150" y="221">B, half a beat late</text>
+    </svg>
+    <figcaption>Two muscle kinds are enough to make the timing between them a design choice. Put A and B on the two legs and one foot is always carrying more weight than the other.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the inventor in a shed, watching a strange machine come to life. The constraint is that the only thing you control is timing. You cannot push the creature or choose where it steps. A body that looks clumsy can win, and a sensible-looking one can walk backwards, which makes every run a small surprise you caused yourself.</p>
+  <p>The hardest part to build is the physics feeling fair. Stiff springs that fight each other can shake and inject energy, and a creature that vibrates across the ground at high speed is a bug that feels like a cheat. This prototype limits every point's speed and keeps muscle changes smooth. Before publishing, I ran 300 random creatures through it to check that none produced invalid numbers and that no run went wildly further than a creature that actually steps.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press Run first. The starter crate has one muscle between its feet, and it shuffles in place. Now tap the right leg, the link from the right foot up to the top right corner, until it turns into a dashed B muscle, and run again. Then try an A muscle on the same leg, and watch which way it goes.</p>
+
+  <figure class="demo" data-demo="spring-creature">
+    <canvas id="spring-creature"></canvas>
+    <figcaption>Controls: tap empty space to add a point (joined to the selected point, if any). Tap one point, then another, to link them, or to cut an existing link. Tap a link to cycle it from spring to muscle A to muscle B and back. Press Run for a ten-second race. Keyboard (click the canvas first): arrow keys move the cursor, <kbd>Enter</kbd> taps at the cursor, <kbd>Space</kbd> runs or stops, <kbd>U</kbd> undoes. Solid thick links are A muscles, dashed thick links are B muscles. During a run, points touching the ground turn green.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE. Each point stores its position and its last position <code>px</code>, <code>py</code>: in <dfn>Verlet integration</dfn> a point keeps moving by as much as it moved last step. Every link is then nudged toward its rest length several times per step, and a muscle simply has a rest length that changes with time.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, STEP, ITER, DAMP, VMAX = 900, 1 / 60, 12, 0.99, 8
+local GROUND, AMP, STIFF, MU = 250, 0.25, 0.5, 1
+local points, links, beat, t, acc = {}, {}, 1.0, 0, 0  <span class="c">-- yours: fill from the editor</span>
+local function restLength(l)          <span class="c">-- l.kind is "spring", "A" or "B"</span>
+  if l.kind == "spring" then return l.rest end
+  local shift = (l.kind == "B") and math.pi or 0       <span class="c">-- B is half a beat late</span>
+<span class="k">  return l.rest * (1 + AMP * math.sin(2 * math.pi * beat * t + shift))</span>
+end
+local function step()
+  for _, p in ipairs(points) do
+    local vx, vy = (p.x - p.px) * DAMP, (p.y - p.py) * DAMP
+    local speed = math.sqrt(vx * vx + vy * vy)
+    if speed &gt; VMAX then vx, vy = vx * VMAX / speed, vy * VMAX / speed end
+    p.px, p.py, p.push = p.x, p.y, 0
+    p.x, p.y = p.x + vx, p.y + vy + G * STEP * STEP
+  end
+  for _ = 1, ITER do
+    for _, l in ipairs(links) do
+      local a, b = l.a, l.b; local dx, dy = b.x - a.x, b.y - a.y
+      local d = math.max(math.sqrt(dx * dx + dy * dy), 0.000001)
+      local k = (d - restLength(l)) / d * 0.5 * STIFF
+      a.x, a.y, b.x, b.y = a.x + dx * k, a.y + dy * k, b.x - dx * k, b.y - dy * k
+    end
+    for _, p in ipairs(points) do      <span class="c">-- push: how far the ground lifted it</span>
+      if p.y &gt; GROUND then p.push, p.y = p.push + p.y - GROUND, GROUND end
+    end
+  end
+  for _, p in ipairs(points) do        <span class="c">-- grip grows with how hard it pressed</span>
+    if p.push &gt; 0 then
+      local vx = p.x - p.px
+      local grip = math.min(math.abs(vx), MU * p.push)
+      p.x, p.py = p.px + vx - (vx &gt; 0 and grip or -grip), p.y
+    end
+  end
+  t = t + STEP
+end
+function love.update(dt)               <span class="c">-- fixed steps: the same creature always runs the same</span>
+  acc = acc + dt
+  while acc &gt;= STEP do step(); acc = acc - STEP end
+end</code></pre>
+  </div>
+  <p>The highlighted line is the muscle. The grip block below it is what turns muscle motion into travel: a point that pressed hard into the ground this step (a large <code>push</code>) can cancel a lot of sideways motion, and a point that barely touched cannot. Distances are in pixels, and the demo counts 50 pixels as one metre. Store each link's <code>rest</code> as the distance between its points when the player creates it.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Nothing works for the first ten minutes.</strong> If every early creature shuffles in place, players decide the game is broken. Ship starter bodies that almost walk and need one change. Test: give a new player the starter and time how long it takes them to see their first real step. Aim for under two minutes.</li>
+    <li><strong>Vibration exploits.</strong> Links that fight each other jitter, and jitter plus friction can slide a creature along faster than any gait. Players will find it and it will dominate. Cap point speed, keep muscle changes smooth, and run a batch of random creatures to see whether the top distances come from jitter or from steps.</li>
+    <li><strong>Too many knobs.</strong> Per-muscle tempo, strength and phase sliders sound generous but turn design into random search. Two muscle kinds and one tempo keep every change readable. Watch a tester: if they change several things between runs, they have stopped reasoning.</li>
+    <li><strong>Random results.</strong> If the same creature scores differently on two runs, players cannot learn. Run the physics on a fixed step and never use randomness inside a run.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Building a body from masses and springs and watching it move is a known area for web toys and physics sandboxes, and there are games where creatures evolve their own walking patterns over many generations. Ragdoll physics in action games uses a related idea: a body of joints and constraints that the physics engine moves.</p>
+  <p>Spring Creature Workshop keeps the human as the designer instead of handing the work to an evolutionary search, and it squeezes the controls down to two muscle timings and one tempo. The interest comes from reading why a foot slipped, not from tuning dozens of values.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a hard-coded four-point crate, a key that changes the right leg between spring, A and B, a key that restarts the run, and a line showing the distance travelled. Draw muscles thicker than springs.</p>
+  <p>Hand it to a friend with only "make it walk right". The one question to answer: <strong>after their first failed run, can they say which foot was slipping?</strong> If they can, the game is readable and worth extending. If they only try random changes, make the grip visible, for example by drawing planted feet as filled dots and sliding feet as hollow ones.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the prototype with five tracks (flat, a gentle slope, a step, a gap, a low ceiling), a saved creature per track, and a ghost of your best run.</li>
+    <li><strong>One-month version:</strong> a shared gallery of creatures, races between two players' designs, heavier and lighter points, and a slow-motion replay with the grip shown on each foot.</li>
+    <li><strong>Cut first:</strong> creature sharing. It needs servers and moderation, and the game is already fun alone once the player understands grip.</li>
+    <li>The mechanic is timing, not building. Every feature should give the player another reason to ask "which foot carries the weight right now?"</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: replace the race with a carrying task, a ball resting on the creature's back that must not fall off, so a fast gait that bucks loses to a smooth one.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Thomas Jakobsen, <cite>Advanced Character Physics</cite> (Game Developers Conference, 2001). Verlet integration with distance constraints, the method this prototype uses.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why a fixed physics step makes the same creature give the same result every run.</li>
+    <li>Karl Sims, <cite>Evolving Virtual Creatures</cite> (SIGGRAPH, 1994). Bodies and controllers found by evolution rather than by hand, the opposite approach to this game.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 600, H = 300, GROUND = 250, G = 900, STEP = 1 / 60, ITER = 12, DAMP = 0.99, VMAX = 8;
+  var AMP = 0.25, STIFF = 0.5, MU = 1, RUN_TIME = 10, PX_PER_M = 50, MAX_POINTS = 10, MAX_LINKS = 24;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var KIND_NAMES = ['spring', 'muscle A', 'muscle B'];
+
+  var pts = [], links = [], history = [], sim = null;
+  var mode = 'build', t = 0, acc = 0, startX = 0, camX = 0, best = null, last = 0;
+  var sel = -1, cur = { x: 300, y: 150 }, kbd = false, msg = '', msgT = 0, sc = 1, handle = null;
+
+  function starter() {
+    pts = [{ x: 180, y: 250 }, { x: 260, y: 250 }, { x: 200, y: 200 }, { x: 240, y: 200 }];
+    links = [];
+    addLink(0, 1, 1); addLink(2, 3, 0); addLink(0, 2, 0); addLink(1, 3, 0); addLink(0, 3, 0); addLink(1, 2, 0);
+    history = [];
+  }
+  function addLink(a, b, kind) {
+    var l = { a: a, b: b, kind: kind || 0, rest: Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y) };
+    links.push(l);
+    return l;
+  }
+  function findLink(a, b) {
+    for (var i = 0; i < links.length; i++) {
+      if ((links[i].a === a && links[i].b === b) || (links[i].a === b && links[i].b === a)) return i;
+    }
+    return -1;
+  }
+  function say(text) { msg = text; msgT = 2; }
+
+  function restLength(l) {
+    if (l.kind === 0) return l.rest;
+    var shift = l.kind === 2 ? Math.PI : 0;
+    return l.rest * (1 + AMP * Math.sin(2 * Math.PI * beat.value * t + shift));
+  }
+
+  function step() {
+    var i, p, it;
+    for (i = 0; i < sim.length; i++) {
+      p = sim[i];
+      var vx = (p.x - p.px) * DAMP, vy = (p.y - p.py) * DAMP, speed = Math.sqrt(vx * vx + vy * vy);
+      if (speed > VMAX) { vx = vx * VMAX / speed; vy = vy * VMAX / speed; }
+      p.px = p.x; p.py = p.y; p.push = 0;
+      p.x += vx; p.y += vy + G * STEP * STEP;
+    }
+    for (it = 0; it < ITER; it++) {
+      for (i = 0; i < links.length; i++) {
+        var l = links[i], a = sim[l.a], b = sim[l.b];
+        var dx = b.x - a.x, dy = b.y - a.y, d = Math.max(Math.sqrt(dx * dx + dy * dy), 0.000001);
+        var k = (d - restLength(l)) / d * 0.5 * STIFF;
+        a.x += dx * k; a.y += dy * k; b.x -= dx * k; b.y -= dy * k;
+      }
+      for (i = 0; i < sim.length; i++) {
+        p = sim[i];
+        if (p.y > GROUND) { p.push += p.y - GROUND; p.y = GROUND; }
+      }
+    }
+    for (i = 0; i < sim.length; i++) {
+      p = sim[i];
+      if (p.push > 0) {
+        var sx = p.x - p.px, grip = Math.min(Math.abs(sx), MU * p.push);
+        p.x = p.px + sx - (sx > 0 ? grip : -grip);
+        p.py = p.y;
+      }
+    }
+    t += STEP;
+  }
+
+  function middle(list) { var s = 0; for (var i = 0; i < list.length; i++) s += list[i].x; return s / list.length; }
+  function metres() { return (middle(sim) - startX) / PX_PER_M; }
+
+  function startRun() {
+    if (mode === 'done') { toBuild(); return; }
+    if (mode === 'run') { toBuild(); say('Run stopped'); return; }
+    if (pts.length < 2 || links.length < 1) { say('Add at least two points and a link'); return; }
+    sim = pts.map(function (p) { return { x: p.x, y: p.y, px: p.x, py: p.y, push: 0 }; });
+    startX = middle(sim); camX = 0; t = 0; acc = 0; sel = -1; mode = 'run'; msg = '';
+  }
+  function toBuild() { mode = 'build'; sim = null; camX = 0; t = 0; }
+  function finish() {
+    mode = 'done'; last = metres();
+    if (best === null || last > best) best = last;
+  }
+
+  function undo() {
+    if (mode !== 'build') return;
+    while (history.length) {
+      var h = history.pop();
+      if (h.link) { var i = links.indexOf(h.link); if (i >= 0) { links.splice(i, 1); say('Link removed'); return; } }
+      else if (h.point === pts.length - 1) { removeLastPoint(); say('Point removed'); return; }
+    }
+    say('Nothing to undo');
+  }
+  function removeLastPoint() {
+    var n = pts.length - 1;
+    links = links.filter(function (l) { return l.a !== n && l.b !== n; });
+    pts.pop();
+    if (sel === n) sel = -1;
+  }
+
+  function segDist(px, py, a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+    var u = len2 > 0 ? Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / len2)) : 0;
+    return { d: Math.hypot(a.x + dx * u - px, a.y + dy * u - py), u: u };
+  }
+
+  function tapAt(wx, wy) {
+    if (mode !== 'build') { if (mode === 'done') toBuild(); return; }
+    var reach = Math.max(16, 14 / sc), i, hit = -1, bd = reach;
+    for (i = 0; i < pts.length; i++) {
+      var d = Math.hypot(pts[i].x - wx, pts[i].y - wy);
+      if (d < bd) { bd = d; hit = i; }
+    }
+    if (hit >= 0) {
+      if (sel < 0) { sel = hit; return; }
+      if (sel === hit) { sel = -1; return; }
+      var j = findLink(sel, hit);
+      if (j >= 0) { links.splice(j, 1); say('Link cut'); }
+      else if (links.length >= MAX_LINKS) { say('Link limit reached'); }
+      else { history.push({ link: addLink(sel, hit, 0) }); say('Spring added'); }
+      sel = hit;
+      return;
+    }
+    var lr = Math.max(9, 10 / sc), lh = -1;
+    for (i = 0; i < links.length; i++) {
+      var r = segDist(wx, wy, pts[links[i].a], pts[links[i].b]);
+      if (r.d < lr && r.u > 0.1 && r.u < 0.9) { lr = r.d; lh = i; }
+    }
+    if (lh >= 0) {
+      links[lh].kind = (links[lh].kind + 1) % 3;
+      say('Now a ' + KIND_NAMES[links[lh].kind]);
+      return;
+    }
+    if (pts.length >= MAX_POINTS) { say('Ten points is the limit'); return; }
+    pts.push({ x: Math.max(10, Math.min(W - 10, wx)), y: Math.max(20, Math.min(GROUND, wy)) });
+    history.push({ point: pts.length - 1 });
+    if (sel >= 0 && links.length < MAX_LINKS) addLink(sel, pts.length - 1, 0);
+    sel = pts.length - 1;
+  }
+
+  function reset() { starter(); mode = 'build'; sim = null; best = null; sel = -1; camX = 0; t = 0; msg = ''; msgT = 0; }
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  function update(dt) {
+    if (msgT > 0) msgT -= dt;
+    if (mode !== 'run') return;
+    acc = Math.min(acc + dt, 0.1);
+    while (acc >= STEP && mode === 'run') {
+      step(); acc -= STEP;
+      if (t >= RUN_TIME) finish();
+    }
+    camX += (middle(sim) - startX - camX) * Math.min(1, dt * 4);
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.fillText(str, x, y);
+  }
+  function fmt(m) { return (m <= -0.05 ? '-' : '') + Math.abs(m).toFixed(1) + ' m'; }
+
+  function draw(ctx, s) {
+    var c = s.colors, i, list = sim || pts;
+    sc = s.width / W;
+    function X(wx) { return (wx - camX) * sc; }
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.fillStyle = c.line; ctx.fillRect(0, GROUND * sc, s.width, s.height);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, GROUND * sc); ctx.lineTo(s.width, GROUND * sc); ctx.stroke();
+
+    // Metre ticks measured from the start line.
+    var origin = sim ? startX : middle(pts.length ? pts : [{ x: 220 }]);
+    var first = Math.floor((camX - origin) / PX_PER_M) - 1;
+    for (i = first; i < first + W / PX_PER_M + 3; i++) {
+      var tx = X(origin + i * PX_PER_M);
+      ctx.strokeStyle = i === 0 ? c.topic : c.ink3; ctx.lineWidth = i === 0 ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(tx, GROUND * sc); ctx.lineTo(tx, (GROUND + (i === 0 ? 22 : 8)) * sc); ctx.stroke();
+      if (i % 2 === 0 && tx > -20 && tx < s.width + 20) text(ctx, i + ' m', tx, (GROUND + 22) * sc + 12, c.ink2, '11px');
+    }
+
+    // Links: springs thin, A muscles thick and solid, B muscles thick and dashed.
+    ctx.lineCap = 'round';
+    for (i = 0; i < links.length; i++) {
+      var l = links[i], a = list[l.a], b = list[l.b];
+      ctx.strokeStyle = l.kind === 0 ? c.ink2 : (l.kind === 1 ? c.topic : c.warn);
+      ctx.lineWidth = l.kind === 0 ? 2 : Math.max(4, 6 * sc);
+      ctx.setLineDash(l.kind === 2 ? [8, 6] : []);
+      ctx.beginPath(); ctx.moveTo(X(a.x), a.y * sc); ctx.lineTo(X(b.x), b.y * sc); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Points: filled when gripping the ground during a run.
+    var r = Math.max(5, 7 * sc);
+    for (i = 0; i < list.length; i++) {
+      var p = list[i], grounded = sim && p.y >= GROUND - 0.5;
+      ctx.fillStyle = grounded ? c.good : c.ink;
+      ctx.beginPath(); ctx.arc(X(p.x), p.y * sc, r, 0, Math.PI * 2); ctx.fill();
+      if (i === sel && mode === 'build') {
+        ctx.strokeStyle = c.topic; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(X(p.x), p.y * sc, r + 5, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+
+    if (kbd && mode === 'build') {
+      var cx = cur.x * sc, cy = cur.y * sc;
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx - 9, cy); ctx.lineTo(cx + 9, cy); ctx.moveTo(cx, cy - 9); ctx.lineTo(cx, cy + 9); ctx.stroke();
+    }
+
+    // HUD and beat lights.
+    var left = mode === 'build' ? 'Points ' + pts.length + ' / ' + MAX_POINTS : 'Time ' + Math.min(t, RUN_TIME).toFixed(1) + ' / 10 s';
+    text(ctx, left, 8, 18, c.ink, '600 13px', 'left');
+    text(ctx, 'Best ' + (best === null ? '-' : fmt(best)), s.width - 8, 18, c.ink2, '13px', 'right');
+    var ph = 2 * Math.PI * beat.value * (mode === 'build' ? s.time : t);
+    ctx.globalAlpha = 0.35 + 0.65 * Math.max(0, Math.sin(ph)); ctx.fillStyle = c.topic;
+    ctx.beginPath(); ctx.arc(14, 36, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.35 + 0.65 * Math.max(0, Math.sin(ph + Math.PI)); ctx.fillStyle = c.warn;
+    ctx.beginPath(); ctx.arc(46, 36, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    text(ctx, 'A', 26, 41, c.ink2, '600 12px', 'left'); text(ctx, 'B', 58, 41, c.ink2, '600 12px', 'left');
+
+    var hint;
+    if (mode === 'run') hint = 'Distance ' + fmt(metres());
+    else if (msgT > 0) hint = msg;
+    else hint = sel >= 0 ? 'Tap a point to link it, or empty ground to add one' : 'Tap a link to make it a muscle';
+    text(ctx, hint, s.width / 2, 41, mode === 'run' ? c.ink : c.ink2, mode === 'run' ? '600 13px' : '12px');
+
+    if (mode !== 'done') return;
+    var bw = Math.min(280, s.width - 20), bh = 58, bx = s.width / 2 - bw / 2, by = s.height * 0.3 - bh / 2;
+    ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(bx, by, bw, bh); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    var verdict = Math.abs(last) < 0.5 ? 'Shuffled in place (' + fmt(last) + ')' : (last > 0 ? 'Walked ' + fmt(last) : 'Went ' + fmt(-last) + ' backwards');
+    text(ctx, verdict, s.width / 2, by + 23, last >= 0.5 ? c.good : (last > -0.5 ? c.warn : c.bad), '600 14px');
+    text(ctx, 'Tap or Space to keep building', s.width / 2, by + 43, c.ink2, '12px');
+  }
+
+  var ui = DemoKit.controls('[data-demo="spring-creature"]');
+  var beat = ui.slider({ label: 'Rhythm', min: 0.5, max: 2.5, step: 0.1, value: 1, unit: ' beats/s' });
+  ui.button({ label: 'Run / stop', onClick: function () { startRun(); wake(); } });
+  ui.button({ label: 'Undo', onClick: function () { undo(); wake(); } });
+  ui.button({ label: 'Clear', onClick: function () { toBuild(); pts = []; links = []; history = []; sel = -1; say('Tap anywhere to place a point'); wake(); } });
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  reset();
+
+  handle = DemoKit.canvas('#spring-creature', {
+    aspect: W / H,
+    keys: true,
+    label: 'Spring Creature Workshop prototype. A side view of flat ground with a creature made of four points joined by springs, one of them a muscle. Add points and links, turn links into muscles, then run a ten-second race.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { wake(); kbd = false; tapAt(p.x / sc, p.y / sc); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'space') { startRun(); return; }
+      if (key === 'enter') { tapAt(cur.x, cur.y); kbd = true; return; }
+      if (key === 'u' || key === 'z' || key === 'backspace') { undo(); return; }
+      var moves = { arrowleft: [-10, 0], arrowright: [10, 0], arrowup: [0, -10], arrowdown: [0, 10] };
+      if (moves[key] && mode === 'build') {
+        kbd = true;
+        cur.x = Math.max(10, Math.min(W - 10, cur.x + moves[key][0]));
+        cur.y = Math.max(20, Math.min(GROUND, cur.y + moves[key][1]));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
