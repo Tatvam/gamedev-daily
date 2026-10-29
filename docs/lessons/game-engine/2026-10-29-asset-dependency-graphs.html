@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset references and dependency graphs: hard and soft links · Game Dev Daily</title>
+<meta name="description" content="How one reference can pull a chain of textures and sounds into memory, and how path and address references in Godot and Unity break that chain.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-29">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Asset references and dependency graphs: hard and soft links</h1>
+  <p class="lede">How one reference can pull a chain of textures and sounds into memory, and how path and address references in Godot and Unity break that chain.</p>
+</header>
+
+<section data-section="hook">
+  <p>The first level takes nine seconds to load and uses 193 MB, yet the player starts in a small corridor. You trace it. The level holds a link to the boss, the boss holds its 64 MB sprite sheet and its music, and the level also holds the shop menu with its own art and music. Two fields in the editor pulled in 135 MB that only the last two rooms use.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every reference is an arrow</h2>
+  <p>Asset A <dfn>depends on</dfn> asset B when A cannot be used until B is loaded. A scene depends on the textures its sprites show; a material depends on its shader. Draw every asset as a box and every dependency as an arrow and you get the <dfn>dependency graph</dfn> of your project.</p>
+  <p>Arrows come in two kinds.</p>
+  <ul>
+    <li>A <dfn>hard reference</dfn> stores a direct link to the asset. To build the owner, the engine must load the target first. Loading is therefore <em>transitive</em>: load one box and you load everything you can reach from it by following hard arrows.</li>
+    <li>A <dfn>soft reference</dfn> stores only a name for the asset: a file path, a UID, an address or a GUID. It is a string. Nothing is loaded until code passes that name to a load function.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="A dependency graph. Level has hard arrows to Player and HUD, which have hard arrows to hero.png and icons.png. Together these load with the level, 23 MB. Level has a dashed soft arrow to Boss. Boss and its assets boss.png and boss.ogg are greyed out: they load only when code asks, 89 MB.">
+      <defs>
+        <marker id="dg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+
+      <rect class="d-box" x="16" y="104" width="96" height="40" rx="6"/>
+      <text class="d-text" x="64" y="129" text-anchor="middle">Level</text>
+      <text class="d-muted" x="64" y="172" text-anchor="middle">soft: path only</text>
+
+      <path class="d-stroke" d="M112 118 L168 48" marker-end="url(#dg-arrow)"/>
+      <path class="d-stroke" d="M112 122 L168 114" marker-end="url(#dg-arrow)"/>
+      <path class="d-dash" d="M112 134 L168 200" marker-end="url(#dg-arrow)"/>
+
+      <rect class="d-box" x="170" y="26" width="110" height="36" rx="6"/>
+      <text class="d-text" x="225" y="49" text-anchor="middle">Player</text>
+      <rect class="d-box" x="170" y="96" width="110" height="36" rx="6"/>
+      <text class="d-text" x="225" y="119" text-anchor="middle">HUD</text>
+      <rect class="d-fill" x="170" y="186" width="110" height="36" rx="6" stroke-dasharray="4 4"/>
+      <text class="d-muted" x="225" y="209" text-anchor="middle">Boss</text>
+
+      <path class="d-stroke" d="M280 44 L358 44" marker-end="url(#dg-arrow)"/>
+      <path class="d-stroke" d="M280 114 L358 114" marker-end="url(#dg-arrow)"/>
+      <path class="d-thin" d="M280 198 L358 186" marker-end="url(#dg-arrow)"/>
+      <path class="d-thin" d="M280 210 L358 228" marker-end="url(#dg-arrow)"/>
+
+      <rect class="d-box" x="360" y="26" width="130" height="36" rx="6"/>
+      <text class="d-text" x="425" y="49" text-anchor="middle">hero.png 16 MB</text>
+      <rect class="d-box" x="360" y="96" width="130" height="36" rx="6"/>
+      <text class="d-text" x="425" y="119" text-anchor="middle">icons.png 4 MB</text>
+      <rect class="d-fill" x="360" y="168" width="130" height="36" rx="6" stroke-dasharray="4 4"/>
+      <text class="d-muted" x="425" y="191" text-anchor="middle">boss.png 64 MB</text>
+      <rect class="d-fill" x="360" y="212" width="130" height="36" rx="6" stroke-dasharray="4 4"/>
+      <text class="d-muted" x="425" y="235" text-anchor="middle">boss.ogg 24 MB</text>
+
+      <path class="d-accent" d="M502 26 H512 V132 H502"/>
+      <text class="d-label" x="520" y="74">loads with</text>
+      <text class="d-label" x="520" y="92">Level: 23 MB</text>
+      <path class="d-dash" d="M502 168 H512 V248 H502"/>
+      <text class="d-muted" x="520" y="202">loads when</text>
+      <text class="d-muted" x="520" y="218">asked: 89 MB</text>
+    </svg>
+    <figcaption>Solid arrows are hard references, the dashed arrow is soft. The arrows inside Boss are still hard, so when code finally asks for Boss, its sprite sheet and music come with it. One soft arrow moved the whole subtree out of the level's load.</figcaption>
+  </figure>
+
+  <h2>What happens, in what order</h2>
+  <p>When you ask either engine to load an asset, it does roughly this:</p>
+  <ol>
+    <li>Read the asset's file and find its list of references.</li>
+    <li>For each hard reference, load that asset first, using the same steps. If the engine's cache already holds it, skip it: a shared texture is loaded once, however many owners point at it.</li>
+    <li>Build the asset itself, wiring the loaded objects into it. Soft references are copied in as plain strings and left alone.</li>
+  </ol>
+  <p>Later, when code calls load with one of those strings, the same walk starts from that box, at that moment, with the hitch costs from the previous lesson.</p>
+  <p>The cache matters for one subtle rule: <strong>a soft link only saves memory if no other hard path reaches the target</strong>. If the shop and the player both use <code>sword.png</code>, softening the shop link still leaves the sword loaded through the player.</p>
+
+  <h2>Who owns the data</h2>
+  <p>With a hard reference the owner keeps the target alive: in Godot until the last reference to the resource goes, in Unity until the scene is unloaded. With a soft reference, the code that called load owns the result. In Godot you drop your last variable pointing at it; with Unity's Addressables you release the handle, or the asset stays loaded.</p>
+
+  <h2>How Godot 4 expresses it</h2>
+  <p>In a <code>.tscn</code> file the hard references are the <code>[ext_resource]</code> lines at the top. A filled <code>PackedScene</code> or <code>Texture2D</code> export becomes one, as does every instanced sub-scene. A script's <code>preload</code> is hard too, wherever the script is attached.</p>
+  <p>For a soft reference, export a string with <code>@export_file("*.tscn")</code> and call <code>load</code> on it when needed. Since Godot 4.5 the editor stores such a field as a <code>uid://</code> string when the file has one, so it survives the file being moved; earlier 4.x versions store the <code>res://</code> path. <code>load</code> accepts both.</p>
+  <p>There is also a middle ground for instanced scenes: right-click one in the scene tree and choose <strong>Load As Placeholder</strong>. At run time it becomes an <code>InstancePlaceholder</code> node, and the real scene is loaded only when you call <code>create_instance()</code>.</p>
+  <p>To inspect the graph, right-click a file in the FileSystem dock: <strong>Edit Dependencies...</strong> lists the arrows going out and <strong>View Owners...</strong> lists the arrows coming in. In code, <code>ResourceLoader.get_dependencies(path)</code> returns the direct dependencies of one file.</p>
+
+  <h2>How Unity expresses it</h2>
+  <p>A serialized field of an asset type, such as <code>GameObject</code>, <code>Texture2D</code> or <code>AudioClip</code>, is a hard reference. When a scene loads, everything its objects reference loads with it, transitively.</p>
+  <p><code>Resources.Load("Boss")</code> takes a path string, so it is soft at run time. But everything inside a <code>Resources</code> folder ships in the build, used or not.</p>
+  <p>The Addressables package gives soft references a proper type. An <code>AssetReference</code> field, or a typed one such as <code>AssetReferenceGameObject</code>, looks like a normal object field in the Inspector, but it serializes only the asset's GUID. You load it with <code>LoadAssetAsync</code> or <code>InstantiateAsync</code> and release it with <code>ReleaseAsset</code> or <code>ReleaseInstance</code>.</p>
+  <p>In editor scripts, <code>AssetDatabase.GetDependencies(path, true)</code> lists every asset path an asset depends on, recursively.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th>Godot 4</th><th>Unity 6 / 2022 LTS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Hard</td><td>Exported resource field, instanced scene, <code>preload</code></td><td>Serialized asset field, objects in the scene</td></tr>
+      <tr><td>Soft</td><td><code>@export_file</code> string, then <code>load</code>; Load As Placeholder</td><td><code>AssetReference</code>; <code>Resources.Load</code> by path</td></tr>
+      <tr><td>See the graph</td><td>Edit Dependencies, View Owners, <code>get_dependencies</code></td><td><code>AssetDatabase.GetDependencies</code></td></tr>
+      <tr><td>Who frees it</td><td>Last reference gone</td><td>Scene unload, or <code>Release</code> for Addressables</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Hard-link what every moment of the scene needs. Put a soft link at each boundary where content may never be used: the next room, a menu, a boss, a cosmetic the player might not own.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>This is the level from the hook. Every link starts hard, so the level pulls in 193 MB against a 128 MB budget. Tap a box to see everything loading it pulls in. Tap the small circle on a link to switch it between hard (solid, filled circle) and soft (dashed, hollow circle).</p>
+  <p>Make <strong>Level → Boss</strong> soft and watch the bar drop by 92 MB. Then make <strong>Level → Shop</strong> soft: it saves 43 MB, not 47, because the player still holds <code>sword.png</code>. Finally select Shop and press <strong>Request selected</strong> to load it at run time.</p>
+
+  <figure class="demo wide" data-demo="deps">
+    <canvas id="deps"></canvas>
+    <figcaption>Thick coloured outlines show what loading the selected asset pulls in. Dashed grey boxes are not in memory; green boxes were requested at run time. Keyboard: focus the canvas, arrow keys move the selection, Enter requests it; the Link menu and Toggle button switch links. The model counts file sizes only. It leaves out compression, GPU copies, scripts as dependencies and the time each load takes.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no asset graph of its own, so the idea is easy to see bare. This model uses the demo's names and sizes. A soft link is just a key in the <code>SOFT</code> table; a real game would call <code>love.graphics.newImage</code> or <code>love.audio.newSource</code> where the model sets <code>loaded[name] = true</code>. Press B or S to request the boss or the shop, R to reset.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua. Same graph and sizes (MB) as the demo.</span>
+local SIZE = { Level = 1, Player = 1, Shop = 1, HUD = 1, Boss = 1,
+  ["tiles.png"] = 8, ["music.ogg"] = 20, ["hero.png"] = 16, ["jump.wav"] = 1,
+  ["sword.png"] = 4, ["shop.png"] = 24, ["shop.ogg"] = 18, ["font.ttf"] = 2,
+  ["icons.png"] = 4, ["boss.png"] = 64, ["boss.ogg"] = 24, ["roar.wav"] = 3 }
+
+local REFS = {
+  Level  = { "Player", "Shop", "HUD", "Boss", "tiles.png", "music.ogg" },
+  Player = { "hero.png", "jump.wav", "sword.png" },
+  Shop   = { "sword.png", "shop.png", "shop.ogg" },
+  HUD    = { "font.ttf", "icons.png" },
+  Boss   = { "boss.png", "boss.ogg", "roar.wav" },
+}
+
+<span class="c">-- Soft links store a name only. Empty this table to get 193 MB.</span>
+local SOFT = { ["Level&gt;Boss"] = true, ["Level&gt;Shop"] = true }
+
+local loaded = {}   <span class="c">-- the cache: name -&gt; true</span>
+
+local function loadAsset(name)
+<span class="k">  if loaded[name] then return end           -- shared assets load once</span>
+  for _, child in ipairs(REFS[name] or {}) do
+<span class="k">    if not SOFT[name .. "&gt;" .. child] then loadAsset(child) end   -- hard: load first</span>
+  end
+  loaded[name] = true                       <span class="c">-- then build the owner</span>
+end
+
+local function memory()
+  local total = 0
+  for name in pairs(loaded) do total = total + SIZE[name] end
+  return total
+end
+
+function love.load() loadAsset("Level") end   <span class="c">-- 58 MB with both links soft</span>
+
+function love.keypressed(key)
+  if key == "b" then loadAsset("Boss") end      <span class="c">-- +92 MB</span>
+  if key == "s" then loadAsset("Shop") end      <span class="c">-- +43 MB, sword already in</span>
+  if key == "r" then loaded = {}; loadAsset("Level") end
+end
+
+function love.draw()
+  local names = {}
+  for name in pairs(loaded) do names[#names + 1] = name end
+  table.sort(names)
+  love.graphics.print("in memory: " .. memory() .. " MB of 128 MB", 10, 10)
+  love.graphics.print(table.concat(names, "\n"), 10, 40)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># level.gd on the root node of level.tscn. Godot 4.</span>
+<span class="c"># Assign a boss scene and pick a shop scene in the Inspector, then run.</span>
+extends Node
+
+<span class="c"># Hard: saved as an [ext_resource] line in level.tscn.</span>
+<span class="c"># Loading level.tscn loads the boss scene and everything it references.</span>
+<span class="k">@export var boss_scene: PackedScene</span>
+
+<span class="c"># Soft: only a string (a uid:// or res:// path). Nothing loads until load().</span>
+<span class="k">@export_file("*.tscn") var shop_scene_path: String</span>
+
+var shop: Node
+
+func _ready() -&gt; void:
+    print_graph(scene_file_path, 0, {})
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event.is_action_pressed("ui_accept") and shop == null and shop_scene_path != "":
+        var shop_scene: PackedScene = load(shop_scene_path)   <span class="c"># loads the shop subtree now</span>
+        shop = shop_scene.instantiate()
+        add_child(shop)
+
+<span class="c"># Print every file a resource pulls in, once each, like the demo's highlight.</span>
+func print_graph(path: String, depth: int, seen: Dictionary) -&gt; void:
+    if seen.has(path):
+        return
+    seen[path] = true
+    print("  ".repeat(depth) + path)
+    for dep in ResourceLoader.get_dependencies(path):
+        var dep_path: String = dep.get_slice("::", 2) if dep.contains("::") else dep
+        print_graph(dep_path, depth + 1, seen)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Level.cs. Unity 6 or 2022 LTS with the Addressables package installed.</span>
+<span class="c">// Mark the shop prefab as Addressable, then drag it into Shop Prefab.</span>
+<span class="c">// In Play mode, use the component's menu (three dots) to open and close the shop.</span>
+using UnityEngine;
+using UnityEngine.AddressableAssets;
+
+public class Level : MonoBehaviour
+{
+    <span class="c">// Hard: this prefab and all its textures and sounds load with the scene.</span>
+<span class="k">    public GameObject bossPrefab;</span>
+
+    <span class="c">// Soft: serializes only the asset's GUID. Nothing loads until you ask.</span>
+<span class="k">    public AssetReferenceGameObject shopPrefab;</span>
+
+    GameObject shop;
+
+    [ContextMenu("Open shop")]
+    void OpenShop()
+    {
+        if (shop != null || !shopPrefab.RuntimeKeyIsValid()) return;
+<span class="k">        shopPrefab.InstantiateAsync().Completed += h =&gt; shop = h.Result;</span>
+    }
+
+    [ContextMenu("Close shop")]
+    void CloseShop()
+    {
+        if (shop == null) return;
+        shopPrefab.ReleaseInstance(shop);   <span class="c">// you own it: release, or it stays loaded</span>
+        shop = null;
+    }
+}
+
+<span class="c">// Assets/Editor/ShowDependencies.cs. Select a scene or prefab, then Tools &gt; Show Dependencies.</span>
+using UnityEditor;
+using UnityEngine;
+
+public static class ShowDependencies
+{
+    [MenuItem("Tools/Show Dependencies")]
+    static void Show()
+    {
+        if (Selection.activeObject == null) return;
+        string path = AssetDatabase.GetAssetPath(Selection.activeObject);
+<span class="k">        foreach (string dep in AssetDatabase.GetDependencies(path, true))</span>
+            if (dep != path) Debug.Log(dep);
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A soft link with a hard twin.</strong> You soften the level's link to the boss, but a spawner script still has a hard field or a <code>preload</code> pointing at the same scene. Nothing changes. Check the incoming arrows (View Owners in Godot, or a dependency listing in Unity) before you count the savings.</li>
+    <li><strong>Making everything soft.</strong> Each soft link is a load your code must start, wait for and release, and a typo in a path shows up only when that line runs. Soften boundaries, not every texture.</li>
+    <li><strong>Loading an <code>AssetReference</code> twice.</strong> Its own <code>LoadAssetAsync</code> logs an error if a load through that reference is still held. To load the same reference from several places, pass it as the key to <code>Addressables.LoadAssetAsync</code> and keep one handle per caller.</li>
+    <li><strong>Duplicated dependencies in Addressables.</strong> If Addressable assets in two groups both hard-reference a texture that is not itself Addressable, each bundle can get its own copy. The Addressables Analyze window can report such duplicates.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The split is not special to Godot and Unity: Unreal Engine calls them hard and soft object references, with types such as <code>TSoftObjectPtr</code> for the soft kind. Open-world streaming is built on soft links, with each region naming its neighbours so the game can load what is near the player. Downloadable content needs them too, because the base game must refer to content that may not be installed.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the dependency printer from the code section on your main gameplay scene. Add up the file sizes of what it lists, or just note the five biggest files. Find the largest subtree that the first minute of play does not need, such as a menu, a boss or a later room, and replace the hard link to it with a soft one that is loaded when needed. You are done when the printer no longer lists that subtree and the feature still works when you reach it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Assets form a graph. Loading one asset loads everything reachable from it through hard references.</li>
+    <li>A soft reference is a name: a path, UID, address or GUID. Nothing loads until code asks.</li>
+    <li>The cache loads a shared asset once, so softening a link saves memory only if no other hard path reaches the target.</li>
+    <li>Godot: exported resources and <code>preload</code> are hard; <code>@export_file</code> plus <code>load</code> is soft. Unity: serialized asset fields are hard; <code>AssetReference</code> is soft.</li>
+    <li>Whoever loads through a soft link owns the result and must release it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at data assets, Custom Resources in Godot and ScriptableObjects in Unity, which let many objects share one set of values through exactly this kind of reference.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/ResourceLoader.xml">ResourceLoader</a></cite>, on <code>get_dependencies</code> and the format of its results.</li>
+    <li>Godot Engine documentation (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/modules/gdscript/doc_classes/%40GDScript.xml">@GDScript</a></cite>, on <code>@export_file</code> storing the file as a UID.</li>
+    <li>Godot Engine documentation (4.5), class reference for <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/InstancePlaceholder.xml">InstancePlaceholder</a></cite>, on Load As Placeholder and <code>create_instance</code>.</li>
+    <li>Godot Engine source (4.5), <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/editor/docks/filesystem_dock.cpp">editor/docks/filesystem_dock.cpp</a></cite>, for the Edit Dependencies and View Owners menu items.</li>
+    <li>Unity Technologies, Addressables package source, <cite><a href="https://raw.githubusercontent.com/needle-mirror/com.unity.addressables/master/Runtime/AssetReference.cs">Runtime/AssetReference.cs</a></cite> (a public mirror of the package), on the GUID it serializes, <code>LoadAssetAsync</code>, <code>InstantiateAsync</code> and the release methods.</li>
+    <li>Unity Technologies, C# reference source, <cite>Modules/AssetDatabase/Editor/ScriptBindings/AssetDatabase.bindings.cs</cite>, for <code>AssetDatabase.GetDependencies(string, bool)</code>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same graph and sizes (MB) as the Lua code.
+  var BUDGET = 128;
+  var MAX_MB = 200;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var NODES = [
+    { id: 'Level', mb: 1, col: 0 },
+    { id: 'Player', mb: 1, col: 1 }, { id: 'Shop', mb: 1, col: 1 }, { id: 'HUD', mb: 1, col: 1 },
+    { id: 'Boss', mb: 1, col: 1 }, { id: 'tiles.png', mb: 8, col: 1 }, { id: 'music.ogg', mb: 20, col: 1 },
+    { id: 'hero.png', mb: 16, col: 2 }, { id: 'jump.wav', mb: 1, col: 2 }, { id: 'sword.png', mb: 4, col: 2 },
+    { id: 'shop.png', mb: 24, col: 2 }, { id: 'shop.ogg', mb: 18, col: 2 }, { id: 'font.ttf', mb: 2, col: 2 },
+    { id: 'icons.png', mb: 4, col: 2 }, { id: 'boss.png', mb: 64, col: 2 }, { id: 'boss.ogg', mb: 24, col: 2 },
+    { id: 'roar.wav', mb: 3, col: 2 }
+  ];
+  var REFS = {
+    Level: ['Player', 'Shop', 'HUD', 'Boss', 'tiles.png', 'music.ogg'],
+    Player: ['hero.png', 'jump.wav', 'sword.png'],
+    Shop: ['sword.png', 'shop.png', 'shop.ogg'],
+    HUD: ['font.ttf', 'icons.png'],
+    Boss: ['boss.png', 'boss.ogg', 'roar.wav']
+  };
+
+  var byId = {};
+  NODES.forEach(function (n) { byId[n.id] = n; });
+
+  var EDGES = [];
+  var outEdges = {};
+  NODES.forEach(function (n) {
+    outEdges[n.id] = [];
+    (REFS[n.id] || []).forEach(function (to) {
+      var e = { from: n.id, to: to, soft: false, key: n.id + '>' + to };
+      EDGES.push(e);
+      outEdges[n.id].push(e);
+    });
+  });
+  function edgeByKey(key) {
+    for (var i = 0; i < EDGES.length; i++) if (EDGES[i].key === key) return EDGES[i];
+    return null;
+  }
+
+  var selected = 'Level';
+  var requested = [];
+
+  // Everything reachable from id through hard links, id included.
+  function closure(id, set) {
+    set = set || {};
+    if (set[id]) return set;
+    set[id] = true;
+    outEdges[id].forEach(function (e) { if (!e.soft) closure(e.to, set); });
+    return set;
+  }
+  function sizeOf(set) {
+    var total = 0;
+    for (var id in set) if (set[id]) total += byId[id].mb;
+    return total;
+  }
+  function countOf(set) { return Object.keys(set).length; }
+  function memory() {
+    var level = closure('Level');
+    var all = closure('Level');
+    requested.forEach(function (r) { closure(r, all); });
+    var levelMB = sizeOf(level);
+    var allMB = sizeOf(all);
+    return { level: level, all: all, levelMB: levelMB, allMB: allMB, reqMB: allMB - levelMB };
+  }
+
+  // ---- Controls ---------------------------------------------------------------------------
+
+  var ui = DemoKit.controls('[data-demo="deps"]');
+  var assetSel = ui.select({
+    label: 'Asset',
+    options: NODES.map(function (n) { return n.id; }),
+    value: selected,
+    onChange: function (v) { selected = v; refresh(); }
+  });
+  ui.button({ label: 'Request selected', onClick: requestSelected });
+  ui.button({ label: 'Release requested', onClick: releaseRequested });
+  var linkSel = ui.select({
+    label: 'Link',
+    options: EDGES.map(function (e) { return { value: e.key, label: e.from + ' → ' + e.to }; }),
+    value: 'Level>Boss'
+  });
+  ui.button({ label: 'Toggle link hard / soft', onClick: function () { toggleEdge(edgeByKey(linkSel.value)); } });
+  ui.button({ label: 'All links hard', onClick: allHard });
+  var outSel = ui.readout({ label: 'Loading it pulls' });
+  var outLevel = ui.readout({ label: 'Level start' });
+  var outReq = ui.readout({ label: 'Requested later' });
+  var outEvent = ui.readout({ label: 'What happened' });
+
+  var message = 'Every link is hard. Tap a box or a link circle.';
+  var handle = null;
+
+  function toggleEdge(e) {
+    if (!e) return;
+    var before = memory().levelMB;
+    e.soft = !e.soft;
+    linkSel.set(e.key);
+    var after = memory().levelMB;
+    message = e.from + ' → ' + e.to + ' is now ' + (e.soft ? 'soft (a name only)' : 'hard') +
+      '. Level start: ' + before + ' → ' + after + ' MB.';
+    var m = memory();
+    if (e.soft && before === after) {
+      if (!m.level[e.from]) message += ' ' + e.from + ' does not load with the level, so level start is unchanged.';
+      else if (m.level[e.to]) message += ' No saving: ' + e.to + ' is still reached through another hard link.';
+    }
+    refresh();
+  }
+
+  function requestSelected() {
+    var m = memory();
+    if (m.level[selected]) {
+      message = selected + ' already loads with the level. The cache hands back the same copy: 0 MB extra.';
+    } else if (m.all[selected]) {
+      message = selected + ' is already in memory from an earlier request.';
+    } else {
+      var naive = sizeOf(closure(selected));
+      requested.push(selected);
+      var added = memory().allMB - m.allMB;
+      message = 'Requested ' + selected + ' at run time: +' + added + ' MB.';
+      if (added < naive) message += ' Its subtree is ' + naive + ' MB, but shared assets already in memory were not loaded twice.';
+    }
+    refresh();
+  }
+
+  function releaseRequested() {
+    if (!requested.length) {
+      message = 'Nothing has been requested.';
+    } else {
+      requested = [];
+      message = 'Released everything requested. Memory is back to what the level holds.';
+    }
+    refresh();
+  }
+
+  function allHard() {
+    EDGES.forEach(function (e) { e.soft = false; });
+    requested = [];
+    message = 'Every link is hard again.';
+    refresh();
+  }
+
+  function refresh() {
+    var m = memory();
+    var sel = closure(selected);
+    var softNames = [];
+    for (var id in sel) {
+      outEdges[id].forEach(function (e) {
+        if (e.soft && !sel[e.to] && softNames.indexOf(e.to) === -1) softNames.push(e.to);
+      });
+    }
+    var files = countOf(sel);
+    outSel.set(selected + ': ' + files + (files === 1 ? ' file, ' : ' files, ') + sizeOf(sel) + ' MB' +
+      (softNames.length ? '; soft links to ' + softNames.join(', ') : ''));
+    outLevel.set(m.levelMB + ' MB of ' + BUDGET + ' MB budget' + (m.levelMB > BUDGET ? ' (over budget)' : ''));
+    outReq.set(requested.length ? '+' + m.reqMB + ' MB (' + requested.join(', ') + ')' : 'nothing');
+    outEvent.set(message);
+    assetSel.set(selected);
+    if (handle) handle.redraw();
+  }
+
+  // ---- Layout -----------------------------------------------------------------------------
+
+  var lastLayout = null;
+
+  function layout(s) {
+    var pad = 8;
+    var top = 34;
+    var bottom = s.height - 74;
+    var w = s.width - 2 * pad;
+    var c1 = Math.min(90, Math.max(50, w * 0.16));
+    var c2 = Math.min(150, Math.max(70, w * 0.3));
+    var c3 = Math.min(170, Math.max(96, w * 0.36));
+    var gap = Math.max(12, (w - c1 - c2 - c3) / 2);
+    var xs = [pad, pad + c1 + gap, pad + c1 + gap + c2 + gap];
+    var ws = [c1, c2, c3];
+    var cols = [[], [], []];
+    NODES.forEach(function (n) { cols[n.col].push(n.id); });
+    var boxes = {};
+    var H = bottom - top;
+    cols.forEach(function (ids, ci) {
+      var step = H / ids.length;
+      ids.forEach(function (id, i) {
+        var h = 24;
+        var cy = top + (i + 0.5) * step;
+        boxes[id] = { x: xs[ci], y: cy - h / 2, w: ws[ci], h: h, cy: cy };
+      });
+    });
+    var handles = EDGES.map(function (e) {
+      var a = boxes[e.from], b = boxes[e.to];
+      var x1 = a.x + a.w, y1 = a.cy, x2 = b.x, y2 = b.cy;
+      var t = 0.6;
+      return { edge: e, x1: x1, y1: y1, x2: x2, y2: y2, hx: x1 + (x2 - x1) * t, hy: y1 + (y2 - y1) * t };
+    });
+    return { pad: pad, top: top, bottom: bottom, boxes: boxes, handles: handles };
+  }
+
+  function hit(p) {
+    if (!lastLayout) return null;
+    var best = null, bestD = 14 * 14;
+    lastLayout.handles.forEach(function (h) {
+      var dx = p.x - h.hx, dy = p.y - h.hy, d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = { edge: h.edge }; }
+    });
+    if (best) return best;
+    for (var id in lastLayout.boxes) {
+      var b = lastLayout.boxes[id];
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y - 4 && p.y <= b.y + b.h + 4) return { node: id };
+    }
+    return null;
+  }
+
+  // ---- Drawing ----------------------------------------------------------------------------
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function fit(ctx, text, maxWidth) {
+    if (maxWidth <= 0) return '';
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+    return text + '…';
+  }
+
+  function drawLegend(ctx, s, c) {
+    var x = 8, y = 16;
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 22, y); ctx.stroke();
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('hard', x + 27, y);
+    x += 62;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 22, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('soft', x + 27, y);
+    x += 60;
+    ctx.fillStyle = c.topic;
+    ctx.fillText(fit(ctx, 'outlined: pulled in by ' + selected, s.width - x - 8), x, y);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawEdges(ctx, c, L, sel) {
+    L.handles.forEach(function (h) {
+      var e = h.edge;
+      var inSel = sel[e.from] && !e.soft;
+      var col = inSel ? c.topic : (sel[e.from] ? c.topic : c.ink3);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = inSel ? 2 : 1.25;
+      if (e.soft) ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(h.x1, h.y1);
+      ctx.lineTo(h.x2 - 2, h.y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Arrowhead.
+      var ang = Math.atan2(h.y2 - h.y1, h.x2 - h.x1);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(h.x2, h.y2);
+      ctx.lineTo(h.x2 - 7 * Math.cos(ang - 0.45), h.y2 - 7 * Math.sin(ang - 0.45));
+      ctx.lineTo(h.x2 - 7 * Math.cos(ang + 0.45), h.y2 - 7 * Math.sin(ang + 0.45));
+      ctx.closePath();
+      ctx.fill();
+    });
+    // Handles on top of all lines.
+    L.handles.forEach(function (h) {
+      var e = h.edge;
+      var col = sel[e.from] ? c.topic : c.ink2;
+      ctx.beginPath();
+      ctx.arc(h.hx, h.hy, 5.5, 0, Math.PI * 2);
+      ctx.fillStyle = e.soft ? c.surface : col;
+      ctx.fill();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      if (e.key === linkSel.value) {
+        ctx.beginPath();
+        ctx.arc(h.hx, h.hy, 9, 0, Math.PI * 2);
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    });
+  }
+
+  function drawNodes(ctx, c, L, sel, m) {
+    ctx.font = '12px ' + FONT;
+    ctx.textBaseline = 'middle';
+    NODES.forEach(function (n) {
+      var b = L.boxes[n.id];
+      var inLevel = !!m.level[n.id];
+      var inMem = !!m.all[n.id];
+      roundRect(ctx, b.x, b.y, b.w, b.h, 5);
+      ctx.fillStyle = inMem ? c.surface : c.surface2;
+      ctx.fill();
+      if (n.id === selected) {
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = c.topic;
+        ctx.fill();
+        ctx.restore();
+      }
+      if (!inMem) ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = sel[n.id] ? c.topic : (inLevel ? c.ink2 : (inMem ? c.good : c.ink3));
+      ctx.lineWidth = n.id === selected ? 3 : (sel[n.id] ? 2.25 : (inMem && !inLevel ? 2 : 1.25));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      var size = n.mb + ' MB';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = inMem ? c.ink : c.ink3;
+      var nameW = ctx.measureText(n.id).width;
+      var sizeW = ctx.measureText(size).width;
+      if (nameW + sizeW + 16 <= b.w) {
+        ctx.fillText(n.id, b.x + 6, b.cy + 1);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = inMem ? c.ink2 : c.ink3;
+        ctx.fillText(size, b.x + b.w - 6, b.cy + 1);
+      } else {
+        ctx.fillText(fit(ctx, n.id, b.w - 10), b.x + 5, b.cy + 1);
+      }
+    });
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+  }
+
+  function drawBar(ctx, s, c, m) {
+    var x = 8, w = s.width - 16;
+    var y = s.height - 46;
+    var over = m.allMB > BUDGET;
+    ctx.font = '600 12px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = over ? c.bad : c.ink;
+    var text = 'In memory: ' + m.allMB + ' MB' + (m.reqMB ? ' (level ' + m.levelMB + ' + requested ' + m.reqMB + ')' : '') +
+      (over ? ', over budget' : '');
+    ctx.fillText(fit(ctx, text, w), x, y - 8);
+
+    var scale = w / MAX_MB;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(x, y, w, 16);
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(x, y, Math.min(m.levelMB, MAX_MB) * scale, 16);
+    ctx.fillStyle = c.good;
+    ctx.fillRect(x + Math.min(m.levelMB, MAX_MB) * scale, y, Math.min(m.reqMB, MAX_MB - m.levelMB) * scale, 16);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, 16);
+
+    var bx = x + BUDGET * scale;
+    ctx.strokeStyle = c.warn;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(bx, y - 3);
+    ctx.lineTo(bx, y + 19);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = c.warn;
+    ctx.textAlign = 'center';
+    ctx.fillText('budget ' + BUDGET + ' MB', Math.min(bx, x + w - 50), y + 34);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('0', x, y + 34);
+    ctx.textAlign = 'right';
+    ctx.fillText(MAX_MB + ' MB', x + w, y + 34);
+    ctx.textAlign = 'left';
+  }
+
+  handle = DemoKit.canvas('#deps', {
+    height: 480,
+    animate: false,
+    keys: true,
+    label: 'A dependency graph of a level. Level links to Player, Shop, HUD, Boss, a tileset and music; those link to their textures and sounds. Each link can be hard or soft. Selecting an asset highlights everything loading it pulls in, and a bar at the bottom shows memory at level start against a 128 MB budget.',
+    onDown: function (p) {
+      var h = hit(p);
+      if (!h) return;
+      if (h.edge) toggleEdge(h.edge);
+      else { selected = h.node; message = 'Selected ' + h.node + '.'; refresh(); }
+    },
+    onMove: function (p) {
+      var cv = document.getElementById('deps');
+      cv.style.cursor = hit(p) ? 'pointer' : 'default';
+    },
+    onKey: function (key, down) {
+      if (!down) return;
+      var i = 0;
+      for (var k = 0; k < NODES.length; k++) if (NODES[k].id === selected) i = k;
+      if (key === 'arrowdown' || key === 'arrowright') { selected = NODES[(i + 1) % NODES.length].id; refresh(); }
+      else if (key === 'arrowup' || key === 'arrowleft') { selected = NODES[(i - 1 + NODES.length) % NODES.length].id; refresh(); }
+      else if (key === 'enter' || key === 'r') requestSelected();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      lastLayout = L;
+      var m = memory();
+      var sel = closure(selected);
+      drawLegend(ctx, s, c);
+      drawEdges(ctx, c, L, sel);
+      drawNodes(ctx, c, L, sel, m);
+      drawBar(ctx, s, c, m);
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

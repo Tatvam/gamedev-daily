@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water Wheel Workshop: light a village with water you never touch · Game Dev Daily</title>
+<meta name="description" content="A calm physics toy where you arrange gutters so falling water spins a wheel and lights a village, with a playable prototype and the wheel code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-29">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Water Wheel Workshop: light a village with water you never touch</h1>
+  <p class="lede">A calm physics toy where you arrange gutters so falling water spins a wheel and lights a village, with a playable prototype and the wheel code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>Night is falling on a hill village, and its only power is a spring pouring from a pipe at the top of the hill. You have three wooden gutters and a water wheel. Pour the water onto the wheel's centre and nothing happens. Land it just past the top and the windows start to glow, one by one.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: place, pour, read the splash</h2>
+  <p>Water Wheel Workshop is a puzzle toy about guiding a stream. Water leaves a spout as hundreds of small <dfn>droplets</dfn> (particles that fall under gravity and slide along whatever they land on). You never touch the water. You only drag and turn three gutters, straight planks the water runs along. At the bottom of the hill stands a wheel joined to a <dfn>dynamo</dfn>, a small generator that turns spin into electricity. The village lights up as the dynamo charges.</p>
+  <p>Every ten seconds the player nudges a gutter and watches where the stream lands. Every minute they find a faster route. Every session they power a new village with a new hill and new pieces.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: place by moving or turning one gutter, pour and watch the stream, then read where the water lands on the wheel, which leads back to placing. Beside it, two longer loops: every minute a faster route, and every session a new village.">
+      <defs>
+        <marker id="ww-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Place</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">move or turn a gutter</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Pour</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">the stream finds a path</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Read</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">where did it land?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ww-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ww-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ww-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a faster route and</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">more windows lit</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a new hill, spout</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">and village</text>
+    </svg>
+    <figcaption>The water keeps running while you work, so every change shows its result within a second or two.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Pieces.</strong> Three gutters of the same length. Drag the middle of a gutter to move it, drag one of its ends to turn it.</li>
+    <li><strong>Water.</strong> The sluice (the gate on the spout) is closed at the start. Once you open it, droplets pour at a steady rate and land in the river at the bottom unless something catches them.</li>
+    <li><strong>The wheel.</strong> A droplet that touches the rim pushes it along the direction the droplet is moving across the rim, and the wheel pushes back on the droplet. Friction slowly brings the wheel to rest.</li>
+    <li><strong>The dynamo.</strong> It is wired one way round: only clockwise spin charges it. A wheel turning backwards spins freely and charges nothing.</li>
+    <li><strong>The goal.</strong> Fill the power meter to 100 percent. Every 20 percent lights one more house, and the meter slowly drains if the wheel slows down. Your score is the time from opening the sluice to the whole village being lit.</li>
+  </ul>
+
+  <p>The interesting rule is the wheel, which only turns when pushed <em>off centre</em>. Water falling onto the very top pushes straight at the axle and does almost nothing. Water landing just right of the top runs down the right side and drags the rim clockwise. Water on the left side turns it the wrong way. So the puzzle is never "get water to the wheel" but "get water to the right edge, moving the right way".</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Three wheels side by side. On the left, water lands dead on top and pushes at the axle: no turn. In the middle, water lands just right of the top and runs down the right side: the wheel turns clockwise and charges. On the right, water lands on the left side: the wheel turns backwards and charges nothing.">
+      <defs>
+        <marker id="ww-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <circle class="d-stroke" cx="110" cy="110" r="50"/>
+      <circle class="d-fill" cx="110" cy="110" r="5"/>
+      <path class="d-accent" d="M110 20 V54" marker-end="url(#ww-a2)"/>
+      <path class="d-thin d-dash" d="M110 60 V105"/>
+      <text class="d-text" x="110" y="186" text-anchor="middle">on top: no turn</text>
+
+      <circle class="d-stroke" cx="320" cy="110" r="50"/>
+      <circle class="d-fill" cx="320" cy="110" r="5"/>
+      <path class="d-accent" d="M350 20 V60" marker-end="url(#ww-a2)"/>
+      <path class="d-accent" d="M378 92 Q386 120 372 146" marker-end="url(#ww-a2)"/>
+      <text class="d-label" x="320" y="186" text-anchor="middle">right of top: clockwise</text>
+
+      <circle class="d-stroke" cx="530" cy="110" r="50"/>
+      <circle class="d-fill" cx="530" cy="110" r="5"/>
+      <path class="d-accent" d="M494 20 V62" marker-end="url(#ww-a2)"/>
+      <path class="d-stroke" d="M472 92 Q464 120 478 146"/>
+      <text class="d-text" x="530" y="186" text-anchor="middle">left side: backwards</text>
+    </svg>
+    <figcaption>Turning force depends on how far from the axle the push lands. Only the middle case charges the dynamo.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the village millwright (the person who builds and keeps mills running), working by lantern light to bring power home. The constraint is that the water is never yours to steer: you shape the route and watch, so every nudge is a small experiment. The mood is calm. There is no way to lose, only a stream that could be doing more.</p>
+  <p>The hardest part to build is water that reads as water. These droplets do not push on each other, so a pool is just many dots on one spot. That is fine for a stream, but players will build cups and V shapes that trap water, and the game needs a rule for that. The prototype gives each droplet fourteen seconds of life and keeps at most 260, so a trap never stalls the game.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press Open sluice. The stream already reaches the wheel, but it lands on the left side, so the rim turns red and the wheel spins backwards. Now drag gutter 3 up from the river until the water from gutter 2 lands just to the right of the top, and watch the windows.</p>
+
+  <figure class="demo" data-demo="water-wheel">
+    <canvas id="water-wheel"></canvas>
+    <figcaption>Controls: drag the middle of a gutter to move it and drag an end handle to turn it. Keyboard (click the canvas first): <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> pick a gutter, arrow keys move it, <kbd>Q</kbd> and <kbd>E</kbd> turn it, <kbd>Space</kbd> opens or closes the sluice. On a phone, use the buttons below to pick and turn gutters. The rim turns green when the wheel charges and red when it spins backwards.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: what happens when a droplet touches the wheel, and how the wheel turns its spin into power. Screen coordinates point down, so a positive <code>omega</code> (the wheel's spin, in radians per second) is clockwise on screen.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local WX, WY, WR, DROP = 430, 215, 48, 3        <span class="c">-- wheel centre, radius, drop radius</span>
+local GRIP, MASS, FRICTION, DRAG = 0.15, 0.06, 0.3, 0.12
+local wheel = { omega = 0, angle = 0 }          <span class="c">-- omega &gt; 0 is clockwise</span>
+local power = 0                                 <span class="c">-- percent</span>
+
+local function hitWheel(d)                      <span class="c">-- d has x, y, vx, vy</span>
+  local ox, oy = d.x - WX, d.y - WY
+  local dist = math.sqrt(ox * ox + oy * oy)
+  if dist &gt;= WR + DROP or dist &lt; 0.000001 then return end
+  local nx, ny = ox / dist, oy / dist
+  d.x, d.y = WX + nx * (WR + DROP), WY + ny * (WR + DROP)   <span class="c">-- sit on the rim</span>
+  local vn = d.vx * nx + d.vy * ny
+  if vn &lt; 0 then d.vx, d.vy = d.vx - nx * vn, d.vy - ny * vn end
+  local tx, ty = -ny, nx                        <span class="c">-- clockwise along the rim</span>
+<span class="k">  local slip = (d.vx * tx + d.vy * ty) - wheel.omega * WR</span>
+  local dv = slip * GRIP
+  d.vx, d.vy = d.vx - tx * dv, d.vy - ty * dv
+<span class="k">  wheel.omega = wheel.omega + dv * MASS / WR    -- what the drop loses, the wheel gains</span>
+end
+
+local function updateWheel(dt)                  <span class="c">-- call on a fixed step, 1 / 120 s</span>
+  local slow = (FRICTION + DRAG * math.abs(wheel.omega)) * dt
+  if math.abs(wheel.omega) &lt;= slow then wheel.omega = 0
+  elseif wheel.omega &gt; 0 then wheel.omega = wheel.omega - slow
+  else wheel.omega = wheel.omega + slow end
+  wheel.angle = wheel.angle + wheel.omega * dt
+  local charge = math.max(0, wheel.omega) * 3 - 4          <span class="c">-- dynamo: clockwise only</span>
+  power = math.min(100, math.max(0, power + charge * dt))
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the mechanic. <code>slip</code> is how much faster the droplet moves along the rim than the rim itself, so a droplet falling straight at the axle gives almost nothing. Call <code>hitWheel</code> for every droplet and <code>updateWheel</code> once, inside the same fixed-step loop that moves the droplets. The <code>- 4</code> in <code>charge</code> is the drain: the wheel needs more than 1.3 radians per second before the village gains any light.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A sweet spot too small to find.</strong> If only one position in a hundred works, players stop experimenting and start hunting pixels. In my tests of this prototype, the spots that light the village for gutter 3 form a band roughly 40 to 60 pixels wide. Test: give a new player a level and time how long until the first window lights. If it is over three minutes, widen the wheel or the gutters.</li>
+    <li><strong>No feedback until success.</strong> A meter stuck at zero says nothing about how close the player is. The rim colour and turning spokes make a near miss readable. If testers say "nothing is happening" while the wheel turns backwards, the feedback is too quiet.</li>
+    <li><strong>Pools and traps.</strong> Gutters set in a V catch water forever. Without a lifetime limit, droplets pile up until the game slows down. Build a cup on purpose in your first test and check the frame rate after a minute.</li>
+    <li><strong>Fast droplets passing through thin gutters.</strong> A droplet that moves further in one step than a gutter is thick can skip through it. Run the physics on a small fixed step (this prototype uses 1/120 second) and keep gutters thicker than one step of the fastest drop.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Guiding a flow you cannot control directly is well-explored puzzle territory: games about leading walkers who march on their own, routing fluid through pipes, or drawing lines to deflect falling objects. Contraption builders, where you arrange parts and then watch a machine run, sit next door.</p>
+  <p>Water Wheel Workshop narrows that space to one question about force: where on the wheel does the water land, and which way is it moving? Reaching the wheel is only half the puzzle; the angle is the other half.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with droplets falling from a fixed point, a single gutter you move with the arrow keys and turn with two keys, and a number on screen showing <code>wheel.omega</code>. Draw the wheel with four spokes so its spin is visible.</p>
+  <p>Hand it to a friend with only "make the wheel spin clockwise". The one question to answer: <strong>after their first try spins it the wrong way, do they move the water to the other side on purpose?</strong> If they do, the wheel rule reads clearly and the idea is worth building out. If they move the gutter at random, add a clear arrow on the wheel showing the direction that charges.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> eight hand-made hills that vary the spout, the number of gutters and the wheel size, with a best time per hill.</li>
+    <li><strong>One-month version:</strong> new pieces that each change the stream in one way (a splitter, a funnel, a bucket that tips when full), two wheels feeding one village, and a slow day and night cycle where demand rises after dark.</li>
+    <li><strong>Cut first:</strong> real fluid simulation. Droplets that push on each other look better but cost weeks and make results less predictable.</li>
+    <li>The mechanic is where force lands, not where water goes. Every new piece should give the player another way to change the angle of the push.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the spout's flow rise and fall like a tide, so a route that works at full flow overshoots the wheel at low flow and the player needs a layout that works for both.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Thomas Jakobsen, <cite>Advanced Character Physics</cite> (Game Developers Conference, 2001). Pushing particles out of shapes, the way droplets here sit on gutters and the rim.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why a fixed physics step keeps the same layout giving the same result.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On making a physical response readable to the player.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 600, H = 340, G = 700, STEP = 1 / 120, DROP = 3, GH = 4, GLEN = 130;
+  var RATE = 45, MAX_DROPS = 260, LIFE = 14, RIVER = 316, SPOUT_X = 60, SPOUT_Y = 24;
+  var WX = 430, WY = 215, WR = 48, GRIP = 0.15, MASS = 0.06, FRICTION = 0.3, DRAG = 0.12;
+  var MAX_ANGLE = 1.2, FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var START = [{ x: 110, y: 70, a: 0.3 }, { x: 240, y: 110, a: 0.3 }, { x: 330, y: 270, a: 0 }];
+  var HOUSES = [{ x: 478, y: 62 }, { x: 502, y: 84 }, { x: 526, y: 58 }, { x: 550, y: 80 }, { x: 574, y: 60 }];
+
+  var gutters, drops, omega, angle, power, open, t, litAt, best, sel, drag, acc, spawn, rand, banner;
+  var sc = 1, handle = null, openBtn = null;
+
+  function reset() {
+    gutters = START.map(function (g) { return { x: g.x, y: g.y, a: g.a }; });
+    drops = []; omega = 0; angle = 0; power = 0; open = false; t = 0; litAt = null;
+    sel = 0; drag = null; acc = 0; spawn = 0; banner = 0; rand = DemoKit.rng(7);
+    if (openBtn) openBtn.el.textContent = 'Open sluice';
+  }
+
+  function ends(g) {
+    var c = Math.cos(g.a) * GLEN / 2, s = Math.sin(g.a) * GLEN / 2;
+    return [g.x - c, g.y - s, g.x + c, g.y + s];
+  }
+  function clampGutter(g) {
+    g.x = DemoKit.clamp(g.x, 40, W - 40);
+    g.y = DemoKit.clamp(g.y, 50, RIVER - 10);
+    g.a = DemoKit.clamp(g.a, -MAX_ANGLE, MAX_ANGLE);
+  }
+
+  function hitGutter(p, g) {
+    var e = ends(g), dx = e[2] - e[0], dy = e[3] - e[1];
+    var u = DemoKit.clamp(((p.x - e[0]) * dx + (p.y - e[1]) * dy) / (dx * dx + dy * dy), 0, 1);
+    var ox = p.x - (e[0] + dx * u), oy = p.y - (e[1] + dy * u), d = Math.sqrt(ox * ox + oy * oy);
+    if (d >= DROP + GH || d < 0.000001) return;
+    var nx = ox / d, ny = oy / d;
+    p.x += nx * (DROP + GH - d); p.y += ny * (DROP + GH - d);
+    var vn = p.vx * nx + p.vy * ny;
+    if (vn < 0) { p.vx -= nx * vn; p.vy -= ny * vn; }
+    p.vx *= 0.999; p.vy *= 0.999;
+  }
+
+  function hitWheel(p) {
+    var ox = p.x - WX, oy = p.y - WY, d = Math.sqrt(ox * ox + oy * oy);
+    if (d >= WR + DROP || d < 0.000001) return;
+    var nx = ox / d, ny = oy / d;
+    p.x = WX + nx * (WR + DROP); p.y = WY + ny * (WR + DROP);
+    var vn = p.vx * nx + p.vy * ny;
+    if (vn < 0) { p.vx -= nx * vn; p.vy -= ny * vn; }
+    var tx = -ny, ty = nx;
+    var slip = (p.vx * tx + p.vy * ty) - omega * WR, dv = slip * GRIP;
+    p.vx -= tx * dv; p.vy -= ty * dv;
+    omega += dv * MASS / WR;
+  }
+
+  function step() {
+    var i, k, p;
+    if (open) {
+      spawn += RATE * STEP;
+      while (spawn >= 1) {
+        spawn -= 1;
+        drops.push({ x: SPOUT_X + (rand() - 0.5) * 6, y: SPOUT_Y, vx: 0, vy: 40, life: LIFE });
+        if (drops.length > MAX_DROPS) drops.shift();
+      }
+    }
+    for (i = drops.length - 1; i >= 0; i--) {
+      p = drops[i];
+      p.vy += G * STEP; p.x += p.vx * STEP; p.y += p.vy * STEP; p.life -= STEP;
+      for (k = 0; k < gutters.length; k++) hitGutter(p, gutters[k]);
+      hitWheel(p);
+      if (p.y > RIVER || p.life <= 0 || p.x < -10 || p.x > W + 10) drops.splice(i, 1);
+    }
+    var slow = (FRICTION + DRAG * Math.abs(omega)) * STEP;
+    if (Math.abs(omega) <= slow) omega = 0; else omega -= omega > 0 ? slow : -slow;
+    angle += omega * STEP;
+    power = DemoKit.clamp(power + (Math.max(0, omega) * 3 - 4) * STEP, 0, 100);
+    if (open || t > 0) t += STEP;
+    if (power >= 100 && litAt === null) {
+      litAt = t; banner = 4;
+      if (best === null || litAt < best) best = litAt;
+    }
+  }
+
+  function update(dt, s) {
+    if (banner > 0) banner -= dt;
+    var g = gutters[sel], moved = false, mv = 140 * dt, turn = 1.2 * dt;
+    if (s.keys && !drag) {
+      if (s.keys.has('arrowleft')) { g.x -= mv; moved = true; }
+      if (s.keys.has('arrowright')) { g.x += mv; moved = true; }
+      if (s.keys.has('arrowup')) { g.y -= mv; moved = true; }
+      if (s.keys.has('arrowdown')) { g.y += mv; moved = true; }
+      if (s.keys.has('q')) { g.a -= turn; moved = true; }
+      if (s.keys.has('e')) { g.a += turn; moved = true; }
+      if (moved) clampGutter(g);
+    }
+    acc = Math.min(acc + dt, 0.1);
+    while (acc >= STEP) { step(); acc -= STEP; }
+  }
+
+  function toggleSluice() {
+    open = !open;
+    if (openBtn) openBtn.el.textContent = open ? 'Close sluice' : 'Open sluice';
+  }
+
+  function segDist(px, py, g) {
+    var e = ends(g), dx = e[2] - e[0], dy = e[3] - e[1];
+    var u = DemoKit.clamp(((px - e[0]) * dx + (py - e[1]) * dy) / (dx * dx + dy * dy), 0, 1);
+    return Math.hypot(e[0] + dx * u - px, e[1] + dy * u - py);
+  }
+
+  function onDown(pt) {
+    var wx = pt.x / sc, wy = pt.y / sc, reach = Math.max(14, 18 / sc), i, e;
+    for (i = 0; i < gutters.length; i++) {
+      e = ends(gutters[i]);
+      if (Math.hypot(e[0] - wx, e[1] - wy) < reach) { sel = i; drag = { mode: 'turn', i: i, side: -1 }; return; }
+      if (Math.hypot(e[2] - wx, e[3] - wy) < reach) { sel = i; drag = { mode: 'turn', i: i, side: 1 }; return; }
+    }
+    for (i = 0; i < gutters.length; i++) {
+      if (segDist(wx, wy, gutters[i]) < reach) {
+        sel = i; drag = { mode: 'move', i: i, ox: gutters[i].x - wx, oy: gutters[i].y - wy };
+        return;
+      }
+    }
+  }
+  function onMove(pt) {
+    if (!drag || !pt.down) return;
+    var g = gutters[drag.i], wx = pt.x / sc, wy = pt.y / sc;
+    if (drag.mode === 'move') { g.x = wx + drag.ox; g.y = wy + drag.oy; }
+    else {
+      var a = Math.atan2(wy - g.y, wx - g.x);
+      if (drag.side < 0) a += Math.PI;
+      while (a > Math.PI / 2) a -= Math.PI;
+      while (a < -Math.PI / 2) a += Math.PI;
+      g.a = a;
+    }
+    clampGutter(g);
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.fillText(str, x, y);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, i, e;
+    sc = s.width / W;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+
+    // River.
+    ctx.globalAlpha = 0.3; ctx.fillStyle = c.topic; ctx.fillRect(0, RIVER * sc, s.width, s.height); ctx.globalAlpha = 1;
+
+    // Wire from the axle to the village.
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(WX * sc, WY * sc); ctx.lineTo(588 * sc, WY * sc); ctx.lineTo(588 * sc, 102 * sc); ctx.lineTo(478 * sc, 102 * sc); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Houses: one window lights for every 20 percent of power.
+    for (i = 0; i < HOUSES.length; i++) {
+      var hx = HOUSES[i].x * sc, hy = HOUSES[i].y * sc, hw = 18 * sc, lit = power >= (i + 1) * 20;
+      ctx.fillStyle = c.ink2; ctx.fillRect(hx - hw / 2, hy, hw, hw);
+      ctx.beginPath(); ctx.moveTo(hx - hw * 0.7, hy); ctx.lineTo(hx, hy - hw * 0.6); ctx.lineTo(hx + hw * 0.7, hy); ctx.fill();
+      ctx.fillStyle = lit ? c.warn : c.surface2;
+      ctx.fillRect(hx - hw * 0.22, hy + hw * 0.3, hw * 0.44, hw * 0.4);
+    }
+
+    // Spout and sluice gate.
+    ctx.fillStyle = c.ink2; ctx.fillRect((SPOUT_X - 30) * sc, 0, 40 * sc, (SPOUT_Y - 8) * sc);
+    ctx.fillStyle = open ? c.good : c.bad;
+    ctx.fillRect((SPOUT_X - 8) * sc, (SPOUT_Y - 8) * sc, 16 * sc, 4 * sc);
+
+    // Droplets.
+    ctx.fillStyle = c.topic; ctx.globalAlpha = 0.85;
+    var r = Math.max(1.6, DROP * sc);
+    for (i = 0; i < drops.length; i++) {
+      ctx.beginPath(); ctx.arc(drops[i].x * sc, drops[i].y * sc, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Wheel: rim colour shows whether it charges.
+    var rim = omega > 0.5 ? c.good : (omega < -0.5 ? c.bad : c.ink);
+    ctx.strokeStyle = rim; ctx.lineWidth = Math.max(2, 4 * sc);
+    ctx.beginPath(); ctx.arc(WX * sc, WY * sc, WR * sc, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = Math.max(1.5, 2.5 * sc); ctx.strokeStyle = c.ink2;
+    for (i = 0; i < 8; i++) {
+      var pa = angle + i * Math.PI / 4, cs = Math.cos(pa), sn = Math.sin(pa);
+      ctx.beginPath();
+      ctx.moveTo((WX + cs * 8) * sc, (WY + sn * 8) * sc);
+      ctx.lineTo((WX + cs * (WR - 2)) * sc, (WY + sn * (WR - 2)) * sc);
+      ctx.stroke();
+    }
+    ctx.fillStyle = c.ink; ctx.beginPath(); ctx.arc(WX * sc, WY * sc, 6 * sc, 0, Math.PI * 2); ctx.fill();
+
+    // Arrow showing the direction that charges the dynamo.
+    var ar = (WR + 16) * sc, a0 = -2.4, a1 = -1.0;
+    ctx.strokeStyle = c.good; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(WX * sc, WY * sc, ar, a0, a1); ctx.stroke();
+    var tipX = WX * sc + Math.cos(a1) * ar, tipY = WY * sc + Math.sin(a1) * ar;
+    var tx = -Math.sin(a1), ty = Math.cos(a1), nx = Math.cos(a1), ny = Math.sin(a1);
+    ctx.fillStyle = c.good; ctx.beginPath();
+    ctx.moveTo(tipX + tx * 8, tipY + ty * 8);
+    ctx.lineTo(tipX + nx * 5, tipY + ny * 5);
+    ctx.lineTo(tipX - nx * 5, tipY - ny * 5);
+    ctx.fill();
+
+    // Gutters with end handles. The selected one is drawn darker with larger handles.
+    ctx.lineCap = 'round';
+    for (i = 0; i < gutters.length; i++) {
+      e = ends(gutters[i]);
+      var isSel = i === sel;
+      ctx.strokeStyle = isSel ? c.ink : c.ink2; ctx.lineWidth = Math.max(4, GH * 2 * sc);
+      ctx.beginPath(); ctx.moveTo(e[0] * sc, e[1] * sc); ctx.lineTo(e[2] * sc, e[3] * sc); ctx.stroke();
+      ctx.strokeStyle = c.topic; ctx.lineWidth = isSel ? 2.5 : 1.5;
+      var hr = isSel ? 8 : 6;
+      ctx.beginPath(); ctx.arc(e[0] * sc, e[1] * sc, hr, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(e[2] * sc, e[3] * sc, hr, 0, Math.PI * 2); ctx.stroke();
+      text(ctx, String(i + 1), gutters[i].x * sc, gutters[i].y * sc - 10, isSel ? c.ink : c.ink2, '600 12px');
+    }
+    ctx.lineCap = 'butt';
+
+    // HUD: power bar, time and best.
+    var bw = Math.min(150, s.width * 0.4), bx = s.width / 2 - bw / 2 - 10;
+    ctx.fillStyle = c.line; ctx.fillRect(bx, 8, bw, 8);
+    ctx.fillStyle = power >= 100 ? c.good : c.warn; ctx.fillRect(bx, 8, bw * power / 100, 8);
+    text(ctx, 'Power ' + Math.floor(power) + '%', bx + bw / 2, 31, c.ink, '600 13px');
+    var tl = 'Time ' + (litAt !== null ? litAt : t).toFixed(1) + ' s  Best ' + (best === null ? '-' : best.toFixed(1) + ' s');
+    text(ctx, tl, bx + bw / 2, 47, c.ink2, '12px');
+
+    var hint;
+    if (banner > 0) hint = 'Village lit in ' + litAt.toFixed(1) + ' s';
+    else if (!open && t === 0) hint = 'Open the sluice to start the water';
+    else if (omega < -0.5) hint = 'Backwards: the dynamo only charges clockwise';
+    else if (litAt !== null) hint = 'Lit. Restart to beat your time';
+    else hint = 'Gutter ' + (sel + 1) + ' selected';
+    text(ctx, hint, 8, s.height - 8, banner > 0 ? c.good : c.ink, (banner > 0 ? '600 ' : '') + '12px', 'left');
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+  function turnSel(d) { gutters[sel].a += d; clampGutter(gutters[sel]); }
+
+  var ui = DemoKit.controls('[data-demo="water-wheel"]');
+  openBtn = ui.button({ label: 'Open sluice', onClick: function () { toggleSluice(); wake(); } });
+  ui.button({ label: 'Next gutter', onClick: function () { sel = (sel + 1) % gutters.length; wake(); } });
+  ui.button({ label: 'Turn left', onClick: function () { turnSel(-0.08); wake(); } });
+  ui.button({ label: 'Turn right', onClick: function () { turnSel(0.08); wake(); } });
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  best = null;
+  reset();
+
+  handle = DemoKit.canvas('#water-wheel', {
+    aspect: W / H,
+    keys: true,
+    drag: true,
+    label: 'Water Wheel Workshop prototype. A side view of a hill with a water spout at the top left, three movable gutters, a water wheel and five houses. Arrange the gutters so the water turns the wheel clockwise and lights the houses.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { wake(); onDown(p); },
+    onMove: onMove,
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'space') toggleSluice();
+      else if (key === '1' || key === '2' || key === '3') sel = Number(key) - 1;
+    }
+  });
+})();
+</script>
+</body>
+</html>

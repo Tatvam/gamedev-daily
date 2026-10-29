@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The minimum translation vector · Game Dev Daily</title>
+<meta name="description" content="How the axis of smallest overlap in a separating axis test gives the direction and distance that push two overlapping shapes apart.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-29">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The minimum translation vector</h1>
+  <p class="lede">How the axis of smallest overlap in a separating axis test gives the direction and distance that push two overlapping shapes apart.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your player walks into a tilted crate. The collision test says "overlap", so you push the player back up by the overlap on y, and now they climb the crate's side like a ladder. Or you push them along the line between the two centres, and they slide off sideways. Knowing that two shapes overlap is not enough: you need to know which way out is shortest, and how far.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The shortest way out</h2>
+  <p>The <dfn>minimum translation vector</dfn> (MTV) is the smallest move you can apply to one shape so that it stops overlapping another. It has a direction, a unit vector called the <dfn>normal</dfn>, and a length called the <dfn>depth</dfn> or penetration.</p>
+  <p>The separating axis test from the last lesson does most of the work. When no edge normal shows a gap, every axis reports an overlap instead, and the MTV lies along the axis with the smallest one.</p>
+
+  <h2>Two ways out on every axis</h2>
+  <p>On one axis, shape A's shadow runs from <code>aLo</code> to <code>aHi</code> and B's from <code>bLo</code> to <code>bHi</code>. B can leave A's shadow in two directions:</p>
+<pre><code>local pushPlus  = aHi - bLo   -- move B this far along +axis
+local pushMinus = bHi - aLo   -- or this far along -axis</code></pre>
+  <p>In words: to clear A on the plus side, B's low end must move up to A's high end. To clear it on the minus side, B's high end must move down to A's low end. The overlap on this axis is the smaller of the two, and the smaller one also tells you which way to go.</p>
+  <p>If either number is negative, the shadows have a gap and the shapes are apart.</p>
+<pre><code>local depth = math.min(pushPlus, pushMinus)</code></pre>
+  <p>Do this for every axis and keep the one with the smallest <code>depth</code>. That axis, pointed the right way, times that depth is the MTV.</p>
+
+  <h3>The numbers</h3>
+  <p>Take the triangle from the last lesson, corners (100, 100), (200, 100) and (100, 200), and a 60 pixel box from (140, 140) to (200, 200). Its top-left corner is inside the triangle.</p>
+  <ul>
+    <li>Axis A1, <code>(0, 1)</code>, the normal of the top edge. A covers 100 to 200 and B covers 140 to 200. <code>pushPlus = 200 - 140 = 60</code>, <code>pushMinus = 200 - 100 = 100</code>. Overlap 60.</li>
+    <li>Axis A2, <code>(-0.707, -0.707)</code>, the normal of the long edge. A covers -212.1 to -141.4 and B covers -282.8 to -198.0. <code>pushPlus = 141.4</code>, <code>pushMinus = -198.0 + 212.1 = 14.1</code>. Overlap 14.1.</li>
+    <li>Axis A3, <code>(1, 0)</code>, the normal of the left edge. The same as A1: overlap 60.</li>
+  </ul>
+  <p>The box's own edge normals are x and y again and also give 60. The smallest overlap is 14.1 on A2, and it was <code>pushMinus</code> that won, so B moves along minus the axis: <code>(0.707, 0.707)</code> times 14.1, which is <code>(10, 10)</code>. The box's corner moves from (140, 140) to (150, 150), exactly onto the long edge, where <code>x + y = 300</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Left: a triangle A and a box B whose top-left corner pokes into the triangle's long edge. A short arrow pushes the box diagonally away from the edge to a dashed outline where it just touches. A dashed red arrow points the other way, deeper in. Right: bars for the overlap on three axes, 60, 14.1 and 60, with the 14.1 bar highlighted as the smallest.">
+      <!-- World to diagram: X = 30 + (x - 80) * 1.5, Y = 20 + (y - 90) * 1.5 -->
+      <polygon class="d-accent-soft" points="60,35 210,35 60,185"/>
+      <text class="d-label" x="80" y="70">A</text>
+      <rect class="d-box" style="fill-opacity:0.55" x="120" y="95" width="90" height="90"/>
+      <text class="d-text" x="172" y="152" text-anchor="middle">B</text>
+      <rect class="d-dash" x="135" y="110" width="90" height="90" fill="none"/>
+      <!-- MTV arrow from the deepest corner -->
+      <path class="d-accent" style="stroke-width:3" d="M120 95 L131 106"/>
+      <polygon class="d-accent-fill" points="135,110 126.5,107.1 132.1,101.5"/>
+      <!-- Wrong sign arrow -->
+      <path class="d-bad d-dash" style="stroke-width:2" d="M120 95 L106 81"/>
+      <polygon class="d-bad-fill" points="102,77 110.5,79.9 104.9,85.5"/>
+
+      <!-- Overlap on each axis, 2 diagram units per pixel -->
+      <text class="d-text" x="300" y="34">Overlap on each axis</text>
+      <text class="d-text" x="300" y="72">A1 (0, 1)</text>
+      <rect class="d-fill" x="430" y="61" width="120" height="12"/>
+      <text class="d-muted" x="558" y="72">60</text>
+      <text class="d-label" x="300" y="112">A2 (-0.71, -0.71)</text>
+      <rect class="d-accent-soft" x="430" y="101" width="28.3" height="12"/>
+      <text class="d-label" x="466" y="112">14.1 smallest</text>
+      <text class="d-text" x="300" y="152">A3 (1, 0)</text>
+      <rect class="d-fill" x="430" y="141" width="120" height="12"/>
+      <text class="d-muted" x="558" y="152">60</text>
+
+      <path class="d-accent" style="stroke-width:3" d="M300 188 H326"/>
+      <text class="d-muted" x="334" y="193">MTV: move B by (10, 10)</text>
+      <path class="d-dash" d="M300 212 H326"/>
+      <text class="d-muted" x="334" y="217">B after the push, just touching</text>
+      <path class="d-bad d-dash" style="stroke-width:2" d="M300 236 H326"/>
+      <text class="d-muted" x="334" y="241">wrong sign: (-10, -10), twice as deep</text>
+    </svg>
+    <figcaption>Three axes, three overlaps. The long edge's normal has by far the smallest, so the box is pushed straight away from that edge. Pushing along the raw edge normal without checking its sign moves the box deeper, the bug you can switch on in the demo.</figcaption>
+  </figure>
+
+  <h2>Bug one: the push points the wrong way</h2>
+  <p>An edge normal can point either way; the separating axis test did not care, because a gap is a gap from either side. The MTV does care. If you take the axis as it comes and push B by <code>depth</code> along it, half the time you push B into A. In the example the raw normal is <code>(-0.707, -0.707)</code>, and pushing along it moves the box by (-10, -10): the overlap doubles to 28.3.</p>
+  <p>The fix is the comparison above: if <code>pushPlus</code> is smaller, push along the axis, otherwise along its negative. A common alternative that agrees for shallow overlaps: flip the normal if it points from B's centre towards A's.</p>
+
+  <h2>Bug two: out the far side</h2>
+  <p>The MTV knows nothing about where B came from, only where it is now. If a fast box falls into a thin platform and ends a step with its centre below the platform's centre, the shortest way out is downwards. The box tunnels even though the overlap was detected.</p>
+  <p>Here the physically correct answer and the good game answer part ways. Correct would be to rewind to the moment of first contact, as the swept tests did. Cheaper, and good enough for most games, is to keep overlaps shallow: a fixed timestep, sensible top speeds and colliders thicker than one step of movement.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>The MTV is trustworthy while the depth is small compared with the shapes. When the depth gets close to half the thickness of either shape, expect it to pick the wrong side.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the example. The arrow and dashed ghost show where the push would put B. Press <strong>Apply push</strong> and B moves by (10, 10) to just touch.</p>
+  <p>Now reproduce the bugs. Press <strong>Reset</strong>, switch off <strong>Point the push from A to B</strong> and apply the push: B sinks deeper. Switch it back on, choose <strong>Plank</strong> for shape A and drag the box slowly down through it: the arrow flips from up to down as B's centre passes the plank's middle. Finally, switch on <strong>Resolve while dragging</strong> and push the box against rotated shapes: it slides around their outline.</p>
+
+  <figure class="demo wide" data-demo="mtv">
+    <canvas id="mtv"></canvas>
+    <figcaption>Each row below the scene is one axis, with A's shadow on top and B's below; the smallest overlap is marked. Keyboard: arrow keys move shape B (hold Shift for 1 pixel), Q and E rotate it, Space applies the push.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The separating axis test from the last lesson, now keeping the smallest overlap and its direction. With the example shapes it prints <code>push B by (10.0, 10.0), depth 14.1</code>; press Space to apply it.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Convex polygons as flat lists of corners: x1, y1, x2, y2, ...</span>
+local triangle = { 100, 100,  200, 100,  100, 200 }
+local box      = { 140, 140,  200, 140,  200, 200,  140, 200 }
+
+local function project(poly, ax, ay)
+  local lo, hi = math.huge, -math.huge
+  for i = 1, #poly, 2 do
+    local d = poly[i] * ax + poly[i + 1] * ay
+    lo = math.min(lo, d)
+    hi = math.max(hi, d)
+  end
+  return lo, hi
+end
+
+<span class="c">-- Tests the normal of every edge of shape. Keeps the smallest overlap in best.</span>
+<span class="c">-- Returns false as soon as an axis shows a gap.</span>
+local function smallestOverlap(shape, a, b, best)
+  for i = 1, #shape, 2 do
+    local j = i + 2
+    if j &gt; #shape then j = 1 end
+    local ex, ey = shape[j] - shape[i], shape[j + 1] - shape[i + 1]
+    local len = math.sqrt(ex * ex + ey * ey)
+    local ax, ay = -ey / len, ex / len
+    local aLo, aHi = project(a, ax, ay)
+    local bLo, bHi = project(b, ax, ay)
+    local pushPlus  = aHi - bLo                 <span class="c">-- move B this far along +axis</span>
+    local pushMinus = bHi - aLo                 <span class="c">-- or this far along -axis</span>
+<span class="k">    local depth = math.min(pushPlus, pushMinus)</span>
+    if depth &lt; 0 then return false end          <span class="c">-- a gap: the shapes are apart</span>
+    if depth &lt; best.depth then
+      best.depth = depth
+<span class="k">      if pushPlus &lt; pushMinus then best.nx, best.ny = ax, ay</span>
+<span class="k">      else best.nx, best.ny = -ax, -ay end      -- point the push from A to B</span>
+    end
+  end
+  return true
+end
+
+<span class="c">-- The minimum translation vector: how far and which way to move B out of A.</span>
+local function mtv(a, b)
+  local best = { depth = math.huge, nx = 0, ny = 0 }
+  if not smallestOverlap(a, a, b, best) then return nil end
+  if not smallestOverlap(b, a, b, best) then return nil end
+  return best.depth, best.nx, best.ny
+end
+
+local function move(poly, dx, dy)
+  for i = 1, #poly, 2 do
+    poly[i] = poly[i] + dx
+    poly[i + 1] = poly[i + 1] + dy
+  end
+end
+
+function love.keypressed(key)
+  if key == "space" then
+    local depth, nx, ny = mtv(triangle, box)
+<span class="k">    if depth then move(box, nx * depth, ny * depth) end</span>
+  end
+end
+
+function love.draw()
+  love.graphics.polygon("line", triangle)
+  love.graphics.polygon("line", box)
+  local depth, nx, ny = mtv(triangle, box)
+  if depth then
+    love.graphics.print(string.format("push B by (%.1f, %.1f), depth %.1f",
+      nx * depth, ny * depth, depth), 10, 10)
+  else
+    love.graphics.print("apart", 10, 10)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># player.gd: a CharacterBody2D with a collision shape.</span>
+<span class="c"># Godot works out the normal and depth for you and reports them.</span>
+extends CharacterBody2D
+
+func _physics_process(delta: float) -&gt; void:
+    var hit := move_and_collide(velocity * delta)
+    if hit:
+<span class="k">        print("normal ", hit.get_normal(), " depth ", hit.get_depth())</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// PushOut.cs: moves this object's collider out of another one.</span>
+using UnityEngine;
+
+public class PushOut : MonoBehaviour
+{
+    public Collider2D other;
+    Collider2D self;
+
+    void Awake() { self = GetComponent&lt;Collider2D&gt;(); }
+
+    void FixedUpdate()
+    {
+        ColliderDistance2D d = Physics2D.Distance(other, self);
+        if (d.isValid &amp;&amp; d.isOverlapped)
+        {
+<span class="k">            transform.position += (Vector3)(d.pointA - d.pointB);</span>
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In both engines you seldom write this. Godot's <code>move_and_collide</code> reports a <code>KinematicCollision2D</code> holding the normal and depth. Unity's <code>Physics2D.Distance</code> returns a negative <code>distance</code> for overlapping colliders, with a <code>normal</code> and a point on each. Neither documents its algorithm inside.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Unnormalised axes.</strong> Without dividing by the edge length, overlaps on different axes are scaled differently and the "smallest" is meaningless.</li>
+    <li><strong>Stopping early.</strong> The yes or no test may stop at the first gap. The MTV needs every axis, since any of them might hold the smallest overlap.</li>
+    <li><strong>Ties and flicker.</strong> Two nearly equal overlaps can swap winners from step to step, so the push flickers between two directions. Prefer last step's normal when they are close.</li>
+    <li><strong>Moving both bodies.</strong> If both are free to move, split the push between them. How to split it by mass is a later lesson.</li>
+    <li><strong>Pushing velocity too.</strong> Moving the position fixes the overlap, but a body still moving into the wall comes straight back next step. Remove the part of the velocity along the normal as well; sliding along walls covers that.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D version 2 uses the separating axis search on polygon pairs (<code>b2FindMaxSeparation</code> in <code>b2_collide_polygon.cpp</code>) to find the axis of least penetration, which becomes the contact normal. Godot's <code>KinematicCollision2D</code> exposes the depth of an overlap through <code>get_depth</code>, and Unity's <code>ColliderDistance2D</code> exposes it as a negative <code>distance</code>.</p>
+  <p>Metanet Software's tutorial on collision for their game N describes projecting shapes onto axes and pushing the player out along the axis of smallest overlap, the same idea as this lesson.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Extend the Lua program so the box moves with the arrow keys at 200 pixels per second in <code>love.update(dt)</code>. After moving, call <code>mtv</code> and apply the push straight away. Then rotate the triangle by rebuilding its corners with the rotation formula from the last lesson.</p>
+  <p>You are done when holding an arrow key against the triangle's long edge makes the box slide along it, and never shows it overlapping by more than a pixel.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The minimum translation vector is the shortest move that separates two overlapping shapes: a unit normal times a depth.</li>
+    <li>On each axis, B can leave A in two directions, <code>aHi - bLo</code> and <code>bHi - aLo</code>. The smaller is the overlap and gives the direction.</li>
+    <li>The MTV lies along the axis with the smallest overlap, so every axis must be tested.</li>
+    <li>Always point the push from A to B; the raw edge normal pushes the wrong way half the time.</li>
+    <li>The MTV only sees the present. Deep overlaps get pushed out the wrong side, so keep them shallow.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The MTV gives a normal and a depth, but a response also needs to know where the shapes touch: the next lesson finds contact points.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Covers the separating axis test and penetration depth.</li>
+    <li>Metanet Software, <cite>N Tutorial A: Collision Detection and Response</cite>. Projection and push-out along the smallest overlap, as used in the game N.</li>
+    <li>Erin Catto, <cite>Box2D</cite>, source file <code>b2_collide_polygon.cpp</code> in version 2.4.</li>
+    <li>Godot Engine documentation, <cite>KinematicCollision2D</cite> and <cite>CharacterBody2D</cite>. Unity documentation, <cite>Physics2D.Distance</cite> and <cite>ColliderDistance2D</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 600, H = 320;      // world size in pixels; y grows downwards
+  var ROW = 18;              // height of one axis row under the scene
+  var MAX_ROWS = 6;          // the most axes any pair of demo shapes needs
+  var TL = 12 + MAX_ROWS * ROW + 8;
+  var THIRD = 100 / 3;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function regular(n, r, start) {
+    var pts = [];
+    for (var i = 0; i < n; i++) {
+      var a = start + i * 2 * Math.PI / n;
+      pts.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    return pts;
+  }
+
+  // Corners around each shape's centre, in order.
+  var SHAPES = {
+    triangle: [[-THIRD, -THIRD], [2 * THIRD, -THIRD], [-THIRD, 2 * THIRD]],
+    square: [[-30, -30], [30, -30], [30, 30], [-30, 30]],
+    plank: [[-110, -14], [110, -14], [110, 14], [-110, 14]],
+    hexagon: regular(6, 45, 0)
+  };
+  var SHAPE_OPTIONS = [
+    { value: 'triangle', label: 'Triangle' },
+    { value: 'square', label: 'Square' },
+    { value: 'plank', label: 'Plank' },
+    { value: 'hexagon', label: 'Hexagon' }
+  ];
+
+  var A = { name: 'A', kind: 'triangle', x: 400 / 3, y: 400 / 3, angle: 0 };
+  var B = { name: 'B', kind: 'square', x: 170, y: 170, angle: 0 };
+  var drag = null;
+  var view = { scale: 1, ox: 0, oy: 0 };
+  var handle = null;
+
+  // ---- Geometry, the same maths as the Lua in the lesson ----
+  function corners(b) {
+    var r = b.angle * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    return SHAPES[b.kind].map(function (p) {
+      return [b.x + p[0] * c - p[1] * s, b.y + p[0] * s + p[1] * c];
+    });
+  }
+
+  function project(poly, ax, ay) {
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < poly.length; i++) {
+      var d = poly[i][0] * ax + poly[i][1] * ay;
+      if (d < lo) lo = d;
+      if (d > hi) hi = d;
+    }
+    return { lo: lo, hi: hi };
+  }
+
+  function addAxes(poly, owner, list) {
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var ex = q[0] - p[0], ey = q[1] - p[1];
+      var len = Math.hypot(ex, ey);
+      if (len < 1e-9) continue;
+      var ax = -ey / len, ay = ex / len;
+      var dup = null;
+      for (var k = 0; k < list.length; k++) {
+        if (Math.abs(list[k].ax * ay - list[k].ay * ax) < 1e-6) { dup = list[k]; break; }
+      }
+      if (dup) dup.names.push(owner + (i + 1));
+      else list.push({ ax: ax, ay: ay, names: [owner + (i + 1)] });
+    }
+  }
+
+  // Every axis with its two ways out, the overlap, and the smallest one.
+  function analyse(pa, pb) {
+    var list = [];
+    addAxes(pa, 'A', list);
+    addAxes(pb, 'B', list);
+    var best = -1, separated = false;
+    list.forEach(function (axis, i) {
+      axis.a = project(pa, axis.ax, axis.ay);
+      axis.b = project(pb, axis.ax, axis.ay);
+      axis.plus = axis.a.hi - axis.b.lo;     // move B this far along +axis
+      axis.minus = axis.b.hi - axis.a.lo;    // or this far along -axis
+      axis.depth = Math.min(axis.plus, axis.minus);
+      axis.dir = axis.plus < axis.minus ? 1 : -1;
+      if (axis.depth < 0) separated = true;
+      if (best < 0 || axis.depth < list[best].depth) best = i;
+    });
+    return { axes: list, best: best, separated: separated };
+  }
+
+  // The push for B: along the smallest-overlap axis, pointed from A to B unless the bug is on.
+  function pushOf(r) {
+    if (r.separated) return null;
+    var axis = r.axes[r.best];
+    var sign = orient.value ? axis.dir : 1;
+    return {
+      x: axis.ax * sign * axis.depth,
+      y: axis.ay * sign * axis.depth,
+      depth: axis.depth,
+      axis: axis,
+      wrong: sign !== axis.dir
+    };
+  }
+
+  function applyPush(body) {
+    var m = pushOf(analyse(corners(A), corners(B)));
+    if (!m) return;
+    var k = body === A ? -1 : 1;     // moving A instead of B: push the other way
+    body.x = DemoKit.clamp(body.x + k * m.x, 0, W);
+    body.y = DemoKit.clamp(body.y + k * m.y, 0, H);
+  }
+
+  function insideConvex(poly, x, y) {
+    var sign = 0;
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var cr = (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]);
+      if (cr !== 0) {
+        var sg = cr > 0 ? 1 : -1;
+        if (sign === 0) sign = sg;
+        else if (sg !== sign) return false;
+      }
+    }
+    return true;
+  }
+
+  function radius(b) {
+    var r = 0;
+    SHAPES[b.kind].forEach(function (p) { r = Math.max(r, Math.hypot(p[0], p[1])); });
+    return r;
+  }
+
+  function handlePos(b) {
+    var r = radius(b) + 18, a = b.angle * Math.PI / 180;
+    return [b.x + r * Math.sin(a), b.y - r * Math.cos(a)];
+  }
+
+  function wrapAngle(d) {
+    d = Math.round(d);
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    return d;
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="mtv"]');
+  var kindA = ui.select({ label: 'Shape A', options: SHAPE_OPTIONS, value: 'triangle',
+    onChange: function (v) { A.kind = v; edited(A); } });
+  var kindB = ui.select({ label: 'Shape B', options: SHAPE_OPTIONS, value: 'square',
+    onChange: function (v) { B.kind = v; edited(B); } });
+  var rotA = ui.slider({ label: 'Rotate A', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { A.angle = v; edited(A); } });
+  var rotB = ui.slider({ label: 'Rotate B', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { B.angle = v; edited(B); } });
+  var orient = ui.toggle({ label: 'Point the push from A to B', value: true, onChange: function () { changed(); } });
+  var resolve = ui.toggle({ label: 'Resolve while dragging', value: false, onChange: function (v) { if (v) applyPush(B); changed(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { changed(); } });
+  ui.button({ label: 'Apply push', onClick: function () { applyPush(B); changed(); } });
+  ui.button({ label: 'Reset', onClick: reset });
+  var outDepth = ui.readout({ label: 'Smallest overlap' });
+  var outPush = ui.readout({ label: 'Push for B' });
+
+  function reset() {
+    A.kind = 'triangle'; A.x = 400 / 3; A.y = 400 / 3; A.angle = 0;
+    B.kind = 'square'; B.x = 170; B.y = 170; B.angle = 0;
+    kindA.set('triangle'); kindB.set('square');
+    rotA.set(0); rotB.set(0);
+    orient.set(true); resolve.set(false); debug.set(true);
+    changed();
+  }
+
+  function changed() {
+    if (handle) handle.redraw();
+  }
+
+  // After the reader moves or turns a shape: resolve it straight away if asked.
+  function edited(body) {
+    if (resolve.value) applyPush(body);
+    changed();
+  }
+
+  // ---- Drawing helpers ----
+  function sx(x) { return view.ox + x * view.scale; }
+  function sy(y) { return view.oy + y * view.scale; }
+  function toWorld(p) { return { x: (p.x - view.ox) / view.scale, y: (p.y - view.oy) / view.scale }; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color, width) {
+    var dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+    if (len < 0.5) return;
+    var ux = dx / len, uy = dy / len, head = Math.min(10, len * 0.6);
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+    line(ctx, x1, y1, x2 - ux * head * 0.6, y2 - uy * head * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * head - uy * head * 0.5, y2 - uy * head + ux * head * 0.5);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.5, y2 - uy * head - ux * head * 0.5);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function polyPath(ctx, poly, dx, dy) {
+    dx = dx || 0; dy = dy || 0;
+    ctx.beginPath();
+    poly.forEach(function (p, i) {
+      var X = sx(p[0] + dx), Y = sy(p[1] + dy);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.closePath();
+  }
+
+  function label(ctx, text, x, y, color, c) {
+    var wTxt = ctx.measureText(text).width;
+    var left = ctx.textAlign === 'center' ? x - wTxt / 2 : (ctx.textAlign === 'right' ? x - wTxt : x);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.85;
+    ctx.fillRect(left - 3, y - 12, wTxt + 6, 16);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function fmt(v) {
+    var r = Math.round(v * 10) / 10;
+    if (r === 0) r = 0;              // no "-0.0"
+    return r.toFixed(1);
+  }
+
+  function rowText(a) { return a.depth < 0 ? 'gap ' + fmt(-a.depth) : 'overlap ' + fmt(a.depth); }
+
+  function drawEdgeLabels(ctx, c, b, poly) {
+    ctx.textAlign = 'center';
+    ctx.font = '11px ' + FONT;
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+      var dx = mx - b.x, dy = my - b.y, d = Math.hypot(dx, dy) || 1;
+      var lx = mx + dx / d * 11 / view.scale, ly = my + dy / d * 11 / view.scale;
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(b.name + (i + 1), sx(lx), sy(ly) + 4);
+    }
+    ctx.font = '12px ' + FONT;
+  }
+
+  function drawRows(ctx, s, r, c) {
+    var top = s.height - TL;
+    var left = 78, right = Math.max(left + 80, s.width - 128);
+    var widest = 1;
+    r.axes.forEach(function (a) {
+      widest = Math.max(widest, Math.max(a.a.hi, a.b.hi) - Math.min(a.a.lo, a.b.lo));
+    });
+    var k = Math.min(view.scale, (right - left - 8) / widest);
+    var centre = (left + right) / 2;
+
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    line(ctx, 0, top - 0.5, s.width, top - 0.5);
+    ctx.font = '12px ' + FONT;
+
+    r.axes.forEach(function (a, i) {
+      var y = top + 12 + i * ROW;
+      var isBest = !r.separated && i === r.best;
+      if (isBest) {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(0, y - 2, s.width, ROW);
+      }
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(a.names.join(', '), 8, y + 11);
+      var mid = (Math.min(a.a.lo, a.b.lo) + Math.max(a.a.hi, a.b.hi)) / 2;
+      function X(v) { return centre + (v - mid) * k; }
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(X(a.a.lo), y + 1, Math.max(2, (a.a.hi - a.a.lo) * k), 6);
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(X(a.b.lo), y + 8, Math.max(2, (a.b.hi - a.b.lo) * k), 6);
+      ctx.fillStyle = a.depth < 0 ? c.good : (isBest ? c.bad : c.ink3);
+      ctx.font = (isBest ? '600 12px ' : '12px ') + FONT;
+      ctx.fillText(rowText(a) + (isBest ? ', smallest' : ''), right + 8, y + 11);
+      ctx.font = '12px ' + FONT;
+    });
+    if (r.axes.length < MAX_ROWS) {
+      ctx.fillStyle = c.ink3; ctx.textAlign = 'left';
+      ctx.fillText('Top bar: A. Bottom bar: B.', 8, top + 12 + r.axes.length * ROW + 11);
+    }
+  }
+
+  // ---- Main ----
+  handle = DemoKit.canvas('#mtv', {
+    aspect: W / (H + TL),
+    minHeight: 340,
+    maxHeight: 500,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Two convex shapes you can drag and rotate. When they overlap, an arrow and a dashed ghost show the minimum translation vector that would push shape B out of shape A. Rows below list the overlap on every axis, with the smallest marked.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var sceneH = s.height - TL;
+      view.scale = Math.min(s.width / W, sceneH / H);
+      view.ox = (s.width - W * view.scale) / 2;
+      view.oy = (sceneH - H * view.scale) / 2;
+      var g;
+
+      var pa = corners(A), pb = corners(B);
+      var r = analyse(pa, pb);
+      var m = pushOf(r);
+      var touching = m && m.depth < 0.05;
+
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, s.width, sceneH); ctx.clip();
+      ctx.font = '12px ' + FONT;
+
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      for (g = 50; g < W; g += 50) line(ctx, sx(g), sy(0), sx(g), sy(H));
+      for (g = 50; g < H; g += 50) line(ctx, sx(0), sy(g), sx(W), sy(g));
+      ctx.strokeRect(sx(0), sy(0), W * view.scale, H * view.scale);
+
+      var hit = m && !touching;
+
+      // The shapes. Outlines turn red while they overlap.
+      polyPath(ctx, pa);
+      ctx.fillStyle = c.topic; ctx.globalAlpha = 0.2; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = hit ? c.bad : c.topic; ctx.lineWidth = hit ? 3 : 2; ctx.stroke();
+      polyPath(ctx, pb);
+      ctx.fillStyle = c.ink2; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = hit ? c.bad : c.ink2; ctx.lineWidth = hit ? 3 : 2; ctx.stroke();
+
+      if (debug.value) {
+        drawEdgeLabels(ctx, c, A, pa); drawEdgeLabels(ctx, c, B, pb);
+        if (hit) {
+          // Ghost of B after the push, and the push itself from B's centre.
+          var col = m.wrong ? c.bad : c.good;
+          polyPath(ctx, pb, m.x, m.y);
+          ctx.setLineDash([5, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.setLineDash([]);
+          arrow(ctx, sx(B.x), sy(B.y), sx(B.x + m.x), sy(B.y + m.y), col, 3);
+          // The normal of the chosen axis, drawn long so its direction is visible.
+          var len = m.depth > 0 ? 1 / m.depth : 0;
+          var nx = m.x * len, ny = m.y * len;
+          ctx.setLineDash([2, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1;
+          line(ctx, sx(B.x), sy(B.y), sx(B.x + nx * 60), sy(B.y + ny * 60));
+          ctx.setLineDash([]);
+          ctx.textAlign = 'center';
+          ctx.font = '600 12px ' + FONT;
+          label(ctx, (m.wrong ? 'into A ' : 'push ') + fmt(m.depth),
+            sx(B.x + nx * 60), sy(B.y + ny * 60) + (ny > 0 ? 16 : -6), col, c);
+          ctx.font = '12px ' + FONT;
+        }
+      }
+
+      // Names and rotation handles.
+      [[A, c.topic], [B, c.ink2]].forEach(function (it) {
+        var b = it[0], hp = handlePos(b);
+        ctx.strokeStyle = it[1]; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        line(ctx, sx(b.x), sy(b.y), sx(hp[0]), sy(hp[1]));
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(sx(hp[0]), sy(hp[1]), 7, 0, Math.PI * 2);
+        ctx.fillStyle = c.surface; ctx.fill();
+        ctx.lineWidth = 2; ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.font = '600 13px ' + FONT;
+        ctx.fillStyle = it[1];
+        ctx.fillText(b.name, sx(b.x) + 12, sy(b.y) - 6);
+        ctx.beginPath(); ctx.arc(sx(b.x), sy(b.y), 2.5, 0, Math.PI * 2); ctx.fill();
+      });
+
+      // Verdict.
+      ctx.font = '600 13px ' + FONT;
+      ctx.textAlign = 'left';
+      var msg = !m ? 'Apart: no push needed' : (touching ? 'Touching' : 'Overlapping by ' + fmt(m.depth) + ' px');
+      label(ctx, msg, 8, 18, hit ? c.bad : c.good, c);
+      ctx.restore();
+
+      drawRows(ctx, s, r, c);
+
+      if (!m) {
+        outDepth.set('none, an axis shows a gap');
+        outPush.set('none');
+      } else {
+        outDepth.set(fmt(m.depth) + ' px on ' + m.axis.names.join(', '));
+        outPush.set(touching ? 'none, already touching'
+          : '(' + fmt(m.x) + ', ' + fmt(m.y) + ')' + (m.wrong ? ', into A: wrong sign' : ''));
+      }
+    },
+    onDown: function (p, s) {
+      drag = null;
+      if (p.y > s.height - TL) return;
+      var w = toWorld(p);
+      [B, A].some(function (b) {
+        var hp = handlePos(b);
+        if (Math.hypot(w.x - hp[0], w.y - hp[1]) * view.scale < 16) { drag = { t: 'rotate', b: b }; return true; }
+        return false;
+      });
+      if (drag) return;
+      [B, A].some(function (b) {
+        if (insideConvex(corners(b), w.x, w.y)) { drag = { t: 'move', b: b, dx: w.x - b.x, dy: w.y - b.y }; return true; }
+        return false;
+      });
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      var w = toWorld(p), b = drag.b;
+      if (drag.t === 'rotate') {
+        b.angle = wrapAngle(Math.atan2(w.x - b.x, -(w.y - b.y)) * 180 / Math.PI);
+        (b === A ? rotA : rotB).set(b.angle);
+      } else {
+        b.x = DemoKit.clamp(w.x - drag.dx, 0, W);
+        b.y = DemoKit.clamp(w.y - drag.dy, 0, H);
+      }
+      edited(b);
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      if (key === 'space') { applyPush(B); changed(); return; }
+      var step = s.keys.has('shift') ? 1 : 5;
+      if (key === 'arrowleft') B.x -= step;
+      else if (key === 'arrowright') B.x += step;
+      else if (key === 'arrowup') B.y -= step;
+      else if (key === 'arrowdown') B.y += step;
+      else if (key === 'q') B.angle = wrapAngle(B.angle - 5);
+      else if (key === 'e') B.angle = wrapAngle(B.angle + 5);
+      else return;
+      B.x = DemoKit.clamp(B.x, 0, W);
+      B.y = DemoKit.clamp(B.y, 0, H);
+      rotB.set(B.angle);
+      edited(B);
+    }
+  });
+})();
+</script>
+</body>
+</html>

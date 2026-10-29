@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linear interpolation: how does a door slide open in exactly one second? · Game Dev Daily</title>
+<meta name="description" content="How lerp(a, b, t) = a + (b − a) × t blends a position, a size and a colour between two values with one number t from 0 to 1.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-29">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  article { --lerp-a: #2f5fe8; --lerp-b: #b35f00; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) article { --lerp-a: #7397ff; --lerp-b: #ffa31a; }
+  }
+  html[data-theme="dark"] article { --lerp-a: #7397ff; --lerp-b: #ffa31a; }
+  .v-a { color: var(--lerp-a); font-weight: 650; }
+  .v-b { color: var(--lerp-b); font-weight: 650; }
+  .v-t { color: var(--topic); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Linear interpolation: how does a door slide open in exactly one second?</h1>
+  <p class="lede">How lerp(a, b, t) = a + (b − a) × t blends a position, a size and a colour between two values with one number t from 0 to 1.</p>
+</header>
+
+<section data-section="hook">
+  <p>A sliding door is closed at x = 2 and open at x = 10, and it should take exactly one second to open. A pickup should grow as it flies to the player. A screen should fade from blue to orange as the sun sets. Three different jobs, but each one is the same question: where are you between a start and an end?</p>
+  <p>One tiny function answers all three. It is called <dfn>linear interpolation</dfn>, nearly always shortened to <dfn>lerp</dfn>.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One number that says how far along</h2>
+  <p>Describe progress with a single number called <dfn>t</dfn>. At the start, t = 0. At the end, t = 1. Halfway, t = 0.5, and a quarter of the way, t = 0.25. The name t comes from "time", because t is very often a fraction of a duration, but it can be any fraction of the way.</p>
+  <p>The same t can drive many things at once. The picture shows one t moving a number, a size and a colour together.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Five columns for t equal to 0, 0.25, 0.5, 0.75 and 1. In the first row a number goes 2, 4, 6, 8, 10 along a number line. In the second row a circle grows from a radius of 0.4 to 1.2. In the third row a swatch changes from blue through a greyish mauve to orange.">
+      <text class="d-muted" x="20" y="36">t</text>
+      <path class="d-thin" d="M150 48 H630"/>
+      <g text-anchor="middle">
+        <text class="d-label" x="200" y="36">0</text>
+        <text class="d-label" x="300" y="36">0.25</text>
+        <text class="d-label" x="400" y="36">0.5</text>
+        <text class="d-label" x="500" y="36">0.75</text>
+        <text class="d-label" x="600" y="36">1</text>
+      </g>
+
+      <text class="d-text" x="20" y="96">a number</text>
+      <text class="d-muted" x="20" y="114">a = 2, b = 10</text>
+      <path class="d-stroke" d="M200 100 H600"/>
+      <path class="d-stroke" d="M200 93 V107 M300 93 V107 M400 93 V107 M500 93 V107 M600 93 V107"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="200" y="126">2</text>
+        <text class="d-mono" x="300" y="126">4</text>
+        <text class="d-mono" x="400" y="126">6</text>
+        <text class="d-mono" x="500" y="126">8</text>
+        <text class="d-mono" x="600" y="126">10</text>
+      </g>
+
+      <text class="d-text" x="20" y="178">a size</text>
+      <text class="d-muted" x="20" y="196">0.4 to 1.2</text>
+      <circle class="d-stroke" cx="200" cy="182" r="10"/>
+      <circle class="d-stroke" cx="300" cy="182" r="15"/>
+      <circle class="d-stroke" cx="400" cy="182" r="20"/>
+      <circle class="d-stroke" cx="500" cy="182" r="25"/>
+      <circle class="d-stroke" cx="600" cy="182" r="30"/>
+
+      <text class="d-text" x="20" y="250">a colour</text>
+      <text class="d-muted" x="20" y="268">blue to orange</text>
+      <rect x="172" y="236" width="56" height="34" rx="4" style="fill: rgb(51,102,255)"/>
+      <rect x="272" y="236" width="56" height="34" rx="4" style="fill: rgb(102,115,191)"/>
+      <rect x="372" y="236" width="56" height="34" rx="4" style="fill: rgb(153,128,128)"/>
+      <rect x="472" y="236" width="56" height="34" rx="4" style="fill: rgb(204,140,64)"/>
+      <rect x="572" y="236" width="56" height="34" rx="4" style="fill: rgb(255,153,0)"/>
+    </svg>
+    <figcaption>Each column is one value of t. Every row uses the same rule, so at t = 0.25 everything is a quarter of the way from its start to its end.</figcaption>
+  </figure>
+
+  <h2>The formula</h2>
+  <p>Call the start value <span class="v-a">a</span> and the end value <span class="v-b">b</span>. The distance from one to the other is the gap, b − a. To go a fraction t of the way, take that fraction of the gap and add it to the start:</p>
+<pre><code>lerp(a, b, t) = a + (b - a) * t</code></pre>
+  <p>Worked example, the door from <span class="v-a">a = 2</span> to <span class="v-b">b = 10</span> at t = 0.25:</p>
+  <ol>
+    <li>The gap: 10 − 2 = 8.</li>
+    <li>A quarter of the gap: 8 × 0.25 = 2.</li>
+    <li>Add it to the start: 2 + 2 = 4.</li>
+  </ol>
+  <p>Check the ends. At t = 0 the gap is multiplied by zero, so the answer is a, which is 2. At t = 1 you add the whole gap and get b, which is 10.</p>
+  <p>The same formula is often written as <code>a * (1 - t) + b * t</code>. It gives the same answer, and reads as a mix: with t = 0.25 you take 75 percent of a and 25 percent of b.</p>
+
+  <h3>Positions: lerp each component</h3>
+  <p>A position has two numbers, so lerp them one at a time with the same t. From <span class="v-a">A = (2, 6)</span> to <span class="v-b">B = (10, 2)</span> at t = 0.25:</p>
+  <ul>
+    <li>x: 2 + (10 − 2) × 0.25 = 2 + 2 = 4</li>
+    <li>y: 6 + (2 − 6) × 0.25 = 6 − 1 = 5</li>
+  </ul>
+  <p>So the point is (4, 5). This is the vector subtraction from earlier lessons in disguise: B − A is the arrow from A to B, and A + (B − A) × t walks a fraction t along that arrow. Every point you get for t between 0 and 1 lies on the straight segment from A to B, which is why the method is called <em>linear</em>. As in the earlier lessons, this lesson and its demo use <strong>y pointing down</strong>, as on a screen and in LÖVE.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 232" role="img" aria-label="A straight segment from A at 2, 6 to B at 10, 2 on axes with y pointing down. Points at t equal to 0.25 and 0.5 sit on the segment at 4, 5 and 6, 4. Dashed extensions continue past B to t equal to 1.5 at 14, 0 and back past A to t equal to minus 0.5 at minus 2, 8.">
+      <path class="d-thin" d="M20 40 H350 M60 40 V214"/>
+      <text class="d-muted" x="20" y="34">x →</text>
+      <text class="d-muted" x="66" y="60">y ↓</text>
+      <path class="d-dash" d="M20 200 L100 160 M260 80 L340 40"/>
+      <path class="d-accent" d="M100 160 L260 80"/>
+      <circle cx="140" cy="140" r="4" class="d-accent-fill"/>
+      <circle cx="180" cy="120" r="4" class="d-accent-fill"/>
+      <circle cx="100" cy="160" r="6" style="fill: var(--lerp-a)"/>
+      <circle cx="260" cy="80" r="6" style="fill: var(--lerp-b)"/>
+      <circle cx="340" cy="40" r="4" class="d-fill" style="stroke: var(--ink-3)"/>
+      <circle cx="20" cy="200" r="4" class="d-fill" style="stroke: var(--ink-3)"/>
+      <text class="d-mono" style="fill: var(--lerp-a); font-weight: 650" x="108" y="180">A (2, 6), t = 0</text>
+      <text class="d-mono" x="148" y="160">t = 0.25 (4, 5)</text>
+      <text class="d-mono" x="188" y="140">t = 0.5 (6, 4)</text>
+      <g text-anchor="end">
+        <text class="d-mono" style="fill: var(--lerp-b); font-weight: 650" x="252" y="68">B (10, 2), t = 1</text>
+        <text class="d-muted" x="334" y="28">t = 1.5 (14, 0)</text>
+      </g>
+      <text class="d-muted" x="66" y="216">t = −0.5</text>
+    </svg>
+    <figcaption>Between 0 and 1, t stays on the segment. Outside that range the same formula keeps going along the dashed line.</figcaption>
+  </figure>
+
+  <h3>Sizes and colours</h3>
+  <p>A size is one number, so it is one lerp: a radius from 0.4 to 1.2 at t = 0.5 is 0.4 + 0.8 × 0.5 = 0.8. A colour is three numbers, red, green and blue, each from 0 to 1 as LÖVE uses them. Lerp each <dfn>channel</dfn> separately. From blue (0.2, 0.4, 1.0) to orange (1.0, 0.6, 0.0) at t = 0.5 gives (0.6, 0.5, 0.5).</p>
+
+  <h3>Where t comes from</h3>
+  <p>To make something take a fixed time, count the seconds since it started and divide by the duration: <code>t = elapsed / duration</code>. The door that takes one second is at t = 0.25 after a quarter of a second, wherever it is and whatever the frame rate. Once elapsed passes the duration, t goes above 1, so you <dfn>clamp</dfn> it: limit it to the range 0 to 1.</p>
+<pre><code>local t = math.min(elapsed / DURATION, 1)
+door.x = lerp(CLOSED_X, OPEN_X, t)</code></pre>
+
+  <div class="callout">
+    <p class="callout-title">t outside 0 to 1</p>
+    <p>Nothing in the formula stops at the ends. At t = 1.5 the door from 2 to 10 is at 2 + 8 × 1.5 = 14, past the open position. At t = −0.5 it is at −2. Going beyond the ends is called <dfn>extrapolation</dfn>. Sometimes you want it, for an overshoot; usually you want a clamp.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the <span class="v-t">t</span> slider and watch one dot change three things at once: its position between <span class="v-a">A</span> and <span class="v-b">B</span>, its size between the two rings, and its colour between blue and orange. The bar at the top shows where t is. Drag A and B on the grid, or move them with the keyboard: click the canvas, then use W, A, S, D for A and the arrow keys for B.</p>
+  <p>Then push t past 1 and below 0, and switch on <strong>Clamp t</strong>. Press <strong>Run t from 0 to 1 in 2 s</strong> to watch t = elapsed / 2 drive the dot like a timed door. With A and B on the same square, every t gives the same point.</p>
+  <figure class="demo" data-demo="lerp">
+    <canvas id="lerp"></canvas>
+    <figcaption>One grid square is one unit, and y points down. Readouts show the raw numbers from the formula; a colour channel outside 0 to 1 is drawn clamped, but the readout shows the real value.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same dot as the demo, with the same numbers. It travels from A to B in two seconds, waits one second, and starts again. <code>lerp</code> is the line that matters; everything else is lerp applied to more numbers.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Positions are in grid units. y grows downwards, as on LÖVE's screen.</span>
+local UNIT = 40                            <span class="c">-- pixels per grid unit</span>
+
+<span class="c">-- Blend from a to b. t = 0 gives a, t = 1 gives b, t = 0.5 is halfway.</span>
+local function lerp(a, b, t)
+<span class="k">  return a + (b - a) * t</span>
+end
+
+<span class="c">-- Keep t between 0 and 1.</span>
+local function clamp01(t)
+  return math.max(0, math.min(1, t))
+end
+
+<span class="c">-- Blend two points one component at a time.</span>
+local function lerpPoint(p, q, t)
+  return { x = lerp(p.x, q.x, t), y = lerp(p.y, q.y, t) }
+end
+
+<span class="c">-- Blend two colours { r, g, b }, each channel from 0 to 1.</span>
+local function lerpColor(c1, c2, t)
+  return { lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t), lerp(c1[3], c2[3], t) }
+end
+
+local A, B = { x = 2, y = 6 }, { x = 10, y = 2 }
+local SIZE_A, SIZE_B = 0.4, 1.2            <span class="c">-- radius in grid units</span>
+local COLOR_A, COLOR_B = { 0.2, 0.4, 1.0 }, { 1.0, 0.6, 0.0 }
+local DURATION = 2                         <span class="c">-- seconds from A to B</span>
+local elapsed = 0
+
+<span class="c">-- Check: prints 4  5, then 0.6  0.5  0.5</span>
+local check = lerpPoint(A, B, 0.25)
+print(check.x, check.y)
+local mid = lerpColor(COLOR_A, COLOR_B, 0.5)
+print(mid[1], mid[2], mid[3])
+
+function love.update(dt)
+  elapsed = elapsed + dt
+  if elapsed &gt; DURATION + 1 then           <span class="c">-- wait 1 s at B, then start again</span>
+    elapsed = 0
+  end
+end
+
+function love.draw()
+  local t = clamp01(elapsed / DURATION)
+  local pos = lerpPoint(A, B, t)
+  local size = lerp(SIZE_A, SIZE_B, t)
+  local col = lerpColor(COLOR_A, COLOR_B, t)
+  love.graphics.setColor(col[1], col[2], col[3])   <span class="c">-- LÖVE 11 and later: 0 to 1</span>
+  love.graphics.circle("fill", pos.x * UNIT, pos.y * UNIT, size * UNIT)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print(string.format("t = %.2f", t), 10, 10)
+end</code></pre>
+  </div>
+  <p>Built-in versions: Godot has <code>lerp(from, to, weight)</code>, <code>Vector2.lerp</code> and <code>Color.lerp</code>, which do not clamp. Unity has <code>Mathf.Lerp</code>, <code>Vector2.Lerp</code> and <code>Color.Lerp</code>, which clamp t to 0 to 1, and <code>Mathf.LerpUnclamped</code> when you want extrapolation.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting to clamp.</strong> <code>elapsed / duration</code> keeps growing after the end, so the door slides through the wall. Clamp t, or stop updating once t reaches 1. Watch for the other end too: a size lerped with t = −1 gives 0.4 − 0.8 = −0.4, a negative radius, and colour channels outside 0 to 1, such as 1.4 red at t = 1.5.</li>
+    <li><strong>Dividing by a zero duration.</strong> lerp itself never divides, so A equal to B is safe: every t gives A. But <code>elapsed / duration</code> with a duration of 0 divides by zero. Treat a zero duration as "already finished" and use t = 1.</li>
+    <li><strong>Lerping towards a moving target with a fixed t every frame.</strong> <code>x = lerp(x, target, 0.1)</code> is a different tool. It never quite arrives, and it moves faster at higher frame rates. It is exponential smoothing, and it gets its own lesson soon.</li>
+    <li><strong>Lerping angles.</strong> Blending 170 degrees towards −170 by plain lerp passes through 0, the far side of the circle. Use <code>a + angleDiff(a, b) * t</code> from the angle wrapping lesson, so the blend goes the short way.</li>
+    <li><strong>A muddy middle.</strong> Lerping red, green and blue separately between two very different colours can pass through a dull grey, as blue to orange does at t = 0.5 here. If that looks wrong, add a third colour in the middle and lerp in two halves.</li>
+    <li><strong>Not landing exactly on b.</strong> With decimals, <code>a + (b - a) * t</code> at t = 1 can be off by a rounding error when a and b are very different in size: <code>lerp(-1e10, 0.1, 1)</code> gives about 0.1000004. The form <code>a * (1 - t) + b * t</code> gives exactly b at t = 1. For ordinary game numbers either is fine.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Lerp is everywhere. Doors, lifts and moving platforms slide between two positions with t from a timer. Health bars draw their width as a lerp from empty to full. Fades to black lerp an alpha value, the opacity, from 0 to 1, and cross-fading music lerps two volumes in opposite directions. Tweening libraries, which animate a value from one number to another over time, are typically built on lerp with an easing curve applied to t.</p>
+  <p>It also hides inside engines. The physics topic's fixed timestep lesson draws objects at <code>previous + (current - previous) * alpha</code>, a lerp between the last two physics states. Shaders have it built in as <code>mix(x, y, a)</code> in GLSL.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Give a health bar in your own project a smooth drain. When the player takes damage, remember the old health, the new health and set a timer to 0. Each frame, add <code>dt</code> to the timer, compute <code>t = clamp01(timer / 0.3)</code> and draw the bar with width <code>lerp(oldHealth, newHealth, t) * PIXELS_PER_POINT</code>.</p>
+  <p>You are done when a hit from 100 to 60 health shows the bar at 100 points at 0 s, 80 at 0.15 s, and 60 at 0.3 s and after. For a bonus, make a second hit during the drain start from the value currently shown, <code>lerp(oldHealth, newHealth, t)</code>, so the bar never jumps.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>lerp(a, b, t) = a + (b - a) * t</code>: start at a and add the fraction t of the gap.</li>
+    <li>t = 0 gives a and t = 1 gives b. Always check those two cases.</li>
+    <li>Positions, sizes and colours are lerped one number at a time with the same t.</li>
+    <li>For a fixed duration, use <code>t = elapsed / duration</code> and clamp it to 0 to 1.</li>
+    <li>t outside 0 to 1 extrapolates past the ends; clamp unless you want an overshoot.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we run lerp backwards: inverse lerp turns a value such as current health into a t, and remap carries it into a new range such as a bar width.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Unity Scripting API, <cite>Mathf.Lerp</cite>, <cite>Mathf.LerpUnclamped</cite> and <cite>Vector2.Lerp</cite>.</li>
+    <li>Godot Engine documentation, <cite>@GlobalScope</cite>: <cite>lerp</cite>, and the <cite>Vector2</cite> and <cite>Color</cite> classes.</li>
+    <li>The Khronos Group, <cite>The OpenGL Shading Language</cite> specification, the built-in function <code>mix</code>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.setColor</cite>, on colour values from 0 to 1 since LÖVE 11.0.</li>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, on vectors and interpolation.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var A = { x: 2, y: 6 };                  // start point, grid units
+  var B = { x: 10, y: 2 };                 // end point
+  var SIZE_A = 0.4, SIZE_B = 1.2;          // radius in grid units
+  var COLOR_A = [0.2, 0.4, 1.0];           // blue, channels 0..1
+  var COLOR_B = [1.0, 0.6, 0.0];           // orange
+  var DURATION = 2;                        // seconds for Play
+  var T_MIN = -0.5, T_MAX = 1.5;
+
+  var tValue = 0.25;
+  var playing = false;
+  var elapsed = 0;
+  var handle = null;
+  var dragging = null;
+  var outCache = {};
+  var L = { ox: 28, oy: 84, U: 30, cols: 12, rows: 8 };
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function clamp01(t) { return Math.max(0, Math.min(1, t)); }
+  function lerpPoint(p, q, t) { return { x: lerp(p.x, q.x, t), y: lerp(p.y, q.y, t) }; }
+  function lerpColor(c1, c2, t) { return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]; }
+  function css(c) {
+    return 'rgb(' + Math.round(clamp01(c[0]) * 255) + ',' + Math.round(clamp01(c[1]) * 255) + ',' + Math.round(clamp01(c[2]) * 255) + ')';
+  }
+  function num(n) {
+    n = Math.round(n * 100) / 100;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function redraw() { if (handle) handle.redraw(); }
+  function usedT() { return clampOn.value ? clamp01(tValue) : tValue; }
+
+  var ui = DemoKit.controls('[data-demo="lerp"]');
+  var tSlider = ui.slider({ label: 't', min: T_MIN, max: T_MAX, step: 0.05, value: tValue,
+    format: function (v) { return num(v); },
+    onInput: function (v) { tValue = v; playing = false; redraw(); } });
+  var clampOn = ui.toggle({ label: 'Clamp t to 0 to 1', value: false, onChange: redraw });
+  ui.button({ label: 'Run t from 0 to 1 in 2 s', onClick: function () {
+    elapsed = 0;
+    tValue = 0;
+    tSlider.set(0);
+    playing = true;
+    if (handle) handle.play();
+    redraw();
+  } });
+  ui.button({ label: 'Reset A and B', onClick: function () {
+    A.x = 2; A.y = 6; B.x = 10; B.y = 2;
+    clampPoints();
+    redraw();
+  } });
+  var outT = ui.readout({ label: 't used' });
+  var outP = ui.readout({ label: 'Position (x, y)' });
+  var outS = ui.readout({ label: 'Radius' });
+  var outC = ui.readout({ label: 'Colour (r, g, b)' });
+
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+
+  function layout(s) {
+    L.ox = 30;
+    L.oy = 84;
+    L.U = Math.max(16, Math.floor(Math.min((s.width - 44) / 12, (s.height - L.oy - 44) / 8)));
+    L.cols = Math.max(1, Math.floor((s.width - L.ox - 12) / L.U));
+    L.rows = Math.max(1, Math.floor((s.height - L.oy - 44) / L.U));
+  }
+  function clampPoints() {
+    [A, B].forEach(function (p) {
+      p.x = DemoKit.clamp(p.x, 0, L.cols);
+      p.y = DemoKit.clamp(p.y, 0, L.rows);
+    });
+  }
+  function sx(x) { return L.ox + x * L.U; }
+  function sy(y) { return L.oy + y * L.U; }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function circle(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2);
+  }
+  function label(ctx, text, x, y, color, bg) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - 3, y - 12, w + 6, 16);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x, y);
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.getElementById('lerp')).getPropertyValue(name).trim() || fallback;
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 12px ui-monospace, Menlo, Consolas, monospace';
+
+  function pick(p) {
+    var best = null, bestD = Infinity;
+    [[A, SIZE_A], [B, SIZE_B]].forEach(function (pair) {
+      var pt = pair[0];
+      var d = Math.hypot(p.x - sx(pt.x), p.y - sy(pt.y));
+      var reach = Math.max(28, pair[1] * L.U + 10);
+      if (d <= reach && d < bestD) { best = pt; bestD = d; }
+    });
+    return best;
+  }
+  function moveTo(pt, p) {
+    pt.x = Math.round((p.x - L.ox) / L.U);
+    pt.y = Math.round((p.y - L.oy) / L.U);
+    clampPoints();
+  }
+
+  function drawRuler(ctx, s, c, t, raw) {
+    var x0 = L.ox, x1 = s.width - 16;
+    function rx(v) { return x0 + (v - T_MIN) / (T_MAX - T_MIN) * (x1 - x0); }
+    var y = 30, h = 12;
+    // Extrapolation regions.
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    line(ctx, rx(T_MIN), y + h / 2, rx(0), y + h / 2);
+    line(ctx, rx(1), y + h / 2, rx(T_MAX), y + h / 2);
+    ctx.setLineDash([]);
+    // The 0..1 part, coloured with the same blend as the dot.
+    var g = ctx.createLinearGradient(rx(0), 0, rx(1), 0);
+    g.addColorStop(0, css(COLOR_A));
+    g.addColorStop(1, css(COLOR_B));
+    ctx.fillStyle = g;
+    ctx.fillRect(rx(0), y, rx(1) - rx(0), h);
+    // Ticks.
+    ctx.font = SMALL;
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'center';
+    [-0.5, 0, 0.5, 1, 1.5].forEach(function (v) {
+      ctx.strokeStyle = c.ink3;
+      line(ctx, rx(v), y + h, rx(v), y + h + 5);
+      ctx.fillText(num(v), rx(v), y + h + 18);
+    });
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('t', 8, y + h);
+    // Raw t when it was clamped.
+    if (Math.abs(raw - t) > 1e-9) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 2;
+      circle(ctx, rx(raw), y + h / 2, 6);
+      ctx.stroke();
+    }
+    // Marker for the t in use.
+    var mx = rx(t);
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.moveTo(mx, y + 2);
+    ctx.lineTo(mx - 7, y - 10);
+    ctx.lineTo(mx + 7, y - 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2;
+    line(ctx, mx, y, mx, y + h);
+  }
+
+  handle = DemoKit.canvas('#lerp', {
+    height: 440,
+    drag: true,
+    keys: true,
+    label: 'A grid with y pointing down. A blue ring marks point A and an orange ring marks point B. A dot sits on the line between them at the fraction t, with its size and colour blended by the same t. Drag A or B, or use W A S D and the arrow keys. A bar at the top shows t from minus 0.5 to 1.5.',
+    onResize: function (s) { layout(s); clampPoints(); },
+    onDown: function (p) {
+      dragging = pick(p);
+      if (dragging) { moveTo(dragging, p); redraw(); }
+    },
+    onMove: function (p) {
+      if (p.down && dragging) { moveTo(dragging, p); redraw(); }
+    },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var moves = {
+        arrowleft: [B, -1, 0], arrowright: [B, 1, 0], arrowup: [B, 0, -1], arrowdown: [B, 0, 1],
+        a: [A, -1, 0], d: [A, 1, 0], w: [A, 0, -1], s: [A, 0, 1]
+      };
+      var m = moves[key];
+      if (!m) return;
+      m[0].x += m[1];
+      m[0].y += m[2];
+      clampPoints();
+      redraw();
+    },
+    update: function (dt) {
+      if (!playing) return;
+      elapsed += dt;
+      tValue = Math.min(elapsed / DURATION, 1);
+      tSlider.set(tValue);
+      if (elapsed >= DURATION) playing = false;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var colA = css(COLOR_A), colB = css(COLOR_B);
+      var textA = cssVar('--lerp-a', colA), textB = cssVar('--lerp-b', colB);
+      layout(s);
+      var U = L.U, i;
+      var t = usedT();
+
+      drawRuler(ctx, s, c, t, tValue);
+
+      // Grid.
+      var gw = L.cols * U, gh = L.rows * U;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = 0; i <= L.cols; i++) line(ctx, sx(i) + 0.5, L.oy, sx(i) + 0.5, L.oy + gh);
+      for (i = 0; i <= L.rows; i++) line(ctx, L.ox, sy(i) + 0.5, L.ox + gw, sy(i) + 0.5);
+      // Axes along the top and left edges, with y growing downwards.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      line(ctx, L.ox, L.oy + 0.5, L.ox + gw, L.oy + 0.5);
+      line(ctx, L.ox + 0.5, L.oy, L.ox + 0.5, L.oy + gh);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      for (i = 0; i <= L.cols - 2; i += 2) ctx.fillText(String(i), sx(i), L.oy - 6);
+      ctx.textAlign = 'right';
+      ctx.fillText('x →', L.ox + gw, L.oy - 6);
+      for (i = 2; i <= L.rows - 2; i += 2) ctx.fillText(String(i), L.ox - 6, sy(i) + 4);
+      ctx.fillText('y ↓', L.ox - 4, L.oy + gh);
+
+      // The line through A and B, solid between them and dashed for extrapolation.
+      var e0 = lerpPoint(A, B, T_MIN), e1 = lerpPoint(A, B, T_MAX);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(L.ox, L.oy, gw, gh);
+      ctx.clip();
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      line(ctx, sx(e0.x), sy(e0.y), sx(e1.x), sy(e1.y));
+      ctx.setLineDash([]);
+      ctx.restore();
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      line(ctx, sx(A.x), sy(A.y), sx(B.x), sy(B.y));
+      // Quarter marks along the segment.
+      ctx.fillStyle = c.ink2;
+      [0.25, 0.5, 0.75].forEach(function (q) {
+        var m = lerpPoint(A, B, q);
+        circle(ctx, sx(m.x), sy(m.y), 2.5);
+        ctx.fill();
+      });
+
+      // Start and end rings: their size and colour are the two ends of the blend.
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = colA;
+      circle(ctx, sx(A.x), sy(A.y), SIZE_A * U);
+      ctx.stroke();
+      ctx.strokeStyle = colB;
+      circle(ctx, sx(B.x), sy(B.y), SIZE_B * U);
+      ctx.stroke();
+
+      // The blended dot.
+      var pos = lerpPoint(A, B, t);
+      var size = lerp(SIZE_A, SIZE_B, t);
+      var col = lerpColor(COLOR_A, COLOR_B, t);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, L.oy - 20, s.width, s.height - L.oy + 20);
+      ctx.clip();
+      ctx.fillStyle = css(col);
+      circle(ctx, sx(pos.x), sy(pos.y), size * U);
+      ctx.fill();
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      circle(ctx, sx(pos.x), sy(pos.y), size * U);
+      ctx.stroke();
+      ctx.fillStyle = c.ink;
+      circle(ctx, sx(pos.x), sy(pos.y), 2.5);
+      ctx.fill();
+      ctx.restore();
+
+      // Handles and labels for A and B.
+      ctx.fillStyle = colA;
+      circle(ctx, sx(A.x), sy(A.y), 5);
+      ctx.fill();
+      ctx.fillStyle = colB;
+      circle(ctx, sx(B.x), sy(B.y), 5);
+      ctx.fill();
+      var la = 'A (' + num(A.x) + ', ' + num(A.y) + ')';
+      var lb = 'B (' + num(B.x) + ', ' + num(B.y) + ')';
+      ctx.font = LABEL;
+      var wa = ctx.measureText(la).width, wb = ctx.measureText(lb).width;
+      var ax = DemoKit.clamp(sx(A.x) - wa / 2, 4, s.width - wa - 8);
+      var ay = sy(A.y) + SIZE_A * U + 18;
+      if (ay > L.oy + gh + 14) ay = sy(A.y) - SIZE_A * U - 8;
+      label(ctx, la, ax, ay, textA, c.surface);
+      var bx = DemoKit.clamp(sx(B.x) - wb / 2, 4, s.width - wb - 8);
+      var by = sy(B.y) - SIZE_B * U - 8;
+      if (by < L.oy + 4) by = sy(B.y) + SIZE_B * U + 18;
+      label(ctx, lb, bx, by, textB, c.surface);
+
+      // Readouts.
+      setOut(outT, 't', num(t) + (Math.abs(t - tValue) > 1e-9 ? ' (clamped from ' + num(tValue) + ')' : ''));
+      setOut(outP, 'p', '(' + num(pos.x) + ', ' + num(pos.y) + ')');
+      setOut(outS, 's', num(size) + (size < 0 ? ' (negative, drawn as 0)' : ''));
+      var out = col[0] < 0 || col[0] > 1 || col[1] < 0 || col[1] > 1 || col[2] < 0 || col[2] > 1;
+      setOut(outC, 'c', num(col[0]) + ', ' + num(col[1]) + ', ' + num(col[2]) + (out ? ' (outside 0 to 1)' : ''));
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UV distortion: bending a pattern with a wave · Game Dev Daily</title>
+<meta name="description" content="Add a sine wave to the UV before drawing and everything drawn with it bends: sways, wobbles and ripples from one line, plus the limit where it folds.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-29">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>UV distortion: bending a pattern with a wave</h1>
+  <p class="lede">Add a sine wave to the UV before drawing and everything drawn with it bends: sways, wobbles and ripples from one line, plus the limit where it folds.</p>
+</header>
+
+<section data-section="hook">
+  <p>Air shimmers above a campfire. The level wobbles when the hero dives underwater. A banner sways in the wind although it is a single flat quad. None of these needs to move a vertex. Each one can bend the picture inside the shader, and the bend is one line long.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Move where the pixel reads, not the pixel</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. It cannot move its pixel, but it can change the question it asks. Normally a pixel at <code>uv</code> asks "what does the pattern look like here?". With <dfn>UV distortion</dfn> it asks about a slightly different point:</p>
+<pre><code>vec2 q = uv + off;     // read the pattern from here instead</code></pre>
+  <p>Everything drawn afterwards uses <code>q</code>: the checkerboard, the circle, a texture lookup. If <code>off</code> is the same everywhere the picture just slides, as in the scrolling lesson. If it changes from place to place, the picture bends.</p>
+
+  <h3>The offset is a wave</h3>
+  <p>The usual choice is a sine wave of the <em>other</em> coordinate. To make each row slide sideways by a different amount:</p>
+<pre><code>float wave(float x) {
+  return u_amp * sin(TWO_PI * (u_freq * x - u_phase));
+}
+vec2 off = vec2(wave(uv.y), 0.0);   // the shift depends on the height</code></pre>
+  <p>The <dfn>amplitude</dfn> <code>u_amp</code> is the largest shift in UV units; 0.03 is three percent of the screen height. The <dfn>frequency</dfn> <code>u_freq</code> is how many waves fit into one UV unit. The <dfn>phase</dfn> <code>u_phase</code> slides the wave along, so increasing it makes the bend travel. The 2π turns waves into the radians <code>sin</code> expects.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Three panels. The first shows a square with four straight vertical lines, labelled uv. The second shows the same square with a horizontal arrow on each row; the arrows grow, shrink and reverse following a sine wave down the square, labelled offset per row. The third shows the four lines bent into sine curves that lean the opposite way to the arrows, labelled drawn at uv plus offset.">
+      <text class="d-text" x="100" y="26" text-anchor="middle">1. uv</text>
+      <rect class="d-box" x="20" y="40" width="160" height="160"/>
+      <path class="d-stroke" d="M52 40 V200 M84 40 V200 M116 40 V200 M148 40 V200"/>
+
+      <path class="d-accent" d="M192 120 H226 M226 120 l-6 -4 M226 120 l-6 4"/>
+
+      <text class="d-text" x="320" y="26" text-anchor="middle">2. offset per row</text>
+      <rect class="d-box" x="240" y="40" width="160" height="160"/>
+      <path class="d-stroke d-thin d-dash" d="M320 40 V200"/>
+      <path class="d-accent" d="M320 50 h6.9 l-3 -3 m3 3 l-3 3 M320 70 h16.6 l-4 -4 m4 4 l-4 4 M320 90 h16.6 l-4 -4 m4 4 l-4 4 M320 110 h6.9 l-3 -3 m3 3 l-3 3 M320 130 h-6.9 l3 -3 m-3 3 l3 3 M320 150 h-16.6 l4 -4 m-4 4 l4 4 M320 170 h-16.6 l4 -4 m-4 4 l4 4 M320 190 h-6.9 l3 -3 m-3 3 l3 3"/>
+      <text class="d-muted d-mono" x="320" y="222" text-anchor="middle">amp · sin(freq · y)</text>
+
+      <path class="d-accent" d="M412 120 H446 M446 120 l-6 -4 M446 120 l-6 4"/>
+
+      <text class="d-text" x="540" y="26" text-anchor="middle">3. drawn at uv + offset</text>
+      <rect class="d-box" x="460" y="40" width="160" height="160"/>
+      <path class="d-stroke" d="M492.0 40 L486.4 48 L481.4 56 L477.4 64 L474.9 72 L474.0 80 L474.9 88 L477.4 96 L481.4 104 L486.4 112 L492.0 120 L497.6 128 L502.6 136 L506.6 144 L509.1 152 L510.0 160 L509.1 168 L506.6 176 L502.6 184 L497.6 192 L492.0 200 M524.0 40 L518.4 48 L513.4 56 L509.4 64 L506.9 72 L506.0 80 L506.9 88 L509.4 96 L513.4 104 L518.4 112 L524.0 120 L529.6 128 L534.6 136 L538.6 144 L541.1 152 L542.0 160 L541.1 168 L538.6 176 L534.6 184 L529.6 192 L524.0 200 M556.0 40 L550.4 48 L545.4 56 L541.4 64 L538.9 72 L538.0 80 L538.9 88 L541.4 96 L545.4 104 L550.4 112 L556.0 120 L561.6 128 L566.6 136 L570.6 144 L573.1 152 L574.0 160 L573.1 168 L570.6 176 L566.6 184 L561.6 192 L556.0 200 M588.0 40 L582.4 48 L577.4 56 L573.4 64 L570.9 72 L570.0 80 L570.9 88 L573.4 96 L577.4 104 L582.4 112 L588.0 120 L593.6 128 L598.6 136 L602.6 144 L605.1 152 L606.0 160 L605.1 168 L602.6 176 L598.6 184 L593.6 192 L588.0 200"/>
+      <text class="d-muted" x="540" y="222" text-anchor="middle">lines lean the other way</text>
+    </svg>
+    <figcaption>Each row gets its own shift from a sine wave. A pixel whose arrow points right reads the pattern from further right, so the lines appear to move <em>left</em> there.</figcaption>
+  </figure>
+
+  <p>That surprises everyone once: a pixel that reads from its right shows what was to its right, so the picture moves the opposite way to the offset. Flip the sign of <code>u_amp</code> for the other direction.</p>
+
+  <h3>Three shapes of wave</h3>
+  <ul>
+    <li><strong>Sway.</strong> <code>vec2(wave(uv.y), 0.0)</code>: rows slide sideways. Flags, banners, heat haze.</li>
+    <li><strong>Both axes.</strong> <code>vec2(wave(uv.y), wave(uv.x))</code>: rows slide sideways and columns slide up and down. An underwater wobble.</li>
+    <li><strong>Ripple.</strong> Push along the direction away from the centre by a wave of the radius: <code>normalize(uv) * wave(length(uv))</code>. Rings spread out, like a stone dropped in a pond. Guard the centre, where the direction is undefined. Within one amplitude of the centre the ripple can also pull pixels right through it, so keep the amplitude small or fade it in with the radius.</li>
+  </ul>
+
+  <h3>Keep the phase on the CPU</h3>
+  <p>The tempting version is <code>u_phase = u_time * speed</code>. It works until the speed changes: after 65 seconds at speed 0.5, nudging the speed to 0.6 adds 6.5 waves to the phase at once, and that half wave shows as a sudden jump. Instead, add <code>speed * dt</code> to the phase every frame and wrap it back into 0 to 1. The sine repeats every wave, so wrapping changes nothing on screen, and the shader never sees a huge number that low-precision phone GPUs would round.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Keep 2π × frequency × amplitude below 1. Past that, the both-axes and ripple waves push neighbouring pixels past each other and the pattern folds into mirrored creases. A sway only shears rows sideways, so it never folds, but steep slopes still look smeared.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Raise <em>Amplitude</em>: the checker and the orange disc bend together because both are drawn from <code>q</code>. Turn on <em>Show the undistorted grid</em> to see where the straight lines would be. Change <em>Wave</em> to <em>Both axes</em>, then push Frequency and Amplitude until the readout's fold number passes 1 and creases appear.</p>
+  <p>Drag on the picture to move the probe. The white dot is a pixel; the yellow ring is where that pixel reads the pattern from. Walk the <em>Stage</em> menu from 1 to 5 to see each step.</p>
+
+  <figure class="demo" data-demo="uv-distortion">
+    <canvas id="uv-distortion"></canvas>
+    <figcaption>Stage 2 shows the offset as colour: grey means no shift, more red means a shift to the right, more green a shift upwards. Stage 3 tiles the bent UV with <code>fract</code> so the bending is easy to see.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version runs the demo's shader in LÖVE, whose pixel shaders use the entry point <code>effect</code> instead of <code>main</code>. Click to place the probe. Left and right change the frequency, up and down the amplitude, M cycles the wave, G toggles the grid and S cycles the stage.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- The demo's starting values. Centred uv: (0, 0) in the middle, y up.</span>
+local amp = 0.03            <span class="c">-- largest shift, in uv units</span>
+local freq = 3              <span class="c">-- waves per uv unit</span>
+local speed = 0.5           <span class="c">-- waves per second</span>
+local phase = 0             <span class="c">-- waves travelled, kept between 0 and 1</span>
+local mode = 0              <span class="c">-- 0 sway, 1 both axes, 2 ripple</span>
+local stage = 4             <span class="c">-- 0 uv, 1 offset, 2 bent uv, 3 mask, 4 final</span>
+local grid = 0              <span class="c">-- 1 draws the undistorted grid on top</span>
+local probe = { 0.3, 0.15 } <span class="c">-- in uv units</span>
+local rect = { 20, 20, 640, 360 }   <span class="c">-- x, y, width, height in pixels</span>
+local shader
+
+local pixelcode = [[
+uniform float u_amp;      // largest shift, in uv units
+uniform float u_freq;     // waves per uv unit
+uniform float u_phase;    // waves travelled, 0 to 1
+uniform float u_mode;     // 0 sway, 1 both axes, 2 ripple
+uniform float u_stage;
+uniform float u_grid;     // 1.0 draws the undistorted grid on top
+uniform vec2 u_probe;     // centred uv of the probe
+uniform vec4 u_rect;      // x, y, width, height in pixels
+
+const float TWO_PI = 6.2831853;
+const float CELLS = 6.0;  // checker cells per uv unit
+
+float wave(float x) {
+  return u_amp * sin(TWO_PI * (u_freq * x - u_phase));
+}
+
+vec2 offsetAt(vec2 uv) {
+  if (u_mode &gt; 1.5) {                                // ripple: push along the radius
+    float r = length(uv);
+    vec2 dir = r &gt; 0.0001 ? uv / r : vec2(0.0);      // no direction at the centre
+    return dir * wave(r);
+  }
+  if (u_mode &gt; 0.5) return vec2(wave(uv.y), wave(uv.x));   // both axes
+  return vec2(wave(uv.y), 0.0);                      // sway: rows slide sideways
+}
+
+float checker(vec2 q, float aa) {
+  vec2 c = abs(fract(q * CELLS * 0.5 + 0.25) - 0.5) * 2.0 - 0.5;  // signed, cell units
+  float d = min(abs(c.x), abs(c.y)) / CELLS;        // to the nearest cell edge, uv units
+  return smoothstep(-aa, aa, sign(c.x * c.y) * d);
+}
+
+vec3 shade(vec2 uv, float aa) {
+<span class="k">  vec2 off = offsetAt(uv);
+  vec2 q = uv + off;                                 // read the pattern from here instead</span>
+  float mask = checker(q, aa);
+  float d = length(q) - 0.2;                         // a disc, drawn with q too
+  vec3 col = mix(vec3(0.16, 0.2, 0.3), vec3(0.84, 0.86, 0.9), mask);
+  col = mix(col, vec3(0.1, 0.08, 0.06), 1.0 - smoothstep(-aa, aa, d - 0.012));
+  col = mix(col, vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(-aa, aa, d));
+
+  if (u_stage &lt; 3.5) col = vec3(mask);
+  if (u_stage &lt; 2.5) col = vec3(fract(q * 4.0), 0.0);
+  if (u_stage &lt; 1.5) col = vec3(0.5 + 0.5 * off / max(abs(u_amp), 0.0001), 0.5);
+  if (u_stage &lt; 0.5) col = vec3(uv + 0.5, 0.0);
+
+  if (u_grid &gt; 0.5) {
+    vec2 g = abs(fract(uv * CELLS + 0.5) - 0.5) / CELLS;   // to the nearest straight line
+    float gd = min(g.x, g.y);
+    col = mix(col, vec3(0.2, 0.85, 1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, gd));
+  }
+
+  vec2 a = u_probe;                                  // the probe pixel
+  vec2 ba = offsetAt(u_probe);                       // from it to where it reads
+  float bb = dot(ba, ba);
+  float h = bb &gt; 0.0 ? clamp(dot(uv - a, ba) / bb, 0.0, 1.0) : 0.0;
+  float seg = length(uv - a - ba * h);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, seg));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, seg));
+  float pd = length(uv - a) - 0.012;
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));
+  float rd = abs(length(uv - a - ba) - 0.016);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, rd));
+  col = mix(col, vec3(1.0, 0.85, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, rd));
+  return col;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = (screen_coords - u_rect.xy - 0.5 * u_rect.zw) / u_rect.w;
+  uv.y = -uv.y;                      // y points down here; make it point up
+  float aa = 1.0 / u_rect.w;         // one pixel, in uv units
+  return vec4(shade(uv, aa), 1.0);
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+<span class="k">  phase = phase + speed * dt
+  phase = phase - math.floor(phase)   -- wrap into 0 to 1; the sine does not notice</span>
+end
+
+function love.keypressed(key)
+  if key == "right" then freq = math.min(10, freq + 0.5) end
+  if key == "left" then freq = math.max(0.5, freq - 0.5) end
+  if key == "up" then amp = math.min(0.1, amp + 0.005) end
+  if key == "down" then amp = math.max(0, amp - 0.005) end
+  if key == "m" then mode = (mode + 1) % 3 end
+  if key == "g" then grid = 1 - grid end
+  if key == "s" then stage = (stage + 1) % 5 end
+end
+
+function love.mousepressed(x, y, button)
+  <span class="c">-- screen pixels to centred uv with y up: the same maths as the shader</span>
+  probe[1] = (x - rect[1] - 0.5 * rect[3]) / rect[4]
+  probe[2] = -(y - rect[2] - 0.5 * rect[4]) / rect[4]
+end
+
+function love.draw()
+  shader:send("u_amp", amp)
+  shader:send("u_freq", freq)
+  shader:send("u_phase", phase)
+  shader:send("u_mode", mode)
+  shader:send("u_stage", stage)
+  shader:send("u_grid", grid)
+  shader:send("u_probe", probe)
+  shader:send("u_rect", rect)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_amp;      // largest shift, in uv units
+uniform float u_freq;     // waves per uv unit
+uniform float u_phase;    // waves travelled, 0 to 1
+uniform float u_mode;     // 0 sway, 1 both axes, 2 ripple
+uniform float u_stage;
+uniform float u_grid;     // 1.0 draws the undistorted grid on top
+uniform vec2 u_probe;     // centred uv of the probe
+
+const float TWO_PI = 6.2831853;
+const float CELLS = 6.0;  // checker cells per uv unit
+
+float wave(float x) {
+  return u_amp * sin(TWO_PI * (u_freq * x - u_phase));
+}
+
+vec2 offsetAt(vec2 uv) {
+  if (u_mode &gt; 1.5) {                                // ripple: push along the radius
+    float r = length(uv);
+    vec2 dir = r &gt; 0.0001 ? uv / r : vec2(0.0);      // no direction at the centre
+    return dir * wave(r);
+  }
+  if (u_mode &gt; 0.5) return vec2(wave(uv.y), wave(uv.x));   // both axes
+  return vec2(wave(uv.y), 0.0);                      // sway: rows slide sideways
+}
+
+float checker(vec2 q, float aa) {
+  vec2 c = abs(fract(q * CELLS * 0.5 + 0.25) - 0.5) * 2.0 - 0.5;  // signed, cell units
+  float d = min(abs(c.x), abs(c.y)) / CELLS;        // to the nearest cell edge, uv units
+  return smoothstep(-aa, aa, sign(c.x * c.y) * d);
+}
+
+vec3 shade(vec2 uv, float aa) {
+<span class="k">  vec2 off = offsetAt(uv);
+  vec2 q = uv + off;                                 // read the pattern from here instead</span>
+  float mask = checker(q, aa);
+  float d = length(q) - 0.2;                         // a disc, drawn with q too
+  vec3 col = mix(vec3(0.16, 0.2, 0.3), vec3(0.84, 0.86, 0.9), mask);
+  col = mix(col, vec3(0.1, 0.08, 0.06), 1.0 - smoothstep(-aa, aa, d - 0.012));
+  col = mix(col, vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(-aa, aa, d));
+
+  if (u_stage &lt; 3.5) col = vec3(mask);
+  if (u_stage &lt; 2.5) col = vec3(fract(q * 4.0), 0.0);
+  if (u_stage &lt; 1.5) col = vec3(0.5 + 0.5 * off / max(abs(u_amp), 0.0001), 0.5);
+  if (u_stage &lt; 0.5) col = vec3(uv + 0.5, 0.0);
+
+  if (u_grid &gt; 0.5) {
+    vec2 g = abs(fract(uv * CELLS + 0.5) - 0.5) / CELLS;   // to the nearest straight line
+    float gd = min(g.x, g.y);
+    col = mix(col, vec3(0.2, 0.85, 1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, gd));
+  }
+
+  vec2 a = u_probe;                                  // the probe pixel
+  vec2 ba = offsetAt(u_probe);                       // from it to where it reads
+  float bb = dot(ba, ba);
+  float h = bb &gt; 0.0 ? clamp(dot(uv - a, ba) / bb, 0.0, 1.0) : 0.0;
+  float seg = length(uv - a - ba * h);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, seg));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, seg));
+  float pd = length(uv - a) - 0.012;
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));
+  float rd = abs(length(uv - a - ba) - 0.016);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, rd));
+  col = mix(col, vec3(1.0, 0.85, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, rd));
+  return col;
+}
+
+void main() {
+  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left
+  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up
+  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units
+  gl_FragColor = vec4(shade(uv, aa), 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Sways a sprite's own texture, the "Sway" wave from the demo.
+// Put this in a ShaderMaterial on a Sprite2D.
+shader_type canvas_item;
+
+uniform float amplitude = 0.03;   // largest shift, in UV units (fraction of the sprite)
+uniform float frequency = 3.0;    // waves per UV unit
+uniform float speed = 0.5;        // waves per second
+
+void fragment() {
+    float phase = speed * TIME;   // fine while speed stays constant
+<span class="k">    float shift = amplitude * sin(6.2831853 * (frequency * UV.y - phase));
+    COLOR = texture(TEXTURE, UV + vec2(shift, 0.0));</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Sways the texture on a Quad, the "Sway" wave from the demo.
+Shader "GameDevDaily/WaveSway"
+{
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+        _Amplitude ("Amplitude (uv units)", Float) = 0.03
+        _Frequency ("Frequency (waves per uv unit)", Float) = 3
+        _Speed ("Speed (waves per second)", Float) = 0.5
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_ST;
+            float _Amplitude, _Frequency, _Speed;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float phase = _Speed * _Time.y;   // _Time.y is seconds since load
+<span class="k">                float shift = _Amplitude * sin(6.2831853 * (_Frequency * i.uv.y - phase));
+                return tex2D(_MainTex, i.uv + float2(shift, 0.0));</span>
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The engine versions bend a texture instead of a pattern made from maths, which is what you will do most often. In LÖVE that is <code>Texel(tex, texture_coords + off)</code>.</p>
+  <p>Which way is up matters. WebGL's <code>gl_FragCoord</code> and a Unity Quad's <code>uv</code> start at the bottom-left with y up, so a wave of <code>y - phase</code> travels upwards. Godot's <code>canvas_item</code> <code>UV</code> and LÖVE's <code>screen_coords</code> start at the top-left with y down, so the same formula travels <em>downwards</em> unless you flip y, as the Lua version does. In URP Shader Graph, build the same thing from a <em>Time</em>, a <em>Sine</em> and an <em>Add</em> into the UV input of <em>Sample Texture 2D</em>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reading past the edge.</strong> Near the border of a sprite, <code>UV + offset</code> lands outside 0 to 1, and depending on the wrap mode you see the opposite edge or a smeared stripe. Leave a transparent margin at least as wide as the amplitude.</li>
+    <li><strong>Amplitude in the wrong units.</strong> In a sprite shader, UV units are fractions of the sprite, so the same amplitude wobbles a small sprite less.</li>
+    <li><strong>Folding.</strong> In the both-axes and ripple waves, past 2π × frequency × amplitude = 1, two neighbouring pixels read from points that have crossed over, and the image mirrors itself. The demo's readout shows that number.</li>
+    <li><strong>Phase from raw time.</strong> <code>speed * time</code> jumps when the speed changes and loses precision after a long session. Accumulate and wrap the phase on the CPU.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The wave itself is cheap: one <code>sin</code> and a few multiply-adds per pixel, fine on any phone. Sampling a texture at a UV the fragment shader computed is a <dfn>dependent texture read</dfn>: the GPU cannot fetch the texel ahead of time. Apple's older OpenGL ES guidance for iOS warned that this was slower on the GPUs of that time; on recent hardware the difference is usually small. Distorting the whole screen also means drawing the scene to a texture first, a full-screen pass covered in the post-processing track.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Wave distortion of UVs is a standard building block: heat shimmer, underwater wobble, swaying flags and grass on flat quads, magic portals. Many games use scrolling noise as the offset instead of a sine wave, which hides the regular pattern.</p>
+  <p>In Godot, a <code>hint_screen_texture</code> sampler reads what has already been drawn, and offsetting its UV distorts the scene behind an object, such as the air behind a heat haze sprite. Unity's Shader Graph has ready-made distortion nodes such as <em>Twirl</em>, <em>Spherize</em> and <em>Radial Shear</em>.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE example and turn the sway into heat haze over a campfire:</p>
+  <ol>
+    <li>Make the shimmer strongest at the bottom and gone at the top: multiply the sway by <code>1.0 - smoothstep(-0.5, 0.5, uv.y)</code> inside <code>offsetAt</code>. (Do not swap the edges of <code>smoothstep</code> instead; GLSL leaves the result undefined when the first edge is not below the second.)</li>
+    <li>Add a second, faster wave with a different frequency, for example 7 waves per unit at a third of the amplitude, so the motion stops looking regular.</li>
+  </ol>
+  <p>You are done when the bottom rows of the checker wobble, the top rows stay straight, and the motion no longer repeats in an obvious rhythm.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader cannot move pixels; it bends a picture by reading the pattern from <code>q = uv + offset</code>.</li>
+    <li>A sine of the other coordinate makes the offset: amplitude sets how far, frequency how many waves, phase where they are.</li>
+    <li>The picture moves the opposite way to the offset.</li>
+    <li>Keep 2π × frequency × amplitude below 1 to avoid folds, and accumulate the phase on the CPU.</li>
+    <li>The wave is cheap; a dependent texture read can cost more on old phones.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson opens up texture sampling: how a sampler turns a UV into a texel, using a small texture generated in code.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Shaping functions" and "2D Matrices".</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8 "Built-in Functions" (sin, fract, smoothstep, sign).</li>
+    <li>Godot Engine documentation, <cite>Screen-reading shaders</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity documentation, Shader Graph <cite>Twirl Node</cite> and <cite>Spherize Node</cite>; <cite>Built-in shader variables</cite> (<code>_Time</code>).</li>
+    <li>Apple, <cite>OpenGL ES Programming Guide for iOS</cite>, section on avoiding dependent texture reads (older guidance, since replaced by Metal documentation).</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_amp;      // largest shift, in uv units",
+    "uniform float u_freq;     // waves per uv unit",
+    "uniform float u_phase;    // waves travelled, 0 to 1",
+    "uniform float u_mode;     // 0 sway, 1 both axes, 2 ripple",
+    "uniform float u_stage;",
+    "uniform float u_grid;     // 1.0 draws the undistorted grid on top",
+    "uniform vec2 u_probe;     // centred uv of the probe",
+    "",
+    "const float TWO_PI = 6.2831853;",
+    "const float CELLS = 6.0;  // checker cells per uv unit",
+    "",
+    "float wave(float x) {",
+    "  return u_amp * sin(TWO_PI * (u_freq * x - u_phase));",
+    "}",
+    "",
+    "vec2 offsetAt(vec2 uv) {",
+    "  if (u_mode > 1.5) {                                // ripple: push along the radius",
+    "    float r = length(uv);",
+    "    vec2 dir = r > 0.0001 ? uv / r : vec2(0.0);      // no direction at the centre",
+    "    return dir * wave(r);",
+    "  }",
+    "  if (u_mode > 0.5) return vec2(wave(uv.y), wave(uv.x));   // both axes",
+    "  return vec2(wave(uv.y), 0.0);                      // sway: rows slide sideways",
+    "}",
+    "",
+    "float checker(vec2 q, float aa) {",
+    "  vec2 c = abs(fract(q * CELLS * 0.5 + 0.25) - 0.5) * 2.0 - 0.5;  // signed, cell units",
+    "  float d = min(abs(c.x), abs(c.y)) / CELLS;        // to the nearest cell edge, uv units",
+    "  return smoothstep(-aa, aa, sign(c.x * c.y) * d);",
+    "}",
+    "",
+    "vec3 shade(vec2 uv, float aa) {",
+    "  vec2 off = offsetAt(uv);",
+    "  vec2 q = uv + off;                                 // read the pattern from here instead",
+    "  float mask = checker(q, aa);",
+    "  float d = length(q) - 0.2;                         // a disc, drawn with q too",
+    "  vec3 col = mix(vec3(0.16, 0.2, 0.3), vec3(0.84, 0.86, 0.9), mask);",
+    "  col = mix(col, vec3(0.1, 0.08, 0.06), 1.0 - smoothstep(-aa, aa, d - 0.012));",
+    "  col = mix(col, vec3(1.0, 0.62, 0.2), 1.0 - smoothstep(-aa, aa, d));",
+    "",
+    "  if (u_stage < 3.5) col = vec3(mask);",
+    "  if (u_stage < 2.5) col = vec3(fract(q * 4.0), 0.0);",
+    "  if (u_stage < 1.5) col = vec3(0.5 + 0.5 * off / max(abs(u_amp), 0.0001), 0.5);",
+    "  if (u_stage < 0.5) col = vec3(uv + 0.5, 0.0);",
+    "",
+    "  if (u_grid > 0.5) {",
+    "    vec2 g = abs(fract(uv * CELLS + 0.5) - 0.5) / CELLS;   // to the nearest straight line",
+    "    float gd = min(g.x, g.y);",
+    "    col = mix(col, vec3(0.2, 0.85, 1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, gd));",
+    "  }",
+    "",
+    "  vec2 a = u_probe;                                  // the probe pixel",
+    "  vec2 ba = offsetAt(u_probe);                       // from it to where it reads",
+    "  float bb = dot(ba, ba);",
+    "  float h = bb > 0.0 ? clamp(dot(uv - a, ba) / bb, 0.0, 1.0) : 0.0;",
+    "  float seg = length(uv - a - ba * h);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, seg));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, seg));",
+    "  float pd = length(uv - a) - 0.012;",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(aa, 2.5 * aa, pd));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, pd));",
+    "  float rd = abs(length(uv - a - ba) - 0.016);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(1.5 * aa, 3.0 * aa, rd));",
+    "  col = mix(col, vec3(1.0, 0.85, 0.2), 1.0 - smoothstep(0.5 * aa, 1.5 * aa, rd));",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = gl_FragCoord.xy;                             // pixels, origin bottom-left",
+    "  vec2 uv = (px - 0.5 * u_resolution) / u_resolution.y;  // centred, y up",
+    "  float aa = 1.0 / u_resolution.y;                       // one pixel, in uv units",
+    "  gl_FragColor = vec4(shade(uv, aa), 1.0);",
+    "}"
+  ].join('\n');
+
+  var TWO_PI = Math.PI * 2;
+  var MODES = { sway: 0, both: 1, ripple: 2 };
+  var phase = 0;
+  var probe = [0.3, 0.15];
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="uv-distortion"]');
+  var amp = ui.slider({ label: 'Amplitude', min: 0, max: 0.1, step: 0.002, value: 0.03, unit: ' uv', onInput: redraw });
+  var freq = ui.slider({ label: 'Frequency', min: 0.5, max: 10, step: 0.5, value: 3, unit: ' waves per uv unit', onInput: redraw });
+  var speed = ui.slider({ label: 'Speed', min: -2, max: 2, step: 0.1, value: 0.5, unit: ' waves/s', onInput: redraw });
+  var mode = ui.select({
+    label: 'Wave',
+    options: [
+      { value: 'sway', label: 'Sway: rows slide sideways' },
+      { value: 'both', label: 'Both axes: rows and columns' },
+      { value: 'ripple', label: 'Ripple: rings from the centre' }
+    ],
+    value: 'sway',
+    onChange: redraw
+  });
+  var grid = ui.toggle({ label: 'Show the undistorted grid', value: false, onChange: redraw });
+  ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Centred uv as red and green' },
+      { value: '1', label: '2. The offset (grey is none)' },
+      { value: '2', label: '3. Bent uv q, tiled with fract' },
+      { value: '3', label: '4. Checker mask drawn with q' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: function (v) { if (handle) { handle.set('u_stage', Number(v)); } redraw(); }
+  });
+  var readout = ui.readout({ label: 'Probe' });
+
+  // The same offset as offsetAt() in the shader.
+  function wave(x) { return amp.value * Math.sin(TWO_PI * (freq.value * x - phase)); }
+  function offsetAt(x, y) {
+    var m = MODES[mode.value];
+    if (m === 2) {
+      var r = Math.sqrt(x * x + y * y);
+      if (r <= 0.0001) return [0, 0];
+      var w = wave(r);
+      return [x / r * w, y / r * w];
+    }
+    if (m === 1) return [wave(y), wave(x)];
+    return [wave(y), 0];
+  }
+
+  function updateReadout() {
+    var o = offsetAt(probe[0], probe[1]);
+    var fold = TWO_PI * freq.value * amp.value;
+    var note = MODES[mode.value] === 0 ? 'sway never folds' : (fold > 1 ? 'folds' : 'no folds');
+    readout.set('pixel (' + probe[0].toFixed(2) + ', ' + probe[1].toFixed(2) + ') + offset (' +
+      o[0].toFixed(3) + ', ' + o[1].toFixed(3) + ') reads from (' + (probe[0] + o[0]).toFixed(2) + ', ' +
+      (probe[1] + o[1]).toFixed(2) + '); fold number 2π·freq·amp = ' + fold.toFixed(2) + ' (' + note + ')');
+  }
+
+  function placeProbe(p, s) {
+    if (!p.down || s.height <= 0) return;
+    var halfW = 0.5 * s.width / s.height;
+    probe[0] = DemoKit.clamp((p.x - 0.5 * s.width) / s.height, -halfW, halfW);
+    probe[1] = DemoKit.clamp((0.5 * s.height - p.y) / s.height, -0.5, 0.5);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#uv-distortion', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 380,
+    drag: true,
+    label: 'A live fragment shader showing a checkerboard and an orange disc bent by a moving sine wave. A white dot marks a probe pixel and a yellow ring marks where that pixel reads the pattern from. Drag on the picture to move the probe, or use the controls below.',
+    uniforms: {
+      u_amp: function () { return amp.value; },
+      u_freq: function () { return freq.value; },
+      u_phase: function () { return phase; },
+      u_mode: function () { return MODES[mode.value]; },
+      u_stage: 4,
+      u_grid: function () { return grid.value ? 1 : 0; },
+      u_probe: function () { return probe; }
+    },
+    onDown: placeProbe,
+    onMove: placeProbe,
+    update: function (dt) {
+      // Accumulate and wrap the phase, as in the Lua, so changing the speed never jumps.
+      phase = phase + speed.value * dt;
+      phase = phase - Math.floor(phase);
+      updateReadout();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

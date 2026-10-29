@@ -23,7 +23,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Scrolling UVs** — How adding an offset to the UV moves a pattern across a surface for conveyors, clouds and waterfalls. Demo: direction and speed sliders scroll two pattern layers at different rates. (published 2026-10-26, scrolling-uvs)
 - [x] **Rotating and scaling UV space** — How transforming the coordinates instead of the shape rotates and zooms a pattern. Demo: angle, zoom and pivot sliders transform a grid pattern. (published 2026-10-27, rotating-scaling-uv-space)
 - [x] **Polar coordinates in shaders** — How converting UV to angle and radius makes radial bars, spirals and sunbursts. Demo: sliders for segments, twist and fill amount shape a radial cooldown indicator. (published 2026-10-28, polar-coordinates-shaders)
-- [ ] **UV distortion** — How offsetting coordinates with a wave bends whatever is drawn. Demo: sliders for amplitude, frequency and speed ripple a checker pattern.
+- [x] **UV distortion** — How offsetting coordinates with a wave bends whatever is drawn. Demo: sliders for amplitude, frequency and speed ripple a checker pattern. (published 2026-10-29, uv-distortion-waves)
 - [ ] **Texture sampling** — How a sampler returns a texel for a UV, shown with a texture generated in code. Demo: move a probe across a small generated texture to see the sampled texel, with sliders for UV scale and offset.
 - [ ] **Wrap modes** — How repeat, clamp and mirror decide what happens outside the 0 to 1 range. Demo: switch wrap mode while a slider scales the UV beyond the edges of the texture.
 - [ ] **Texture filtering** — How nearest and linear filtering differ when a texture is magnified. Demo: an A/B view zooms into a tiny generated texture with both filters.
