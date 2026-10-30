@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texture sampling: from a UV to a texel · Game Dev Daily</title>
+<meta name="description" content="A sampler turns a UV into a colour: wrap it, multiply by the texture size, floor to find the texel, read it. Scale and offset pick the texels.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-30">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Texture sampling: from a UV to a texel</h1>
+  <p class="lede">A sampler turns a UV into a colour: wrap it, multiply by the texture size, floor to find the texel, read it. Scale and offset pick the texels.</p>
+</header>
+
+<section data-section="hook">
+  <p>You set a crate material's Tiling to 2 and the planks repeat twice. You raise Offset and the planks slide the <em>other</em> way. Both come from one call nearly every shader makes: "give me the texture's colour at this UV". This lesson opens that call up.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A texture is a grid of colours you look up by UV</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far ours made that colour from maths. Most real shaders read it from a texture.</p>
+  <p>A <dfn>texture</dfn> is an image stored on the GPU: a grid of colours. Each cell is a <dfn>texel</dfn> (texture element), a separate word so it is not mixed up with the screen's pixels. A <dfn>sampler</dfn> is the shader's handle to a texture together with the rules for reading it. You give the sampler a UV and it gives back a colour:</p>
+<pre><code>vec4 c = texture2D(u_tex, uv);   // GLSL ES 1.0, as in WebGL 1</code></pre>
+  <p>The same call is <code>texture()</code> in newer GLSL and in Godot, <code>Texel()</code> in LÖVE and <code>tex2D()</code> in Unity's Built-in pipeline.</p>
+  <p>The UV is in <dfn>texture space</dfn>: (0, 0) is one corner of the image and (1, 1) the opposite corner, whatever the image's size. An 8 by 8 texture and a 1024 by 1024 texture both run from 0 to 1. That is why you can swap in a bigger texture without touching the shader.</p>
+
+  <h3>The four steps of a sample</h3>
+  <p>For a texture <code>W</code> texels wide and <code>H</code> high, with the simplest settings (repeat wrapping and nearest filtering), the sampler does this:</p>
+  <ol>
+    <li><strong>Wrap.</strong> Bring the UV into 0 to 1. Repeat wrapping keeps only the part after the point: <code>fract(uv)</code>, so 1.3 becomes 0.3.</li>
+    <li><strong>Scale to texels.</strong> Multiply by the size: <code>uv * vec2(W, H)</code>. In a 4 texel wide texture, u = 0.6 becomes 2.4, which means "40 percent of the way through texel 2".</li>
+    <li><strong>Pick.</strong> <code>floor</code> drops the fraction and leaves the texel index, here 2.</li>
+    <li><strong>Read.</strong> Return that texel's colour.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="On the left, a 4 by 4 texture drawn as a grid with u from 0 to 1 along the bottom and v from 0 to 1 up the left side. A dot at uv 0.6, 0.3 sits inside the highlighted texel in column 2, row 1. On the right, five boxes in a column: uv equals 0.6, 0.3; wrap with fract gives 0.6, 0.3; times 4 gives 2.4, 1.2; floor gives texel 2, 1; read its colour.">
+      <g text-anchor="middle">
+        <text class="d-muted" x="65" y="22">0</text>
+        <text class="d-muted" x="115" y="22">1</text>
+        <text class="d-muted" x="165" y="22">2</text>
+        <text class="d-muted" x="215" y="22">3</text>
+        <text class="d-muted" x="262" y="22">i, j</text>
+        <text class="d-muted" x="256" y="209">0</text>
+        <text class="d-muted" x="256" y="159">1</text>
+        <text class="d-muted" x="256" y="109">2</text>
+        <text class="d-muted" x="256" y="59">3</text>
+      </g>
+      <rect class="d-box" x="40" y="30" width="200" height="200"/>
+      <rect class="d-accent-soft" x="140" y="130" width="50" height="50"/>
+      <path class="d-stroke d-thin" d="M90 30 V230 M140 30 V230 M190 30 V230 M40 80 H240 M40 130 H240 M40 180 H240"/>
+      <circle class="d-accent-fill" cx="160" cy="170" r="5"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="40" y="250">0</text>
+        <text class="d-muted" x="240" y="250">1</text>
+        <text class="d-text" x="140" y="252">u →</text>
+        <text class="d-muted" x="26" y="234">0</text>
+        <text class="d-muted" x="26" y="40">1</text>
+        <text class="d-text" x="20" y="136">v ↑</text>
+      </g>
+
+      <g>
+        <rect class="d-box" x="300" y="30" width="320" height="36" rx="6"/>
+        <rect class="d-box" x="300" y="86" width="320" height="36" rx="6"/>
+        <rect class="d-box" x="300" y="142" width="320" height="36" rx="6"/>
+        <rect class="d-box" x="300" y="198" width="320" height="36" rx="6"/>
+        <rect class="d-accent-soft" x="300" y="254" width="320" height="30" rx="6"/>
+      </g>
+      <path class="d-accent" d="M460 66 V84 M460 122 V140 M460 178 V196 M460 234 V252"/>
+      <g>
+        <text class="d-mono" x="314" y="53">uv = (0.6, 0.3)</text>
+        <text class="d-mono" x="314" y="109">1. wrap: fract → (0.6, 0.3)</text>
+        <text class="d-mono" x="314" y="165">2. × 4 texels → (2.4, 1.2)</text>
+        <text class="d-mono" x="314" y="221">3. floor → texel (2, 1)</text>
+        <text class="d-mono" x="314" y="274">4. read that texel's colour</text>
+      </g>
+    </svg>
+    <figcaption>A 4 by 4 texture in texture space, with v pointing up as in WebGL. The UV (0.6, 0.3) lands 40 percent of the way through texel 2 across and 20 percent of the way through texel 1 up, so nearest filtering returns texel (2, 1).</figcaption>
+  </figure>
+
+  <p>Texel <code>i</code> covers u from <code>i / W</code> to <code>(i + 1) / W</code>, with its centre at <code>(i + 0.5) / W</code>. To read one particular texel, aim at its centre: at the edge, rounding can tip you into the neighbour.</p>
+  <p>The demo below has no texture file, so its shader does the four steps itself, and a function <code>texel(i, j)</code> computes each texel of an 8 by 8 slime sprite with maths. A real sampler does the same steps in hardware. With linear filtering it also blends neighbouring texels; that is a later lesson.</p>
+
+  <h3>Scale and offset pick which texels</h3>
+  <p>A surface, such as a quad or a sprite, has its own UV that runs from 0 to 1 across it. Before sampling, a shader can transform it:</p>
+<pre><code>vec2 uv = surfaceUv * u_scale + u_offset;</code></pre>
+  <ul>
+    <li><strong>Scale 2.</strong> The UV now runs from 0 to 2 across the surface, so the texture fits twice, each copy half as big. A bigger scale means a <em>smaller</em> picture.</li>
+    <li><strong>Offset 0.25.</strong> Every pixel reads a quarter of a texture further along, so the picture slides a quarter of a copy the <em>opposite</em> way.</li>
+  </ul>
+  <p>This is exactly Unity's Tiling and Offset fields on a material, and the UV1 Scale and Offset of Godot's StandardMaterial3D.</p>
+
+  <h3>Which corner is (0, 0)</h3>
+  <ul>
+    <li><strong>WebGL and OpenGL:</strong> v = 0 is the first row of texel data in memory. Image files store the top row first, so unless you flip the image on upload (WebGL's <code>UNPACK_FLIP_Y_WEBGL</code>), the picture's top row sits at v = 0 and looks upside down when v points up.</li>
+    <li><strong>Unity:</strong> UV (0, 0) is the bottom-left of the texture as it appears in the editor, with v up.</li>
+    <li><strong>Godot and LÖVE:</strong> (0, 0) is the top-left, with v down.</li>
+  </ul>
+  <p>The demo uses v up, like Unity, and marks texel (0, 0) in red so you can always see where the origin is.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>A sample is wrap, multiply by the size, floor, read. When a texture looks shifted by one texel or flipped, write those four steps out by hand for one pixel.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is the texture itself, UV 0 to 1. The right panel is a surface that samples it. Drag on the right panel, or use the Probe sliders, to move the white ring: that is one pixel. The yellow square on the left is the texel it reads.</p>
+  <p>Set <em>Scale</em> to 2 and the slime appears four times. Set <em>Offset u</em> to 0.25 and it slides left. Then walk the <em>Stage</em> menu from 1 to 5 to watch the UV become a texel index and then a colour.</p>
+
+  <figure class="demo" data-demo="texture-sampling">
+    <canvas id="texture-sampling"></canvas>
+    <figcaption>Stages 1 to 4 show values as red and green. In stage 3 every texel has its own 0 to 1 ramp; in stage 4 floor has removed it. White grid lines mark where the texture repeats.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE you can build the 8 by 8 texture for real, with the same <code>texel</code> rule as the demo, and let the GPU's sampler do the four steps. The pixel shader uses LÖVE's entry point <code>effect</code> instead of <code>main</code>. Click the right panel to place the probe; <kbd>-</kbd> and <kbd>=</kbd> change the scale, the arrow keys change the offset.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SIZE = 8                 <span class="c">-- the texture is 8 by 8 texels</span>
+local PANEL = 256              <span class="c">-- each panel is 256 by 256 pixels</span>
+local T = PANEL / SIZE         <span class="c">-- one texel is 32 pixels on screen</span>
+local scale = 1                <span class="c">-- copies of the texture across the surface</span>
+local offset = { 0, 0 }        <span class="c">-- in texture widths</span>
+local probe = { 0.3, 0.35 }    <span class="c">-- the demo's (0.3, 0.65), with v pointing down</span>
+local image, shader
+
+local pixelcode = [[
+uniform float u_scale;
+uniform vec2 u_offset;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = texture_coords * u_scale + u_offset;  // surface uv to texture uv
+  return Texel(tex, uv) * color;                  // wrap, scale, floor, read
+}
+]]
+
+<span class="c">-- The texture's colour rule: texel (i, j), i to the right, j up, both 0 to 7.</span>
+local function isTexel(i, j, ti, tj)
+  return i == ti and j == tj
+end
+
+local function texel(i, j)
+  if isTexel(i, j, 0, 0) then return 0.9, 0.2, 0.2 end            <span class="c">-- origin marker</span>
+  if isTexel(i, j, 2, 5) or isTexel(i, j, 5, 5) or isTexel(i, j, 2, 3)
+    or isTexel(i, j, 5, 3) or isTexel(i, j, 3, 2) or isTexel(i, j, 4, 2) then
+    return 0.08, 0.1, 0.08                                      <span class="c">-- eyes and smile</span>
+  end
+  if isTexel(i, j, 3, 6) then return 0.7, 0.95, 0.6 end           <span class="c">-- highlight</span>
+  local dx, dy = i + 0.5 - 4, j + 0.5 - 4
+  if math.sqrt(dx * dx + dy * dy) &lt; 3.3 then return 0.35, 0.75, 0.35 end
+  if (i + j) % 2 == 0 then return 0.12, 0.14, 0.24 end
+  return 0.2, 0.23, 0.36
+end
+
+<span class="c">-- The same four steps the sampler does, on the CPU, for the readout.</span>
+local function probeTexel()
+<span class="k">  local u = probe[1] * scale + offset[1]
+  local v = probe[2] * scale + offset[2]
+  u = u - math.floor(u)                          -- 1. wrap (repeat)
+  v = v - math.floor(v)
+  local i = math.min(math.floor(u * SIZE), SIZE - 1)   -- 2 and 3. scale, floor
+  local row = math.min(math.floor(v * SIZE), SIZE - 1)</span>
+  return i, SIZE - 1 - row                       <span class="c">-- rows count down in LÖVE; j counts up</span>
+end
+
+function love.load()
+  local data = love.image.newImageData(SIZE, SIZE)
+  for j = 0, SIZE - 1 do
+    for i = 0, SIZE - 1 do
+      local r, g, b = texel(i, j)
+      data:setPixel(i, SIZE - 1 - j, r, g, b, 1)   <span class="c">-- image rows go down</span>
+    end
+  end
+  image = love.graphics.newImage(data)
+  image:setFilter("nearest", "nearest")   <span class="c">-- no blending between texels</span>
+  image:setWrap("repeat", "repeat")       <span class="c">-- uv outside 0 to 1 repeats</span>
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "=" then scale = math.min(4, scale + 0.25) end
+  if key == "-" then scale = math.max(0.25, scale - 0.25) end
+  if key == "right" then offset[1] = offset[1] + 0.05 end
+  if key == "left" then offset[1] = offset[1] - 0.05 end
+  if key == "down" then offset[2] = offset[2] + 0.05 end
+  if key == "up" then offset[2] = offset[2] - 0.05 end
+end
+
+function love.mousepressed(x, y)
+  local u, v = (x - 300) / PANEL, (y - 20) / PANEL
+  if u &gt;= 0 and u &lt;= 1 and v &gt;= 0 and v &lt;= 1 then
+    probe[1], probe[2] = u, v
+  end
+end
+
+function love.draw()
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.draw(image, 20, 20, 0, T)        <span class="c">-- left: the texture as it is</span>
+  shader:send("u_scale", scale)
+  shader:send("u_offset", offset)
+  love.graphics.setShader(shader)
+  love.graphics.draw(image, 300, 20, 0, T)       <span class="c">-- right: the sampled surface</span>
+  love.graphics.setShader()
+
+  local i, j = probeTexel()
+  love.graphics.circle("line", 300 + probe[1] * PANEL, 20 + probe[2] * PANEL, 6)
+  love.graphics.setColor(1, 0.85, 0.2)
+  love.graphics.rectangle("line", 20 + i * T, 20 + (SIZE - 1 - j) * T, T, T)
+  love.graphics.print("probe reads texel (" .. i .. ", " .. j .. ")", 20, 290)
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_scale;    // uv scale: copies of the texture across the surface
+uniform vec2 u_offset;    // uv offset, in texture widths
+uniform vec2 u_probe;     // surface uv of the probe, 0 to 1, y up
+uniform float u_stage;    // 0 surface uv ... 4 final colour
+uniform float u_grid;     // 1.0 draws texel edges and tile edges
+
+const float SIZE = 8.0;   // the texture is 8 by 8 texels
+
+float isTexel(vec2 ij, vec2 t) {
+  return 1.0 - step(0.5, length(ij - t));
+}
+
+// The texture, made with maths: the colour of texel (i, j), i to the right, j up.
+vec3 texel(vec2 ij) {
+  vec3 col = mix(vec3(0.12, 0.14, 0.24), vec3(0.2, 0.23, 0.36), mod(ij.x + ij.y, 2.0));
+  float body = 1.0 - step(3.3, length(ij + 0.5 - vec2(4.0)));
+  col = mix(col, vec3(0.35, 0.75, 0.35), body);
+  col = mix(col, vec3(0.7, 0.95, 0.6), isTexel(ij, vec2(3.0, 6.0)));
+  float face = isTexel(ij, vec2(2.0, 5.0)) + isTexel(ij, vec2(5.0, 5.0))
+             + isTexel(ij, vec2(2.0, 3.0)) + isTexel(ij, vec2(5.0, 3.0))
+             + isTexel(ij, vec2(3.0, 2.0)) + isTexel(ij, vec2(4.0, 2.0));
+  col = mix(col, vec3(0.08, 0.1, 0.08), face);
+  col = mix(col, vec3(0.9, 0.2, 0.2), isTexel(ij, vec2(0.0)));
+  return col;
+}
+
+// What texture2D does with repeat wrapping and nearest filtering.
+vec2 texelIndex(vec2 uv) {
+  vec2 wrapped = fract(uv);                         // repeat: keep the part after the point
+  return min(floor(wrapped * SIZE), SIZE - 1.0);    // which texel, 0 to 7
+}
+
+vec3 sampleTexture(vec2 uv) {
+  return texel(texelIndex(uv));
+}
+
+float boxEdge(vec2 p, vec2 lo, vec2 hi) {           // distance to the outline of a box
+  vec2 q = abs(p - 0.5 * (lo + hi)) - 0.5 * (hi - lo);
+  return abs(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));
+}
+
+vec3 drawLine(vec3 col, float d, float lw, vec3 ink) {  // d and lw in pixels
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));
+  return mix(col, ink, 1.0 - smoothstep(0.3 * lw, lw, d));
+}
+
+float gridShade(vec2 p, float texelPx, float lw) {   // 1.0 on a texel edge
+  vec2 f = fract(p);
+  vec2 e = min(f, 1.0 - f) * texelPx;                // to the nearest edge, pixels
+  return 1.0 - smoothstep(0.0, lw, min(e.x, e.y));
+}
+
+void main() {
+  vec2 res = u_resolution;
+  float m = 0.06 * res.y;                                       // margin, pixels
+  float S = min(res.y - 2.0 * m, 0.5 * (res.x - 3.0 * m));      // panel size, pixels
+  vec2 a0 = vec2(0.5 * (res.x - 2.0 * S - m), 0.5 * (res.y - S)); // texture panel
+  vec2 b0 = a0 + vec2(S + m, 0.0);                              // surface panel
+  float lw = max(1.0, res.y / 300.0);                           // line width, pixels
+  vec2 px = gl_FragCoord.xy;                                    // origin bottom-left, y up
+  vec3 col = vec3(0.1, 0.11, 0.13);
+  vec3 yellow = vec3(1.0, 0.85, 0.2);
+
+  vec2 probeUv = u_probe * u_scale + u_offset;   // the uv the probe pixel asks for
+  vec2 pij = texelIndex(probeUv);                // the texel it gets
+  vec2 puv = fract(probeUv);                     // where that is in the texture
+
+  // Left panel: the texture itself, uv 0 to 1 on both axes.
+  vec2 t = (px - a0) / S;
+  if (t.x &gt;= 0.0 &amp;&amp; t.x &lt;= 1.0 &amp;&amp; t.y &gt;= 0.0 &amp;&amp; t.y &lt;= 1.0) {
+    col = texel(min(floor(t * SIZE), SIZE - 1.0));
+    if (u_grid &gt; 0.5) col = mix(col, vec3(0.0), 0.5 * gridShade(t * SIZE, S / SIZE, lw));
+    col = drawLine(col, boxEdge(t, pij / SIZE, (pij + 1.0) / SIZE) * S, lw, yellow);
+    col = drawLine(col, abs(length(t - puv) * S - 3.0 * lw), lw, yellow);
+  }
+
+  // Right panel: the surface. Every pixel samples the texture at its own uv.
+  vec2 s = (px - b0) / S;
+  if (s.x &gt;= 0.0 &amp;&amp; s.x &lt;= 1.0 &amp;&amp; s.y &gt;= 0.0 &amp;&amp; s.y &lt;= 1.0) {
+    vec2 uv = s * u_scale + u_offset;
+    vec2 ij = texelIndex(uv);
+    vec3 c = sampleTexture(uv);
+    if (u_stage &lt; 3.5) c = vec3(ij / (SIZE - 1.0), 0.0);
+    if (u_stage &lt; 2.5) c = vec3(fract(fract(uv) * SIZE), 0.0);
+    if (u_stage &lt; 1.5) c = vec3(fract(uv), 0.0);
+    if (u_stage &lt; 0.5) c = vec3(s, 0.0);
+    col = c;
+    if (u_grid &gt; 0.5) {
+      col = mix(col, vec3(0.0), 0.5 * gridShade(uv * SIZE, S / (SIZE * u_scale), lw));
+      col = mix(col, vec3(1.0), gridShade(uv, S / u_scale, 0.7 * lw));   // tile edges
+    }
+    col = drawLine(col, abs(length(s - u_probe) * S - 3.0 * lw), lw, vec3(1.0));
+  }
+
+  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, a0, a0 + S)));
+  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, b0, b0 + S)));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a Sprite2D. In the Inspector, set
+// CanvasItem &gt; Texture &gt; Filter to Nearest and Repeat to Enabled.
+shader_type canvas_item;
+
+uniform float uv_scale = 1.0;         // copies of the texture across the sprite
+uniform vec2 uv_offset = vec2(0.0);   // in texture widths
+
+void fragment() {
+<span class="k">    vec2 uv = UV * uv_scale + uv_offset;   // UV (0, 0) is the top-left in Godot
+    COLOR = texture(TEXTURE, uv);</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. On the texture's import settings,
+// set Filter Mode to Point and Wrap Mode to Repeat.
+Shader "GameDevDaily/SampleScaleOffset"
+{
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_ST;   // the material's Tiling in xy and Offset in zw
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+<span class="k">                o.uv = v.texcoord.xy * _MainTex_ST.xy + _MainTex_ST.zw;   // what TRANSFORM_TEX does</span>
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+<span class="k">                return tex2D(_MainTex, i.uv);   // UV (0, 0) is the bottom-left in Unity</span>
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Unity version scales the UV in the vertex shader, which gives the same result as per pixel because the GPU interpolates UVs in straight lines. In URP the read is <code>SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv)</code>; in Shader Graph, a <em>Tiling And Offset</em> node feeds the UV input of <em>Sample Texture 2D</em>.</p>
+  <p>Because Godot and LÖVE put v = 0 at the top, a positive v offset there makes the picture move <em>up</em>, while in the demo and in Unity it moves down.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The edge at exactly 1.0.</strong> u = 1.0 times 8 is 8.0, and there is no texel 8. The wrap mode decides what happens: repeat reads texel 0, which shows up as a thin line of the opposite edge along a sprite's border. The next lesson is about exactly this.</li>
+    <li><strong>Aiming at texel edges.</strong> To read one texel on purpose, for example from a lookup strip, use <code>(i + 0.5) / W</code>. <code>i / W</code> sits on the boundary, and a tiny rounding error picks the neighbour.</li>
+    <li><strong>Upside-down textures.</strong> A WebGL texture uploaded without the flip, or UV maths copied from Godot into Unity, flips the image. Test with an asymmetric image like the demo's.</li>
+    <li><strong>Colour space.</strong> Colour textures are usually stored in sRGB. In Unity's Linear colour space, and in Godot 3D shaders for a sampler with the <code>source_color</code> hint, the colour is converted from sRGB to linear as it is read. Data textures, such as normal maps or noise, must not be converted: untick sRGB (Color Texture) in Unity and leave out <code>source_color</code> in Godot.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The sampler's maths runs in dedicated hardware, so the cost is mostly memory. GPUs keep recently read texels in a small <dfn>texture cache</dfn>, so when neighbouring pixels read neighbouring texels, as at scale 1, reads are cheap. On phones memory bandwidth is usually the tightest budget: smaller textures and compressed formats such as ETC2 or ASTC help. A very large scale makes neighbouring pixels read texels far apart, which defeats the cache and makes the picture shimmer; mipmaps, later in this track, fix both.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every textured surface in a game is sampled this way. Scale and offset have their own fields in engine materials: Unity's Tiling and Offset are passed to the shader as <code>_MainTex_ST</code> and applied with the <code>TRANSFORM_TEX</code> macro, and Godot's StandardMaterial3D has UV1 Scale and UV1 Offset.</p>
+  <p>Sprite sheet animation is the same idea: with four frames in a row, a scale of 0.25 across shows one frame and an offset of <code>frame * 0.25</code> picks it. Godot's Sprite2D exposes this as <em>Hframes</em> and <em>Frame</em>; Unity particles have a Texture Sheet Animation module.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE example into a sprite sheet player.</p>
+  <ol>
+    <li>Make the image 32 by 8: four 8 by 8 frames side by side. Fill frame <code>f</code> with <code>texel</code>, but move the eyes one texel left or right depending on <code>f</code>.</li>
+    <li>Change <code>u_scale</code> to a <code>vec2</code> and send <code>{ 0.25, 1 }</code>.</li>
+    <li>In <code>love.update(dt)</code>, step a frame number every 0.15 seconds and send <code>u_offset = { frame * 0.25, 0 }</code>.</li>
+  </ol>
+  <p>You are done when the slime glances left and right, and no column of the neighbouring frame ever shows at the edge. If one does, check your offsets against the four steps.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A texture is a grid of texels, addressed by a UV from 0 to 1 whatever its size.</li>
+    <li>With nearest filtering a sample is: wrap, multiply by the size, floor, read.</li>
+    <li>Texel <code>i</code> spans <code>i / W</code> to <code>(i + 1) / W</code>; aim at <code>(i + 0.5) / W</code> to hit it.</li>
+    <li><code>uv * scale + offset</code> is Tiling and Offset: bigger scale, smaller picture; positive offset, picture moves back.</li>
+    <li>WebGL, Unity, Godot and LÖVE do not agree on where (0, 0) is. Test with an asymmetric image.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson looks at wrap modes: repeat, clamp and mirror, and what each one does with a UV outside 0 to 1.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, section 8.7 "Texture Lookup Functions" (texture2D).</li>
+    <li>The Khronos Group, <cite>OpenGL ES 2.0 specification</cite>, the chapter on texturing (texture coordinates, wrap modes, nearest filtering).</li>
+    <li>MDN Web Docs, <cite>WebGLRenderingContext: pixelStorei() method</cite> (<code>UNPACK_FLIP_Y_WEBGL</code>).</li>
+    <li>Godot Engine documentation, <cite>CanvasItem shaders</cite> and <cite>Shading language</cite> (sampler hints such as <code>source_color</code>).</li>
+    <li>Unity documentation, <cite>Built-in shader helper functions</cite> and <cite>Texture Import Settings</cite>; Shader Graph <cite>Tiling And Offset Node</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Image:setWrap</cite>, <cite>Image:setFilter</cite> and <cite>ImageData:setPixel</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_scale;    // uv scale: copies of the texture across the surface",
+    "uniform vec2 u_offset;    // uv offset, in texture widths",
+    "uniform vec2 u_probe;     // surface uv of the probe, 0 to 1, y up",
+    "uniform float u_stage;    // 0 surface uv ... 4 final colour",
+    "uniform float u_grid;     // 1.0 draws texel edges and tile edges",
+    "",
+    "const float SIZE = 8.0;   // the texture is 8 by 8 texels",
+    "",
+    "float isTexel(vec2 ij, vec2 t) {",
+    "  return 1.0 - step(0.5, length(ij - t));",
+    "}",
+    "",
+    "// The texture, made with maths: the colour of texel (i, j), i to the right, j up.",
+    "vec3 texel(vec2 ij) {",
+    "  vec3 col = mix(vec3(0.12, 0.14, 0.24), vec3(0.2, 0.23, 0.36), mod(ij.x + ij.y, 2.0));",
+    "  float body = 1.0 - step(3.3, length(ij + 0.5 - vec2(4.0)));",
+    "  col = mix(col, vec3(0.35, 0.75, 0.35), body);",
+    "  col = mix(col, vec3(0.7, 0.95, 0.6), isTexel(ij, vec2(3.0, 6.0)));",
+    "  float face = isTexel(ij, vec2(2.0, 5.0)) + isTexel(ij, vec2(5.0, 5.0))",
+    "             + isTexel(ij, vec2(2.0, 3.0)) + isTexel(ij, vec2(5.0, 3.0))",
+    "             + isTexel(ij, vec2(3.0, 2.0)) + isTexel(ij, vec2(4.0, 2.0));",
+    "  col = mix(col, vec3(0.08, 0.1, 0.08), face);",
+    "  col = mix(col, vec3(0.9, 0.2, 0.2), isTexel(ij, vec2(0.0)));",
+    "  return col;",
+    "}",
+    "",
+    "// What texture2D does with repeat wrapping and nearest filtering.",
+    "vec2 texelIndex(vec2 uv) {",
+    "  vec2 wrapped = fract(uv);                         // repeat: keep the part after the point",
+    "  return min(floor(wrapped * SIZE), SIZE - 1.0);    // which texel, 0 to 7",
+    "}",
+    "",
+    "vec3 sampleTexture(vec2 uv) {",
+    "  return texel(texelIndex(uv));",
+    "}",
+    "",
+    "float boxEdge(vec2 p, vec2 lo, vec2 hi) {           // distance to the outline of a box",
+    "  vec2 q = abs(p - 0.5 * (lo + hi)) - 0.5 * (hi - lo);",
+    "  return abs(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));",
+    "}",
+    "",
+    "vec3 drawLine(vec3 col, float d, float lw, vec3 ink) {  // d and lw in pixels",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));",
+    "  return mix(col, ink, 1.0 - smoothstep(0.3 * lw, lw, d));",
+    "}",
+    "",
+    "float gridShade(vec2 p, float texelPx, float lw) {   // 1.0 on a texel edge",
+    "  vec2 f = fract(p);",
+    "  vec2 e = min(f, 1.0 - f) * texelPx;                // to the nearest edge, pixels",
+    "  return 1.0 - smoothstep(0.0, lw, min(e.x, e.y));",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 res = u_resolution;",
+    "  float m = 0.06 * res.y;                                       // margin, pixels",
+    "  float S = min(res.y - 2.0 * m, 0.5 * (res.x - 3.0 * m));      // panel size, pixels",
+    "  vec2 a0 = vec2(0.5 * (res.x - 2.0 * S - m), 0.5 * (res.y - S)); // texture panel",
+    "  vec2 b0 = a0 + vec2(S + m, 0.0);                              // surface panel",
+    "  float lw = max(1.0, res.y / 300.0);                           // line width, pixels",
+    "  vec2 px = gl_FragCoord.xy;                                    // origin bottom-left, y up",
+    "  vec3 col = vec3(0.1, 0.11, 0.13);",
+    "  vec3 yellow = vec3(1.0, 0.85, 0.2);",
+    "",
+    "  vec2 probeUv = u_probe * u_scale + u_offset;   // the uv the probe pixel asks for",
+    "  vec2 pij = texelIndex(probeUv);                // the texel it gets",
+    "  vec2 puv = fract(probeUv);                     // where that is in the texture",
+    "",
+    "  // Left panel: the texture itself, uv 0 to 1 on both axes.",
+    "  vec2 t = (px - a0) / S;",
+    "  if (t.x >= 0.0 && t.x <= 1.0 && t.y >= 0.0 && t.y <= 1.0) {",
+    "    col = texel(min(floor(t * SIZE), SIZE - 1.0));",
+    "    if (u_grid > 0.5) col = mix(col, vec3(0.0), 0.5 * gridShade(t * SIZE, S / SIZE, lw));",
+    "    col = drawLine(col, boxEdge(t, pij / SIZE, (pij + 1.0) / SIZE) * S, lw, yellow);",
+    "    col = drawLine(col, abs(length(t - puv) * S - 3.0 * lw), lw, yellow);",
+    "  }",
+    "",
+    "  // Right panel: the surface. Every pixel samples the texture at its own uv.",
+    "  vec2 s = (px - b0) / S;",
+    "  if (s.x >= 0.0 && s.x <= 1.0 && s.y >= 0.0 && s.y <= 1.0) {",
+    "    vec2 uv = s * u_scale + u_offset;",
+    "    vec2 ij = texelIndex(uv);",
+    "    vec3 c = sampleTexture(uv);",
+    "    if (u_stage < 3.5) c = vec3(ij / (SIZE - 1.0), 0.0);",
+    "    if (u_stage < 2.5) c = vec3(fract(fract(uv) * SIZE), 0.0);",
+    "    if (u_stage < 1.5) c = vec3(fract(uv), 0.0);",
+    "    if (u_stage < 0.5) c = vec3(s, 0.0);",
+    "    col = c;",
+    "    if (u_grid > 0.5) {",
+    "      col = mix(col, vec3(0.0), 0.5 * gridShade(uv * SIZE, S / (SIZE * u_scale), lw));",
+    "      col = mix(col, vec3(1.0), gridShade(uv, S / u_scale, 0.7 * lw));   // tile edges",
+    "    }",
+    "    col = drawLine(col, abs(length(s - u_probe) * S - 3.0 * lw), lw, vec3(1.0));",
+    "  }",
+    "",
+    "  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, a0, a0 + S)));",
+    "  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, b0, b0 + S)));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join('\n');
+
+  var SIZE = 8;
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="texture-sampling"]');
+  var scale = ui.slider({ label: 'Scale', min: 0.25, max: 4, step: 0.25, value: 1, unit: ' copies', onInput: redraw });
+  var offU = ui.slider({ label: 'Offset u', min: -1, max: 1, step: 0.05, value: 0, onInput: redraw });
+  var offV = ui.slider({ label: 'Offset v', min: -1, max: 1, step: 0.05, value: 0, onInput: redraw });
+  var probeU = ui.slider({ label: 'Probe u', min: 0, max: 1, step: 0.01, value: 0.3, onInput: redraw });
+  var probeV = ui.slider({ label: 'Probe v', min: 0, max: 1, step: 0.01, value: 0.65, onInput: redraw });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Surface uv as red and green' },
+      { value: '1', label: '2. uv × scale + offset, wrapped' },
+      { value: '2', label: '3. × 8: position inside each texel' },
+      { value: '3', label: '4. floor: the texel index' },
+      { value: '4', label: '5. Final: the texel colour' }
+    ],
+    value: '4',
+    onChange: redraw
+  });
+  var grid = ui.toggle({ label: 'Show texel grid and tile edges', value: true, onChange: redraw });
+  var readout = ui.readout({ label: 'Probe' });
+
+  // The same colour rule as texel() in the shader, for the readout.
+  var FACE = [[2, 5], [5, 5], [2, 3], [5, 3], [3, 2], [4, 2]];
+  function texelName(i, j) {
+    if (i === 0 && j === 0) return 'red origin marker';
+    for (var k = 0; k < FACE.length; k++) {
+      if (FACE[k][0] === i && FACE[k][1] === j) return 'dark face';
+    }
+    if (i === 3 && j === 6) return 'light highlight';
+    var dx = i + 0.5 - 4, dy = j + 0.5 - 4;
+    if (Math.sqrt(dx * dx + dy * dy) < 3.3) return 'green body';
+    return 'background';
+  }
+
+  function fmt(x, y, d) { return '(' + x.toFixed(d) + ', ' + y.toFixed(d) + ')'; }
+
+  function updateReadout() {
+    var u = probeU.value * scale.value + offU.value;
+    var v = probeV.value * scale.value + offV.value;
+    var wu = u - Math.floor(u), wv = v - Math.floor(v);
+    var i = Math.min(Math.floor(wu * SIZE), SIZE - 1);
+    var j = Math.min(Math.floor(wv * SIZE), SIZE - 1);
+    readout.set('surface ' + fmt(probeU.value, probeV.value, 2) + ' → uv ' + fmt(u, v, 2) +
+      ' → wrapped ' + fmt(wu, wv, 2) + ' → × 8 = ' + fmt(wu * SIZE, wv * SIZE, 2) +
+      ' → texel (' + i + ', ' + j + '): ' + texelName(i, j));
+  }
+
+  // The same layout as main() in the shader, in CSS pixels with y down.
+  function surfaceUv(p, s) {
+    var W = s.width, H = s.height;
+    var m = 0.06 * H;
+    var S = Math.min(H - 2 * m, 0.5 * (W - 3 * m));
+    if (S <= 0) return null;
+    var bx = 0.5 * (W - 2 * S - m) + S + m;
+    var top = 0.5 * (H - S);
+    return [(p.x - bx) / S, 1 - (p.y - top) / S];
+  }
+
+  var dragging = false;
+  function moveProbe(p, s) {
+    var uv = surfaceUv(p, s);
+    if (!uv) return;
+    probeU.set(Math.round(DemoKit.clamp(uv[0], 0, 1) * 100) / 100);
+    probeV.set(Math.round(DemoKit.clamp(uv[1], 0, 1) * 100) / 100);
+    updateReadout();
+  }
+
+  handle = DemoKit.shader('#texture-sampling', {
+    fragment: fragment,
+    aspect: 2,
+    minHeight: 220,
+    maxHeight: 360,
+    animate: false,
+    drag: true,
+    label: 'A live fragment shader with two panels. The left panel shows an 8 by 8 texture of a green slime, with a yellow square on the texel the probe reads. The right panel is a surface that samples the texture with the chosen scale and offset, with a white ring marking the probe pixel. Drag on the right panel or use the sliders below.',
+    uniforms: {
+      u_scale: function () { return scale.value; },
+      u_offset: function () { return [offU.value, offV.value]; },
+      u_probe: function () { return [probeU.value, probeV.value]; },
+      u_stage: function () { return Number(stage.value); },
+      u_grid: function () { return grid.value ? 1 : 0; }
+    },
+    onDown: function (p, s) {
+      var uv = surfaceUv(p, s);
+      dragging = !!uv && uv[0] >= -0.05 && uv[0] <= 1.05 && uv[1] >= -0.05 && uv[1] <= 1.05;
+      if (dragging) moveProbe(p, s);
+    },
+    onMove: function (p, s) { if (dragging && p.down) moveProbe(p, s); },
+    onUp: function () { dragging = false; }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

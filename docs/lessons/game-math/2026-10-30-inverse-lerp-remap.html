@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inverse lerp and remap: how wide is the health bar? · Game Dev Daily</title>
+<meta name="description" content="How inverse lerp turns a value such as health into a fraction t, and how remap carries that fraction into a new range such as a bar width or a colour.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-30">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  article { --rm-in: #2f5fe8; --rm-out: #b35f00; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) article { --rm-in: #7397ff; --rm-out: #ffa31a; }
+  }
+  html[data-theme="dark"] article { --rm-in: #7397ff; --rm-out: #ffa31a; }
+  .v-in { color: var(--rm-in); font-weight: 650; }
+  .v-out { color: var(--rm-out); font-weight: 650; }
+  .v-t { color: var(--topic); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Inverse lerp and remap: how wide is the health bar?</h1>
+  <p class="lede">How inverse lerp turns a value such as health into a fraction t, and how remap carries that fraction into a new range such as a bar width or a colour.</p>
+</header>
+
+<section data-section="hook">
+  <p>The hero has 30 health out of 120, and the health bar on screen is 200 pixels wide when full. How many pixels should be filled? And the bar should turn from green to red as health drops, so what colour is 30 health?</p>
+  <p>Yesterday's lerp answered "I know t, where am I?". Today we ask the opposite question, "I know where I am, what is t?", and then use the answer to jump from one range to another.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Lerp, run backwards</h2>
+  <p>Recall <code>lerp(a, b, t) = a + (b - a) * t</code>. You give it a start <span class="v-in">a</span>, an end <span class="v-in">b</span> and a fraction <span class="v-t">t</span>, and it gives you a value.</p>
+  <p><dfn>Inverse lerp</dfn> does the reverse. You give it the start <span class="v-in">a</span>, the end <span class="v-in">b</span> and a value <span class="v-in">v</span> somewhere in that range, and it tells you the fraction <span class="v-t">t</span>: how far along from a to b the value sits. Its answer is 0 when v equals a, 1 when v equals b, and 0.5 halfway.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Three number lines. The top line is health from 0 to 120 with a marker at 30. An arrow labelled inverse lerp leads to the middle line, the fraction t from 0 to 1, with a marker at 0.25. An arrow labelled lerp leads to the bottom line, bar width from 0 to 200 pixels, with a marker at 50. Dashed guides show that the ends of each range line up with the ends of the next.">
+      <text class="d-text" x="20" y="74">health v</text>
+      <text class="d-text" x="20" y="164">fraction t</text>
+      <text class="d-text" x="20" y="254">bar width</text>
+
+      <text class="d-label" x="20" y="110">inverse lerp</text>
+      <text class="d-mono" x="20" y="128">(30 − 0) / (120 − 0)</text>
+      <text class="d-mono" x="20" y="144">= 0.25</text>
+      <text class="d-label" x="20" y="200">lerp</text>
+      <text class="d-mono" x="20" y="218">0 + (200 − 0) × 0.25</text>
+      <text class="d-mono" x="20" y="234">= 50</text>
+
+      <path class="d-dash" d="M260 70 L260 160 M500 70 L620 160 M260 160 L260 250 M620 160 L620 250"/>
+
+      <path d="M260 70 H500" style="stroke: var(--rm-in); stroke-width: 3; fill: none"/>
+      <path class="d-accent" d="M260 160 H620"/>
+      <path d="M260 250 H620" style="stroke: var(--rm-out); stroke-width: 3; fill: none"/>
+
+      <path class="d-thin" d="M320 70 L350 160 L350 250"/>
+      <circle cx="320" cy="70" r="6" style="fill: var(--rm-in)"/>
+      <circle cx="350" cy="160" r="6" class="d-accent-fill"/>
+      <circle cx="350" cy="250" r="6" style="fill: var(--rm-out)"/>
+
+      <g text-anchor="middle">
+        <text class="d-mono" x="260" y="56">0</text>
+        <text class="d-mono" x="500" y="56">120</text>
+        <text class="d-mono" style="fill: var(--rm-in); font-weight: 650" x="320" y="94">30</text>
+        <text class="d-mono" x="260" y="184">0</text>
+        <text class="d-mono" x="620" y="184">1</text>
+        <text class="d-mono" style="fill: var(--topic); font-weight: 650" x="350" y="184">0.25</text>
+        <text class="d-mono" x="260" y="274">0</text>
+        <text class="d-mono" x="620" y="274">200</text>
+        <text class="d-mono" style="fill: var(--rm-out); font-weight: 650" x="350" y="274">50</text>
+      </g>
+    </svg>
+    <figcaption>Remap in two steps. Inverse lerp squeezes any range down to the standard range 0 to 1, and lerp stretches 0 to 1 out to the new range. The value keeps its place: a quarter of the way along every line.</figcaption>
+  </figure>
+
+  <h3>The formula</h3>
+  <p>Ask two distances. How far is v past the start? That is v − a. How long is the whole range? That is b − a. The fraction is one divided by the other:</p>
+<pre><code>inverseLerp(a, b, v) = (v - a) / (b - a)</code></pre>
+  <p>Worked example, the hero with <span class="v-in">v = 30</span> health in the range <span class="v-in">a = 0</span> to <span class="v-in">b = 120</span>:</p>
+  <ol>
+    <li>Distance past the start: 30 − 0 = 30.</li>
+    <li>Length of the range: 120 − 0 = 120.</li>
+    <li>The fraction: 30 / 120 = <span class="v-t">0.25</span>.</li>
+  </ol>
+  <p>Check the ends. With v = 0 the top is 0, so t = 0. With v = 120 the top equals the bottom, so t = 1. When a is 0 this is just v / b, the familiar health divided by max health.</p>
+
+  <h3>Remap: inverse lerp, then lerp</h3>
+  <p>To <dfn>remap</dfn> a value is to move it from one range to another while keeping its place. Inverse lerp finds the place as a fraction; lerp puts that fraction into the new range, from <span class="v-out">c</span> to <span class="v-out">d</span>:</p>
+<pre><code>remap(v, a, b, c, d) = lerp(c, d, inverseLerp(a, b, v))</code></pre>
+  <p>The health bar: t = 0.25 from above, and the bar goes from <span class="v-out">c = 0</span> to <span class="v-out">d = 200</span> pixels. lerp(0, 200, 0.25) = 0 + 200 × 0.25 = <span class="v-out">50 pixels</span>. The colour is a second lerp with the same t, from red at t = 0 to green at t = 1, so one t feeds as many outputs as you like.</p>
+  <p>A range that does not start at zero: a sound should play at full volume up to 20 metres away and be silent from 60 metres. At 30 metres, t = (30 − 20) / (60 − 20) = 10 / 40 = 0.25. The volume goes from 1 down to 0, so c = 1 and d = 0: lerp(1, 0, 0.25) = 1 + (0 − 1) × 0.25 = 0.75. Nothing special is needed for a range that runs downwards; the minus sign in d − c takes care of it.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Outside the range, and a range of zero length</p>
+    <p>Overheal the hero to 150 and t = 150 / 120 = 1.25, so the bar is 250 pixels and spills out of its frame. At −12 health, t = −0.1 and the width is −20 pixels. If you want the output to stay inside c to d, <dfn>clamp</dfn> t to 0 to 1 between the two steps. And if a equals b, then b − a is 0 and the division has no answer, so check for it before dividing.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the <span class="v-in">blue health marker</span> along the top line, or use the Health slider. Watch it pass through the <span class="v-t">t line</span> in the middle and land on the <span class="v-out">orange bar width</span> line, while the health bar at the bottom changes width and colour. You can also drag the ends <span class="v-in">a</span> and <span class="v-in">b</span> of the input range, or set them with their sliders. With the canvas focused, the left and right arrow keys move health by 5.</p>
+  <p>Then push health above b or below a and switch <strong>Clamp t to 0 to 1</strong> on and off. Try making b smaller than a, and try making them equal.</p>
+  <figure class="demo" data-demo="remap">
+    <canvas id="remap"></canvas>
+    <figcaption>All three number lines grow to the right; there is no y axis in this demo. The bottom line and the bar are drawn to fit the canvas, but the numbers are for the 200 pixel bar in the code. Readouts show the real values even when a marker runs off the end of its line.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A health bar in LÖVE with the same numbers as the demo: range 0 to 120, a 200 pixel bar, red to green. Press the left and right arrow keys to change health by 10. <code>inverseLerp</code> holds the line that matters.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Screen coordinates: x grows right, y grows down, as in LÖVE.</span>
+local BAR_X, BAR_Y = 20, 20
+local BAR_WIDTH, BAR_HEIGHT = 200, 16
+local RED, GREEN = { 0.85, 0.2, 0.15 }, { 0.2, 0.75, 0.25 }
+
+local function lerp(a, b, t)
+  return a + (b - a) * t
+end
+
+<span class="c">-- Where does v sit between a and b? 0 at a, 1 at b.</span>
+local function inverseLerp(a, b, v)
+  if a == b then return 0 end              <span class="c">-- no range: avoid dividing by 0</span>
+<span class="k">  return (v - a) / (b - a)</span>
+end
+
+local function clamp01(t)
+  return math.max(0, math.min(1, t))
+end
+
+<span class="c">-- Move v from the range a..b to the range c..d.</span>
+local function remap(v, a, b, c, d)
+  return lerp(c, d, inverseLerp(a, b, v))
+end
+
+local health, maxHealth = 30, 120
+
+<span class="c">-- Check: prints 0.25, then 50, then 0.75</span>
+print(inverseLerp(0, maxHealth, 30))
+print(remap(30, 0, maxHealth, 0, BAR_WIDTH))
+print(remap(30, 20, 60, 1, 0))           <span class="c">-- volume at 30 m</span>
+
+function love.keypressed(key)
+  if key == "left" then health = health - 10 end
+  if key == "right" then health = health + 10 end
+end
+
+function love.draw()
+  local t = clamp01(inverseLerp(0, maxHealth, health))
+  local width = lerp(0, BAR_WIDTH, t)
+  love.graphics.setColor(lerp(RED[1], GREEN[1], t), lerp(RED[2], GREEN[2], t), lerp(RED[3], GREEN[3], t))
+  love.graphics.rectangle("fill", BAR_X, BAR_Y, width, BAR_HEIGHT)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.rectangle("line", BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT)
+  love.graphics.print(string.format("HP %d / %d", health, maxHealth), BAR_X, BAR_Y + 24)
+end</code></pre>
+  </div>
+  <p>Built-in versions: Godot has <code>inverse_lerp(from, to, weight)</code> and <code>remap(value, istart, istop, ostart, ostop)</code>, which do not clamp. Unity has <code>Mathf.InverseLerp</code>, which clamps its result to 0 to 1; combine it with <code>Mathf.Lerp</code> for a clamped remap.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A range of zero length.</strong> If a equals b, <code>(v - a) / (b - a)</code> divides by zero. In Lua that gives infinity, or "not a number" when v also equals a, and that value then poisons every lerp after it: the bar disappears or fills the screen. Guard it, as <code>inverseLerp</code> above does by returning 0.</li>
+    <li><strong>Whole-number division.</strong> In Lua every number can hold a fraction, so 30 / 120 is 0.25. In C# and GDScript, dividing two whole numbers (ints) throws the fraction away: 30 / 120 is 0, and your bar is always empty until health is full. Convert one side to a float first.</li>
+    <li><strong>Forgetting to clamp.</strong> Overheal, negative health and anything else outside a to b give t outside 0 to 1, so the output leaves c to d. Clamp t when the output must stay in range, such as a bar width or a volume.</li>
+    <li><strong>Clamping the output with min and max.</strong> <code>math.max(c, math.min(d, x))</code> only works when c is less than d. For a range that runs downwards, like volume 1 to 0, it returns the wrong value. Clamping t instead works in both directions.</li>
+    <li><strong>Arguments in the wrong order.</strong> Is it <code>(v, a, b)</code> or <code>(a, b, v)</code>? Engines differ. Test once with the numbers from this page: the answer for 30 in 0 to 120 must be 0.25.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Any bar in a user interface is a remap: health, stamina, experience to the next level, a loading bar. So is a stick dead zone. An analogue stick rarely rests at exactly zero, so games ignore small tilts; remapping the tilt from the dead zone edge to 1 onto 0 to 1 removes the jump that a plain cut-off leaves. Fading sound or fog with distance uses the same shape as the volume example.</p>
+  <p>Shaders use it too. The GLSL specification defines <code>smoothstep(edge0, edge1, x)</code> as starting with <code>clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)</code>, which is a clamped inverse lerp, before bending the result into an S shape.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a dead zone to stick or mouse-drag input in your own project. Take the input's length, call it <code>m</code>, from 0 to 1. Set <code>DEAD = 0.2</code>, compute <code>t = clamp01(inverseLerp(DEAD, 1, m))</code>, and scale your movement speed by t instead of by m.</p>
+  <p>You are done when m = 0.1 gives t = 0, m = 0.6 gives t of about 0.5, and m = 1 gives t = 1, and a character no longer creeps along when you let go of the stick. For a bonus, also set DEAD to 1 and confirm that your guard stops the division by zero.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>inverseLerp(a, b, v) = (v - a) / (b - a)</code> tells you how far along from a to b the value v sits.</li>
+    <li><code>remap</code> is inverse lerp then lerp: find the fraction in the old range, then use it in the new one.</li>
+    <li>One t can drive many outputs at once, such as a width and a colour.</li>
+    <li>Clamp t, not the output, when the result must stay in range. This works for ranges that run downwards too.</li>
+    <li>Guard against a equal to b, and against whole-number division in C# and GDScript.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we bend t before using it: smoothstep turns the straight 0 to 1 ramp into an S-shaped curve that starts and stops gently.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>@GlobalScope</cite>: <cite>inverse_lerp</cite> and <cite>remap</cite>.</li>
+    <li>Unity Scripting API, <cite>Mathf.InverseLerp</cite> and <cite>Mathf.Lerp</cite>.</li>
+    <li>The Khronos Group, <cite>The OpenGL Shading Language</cite> specification, the built-in function <code>smoothstep</code>.</li>
+    <li>LÖVE wiki, <cite>love.keypressed</cite> and <cite>love.graphics.rectangle</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var BAR_WIDTH = 200;                     // pixels in the game's bar (output range c..d = 0..200)
+  var RED = [0.85, 0.2, 0.15], GREEN = [0.2, 0.75, 0.25];
+  var H_MIN = -50, H_MAX = 250;            // health scale drawn on the top line
+  var T_MIN = -0.5, T_MAX = 1.5;           // t scale on the middle line
+  var W_MIN = -100, W_MAX = 300;           // width scale on the bottom line (aligned with t)
+
+  var A0 = 0, B0 = 120, V0 = 30;
+  var a = A0, b = B0, v = V0;
+  var handle = null;
+  var dragging = null;
+  var outCache = {};
+  var X0 = 24, X1 = 300;
+
+  var LINE_H = 54, LINE_T = 146, LINE_W = 238, BAR_Y = 292;
+
+  function lerp(p, q, t) { return p + (q - p) * t; }
+  function inverseLerp(p, q, x) { return p === q ? 0 : (x - p) / (q - p); }
+  function clamp01(t) { return Math.max(0, Math.min(1, t)); }
+  function num(n) {
+    n = Math.round(n * 1000) / 1000;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function css(col) {
+    return 'rgb(' + Math.round(clamp01(col[0]) * 255) + ',' + Math.round(clamp01(col[1]) * 255) + ',' + Math.round(clamp01(col[2]) * 255) + ')';
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.getElementById('remap')).getPropertyValue(name).trim() || fallback;
+  }
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="remap"]');
+  var vSlider = ui.slider({ label: 'Health v', min: H_MIN, max: H_MAX, step: 1, value: v,
+    format: function (x) { return num(x); },
+    onInput: function (x) { v = x; redraw(); } });
+  var aSlider = ui.slider({ label: 'Range start a', min: 0, max: 100, step: 10, value: a,
+    onInput: function (x) { a = x; redraw(); } });
+  var bSlider = ui.slider({ label: 'Range end b', min: 0, max: 200, step: 10, value: b,
+    onInput: function (x) { b = x; redraw(); } });
+  var clampOn = ui.toggle({ label: 'Clamp t to 0 to 1', value: false, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    a = A0; b = B0; v = V0;
+    aSlider.set(a); bSlider.set(b); vSlider.set(v);
+    redraw();
+  } });
+  var outT = ui.readout({ label: 't = (v − a) / (b − a)' });
+  var outW = ui.readout({ label: 'Bar width = lerp(0, 200, t)' });
+  var outC = ui.readout({ label: 'Colour (r, g, b)' });
+
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+
+  function hx(h) { return X0 + (h - H_MIN) / (H_MAX - H_MIN) * (X1 - X0); }
+  function tx(t) { return X0 + (t - T_MIN) / (T_MAX - T_MIN) * (X1 - X0); }
+  function wx(w) { return X0 + (w - W_MIN) / (W_MAX - W_MIN) * (X1 - X0); }
+  function xToHealth(x) { return H_MIN + (x - X0) / (X1 - X0) * (H_MAX - H_MIN); }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function dot(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '600 12px ui-monospace, Menlo, Consolas, monospace';
+
+  function tag(ctx, text, x, y, color, bg, s) {
+    ctx.font = MONO;
+    var w = ctx.measureText(text).width;
+    var left = DemoKit.clamp(x - w / 2, 2, s.width - w - 4);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = bg;
+    ctx.fillRect(left - 3, y - 12, w + 6, 16);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, left, y);
+  }
+  function title(ctx, text, y, c) {
+    ctx.font = BOLD;
+    var w = ctx.measureText(text).width;
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(X0 - 3, y - 13, w + 6, 18);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, X0, y);
+  }
+
+  // Draws a number line with ticks, and the coloured segment for the range lo..hi.
+  function numberLine(ctx, c, y, toX, ticks, lo, hi, color) {
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    line(ctx, X0, y, X1, y);
+    ctx.font = SMALL;
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    ticks.forEach(function (k) {
+      line(ctx, toX(k), y - 4, toX(k), y + 4);
+      ctx.fillText(num(k), toX(k), y + 18);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    line(ctx, toX(lo), y, toX(hi), y);
+  }
+
+  // A marker that stays on its line; off-scale values get an arrow at the end instead.
+  function marker(ctx, x, y, color, r) {
+    ctx.fillStyle = color;
+    if (x < X0 - 0.5 || x > X1 + 0.5) {
+      var dir = x < X0 ? -1 : 1;
+      var ex = dir < 0 ? X0 : X1;
+      ctx.beginPath();
+      ctx.moveTo(ex + dir * 8, y);
+      ctx.lineTo(ex - dir * 4, y - 8);
+      ctx.lineTo(ex - dir * 4, y + 8);
+      ctx.closePath();
+      ctx.fill();
+      return ex;
+    }
+    dot(ctx, x, y, r);
+    return x;
+  }
+
+  function pick(p) {
+    if (Math.abs(p.y - LINE_H) > 26) return null;
+    var cands = [['v', hx(v)], ['a', hx(a)], ['b', hx(b)]];
+    var best = null, bestD = 22;
+    cands.forEach(function (cd) {
+      var d = Math.abs(p.x - cd[1]);
+      if (d < bestD) { best = cd[0]; bestD = d; }
+    });
+    return best;
+  }
+  function dragTo(which, p) {
+    var h = xToHealth(p.x);
+    if (which === 'v') {
+      v = Math.round(DemoKit.clamp(h, H_MIN, H_MAX));
+      vSlider.set(v);
+    } else if (which === 'a') {
+      a = DemoKit.clamp(Math.round(h / 10) * 10, 0, 100);
+      aSlider.set(a);
+    } else {
+      b = DemoKit.clamp(Math.round(h / 10) * 10, 0, 200);
+      bSlider.set(b);
+    }
+  }
+
+  handle = DemoKit.canvas('#remap', {
+    height: 340,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Three number lines. Top: health from minus 50 to 250 with a blue range from a to b and a draggable health marker. Middle: t from minus 0.5 to 1.5. Bottom: bar width from minus 100 to 300 pixels. Below them a health bar whose width and colour follow t. Left and right arrow keys change health by 5.',
+    onDown: function (p) {
+      dragging = pick(p);
+      if (dragging) { dragTo(dragging, p); redraw(); }
+    },
+    onMove: function (p) {
+      if (p.down && dragging) { dragTo(dragging, p); redraw(); }
+    },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') v = Math.max(H_MIN, v - 5);
+      else if (key === 'arrowright') v = Math.min(H_MAX, v + 5);
+      else return;
+      vSlider.set(v);
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var colIn = cssVar('--rm-in', '#2f5fe8');
+      var colOut = cssVar('--rm-out', '#b35f00');
+      X0 = 24;
+      X1 = s.width - 20;
+
+      var rawT = inverseLerp(a, b, v);
+      var t = clampOn.value ? clamp01(rawT) : rawT;
+      var width = lerp(0, BAR_WIDTH, t);
+      var col = [lerp(RED[0], GREEN[0], t), lerp(RED[1], GREEN[1], t), lerp(RED[2], GREEN[2], t)];
+
+      // Guides: the ends of each range line up with the ends of the next.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      line(ctx, hx(a), LINE_H, tx(0), LINE_T);
+      line(ctx, hx(b), LINE_H, tx(1), LINE_T);
+      line(ctx, tx(0), LINE_T, wx(0), LINE_W);
+      line(ctx, tx(1), LINE_T, wx(BAR_WIDTH), LINE_W);
+      ctx.setLineDash([]);
+
+      title(ctx, 'Health v, range a to b', 18, c);
+      title(ctx, 'Fraction t', LINE_T - 26, c);
+      title(ctx, 'Bar width in pixels', LINE_W - 26, c);
+
+      numberLine(ctx, c, LINE_H, hx, [-50, 0, 50, 100, 150, 200, 250], Math.min(a, b), Math.max(a, b), colIn);
+      numberLine(ctx, c, LINE_T, tx, [-0.5, 0, 0.5, 1, 1.5], 0, 1, c.topic);
+      numberLine(ctx, c, LINE_W, wx, [-100, 0, 100, 200, 300], 0, BAR_WIDTH, colOut);
+
+      // Range end handles a and b.
+      ctx.fillStyle = c.surface;
+      ctx.strokeStyle = colIn;
+      ctx.lineWidth = 2.5;
+      [a, b].forEach(function (h) {
+        ctx.fillRect(hx(h) - 4, LINE_H - 11, 8, 22);
+        ctx.strokeRect(hx(h) - 4, LINE_H - 11, 8, 22);
+      });
+      if (Math.abs(hx(a) - hx(b)) < 64) {
+        tag(ctx, 'a = ' + a + ', b = ' + b, (hx(a) + hx(b)) / 2, LINE_H - 18, colIn, c.surface, s);
+      } else {
+        tag(ctx, 'a = ' + a, hx(a), LINE_H - 18, colIn, c.surface, s);
+        tag(ctx, 'b = ' + b, hx(b), LINE_H - 18, colIn, c.surface, s);
+      }
+
+      // The path of the value through the three lines.
+      var mv = hx(v), mt = tx(t), mw = wx(width);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      line(ctx, mv, LINE_H, DemoKit.clamp(mt, X0, X1), LINE_T);
+      line(ctx, DemoKit.clamp(mt, X0, X1), LINE_T, DemoKit.clamp(mw, X0, X1), LINE_W);
+
+      // Raw t, when clamping moved it.
+      if (Math.abs(rawT - t) > 1e-9 && tx(rawT) >= X0 && tx(rawT) <= X1) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(tx(rawT), LINE_T, 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      var px = marker(ctx, mv, LINE_H, colIn, 8);
+      tag(ctx, 'v = ' + num(v), px, LINE_H + 36, colIn, c.surface, s);
+      px = marker(ctx, mt, LINE_T, c.topic, 7);
+      tag(ctx, 't = ' + num(t), px, LINE_T + 36, c.topic, c.surface, s);
+      px = marker(ctx, mw, LINE_W, colOut, 7);
+      tag(ctx, num(width) + ' px', px, LINE_W + 36, colOut, c.surface, s);
+
+      // The health bar itself, drawn on the same scale as the bottom line.
+      var bx = wx(0), bw = wx(BAR_WIDTH) - wx(0), bh = 18;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(bx, BAR_Y, bw, bh);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, BAR_Y - 2, s.width, bh + 4);
+      ctx.clip();
+      ctx.fillStyle = css(col);
+      var fx = Math.max(-10, Math.min(s.width + 10, wx(width)));
+      ctx.fillRect(Math.min(bx, fx), BAR_Y, Math.abs(fx - bx), bh);
+      ctx.restore();
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx, BAR_Y, bw, bh);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('HP ' + num(v) + ' / ' + b, Math.max(4, bx), BAR_Y + bh + 16);
+
+      // Readouts.
+      var tText;
+      if (a === b) {
+        tText = 'a = b: no range, guard gives t = 0';
+      } else {
+        tText = '(' + num(v) + ' − ' + num(a) + ') / (' + num(b) + ' − ' + num(a) + ') = ' + num(rawT);
+        if (Math.abs(rawT - t) > 1e-9) tText += ', clamped to ' + num(t);
+      }
+      setOut(outT, 't', tText);
+      var wText = num(width) + ' px';
+      if (width > BAR_WIDTH + 1e-9) wText += ' (past the end of the bar)';
+      if (width < -1e-9) wText += ' (negative)';
+      setOut(outW, 'w', wText);
+      var outside = col.some(function (ch) { return ch < 0 || ch > 1; });
+      setOut(outC, 'c', num(col[0]) + ', ' + num(col[1]) + ', ' + num(col[2]) + (outside ? ' (outside 0 to 1, drawn clamped)' : ''));
+    }
+  });
+})();
+</script>
+</body>
+</html>

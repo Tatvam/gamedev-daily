@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper Plane Wind Tunnel: tune the fold, then let go · Game Dev Daily</title>
+<meta name="description" content="A tinkering game where you tune a paper plane's wing, nose weight and throw to land on targets, with a playable prototype and the flight code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-30">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Paper Plane Wind Tunnel: tune the fold, then let go</h1>
+  <p class="lede">A tinkering game where you tune a paper plane's wing, nose weight and throw to land on targets, with a playable prototype and the flight code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>It is the last day of term, the school hall is empty, and you have a stack of paper and a box of paper clips. Your plane swoops up, kisses the ceiling and drops at your feet. One more clip on the nose and a gentler throw, and it glides the whole length of the hall straight into the chalk circle.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: fold, throw, compare</h2>
+  <p>Paper Plane Wind Tunnel is a tuning game. You never steer the plane in the air. Before each throw you set three things, then you let go and watch. The flight path stays on screen as a faint <dfn>ghost</dfn> (a copy of the last attempt), so every new throw is compared with the one before it.</p>
+  <p>Every ten seconds the player changes one setting and throws. Every minute they land a target and move to a further one. Every session they work through a new room with a new set of targets and a new limit on paper.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: fold by changing one setting, throw and watch the flight, then compare the new path with the ghost of the last one, which leads back to folding. Beside it, two longer loops: every minute a further target, and every session a new room.">
+      <defs>
+        <marker id="pp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Fold</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">change one setting</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Throw</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">hands off, watch</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Compare</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">new path vs ghost</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#pp-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#pp-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#pp-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a target landed,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">a further one next</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a new room and</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">a paper budget</text>
+    </svg>
+    <figcaption>The ghost is what makes this a loop rather than guessing: each throw answers "was that change better or worse?"</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Wing angle.</strong> How far the wings are bent up against the airflow, from 0 to 16 degrees. More angle means more <dfn>lift</dfn> (the push from the air at right angles to the flight) and more <dfn>drag</dfn> (the push against the flight). Past 12 degrees the wing <dfn>stalls</dfn>: the air stops flowing smoothly over it and most of the lift vanishes.</li>
+    <li><strong>Nose clips.</strong> Zero to three paper clips. Each clip tips the nose down by 2 degrees and makes the plane 25 percent heavier, so it needs more speed to fly.</li>
+    <li><strong>Throw strength.</strong> Launch speed from 3 to 12 metres per second, always from shoulder height and slightly upwards.</li>
+    <li><strong>The hall.</strong> 24 metres long with a ceiling at 3.5 metres. A plane that touches the ceiling loses half its speed.</li>
+    <li><strong>The goal.</strong> Land in four floor targets in order, at 4, 8, 12 and 16 metres. Each throw uses one sheet of paper. Your score is the number of sheets, and lower is better.</li>
+  </ul>
+
+  <p>The interesting part is that the three settings fight each other. A hard throw does not simply go further. With a lot of lift, extra speed turns into climb: the plane swoops up, slows, drops its nose and dives, a rise-and-fall pattern pilots call the <dfn>phugoid</dfn>. In a low hall that swoop ends at the ceiling. So "throw harder" is often the wrong answer, and "add a clip, then throw harder" is the right one.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A paper plane flying to the right and slightly up. The direction of travel is a dashed line. The plane's nose sits above that line by the angle of attack, labelled alpha, which equals wing angle minus 2 degrees per clip. Lift points up at right angles to the travel direction, drag points backwards along it, and weight points straight down.">
+      <defs>
+        <marker id="pp-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+        <marker id="pp-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <path class="d-thin d-dash" d="M120 140 L420 104"/>
+      <text class="d-muted" x="428" y="124">direction of travel</text>
+      <path class="d-stroke" d="M190 136 L320 104 L210 122 Z"/>
+      <path class="d-thin d-dash" d="M320 104 L420 83"/>
+      <text class="d-label" x="392" y="102">α</text>
+      <path class="d-accent" d="M255 121 L243 31" marker-end="url(#pp-a2)"/>
+      <text class="d-text" x="160" y="44">lift</text>
+      <path class="d-stroke" d="M215 128 L130 138" marker-end="url(#pp-a3)"/>
+      <text class="d-text" x="60" y="146">drag</text>
+      <path class="d-stroke" d="M255 128 V210" marker-end="url(#pp-a3)"/>
+      <text class="d-text" x="266" y="204">weight</text>
+      <text class="d-label" x="400" y="160">α = wing angle − 2° × clips</text>
+      <text class="d-muted" x="400" y="184">lift and drag grow with α</text>
+      <text class="d-muted" x="400" y="204">above 12°: stall</text>
+    </svg>
+    <figcaption>Wing angle and nose clips both set one number, the angle of attack α. Clips also add weight. Throw strength sets the speed, and lift and drag grow with the square of speed.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the schoolyard expert who knows exactly which fold flies furthest. The constraint is that you only touch the plane before it leaves your hand, and each setting changes more than one thing. That makes every throw a small experiment, and the ghost turns it into a fair test. The mood is quiet and playful: no timer, no enemies, just paper and a long empty room.</p>
+  <p>The hardest part to build is the flight model's tuning, not its code. The physics is a dozen lines. Making a range of settings where most changes give a readable result, with a few surprises (stalls, ceiling bumps) and no settings that are useless, took most of the time on this prototype. Plan for a spreadsheet or a script that flies every combination and prints where each one lands.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press Throw with the starting settings. The plane overshoots the 4 metre target. Before you throw again, change only one slider, then watch the new path against the dashed ghost. Later, try 12 degrees of wing with no clips and a strong throw, and see what the ceiling does to it.</p>
+
+  <figure class="demo" data-demo="paper-plane">
+    <canvas id="paper-plane"></canvas>
+    <figcaption>Controls: set the three sliders, then press Throw (or click the canvas and press <kbd>Space</kbd>). <kbd>R</kbd> or the Restart button starts over. Settings apply to the next throw, not the one in the air. The highlighted floor band is the target. Height is drawn about three times taller than it really is so the path is easy to read.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: turning the three settings into a plane, then moving it one fixed step at a time. Units are metres and seconds, with y pointing up. <code>Q</code> rolls air density and wing area into one tuning number.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, Q, STEP = 9.8, 0.6, 1 / 120
+local STALL, CD0, K = 12, 0.06, 0.12        <span class="c">-- stall angle, base drag, drag from lift</span>
+local NOSE, CLIP_MASS, CEILING = 2, 0.25, 3.5
+local LAUNCH = math.rad(10)                 <span class="c">-- thrown slightly upwards</span>
+
+local function liftCoef(alpha)              <span class="c">-- alpha in degrees</span>
+  if alpha &gt; STALL then return 0.5 end      <span class="c">-- stalled: most lift is gone</span>
+  return 0.1 * alpha
+end
+
+local function throw(wing, clips, power)
+<span class="k">  local alpha = wing - NOSE * clips</span>
+  local cl = liftCoef(alpha)
+  return { x = 0.3, y = 1.6, landed = false,
+           vx = power * math.cos(LAUNCH), vy = power * math.sin(LAUNCH),
+           mass = 1 + CLIP_MASS * clips, cl = cl, cd = CD0 + K * cl * cl }
+end
+
+local function stepPlane(p)
+  local speed = math.sqrt(p.vx * p.vx + p.vy * p.vy)
+  local k = Q * speed / p.mass              <span class="c">-- force grows with speed squared</span>
+<span class="k">  local ax = k * (-p.cd * p.vx - p.cl * p.vy)       -- drag back, lift sideways</span>
+<span class="k">  local ay = k * (-p.cd * p.vy + p.cl * p.vx) - G</span>
+  p.vx, p.vy = p.vx + ax * STEP, p.vy + ay * STEP
+  p.x, p.y = p.x + p.vx * STEP, p.y + p.vy * STEP
+  if p.y &gt; CEILING then                     <span class="c">-- bumped the ceiling</span>
+    p.y = CEILING
+    if p.vy &gt; 0 then p.vy = 0 end
+    p.vx = p.vx * 0.5
+  end
+  if p.y &lt;= 0 then p.y, p.landed = 0, true end
+end
+
+local plane = throw(6, 1, 6)                <span class="c">-- the demo's starting settings</span>
+local acc = 0
+function love.update(dt)
+  acc = math.min(acc + dt, 0.1)
+  while acc &gt;= STEP do
+    if not plane.landed then stepPlane(plane) end
+    acc = acc - STEP
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the mechanic. Lift is the velocity turned a quarter turn, so it always acts across the flight path, never along it. Because <code>alpha</code> stays fixed during a flight, a fast plane gets so much lift that it climbs until it slows down, which is where the swoop comes from. The demo also bounces the plane off the back wall and stops it at the far wall, which this snippet leaves out. With the starting settings it lands at about 7.2 metres.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Settings that feel like a combination lock.</strong> If only one exact combination hits a target, players stop reasoning and start trying every value. In this prototype the 16 metre target can be hit by about 20 slider combinations out of roughly 1,300. That is tight on purpose for the last target; the first three accept well over a hundred each. Test: write a script that throws every combination and counts the hits per target before you ever playtest.</li>
+    <li><strong>Chaos near the ceiling.</strong> Flights that scrape the ceiling land in places that are hard to predict from the settings. Some players enjoy that; others feel cheated when a ceiling bump scores a hit. Watch whether testers try to use the ceiling on purpose. If nobody does, raise it or make a bump always end the flight.</li>
+    <li><strong>Changing two things at once.</strong> Players who move every slider between throws learn nothing from the ghost. Count how many sliders a tester changes per throw. If it is usually more than one, consider letting the player change only one setting per sheet.</li>
+    <li><strong>Hidden numbers.</strong> Angle of attack is never shown, so a stall can feel random. The prototype prints "Stalled" during the flight. If testers still cannot explain a sudden drop, show a small side view of the plane's nose angle before each throw.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Setting values and then watching a result you cannot touch is old territory. Artillery games such as <cite>Scorched Earth</cite> ask for an angle and a power, then let you correct your next shot from where the last one landed. Golf games work the same way with club and swing. <cite>Kerbal Space Program</cite> takes the build-then-launch idea much further, with whole craft designed before each flight.</p>
+  <p>Paper Plane Wind Tunnel sits between those. Like an artillery game it has a few settings and a landing spot, but you are not aiming: you are changing how the projectile flies, and the settings interact in ways a straight line of power cannot. More power can mean a shorter flight.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with three keys for each setting (up and down), a throw key, a single floor target and the ghost of the last path. Draw paths with <code>love.graphics.line</code> from a list of stored points.</p>
+  <p>Give it to a friend with only "land on the mark". The one question to answer: <strong>after a miss, can they say out loud which setting they will change and why?</strong> If they can, the settings read clearly and the idea is worth building. If they shrug and move sliders at random, the effects are too tangled: try removing nose clips and see whether two settings are enough.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one hall, eight targets including one on a table and one through an open window, a sheet count per target and a best score.</li>
+    <li><strong>One-month version:</strong> new fold shapes that change the lift and drag numbers, rooms with fans and open doors that add a steady breeze, and a fold book that records the settings of every successful throw.</li>
+    <li><strong>Cut first:</strong> real rotation physics. A plane that tumbles and recovers looks great, but a fixed angle of attack already gives swoops and stalls for a fraction of the work.</li>
+    <li>The mechanic is the comparison, not the flight. Every feature should make it easier to see what one change did.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: hide the sliders and give the player a real fold diagram instead, where creasing the wing tips or the tail changes the hidden numbers, so learning which fold does what becomes the game.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Frederick W. Lanchester, <cite>Aerodonetics</cite> (1908). The book that named and described the phugoid, the swoop-and-dive motion of a glider.</li>
+    <li>NASA Glenn Research Center, <cite>Beginner's Guide to Aeronautics</cite>. Plain explanations of lift, drag, angle of attack and stall.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why a fixed physics step makes the same settings land in the same place every time.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On making a physical response readable to the player.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var G = 9.8, Q = 0.6, STEP = 1 / 120, STALL = 12, CD0 = 0.06, K = 0.12;
+  var NOSE = 2, CLIP_MASS = 0.25, CEILING = 3.5, HALL = 24, LAUNCH = 10 * Math.PI / 180;
+  var MAX_TIME = 10, TOL = 0.75, TARGETS = [4, 8, 12, 16];
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var plane, mode, path, ghost, target, sheets, best, acc, message, msgColor, flash;
+  var handle = null;
+
+  function reset() {
+    plane = null; mode = 'ready'; path = []; ghost = []; target = 0; sheets = 0;
+    acc = 0; message = 'Set the sliders, then press Throw'; msgColor = 'ink'; flash = 0;
+  }
+
+  function liftCoef(alpha) {
+    if (alpha > STALL) return 0.5;
+    return 0.1 * alpha;
+  }
+
+  function throwPlane() {
+    if (mode === 'flying' || mode === 'done') return;
+    var clips = clipS.value, alpha = wingS.value - NOSE * clips, cl = liftCoef(alpha);
+    var power = powerS.value;
+    plane = {
+      x: 0.3, y: 1.6, vx: power * Math.cos(LAUNCH), vy: power * Math.sin(LAUNCH),
+      mass: 1 + CLIP_MASS * clips, cl: cl, cd: CD0 + K * cl * cl,
+      t: 0, n: 0, bumps: 0, stalled: alpha > STALL
+    };
+    if (path.length > 1) ghost = path;
+    path = [[plane.x, plane.y]];
+    sheets += 1; mode = 'flying'; acc = 0;
+    message = plane.stalled ? 'Stalled: the wing is past 12 degrees' : 'In the air...';
+    msgColor = plane.stalled ? 'warn' : 'ink2';
+  }
+
+  function stepPlane(p) {
+    var speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy), k = Q * speed / p.mass;
+    var ax = k * (-p.cd * p.vx - p.cl * p.vy);
+    var ay = k * (-p.cd * p.vy + p.cl * p.vx) - G;
+    p.vx += ax * STEP; p.vy += ay * STEP;
+    p.x += p.vx * STEP; p.y += p.vy * STEP; p.t += STEP;
+    if (p.y > CEILING) {
+      p.y = CEILING; if (p.vy > 0) p.vy = 0; p.vx *= 0.5;
+      if (p.bumps === 0) { message = 'Bumped the ceiling'; msgColor = 'warn'; }
+      p.bumps += 1;
+    }
+    if (p.x >= HALL) { p.x = HALL; return 'wall'; }
+    if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx) * 0.3; }
+    if (p.y <= 0) { p.y = 0; return 'floor'; }
+    if (p.t >= MAX_TIME) return 'time';
+    return null;
+  }
+
+  function land(how) {
+    path.push([plane.x, plane.y]);
+    var goal = TARGETS[target], d = plane.x - goal;
+    if (how === 'wall') {
+      message = 'Hit the far wall. Too much distance'; msgColor = 'bad';
+    } else if (how === 'floor' && Math.abs(d) <= TOL) {
+      flash = 1.5;
+      target += 1;
+      if (target >= TARGETS.length) {
+        mode = 'done';
+        if (best === null || sheets < best) best = sheets;
+        message = 'All four targets in ' + sheets + ' sheets. Restart to beat it';
+        msgColor = 'good';
+        return;
+      }
+      message = 'Hit at ' + plane.x.toFixed(1) + ' m. Next target: ' + TARGETS[target] + ' m';
+      msgColor = 'good';
+    } else {
+      message = 'Landed at ' + plane.x.toFixed(1) + ' m, ' + Math.abs(d).toFixed(1) + ' m ' +
+        (d > 0 ? 'long' : 'short') + (plane.bumps > 0 ? ' after a ceiling bump' : '');
+      msgColor = 'bad';
+    }
+    mode = 'landed';
+  }
+
+  function update(dt) {
+    if (flash > 0) flash -= dt;
+    if (mode !== 'flying') return;
+    acc = Math.min(acc + dt, 0.1);
+    while (acc >= STEP && mode === 'flying') {
+      var how = stepPlane(plane);
+      plane.n += 1;
+      if (plane.n % 2 === 0) path.push([plane.x, plane.y]);
+      if (how) land(how);
+      acc -= STEP;
+    }
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(str, x, y);
+  }
+
+  function drawPath(ctx, pts, X, Y, color, dashed, width) {
+    if (pts.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dashed ? [5, 5] : []);
+    ctx.beginPath(); ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+    for (var i = 1; i < pts.length; i++) ctx.lineTo(X(pts[i][0]), Y(pts[i][1]));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, left = 12, top = 52, floor = s.height - 24;
+    var sx = (s.width - left - 12) / HALL, sy = (floor - top) / CEILING, i;
+    function X(x) { return left + x * sx; }
+    function Y(y) { return floor - y * sy; }
+
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+
+    // Hall: ceiling, floor, far wall.
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(CEILING)); ctx.lineTo(X(HALL), Y(CEILING)); ctx.lineTo(X(HALL), floor);
+    ctx.moveTo(X(0), floor); ctx.lineTo(X(HALL), floor); ctx.stroke();
+    text(ctx, 'ceiling 3.5 m', X(0.2), Y(CEILING) + 14, c.ink3, '11px');
+
+    // Distance ticks every 4 m.
+    for (i = 4; i <= 20; i += 4) {
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(i), floor); ctx.lineTo(X(i), floor + 5); ctx.stroke();
+      text(ctx, i + ' m', X(i), floor + 17, c.ink3, '11px', 'center');
+    }
+
+    // Targets: done ones faint, current one bold.
+    for (i = 0; i < TARGETS.length; i++) {
+      var tx0 = X(TARGETS[i] - TOL), tw = 2 * TOL * sx;
+      if (i < target) { ctx.fillStyle = c.good; ctx.globalAlpha = 0.25; }
+      else if (i === target) { ctx.fillStyle = flash > 0 ? c.good : c.topic; ctx.globalAlpha = 0.55; }
+      else { ctx.fillStyle = c.ink3; ctx.globalAlpha = 0.15; }
+      ctx.fillRect(tx0, floor - 6, tw, 6);
+      ctx.globalAlpha = 1;
+    }
+
+    // Thrower.
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0.1), floor); ctx.lineTo(X(0.1), Y(1.4)); ctx.lineTo(X(0.3), Y(1.6)); ctx.stroke();
+    ctx.fillStyle = c.ink2; ctx.beginPath(); ctx.arc(X(0.1), Y(1.75), 5, 0, Math.PI * 2); ctx.fill();
+
+    // Ghost of the last flight, then the current one.
+    drawPath(ctx, ghost, X, Y, c.ink3, true, 1.5);
+    drawPath(ctx, path, X, Y, c.topic, false, 2);
+
+    // The plane, pointing along its screen-space velocity.
+    if (plane) {
+      var px = X(plane.x), py = Y(plane.y);
+      var ang = mode === 'flying' ? Math.atan2(-plane.vy * sy, plane.vx * sx) : 0;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(ang);
+      ctx.fillStyle = c.ink; ctx.beginPath();
+      ctx.moveTo(9, 0); ctx.lineTo(-8, -5); ctx.lineTo(-4, 0); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      if (mode !== 'flying') {
+        ctx.strokeStyle = c.ink; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(px, floor - 12); ctx.lineTo(px, floor); ctx.stroke();
+      }
+    }
+
+    // HUD.
+    var goalText = mode === 'done' ? 'All targets landed' :
+      'Target ' + (target + 1) + ' of ' + TARGETS.length + ': ' + TARGETS[target] + ' m';
+    text(ctx, goalText, 10, 18, c.ink, '600 13px');
+    text(ctx, 'Sheets ' + sheets + '   Best ' + (best === null ? '-' : best), s.width - 10, 18, c.ink2, '12px', 'right');
+    text(ctx, message, 10, 37, c[msgColor] || c.ink, '12px');
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  var ui = DemoKit.controls('[data-demo="paper-plane"]');
+  var wingS = ui.slider({ label: 'Wing angle', min: 0, max: 16, step: 1, value: 6, unit: '°' });
+  var clipS = ui.slider({ label: 'Nose clips', min: 0, max: 3, step: 1, value: 1 });
+  var powerS = ui.slider({ label: 'Throw strength', min: 3, max: 12, step: 0.5, value: 6, unit: ' m/s' });
+  ui.button({ label: 'Throw', onClick: function () { throwPlane(); wake(); } });
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  best = null;
+  reset();
+
+  handle = DemoKit.canvas('#paper-plane', {
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 420,
+    keys: true,
+    label: 'Paper Plane Wind Tunnel prototype. A side view of a long hall with a thrower on the left and four floor targets. Set wing angle, nose clips and throw strength, then throw to land on the highlighted target.',
+    update: update,
+    draw: draw,
+    onDown: function () { wake(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'space' || key === 'enter') throwPlane();
+      else if (key === 'r') reset();
+    }
+  });
+})();
+</script>
+</body>
+</html>

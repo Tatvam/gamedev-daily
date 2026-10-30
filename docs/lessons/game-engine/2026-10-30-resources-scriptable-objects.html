@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custom Resources in Godot, ScriptableObjects in Unity · Game Dev Daily</title>
+<meta name="description" content="How one data asset can feed many objects at once, when an edit reaches all of them, and how to give one object its own unique copy.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-30">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Custom Resources in Godot, ScriptableObjects in Unity</h1>
+  <p class="lede">How one data asset can feed many objects at once, when an edit reaches all of them, and how to give one object its own unique copy.</p>
+</header>
+
+<section data-section="hook">
+  <p>You give the elite guard a stronger sword by raising its damage from 20 to 35. You press play and every guard in the level now hits for 35. Later, one guard fires its crossbow and every other guard's ammo counter drops too. Both bugs have the same cause: the guards are not holding weapons, they are all holding the <em>same</em> weapon.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One data asset, many references</h2>
+  <p>A <dfn>data asset</dfn> is a file that holds values and nothing else: no position in the world, no update loop. A weapon's damage, reach and ammo are a good fit. Godot calls these <dfn>custom Resources</dfn>: a script that extends <code>Resource</code>, saved as a <code>.tres</code> file. Unity calls them <dfn>ScriptableObjects</dfn>: a class that extends <code>ScriptableObject</code>, saved as a <code>.asset</code> file.</p>
+  <p>The behaviour that matters is what happens when the game loads one. In order:</p>
+  <ol>
+    <li>The first object that refers to <code>sword.tres</code> causes the engine to load it. One object now exists in memory.</li>
+    <li>The engine remembers it in a cache, keyed by the file. Godot's documentation states this directly: loading a path that is already cached returns the same object.</li>
+    <li>Every other enemy that refers to the same file gets a <dfn>reference</dfn> to that one object: an arrow, not a copy.</li>
+  </ol>
+  <p>So "who owns the data?" has a clear answer. The asset owns it, and the enemies borrow it. Reading through any arrow gives the same values. Writing through any arrow changes the values for everyone.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Three enemies point with solid arrows at one shared sword data asset. A fourth enemy points at its own copy, which was duplicated from the asset and is no longer linked to it.">
+      <rect class="d-box" x="220" y="16" width="200" height="78" rx="8"/>
+      <text class="d-text" x="320" y="40" text-anchor="middle">sword.tres / Sword.asset</text>
+      <text class="d-mono" x="320" y="62" text-anchor="middle">damage 20  reach 40</text>
+      <text class="d-muted" x="320" y="82" text-anchor="middle">one object in memory</text>
+
+      <rect class="d-box" x="24" y="176" width="96" height="44" rx="8"/>
+      <text class="d-text" x="72" y="203" text-anchor="middle">Enemy 1</text>
+      <rect class="d-box" x="154" y="176" width="96" height="44" rx="8"/>
+      <text class="d-text" x="202" y="203" text-anchor="middle">Enemy 2</text>
+      <rect class="d-box" x="284" y="176" width="96" height="44" rx="8"/>
+      <text class="d-text" x="332" y="203" text-anchor="middle">Enemy 3</text>
+      <rect class="d-box" x="414" y="176" width="96" height="44" rx="8"/>
+      <text class="d-text" x="462" y="203" text-anchor="middle">Enemy 4</text>
+
+      <path class="d-accent" d="M72 176 L260 96"/>
+      <path class="d-accent" d="M202 176 L295 96"/>
+      <path class="d-accent" d="M332 176 L330 96"/>
+      <text class="d-label" x="112" y="128">reference</text>
+
+      <rect class="d-accent-soft" x="532" y="110" width="96" height="50" rx="8"/>
+      <text class="d-text" x="580" y="132" text-anchor="middle">own copy</text>
+      <text class="d-mono" x="580" y="150" text-anchor="middle">damage 35</text>
+      <path class="d-stroke" d="M490 176 L545 162"/>
+      <path class="d-dash" d="M420 70 L560 108"/>
+      <text class="d-muted" x="500" y="66">duplicated once</text>
+      <text class="d-label" x="420" y="244">edits to the copy reach Enemy 4 only</text>
+    </svg>
+    <figcaption>Three enemies hold arrows to one object, so an edit through any of them shows up in all three. Enemy 4 was given a duplicate. After the copy is made there is no link back: changes to either side stay on that side.</figcaption>
+  </figure>
+
+  <h2>Why share at all</h2>
+  <p>Sharing is the point, not an accident. Fifty goblins need one copy of their stats, not fifty. A designer can tune the goblin in one file and every goblin in every level follows. Code that needs "the goblin's speed" asks the asset rather than a particular goblin. The engines' own types work the same way: textures, materials and meshes are shared between every object that uses them.</p>
+
+  <h2>Breaking the link: a unique copy</h2>
+  <p>When one object needs different values, give it a <dfn>unique copy</dfn>: a new object with the same values, owned by that one user.</p>
+  <ul>
+    <li><strong>Godot.</strong> In code, <code>weapon.duplicate()</code> returns a new resource with the exported properties copied. In the Inspector, the resource's drop-down menu has <strong>Make Unique</strong>. Ticking <strong>Local to Scene</strong> (the <code>resource_local_to_scene</code> property) tells Godot to duplicate the resource for every instance of a scene that uses it.</li>
+    <li><strong>Unity.</strong> In code, <code>Instantiate(weapon)</code> makes a run-time copy of a ScriptableObject, just as it copies a GameObject. In the Editor, you duplicate the asset file itself to make a second asset. Unity's renderers show the same split built in: <code>sharedMaterial</code> is the shared asset, while reading <code>material</code> makes a copy for that renderer.</li>
+  </ul>
+  <p>Both copies are <dfn>shallow</dfn> by default: numbers and strings are copied, but a resource or asset referenced <em>inside</em> the data is still shared. A weapon that refers to a projectile asset gets a new weapon pointing at the old projectile.</p>
+
+  <h2>Design values here, live state there</h2>
+  <p>The crossbow bug from the hook comes from storing <dfn>run-time state</dfn>, a value that changes during play for one object, in shared data. Ammo, current health and cooldown timers belong on the enemy. The data asset holds <dfn>design values</dfn>: maximum ammo, maximum health, cooldown length. The enemy copies the starting value when it spawns and changes its own copy from then on.</p>
+
+  <h3>Where an edit ends up</h3>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>When you change the data</th><th>Godot 4</th><th>Unity 6 / 2022 LTS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>In the editor, not playing</td><td>Saved to the <code>.tres</code></td><td>Saved to the <code>.asset</code></td></tr>
+      <tr><td>From code, running in the editor</td><td>Memory only. The game runs as a separate process, so the file is untouched</td><td>Changes the asset itself, and they are still there after you leave Play mode</td></tr>
+      <tr><td>From code, in a shipped build</td><td>Memory only, gone when the game quits</td><td>Memory only, gone when the game quits</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title">The Unity Play mode surprise</p>
+    <p>Component values in a scene snap back when you leave Play mode. ScriptableObject assets do not. Code that changes a shared asset while you test leaves those changes in your project. Neither engine is a save system: to keep data between sessions, write a save file, which is a later lesson.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Five enemies all start with a reference to <code>sword.tres</code>. The sliders edit whatever the selected enemy points at. Move the Damage slider and all five change. Now select E3, press <strong>Make unique</strong>, and move the slider again: only E3 changes, and the other four lose nothing.</p>
+  <p>Then press <strong>Selected enemy fires</strong> on E1. Ammo is stored in the shared data, so every enemy still linked to it loses a round. Tick <strong>Ammo lives on the enemy</strong> and fire again to see the fix.</p>
+
+  <figure class="demo wide" data-demo="shared-data">
+    <canvas id="shared-data"></canvas>
+    <figcaption>Highlighted wires show every enemy an edit will reach. The sword length is reach, the number is damage, the pips are ammo. Tap an enemy to select it. Keyboard: focus the canvas, use the left and right arrows to select, U to make unique, S to use the shared asset again, F to fire.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no data assets, but a Lua table assigned to several variables behaves exactly like one: every variable holds a reference to the same table. The model uses the demo's names and numbers. Keys 1 to 5 select an enemy, Up adds 5 damage, U makes a unique copy, S relinks to the shared sword, F fires and R reloads.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua. Same data and numbers as the demo.</span>
+local AMMO_ON_ENEMY = false   <span class="c">-- true is the fix: live state stays on the enemy</span>
+local SWORD = { damage = 20, reach = 40, ammo = 6 }   <span class="c">-- the shared asset</span>
+
+local function makeUnique(data)   <span class="c">-- a shallow copy, like duplicate()</span>
+  local copy = {}
+  for key, value in pairs(data) do copy[key] = value end
+  return copy
+end
+
+local enemies = {}
+for i = 1, 5 do
+<span class="k">  enemies[i] = { name = "E" .. i, weapon = SWORD, ammo = SWORD.ammo }   -- a reference</span>
+end
+local selected = 1
+
+local function ammoOf(e)
+  if AMMO_ON_ENEMY then return e.ammo end
+  return e.weapon.ammo
+end
+
+function love.keypressed(key)
+  local e = enemies[selected]
+  local n = tonumber(key)
+  if n and n &gt;= 1 and n &lt;= 5 then selected = n end
+<span class="k">  if key == "up" then e.weapon.damage = e.weapon.damage + 5 end   -- reaches every sharer</span>
+  if key == "u" and e.weapon == SWORD then e.weapon = makeUnique(SWORD) end
+  if key == "s" then e.weapon = SWORD end   <span class="c">-- the copy is now unreferenced</span>
+  if key == "f" and ammoOf(e) &gt; 0 then
+    if AMMO_ON_ENEMY then e.ammo = e.ammo - 1
+    else e.weapon.ammo = e.weapon.ammo - 1 end   <span class="c">-- the bug: shared ammo</span>
+  end
+  if key == "r" then
+    SWORD.ammo = 6
+    for _, other in ipairs(enemies) do other.weapon.ammo = 6; other.ammo = 6 end
+  end
+end
+
+function love.draw()
+  for i, e in ipairs(enemies) do
+    local kind = (e.weapon == SWORD) and "sword (shared)" or "own copy"
+    local mark = (i == selected) and "&gt; " or "  "
+    love.graphics.print(mark .. e.name .. "  " .. kind .. "  damage " .. e.weapon.damage ..
+      "  reach " .. e.weapon.reach .. "  ammo " .. ammoOf(e), 10, i * 20)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># weapon_data.gd. Godot 4.</span>
+<span class="c"># FileSystem dock: right-click, New Resource, WeaponData. Save it as sword.tres.</span>
+class_name WeaponData
+extends Resource
+
+<span class="k">@export var damage: int = 20</span>
+@export var reach: float = 40.0
+@export var max_ammo: int = 6   <span class="c"># a design value, not live ammo</span>
+
+
+<span class="c"># enemy.gd. Drag sword.tres onto Weapon in the Inspector of each enemy.</span>
+extends Node2D
+
+@export var weapon: WeaponData        <span class="c"># all enemies using sword.tres share one object</span>
+@export var unique_weapon := false    <span class="c"># tick on one enemy to give it its own copy</span>
+
+var ammo: int                         <span class="c"># live state belongs here</span>
+
+func _ready() -&gt; void:
+    if unique_weapon:
+<span class="k">        weapon = weapon.duplicate()   # new object, unlinked from sword.tres</span>
+    ammo = weapon.max_ammo
+
+
+<span class="c"># level.gd on the parent node of several enemies. Press Enter to test.</span>
+extends Node2D
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event.is_action_pressed("ui_accept"):
+        var first = get_child(0)
+        first.weapon.damage += 5      <span class="c"># memory only: sword.tres on disk is untouched</span>
+        for enemy in get_children():
+            print(enemy.name, " damage ", enemy.weapon.damage)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// WeaponData.cs. Unity 6 or 2022 LTS.</span>
+<span class="c">// Assets &gt; Create &gt; Game Dev Daily &gt; Weapon Data, and name it Sword.</span>
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "WeaponData", menuName = "Game Dev Daily/Weapon Data")]
+<span class="k">public class WeaponData : ScriptableObject</span>
+{
+    public int damage = 20;
+    public float reach = 40f;
+    public int maxAmmo = 6;   <span class="c">// a design value, not live ammo</span>
+}
+
+
+<span class="c">// Enemy.cs. Drag Sword onto Weapon on each enemy.</span>
+using UnityEngine;
+
+public class Enemy : MonoBehaviour
+{
+    public WeaponData weapon;   <span class="c">// all enemies using Sword share one object</span>
+    public bool uniqueWeapon;   <span class="c">// tick on one enemy to give it its own copy</span>
+    int ammo;                   <span class="c">// live state belongs here</span>
+
+    void Awake()
+    {
+        if (uniqueWeapon)
+<span class="k">            weapon = Instantiate(weapon);   // run-time copy; the asset is untouched</span>
+        ammo = weapon.maxAmmo;
+    }
+
+    void OnDestroy()
+    {
+        if (uniqueWeapon) Destroy(weapon);  <span class="c">// we made the copy, so we free it</span>
+    }
+
+    <span class="c">// In Play mode, open this component's menu (three dots) to run it.</span>
+    [ContextMenu("Add 5 damage")]
+    void AddDamage()
+    {
+        weapon.damage += 5;   <span class="c">// on a shared enemy, Sword.asset keeps this after Play mode</span>
+        foreach (Enemy e in FindObjectsByType&lt;Enemy&gt;(FindObjectsSortMode.None))
+            Debug.Log(e.name + " damage " + e.weapon.damage);
+    }
+}</code></pre>
+  </div>
+  <p>Each Unity class goes in its own file named after the class. <code>FindObjectsByType</code> is available in Unity 2022 LTS and Unity 6; older versions use <code>FindObjectsOfType</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Live state in shared data.</strong> Current health, ammo or a cooldown timer stored in the asset is shared by every user. Keep the maximum in the asset and the current value on the object.</li>
+    <li><strong>Built-in sub-resources are shared too.</strong> In Godot, a material or shape created inside an enemy scene, not saved as its own file, is still one object shared by every instance of that scene. Changing a shader parameter on one enemy changes all of them unless the resource is Local to Scene or duplicated.</li>
+    <li><strong>Shallow copies.</strong> <code>duplicate()</code> and <code>Instantiate</code> copy the top level. Nested resources and assets are still shared. In Godot 4, <code>duplicate(true)</code> also copies nested arrays and dictionaries, but resources saved as their own files are still not duplicated.</li>
+    <li><strong>Duplicating in a hot path.</strong> Each copy is a new object. Making one per bullet defeats the reason to share. Copy only the objects that really differ.</li>
+    <li><strong>Forgetting Unity's copies.</strong> A ScriptableObject made with <code>Instantiate</code> is an engine object. Destroy it when its owner goes away rather than relying on the C# garbage collector.</li>
+    <li><strong>Treating the asset as a save file.</strong> In a build, nothing writes the change back. It works in Unity's editor, which makes it worse: it passes every test until you ship.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The engines use this pattern on themselves. Godot's textures, materials, meshes, themes and packed scenes are all resources, loaded once and shared by every node that refers to them. Unity's materials, meshes and textures are shared assets in the same way, and the <code>material</code> versus <code>sharedMaterial</code> pair on renderers is the "make unique" choice made in code.</p>
+  <p>Typical uses of custom data assets are item and enemy stat tables, dialogue lines, loot tables, level settings and audio presets. In Unity, ScriptableObjects are also used as shared channels between systems; Ryan Hipple's Unite 2017 talk popularised using them for shared variables and events. Godot's own documentation compares its resource scripts directly to Unity's ScriptableObjects.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one kind of enemy or pickup in your project whose numbers are typed into each instance. Move those numbers into a <code>WeaponData</code>-style data asset and point every instance at it. Then add a <code>unique</code> tick box that duplicates the data in <code>_ready</code> or <code>Awake</code>.</p>
+  <p>You are done when changing the asset in the editor updates every instance, ticking the box on one instance and changing its copy at run time leaves the others alone, and no field in the asset changes while the game is running.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A data asset is loaded once and cached. Every object that refers to it holds a reference to the same object in memory.</li>
+    <li>Writing through any reference changes the data for all users. That is the feature when tuning, and the bug when one object needs to differ.</li>
+    <li>A unique copy (<code>duplicate()</code>, Make Unique or Local to Scene in Godot, <code>Instantiate</code> in Unity) breaks the link. It is shallow by default.</li>
+    <li>Keep design values in the asset and live state on the object.</li>
+    <li>Run-time changes to an asset do not survive a shipped game. In Unity's editor they do survive Play mode, so do not rely on either.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes serialization: how the engine turns these objects and their references into the text and bytes of a <code>.tres</code> or <code>.asset</code> file, and back again.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation (4.5), class reference for <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/Resource.xml">Resource</a></cite>, on the resource cache, <code>duplicate</code>, <code>resource_local_to_scene</code> and the <code>changed</code> signal.</li>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/stable/tutorials/scripting/resources.rst">Resources</a></cite> tutorial, on loading once, sharing between scene instances, and custom resource scripts.</li>
+    <li>Unity Technologies, C# reference source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Runtime/Export/Scripting/ScriptableObject.bindings.cs">ScriptableObject.bindings.cs</a></cite>, for <code>CreateInstance</code>.</li>
+    <li>Unity Technologies, C# reference source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Runtime/Export/Scripting/Attributes.cs">Attributes.cs</a></cite>, for <code>CreateAssetMenuAttribute</code> and its <code>menuName</code> and <code>fileName</code> properties.</li>
+    <li>Unity Manual, <cite>ScriptableObject</cite>, on saving data in the Editor versus in a build. Not opened in this session.</li>
+    <li>Ryan Hipple, <cite>Game Architecture with Scriptable Objects</cite>, talk at Unite Austin 2017.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same data and numbers as the Lua code.
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MAX_AMMO = 6;
+  var COUNT = 5;
+
+  var SHARED, enemies, selected, ammoOnEnemy, lastFired, message;
+
+  function newShared() {
+    return { name: 'sword.tres', damage: 20, reach: 40, colour: 'blue', ammo: MAX_AMMO };
+  }
+
+  function colourOf(name, c) {
+    if (name === 'green') return c.good;
+    if (name === 'red') return c.bad;
+    if (name === 'amber') return c.warn;
+    return c.topic;
+  }
+
+  function sel() { return enemies[selected]; }
+  function sharers(data) {
+    var n = 0;
+    enemies.forEach(function (e) { if (e.weapon === data) n++; });
+    return n;
+  }
+  function copies() {
+    var n = 0;
+    enemies.forEach(function (e) { if (e.weapon !== SHARED) n++; });
+    return n;
+  }
+  function ammoOf(e) { return ammoOnEnemy ? e.ammo : e.weapon.ammo; }
+
+  // ---- Controls ---------------------------------------------------------------------------
+
+  var ui = DemoKit.controls('[data-demo="shared-data"]');
+  var enemySel = ui.select({
+    label: 'Selected enemy',
+    options: ['E1', 'E2', 'E3', 'E4', 'E5'],
+    value: 'E1',
+    onChange: function (v) { select(parseInt(v.slice(1), 10) - 1); }
+  });
+  var dmg = ui.slider({ label: 'Damage', min: 5, max: 50, step: 5, value: 20,
+    onInput: function (v) { edit('damage', v); } });
+  var reach = ui.slider({ label: 'Reach', min: 20, max: 80, step: 5, value: 40, unit: ' px',
+    onInput: function (v) { edit('reach', v); } });
+  var colourSel = ui.select({
+    label: 'Colour',
+    options: [{ value: 'blue', label: 'Blue' }, { value: 'green', label: 'Green' },
+      { value: 'red', label: 'Red' }, { value: 'amber', label: 'Amber' }],
+    value: 'blue',
+    onChange: function (v) { edit('colour', v); }
+  });
+  ui.button({ label: 'Make unique', onClick: makeUnique });
+  ui.button({ label: 'Use shared asset', onClick: useShared });
+  ui.button({ label: 'Selected enemy fires', onClick: fire });
+  ui.button({ label: 'Reload all', onClick: reloadAll });
+  var ammoToggle = ui.toggle({ label: 'Ammo lives on the enemy', value: false, onChange: function (v) {
+    ammoOnEnemy = v;
+    reloadAmmo();
+    message = v ? 'Ammo now lives on each enemy. The data only holds the starting ammo. Everyone reloaded.'
+      : 'Ammo is stored in the weapon data again. Everyone reloaded.';
+    refresh();
+  } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); refresh(); } });
+  var outTarget = ui.readout({ label: 'Sliders edit' });
+  var outObjects = ui.readout({ label: 'Weapon data in memory' });
+  var outEvent = ui.readout({ label: 'What happened' });
+
+  var handle = null;
+
+  function reset() {
+    SHARED = newShared();
+    enemies = [];
+    for (var i = 0; i < COUNT; i++) {
+      enemies.push({ name: 'E' + (i + 1), weapon: SHARED, ammo: MAX_AMMO });
+    }
+    selected = 0;
+    ammoOnEnemy = false;
+    ammoToggle.set(false);
+    lastFired = -1;
+    message = 'All five enemies hold a reference to sword.tres. Move a slider.';
+  }
+
+  function select(i) {
+    selected = (i + COUNT) % COUNT;
+    lastFired = -1;
+    var e = sel();
+    var others = sharers(SHARED) - 1;
+    var shareText = others === 0 ? 'sword.tres, used by no other enemy.'
+      : 'sword.tres, shared with ' + others + (others === 1 ? ' other.' : ' others.');
+    message = e.name + ' selected. It points at ' + (e.weapon === SHARED ? shareText : 'its own copy.');
+    refresh();
+  }
+
+  function edit(field, value) {
+    var e = sel();
+    e.weapon[field] = value;
+    lastFired = -1;
+    if (e.weapon === SHARED) {
+      var n = sharers(SHARED);
+      message = 'Changed ' + field + ' in sword.tres. ' + n + (n === 1 ? ' enemy reads' : ' enemies read') + ' it.';
+    } else {
+      message = 'Changed ' + field + ' in ' + e.name + '’s own copy. Nobody else sees it.';
+    }
+    refresh();
+  }
+
+  function makeUnique() {
+    var e = sel();
+    lastFired = -1;
+    if (e.weapon !== SHARED) {
+      message = e.name + ' already has its own copy.';
+    } else {
+      var w = e.weapon;
+      // A shallow copy of every field, like duplicate() or Instantiate().
+      e.weapon = { name: 'copy', damage: w.damage, reach: w.reach, colour: w.colour, ammo: w.ammo };
+      message = e.name + ' now has its own copy with the same values. The link to sword.tres is gone.';
+    }
+    refresh();
+  }
+
+  function useShared() {
+    var e = sel();
+    lastFired = -1;
+    if (e.weapon === SHARED) {
+      message = e.name + ' already uses sword.tres.';
+    } else {
+      e.weapon = SHARED;
+      message = e.name + ' points at sword.tres again. Its copy has no owner left and is freed.';
+    }
+    refresh();
+  }
+
+  function fire() {
+    var e = sel();
+    if (ammoOf(e) <= 0) {
+      lastFired = -1;
+      message = e.name + ' is out of ammo. Press Reload all.';
+      refresh();
+      return;
+    }
+    lastFired = selected;
+    if (ammoOnEnemy) {
+      e.ammo -= 1;
+      message = e.name + ' fired and lost one round of its own ammo. Nobody else changed.';
+    } else {
+      e.weapon.ammo -= 1;
+      if (e.weapon === SHARED) {
+        var n = sharers(SHARED);
+        message = e.name + ' fired. Ammo is stored in sword.tres, so ' + n +
+          (n === 1 ? ' enemy' : ' enemies') + ' lost a round.';
+      } else {
+        message = e.name + ' fired. Ammo is in its own copy, so only ' + e.name + ' lost a round.';
+      }
+    }
+    refresh();
+  }
+
+  function reloadAmmo() {
+    SHARED.ammo = MAX_AMMO;
+    enemies.forEach(function (e) { e.weapon.ammo = MAX_AMMO; e.ammo = MAX_AMMO; });
+    lastFired = -1;
+  }
+
+  function reloadAll() {
+    reloadAmmo();
+    message = 'Everyone reloaded to ' + MAX_AMMO + '.';
+    refresh();
+  }
+
+  function refresh() {
+    var e = sel();
+    var w = e.weapon;
+    enemySel.set(e.name);
+    dmg.set(w.damage);
+    reach.set(w.reach);
+    colourSel.set(w.colour);
+    if (w === SHARED) {
+      var n = sharers(SHARED);
+      outTarget.set('sword.tres, read by ' + n + (n === 1 ? ' enemy' : ' enemies'));
+    } else {
+      outTarget.set(e.name + '’s own copy, read by ' + e.name + ' only');
+    }
+    var c = copies();
+    var used = sharers(SHARED) > 0;
+    outObjects.set((used ? '1 shared asset' : 'sword.tres (unused)') + ' + ' + c + (c === 1 ? ' copy' : ' copies'));
+    outEvent.set(message);
+    if (handle) handle.redraw();
+  }
+
+  // ---- Layout and drawing -----------------------------------------------------------------
+
+  function layout(s) {
+    var cw = Math.min(250, s.width - 16);
+    var card = { x: (s.width - cw) / 2, y: 8, w: cw, h: 88 };
+    var slot = s.width / COUNT;
+    var ey = 176;
+    var spots = enemies.map(function (e, i) {
+      return { x: slot * (i + 0.5), y: ey, ax: card.x + card.w * (i + 0.5) / COUNT, ay: card.y + card.h };
+    });
+    return { card: card, slot: slot, ey: ey, spots: spots };
+  }
+
+  function pips(ctx, c, cx, y, count) {
+    var pw = 6, gap = 2;
+    var total = MAX_AMMO * pw + (MAX_AMMO - 1) * gap;
+    var x0 = cx - total / 2;
+    for (var i = 0; i < MAX_AMMO; i++) {
+      var x = x0 + i * (pw + gap);
+      if (i < count) {
+        ctx.fillStyle = c.ink2;
+        ctx.fillRect(x, y, pw, 9);
+      } else {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, pw - 1, 8);
+      }
+    }
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var L = layout(s);
+    var cur = sel().weapon;
+    var editingShared = cur === SHARED;
+    ctx.textBaseline = 'alphabetic';
+
+    // Wires from enemies to the shared card.
+    enemies.forEach(function (e, i) {
+      if (e.weapon !== SHARED) return;
+      var p = L.spots[i];
+      ctx.strokeStyle = editingShared ? c.topic : c.ink3;
+      ctx.lineWidth = editingShared ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - 17);
+      ctx.bezierCurveTo(p.x, p.y - 50, p.ax, p.ay + 30, p.ax, p.ay);
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.arc(p.ax, p.ay, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Shared card.
+    var k = L.card;
+    var used = sharers(SHARED);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(k.x, k.y, k.w, k.h);
+    ctx.strokeStyle = editingShared ? c.topic : c.line;
+    ctx.lineWidth = editingShared ? 2.5 : 1;
+    ctx.strokeRect(k.x, k.y, k.w, k.h);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillText('sword.tres', k.x + 10, k.y + 20);
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'right';
+    ctx.fillText('shared asset', k.x + k.w - 10, k.y + 20);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('damage ' + SHARED.damage + '   reach ' + SHARED.reach, k.x + 10, k.y + 40);
+    ctx.fillStyle = colourOf(SHARED.colour, c);
+    ctx.fillRect(k.x + 10, k.y + 49, 12, 12);
+    ctx.fillStyle = c.ink;
+    var ammoLabel = ammoOnEnemy ? 'start ammo' : 'ammo';
+    ctx.fillText(ammoLabel, k.x + 30, k.y + 60);
+    var labelW = ctx.measureText(ammoLabel).width;
+    pips(ctx, c, k.x + 30 + labelW + 8 + 23, k.y + 51, SHARED.ammo);
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('read by ' + used + (used === 1 ? ' enemy' : ' enemies'), k.x + 10, k.y + 80);
+
+    // Enemies.
+    enemies.forEach(function (e, i) {
+      var p = L.spots[i];
+      var w = e.weapon;
+      var col = colourOf(w.colour, c);
+      var isSel = i === selected;
+
+      // Sword: length shows reach.
+      var room = Math.max(12, Math.min(44, L.slot * 0.5 - 4));
+      var len = 6 + (w.reach / 80) * room;
+      var ang = -0.45;
+      var bx = p.x + 12 * Math.cos(ang), by = p.y + 12 * Math.sin(ang);
+      var tx = bx + len * Math.cos(ang), ty = by + len * Math.sin(ang);
+      ctx.strokeStyle = col;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+
+      if (i === lastFired) {
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        for (var r = 0; r < 4; r++) {
+          var a = r * Math.PI / 4 + 0.3;
+          ctx.beginPath();
+          ctx.moveTo(tx + 3 * Math.cos(a), ty + 3 * Math.sin(a));
+          ctx.lineTo(tx + 8 * Math.cos(a), ty + 8 * Math.sin(a));
+          ctx.moveTo(tx - 3 * Math.cos(a), ty - 3 * Math.sin(a));
+          ctx.lineTo(tx - 8 * Math.cos(a), ty - 8 * Math.sin(a));
+          ctx.stroke();
+        }
+      }
+
+      // Body.
+      if (isSel) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = c.ink2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.bg;
+      ctx.font = 'bold 12px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.fillText(e.name, p.x, p.y + 4);
+
+      // Damage and ammo, as this enemy reads them.
+      ctx.fillStyle = c.ink;
+      ctx.font = '12px ' + FONT;
+      ctx.fillText('dmg ' + w.damage, p.x, p.y + 38);
+      pips(ctx, c, p.x, p.y + 46, ammoOf(e));
+
+      // Unique copy card.
+      if (w !== SHARED) {
+        var bw = Math.min(L.slot - 8, 90);
+        var bxL = p.x - bw / 2;
+        var byT = p.y + 74;
+        ctx.strokeStyle = isSel ? c.topic : c.ink3;
+        ctx.lineWidth = isSel ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y + 58);
+        ctx.lineTo(p.x, byT);
+        ctx.stroke();
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(bxL, byT, bw, 40);
+        ctx.strokeRect(bxL, byT, bw, 40);
+        ctx.fillStyle = c.ink;
+        ctx.fillText(bw >= 70 ? 'own copy' : 'copy', p.x, byT + 17);
+        ctx.fillStyle = col;
+        ctx.fillRect(p.x - 6, byT + 24, 12, 10);
+      }
+    });
+  }
+
+  function hitEnemy(pt) {
+    var L = layout(handle.state);
+    for (var i = 0; i < COUNT; i++) {
+      var p = L.spots[i];
+      if (Math.abs(pt.x - p.x) <= L.slot / 2 && pt.y >= p.y - 30 && pt.y <= p.y + 120) return i;
+    }
+    return -1;
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#shared-data', {
+    height: 300,
+    animate: false,
+    keys: true,
+    label: 'Five enemies wired to one shared sword data card, with unique copies drawn under any enemy that has one.',
+    draw: draw,
+    onDown: function (pt) {
+      var i = hitEnemy(pt);
+      if (i !== -1) select(i);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') select(selected - 1);
+      else if (key === 'arrowright') select(selected + 1);
+      else if (key === 'u') makeUnique();
+      else if (key === 's') useShared();
+      else if (key === 'f') fire();
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>
