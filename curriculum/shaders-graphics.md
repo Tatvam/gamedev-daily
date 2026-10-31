@@ -25,7 +25,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Polar coordinates in shaders** — How converting UV to angle and radius makes radial bars, spirals and sunbursts. Demo: sliders for segments, twist and fill amount shape a radial cooldown indicator. (published 2026-10-28, polar-coordinates-shaders)
 - [x] **UV distortion** — How offsetting coordinates with a wave bends whatever is drawn. Demo: sliders for amplitude, frequency and speed ripple a checker pattern. (published 2026-10-29, uv-distortion-waves)
 - [x] **Texture sampling** — How a sampler returns a texel for a UV, shown with a texture generated in code. Demo: move a probe across a small generated texture to see the sampled texel, with sliders for UV scale and offset. (published 2026-10-30, texture-sampling)
-- [ ] **Wrap modes** — How repeat, clamp and mirror decide what happens outside the 0 to 1 range. Demo: switch wrap mode while a slider scales the UV beyond the edges of the texture.
+- [x] **Wrap modes** — How repeat, clamp and mirror decide what happens outside the 0 to 1 range. Demo: switch wrap mode while a slider scales the UV beyond the edges of the texture. (published 2026-10-31, wrap-modes)
 - [ ] **Texture filtering** — How nearest and linear filtering differ when a texture is magnified. Demo: an A/B view zooms into a tiny generated texture with both filters.
 - [ ] **Mipmaps** — How smaller copies of a texture prevent shimmering when it is drawn small or at a steep angle. Demo: a checker floor stretches into the distance with a mipmap toggle and a bias slider.
 

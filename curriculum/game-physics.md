@@ -26,7 +26,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Separating axis theorem** — How two convex polygons are separate if any one axis shows a gap between their projections. Demo: drag and rotate two polygons while every tested axis shows its projections and gaps. (published 2026-10-28, separating-axis-theorem)
 - [x] **Minimum translation vector** — How the axis with the smallest overlap gives the direction and distance needed to push two shapes apart. Demo: overlap two polygons to see the push-out arrow, with a button that applies it. (published 2026-10-29, minimum-translation-vector)
 - [x] **Contact points and normals** — What information a collision must report so that the response can be calculated. Demo: drag one box onto another at different angles and see the contact points, normal and depth drawn. (published 2026-10-30, contact-points-normals)
-- [ ] **Collision layers and masks** — How layers and masks decide which objects are tested against each other, as in the collision layers of Godot and the layer matrix of Unity. Demo: tick boxes in a layer matrix and watch which groups of bouncing shapes collide or pass through each other.
+- [x] **Collision layers and masks** — How layers and masks decide which objects are tested against each other, as in the collision layers of Godot and the layer matrix of Unity. Demo: tick boxes in a layer matrix and watch which groups of bouncing shapes collide or pass through each other. (published 2026-10-31, collision-layers-masks)
 
 ## Track 3: Collision response
 

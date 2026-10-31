@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serialization: turning objects into bytes and back · Game Dev Daily</title>
+<meta name="description" content="How engines write live objects out as text or bytes and read them back, and why references and cycles need IDs instead of copies.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-10-31">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .ser-out {
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    max-height: 18rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .ser-out:focus-visible { outline: 2px solid var(--topic); outline-offset: -2px; }
+  .ser-out .bad { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Serialization: turning objects into bytes and back</h1>
+  <p class="lede">How engines write live objects out as text or bytes and read them back, and why references and cycles need IDs instead of copies.</p>
+</header>
+
+<section data-section="hook">
+  <p>You save the game with two enemies chasing the player. You load it, hit one enemy's target, and the other enemy's target is still at full health. After loading there are three players, and only one of them is on screen.</p>
+  <p>Or the save button freezes the game and then crashes it, because the player targets an enemy that targets the player. Both bugs have the same cause: the save code treated a reference as if it were a value.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Live objects, flat files</h2>
+  <p><dfn>Serialization</dfn> is turning objects in memory into a flat sequence of text or bytes that can be written to a file or sent over a network. <dfn>Deserialization</dfn> is the reverse: reading that sequence and building equal objects again. Engines do it constantly: a Godot <code>.tscn</code> scene, a Unity <code>.prefab</code> and the values in the Inspector are all serialized objects.</p>
+  <p>Plain values are easy. A number, a string or a boolean is copied out and copied back. The choice there is the format:</p>
+  <ul>
+    <li><strong>Text</strong>, such as JSON, writes field names next to values. People and version control can read it, and a new field does not break old files. It is larger and slower to parse.</li>
+    <li><strong>Binary</strong> writes only the values, in an agreed order and size. It is small and fast, but both sides must know the exact layout, called the <dfn>schema</dfn>, and a missing byte shifts every value after it.</li>
+  </ul>
+
+  <h3>References are the hard part</h3>
+  <p>A <dfn>reference</dfn> is how one object points at another, for example an enemy's <code>target</code> field. In memory a reference is an address, and an address means nothing in a file: the next run puts the object somewhere else. So the serializer has to turn it into something that survives.</p>
+  <p>The obvious approach is to follow the reference and write the target object inline, inside the object that points at it:</p>
+<pre><code>local function naive(obj)
+  local target = "null"
+  if obj.target then target = naive(obj.target) end   <span class="c">-- follow the reference</span>
+  return string.format('{"name":"%s","hp":%d,"x":%d,"target":%s}',
+    obj.name, obj.hp, obj.x, target)
+end</code></pre>
+  <p>That code has two bugs, one for each way objects share references:</p>
+  <ul>
+    <li><strong>Shared references become copies.</strong> If Grub and Mox both target Ada, Ada is written once at the top level and once more inside each enemy. Loading builds three separate Adas. The file looks fine and the game is silently wrong.</li>
+    <li><strong>Cycles never end.</strong> If Ada also targets Grub, writing Ada writes Grub, which writes Ada, which writes Grub. The function calls itself until the call stack runs out. A <dfn>cycle</dfn> is any loop of references that leads back to its start, and games are full of them: a parent and its children, a weapon and its owner.</li>
+  </ul>
+
+  <h3>The fix: give every object an ID</h3>
+  <p>Instead of writing the target, write a number that stands for it. Saving takes two passes:</p>
+  <ol>
+    <li>Walk all the objects and give each one an <dfn>ID</dfn>, a number unique within this file.</li>
+    <li>Write each object once, in a flat list. Where a field holds a reference, write the target's ID.</li>
+  </ol>
+  <p>Loading also takes two passes, and the order matters. First create every object and fill in its plain values, keeping a table from ID to the new object. Only then go back and turn each stored ID into a reference by looking it up in that table. Linking in the first pass would fail, because an object may refer to one that has not been created yet.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Three objects in memory, Grub and Mox both pointing at Ada, are saved as a flat table of rows with IDs, where the target column holds the number 1. Loading turns the table back into three objects with the same two arrows.">
+      <g text-anchor="middle">
+        <text class="d-label" x="95" y="24">In memory</text>
+        <text class="d-label" x="320" y="24">In the file</text>
+        <text class="d-label" x="535" y="24">After loading</text>
+      </g>
+      <rect class="d-box" x="40" y="44" width="110" height="40" rx="6"/>
+      <rect class="d-box" x="40" y="104" width="110" height="40" rx="6"/>
+      <rect class="d-box" x="40" y="164" width="110" height="40" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="95" y="69">Ada</text>
+        <text class="d-text" x="95" y="129">Grub</text>
+        <text class="d-text" x="95" y="189">Mox</text>
+      </g>
+      <path class="d-accent" d="M40 124 C 22 124, 22 70, 38 66"/>
+      <path class="d-accent" d="M40 184 C 6 184, 6 64, 38 62"/>
+      <path class="d-accent-fill" d="M40 64 l-9 -5 l1 10 z"/>
+
+      <path class="d-stroke" d="M160 124 H218"/>
+      <path class="d-accent-fill" d="M226 124 l-9 -5 v10 z"/>
+      <text class="d-muted" x="192" y="114" text-anchor="middle">save</text>
+
+      <rect class="d-fill" x="232" y="44" width="176" height="160" rx="6"/>
+      <path class="d-thin" d="M232 78 H408"/>
+      <g class="d-mono">
+        <text class="d-mono" x="246" y="66">id</text>
+        <text class="d-mono" x="282" y="66">name</text>
+        <text class="d-mono" x="340" y="66">target</text>
+        <text class="d-mono" x="250" y="106">1</text>
+        <text class="d-mono" x="282" y="106">Ada</text>
+        <text class="d-mono" x="340" y="106">null</text>
+        <text class="d-mono" x="250" y="146">2</text>
+        <text class="d-mono" x="282" y="146">Grub</text>
+        <text class="d-label" x="340" y="146">1</text>
+        <text class="d-mono" x="250" y="186">3</text>
+        <text class="d-mono" x="282" y="186">Mox</text>
+        <text class="d-label" x="340" y="186">1</text>
+      </g>
+
+      <path class="d-stroke" d="M418 124 H462"/>
+      <path class="d-accent-fill" d="M470 124 l-9 -5 v10 z"/>
+      <text class="d-muted" x="444" y="114" text-anchor="middle">load</text>
+
+      <rect class="d-box" x="480" y="44" width="110" height="40" rx="6"/>
+      <rect class="d-box" x="480" y="104" width="110" height="40" rx="6"/>
+      <rect class="d-box" x="480" y="164" width="110" height="40" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="535" y="69">Ada</text>
+        <text class="d-text" x="535" y="129">Grub</text>
+        <text class="d-text" x="535" y="189">Mox</text>
+      </g>
+      <path class="d-accent" d="M590 124 C 608 124, 608 70, 592 66"/>
+      <path class="d-accent" d="M590 184 C 624 184, 624 64, 592 62"/>
+      <path class="d-accent-fill" d="M590 64 l9 -5 l-1 10 z"/>
+
+      <text class="d-text" x="20" y="236">Save: 1. give every object an ID   2. write each object once, references as IDs</text>
+      <text class="d-text" x="20" y="258">Load: 1. create every object   2. replace each ID with the new object</text>
+    </svg>
+    <figcaption>Arrows are <code>target</code> references. In the file they are only numbers, so Ada is written once no matter how many objects point at her, and a cycle is just a row whose number points back up the table.</figcaption>
+  </figure>
+
+  <p>Who owns the IDs? The serializer, for the length of one save or one load, and then it throws its lookup table away. The objects never learn their IDs. IDs that stay the same across many saves are a save system problem, and the next lesson.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Each object is written exactly once. Everything else that mentions it writes its ID.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The scene holds Ada and two enemies, Grub and Mox, who both target Ada. Move the sliders and watch Ada's values change everywhere they are written in the text and in the bytes. With the <strong>Nested</strong> serializer, look at the middle panel: loading gives back five objects, and each enemy has its own Ada.</p>
+  <p>Then tick <strong>Ada targets Grub</strong>. The nested serializer runs away into ever deeper copies and never finishes. Switch to <strong>IDs</strong>: the same scene saves in a few lines and loads back with the cycle intact.</p>
+
+  <figure class="demo wide" data-demo="serializer">
+    <canvas id="serializer"></canvas>
+    <div class="demo-controls"></div>
+    <pre class="ser-out" id="ser-text" tabindex="0" aria-label="The text form of the saved scene"></pre>
+    <figcaption>Top: the objects in memory. Middle: what loading the saved text builds. Bottom: the binary form, one cell per byte in hexadecimal. The text form is below the controls.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version saves the demo's three objects with IDs, writes the text to a file with LÖVE, reads it back, and checks that Grub and Mox share one Ada. The text it writes is the same as the demo's IDs view. Press Space to damage Ada and save again. Godot and Unity already serialize their own scenes this way, so their tabs show the same pattern for your own save data.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua. The demo's three objects, saved with IDs and loaded back.</span>
+local ada  = { name = "Ada",  hp = 100, x = 40 }
+local grub = { name = "Grub", hp = 30,  x = 200, target = ada }
+local mox  = { name = "Mox",  hp = 30,  x = 320, target = ada }
+ada.target = grub                                   <span class="c">-- the cycle</span>
+local world = { ada, grub, mox }
+
+local function saveWorld(objects)
+  local idOf = {}
+<span class="k">  for i, obj in ipairs(objects) do idOf[obj] = i end   -- pass 1: number every object</span>
+  local lines = {}
+  for i, obj in ipairs(objects) do                       <span class="c">-- pass 2: write each once</span>
+    local target = "null"
+<span class="k">    if obj.target then target = tostring(idOf[obj.target]) end   -- reference as ID</span>
+    lines[i] = string.format('{"id":%d,"name":"%s","hp":%d,"x":%d,"target":%s}',
+      i, obj.name, obj.hp, obj.x, target)
+  end
+  return '{"objects":[\n  ' .. table.concat(lines, ",\n  ") .. "\n]}"
+end
+
+local PATTERN = '{"id":(%d+),"name":"(%a+)","hp":(%d+),"x":(%d+),"target":(%w+)}'
+
+local function loadWorld(text)
+  local byId, targetId, list = {}, {}, {}
+  for id, name, hp, x, target in text:gmatch(PATTERN) do   <span class="c">-- pass 1: create</span>
+    local obj = { name = name, hp = tonumber(hp), x = tonumber(x) }
+    byId[tonumber(id)] = obj
+    targetId[obj] = tonumber(target)                        <span class="c">-- nil when "null"</span>
+    list[#list + 1] = obj
+  end
+  for _, obj in ipairs(list) do                             <span class="c">-- pass 2: link</span>
+<span class="k">    if targetId[obj] then obj.target = byId[targetId[obj]] end</span>
+  end
+  return list
+end
+
+local saved, loaded = "", {}
+local function saveAndLoad()
+  saved = saveWorld(world)
+  love.filesystem.write("save.json", saved)
+  loaded = loadWorld(love.filesystem.read("save.json"))
+end
+
+function love.load() saveAndLoad() end
+
+function love.keypressed(key)
+  if key == "space" then ada.hp = math.max(0, ada.hp - 10); saveAndLoad() end
+end
+
+function love.draw()
+  love.graphics.print(saved, 10, 10)
+  local shared = loaded[2].target == loaded[3].target
+  love.graphics.print("After loading, Grub and Mox share one Ada: " .. tostring(shared), 10, 110)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># save_demo.gd. Godot 4. Attach to any Node and run the scene.</span>
+extends Node
+
+class Unit:   <span class="c"># a plain RefCounted object, not a node</span>
+    var name: String
+    var hp: int
+    var x: int
+    var target: Unit
+
+func make(n: String, h: int, px: int) -&gt; Unit:
+    var u := Unit.new()
+    u.name = n
+    u.hp = h
+    u.x = px
+    return u
+
+func save_world(units: Array) -&gt; String:
+    var rows := []
+    for i in units.size():
+        var u: Unit = units[i]
+        var target = null
+<span class="k">        if u.target: target = units.find(u.target) + 1   # reference as ID</span>
+        rows.append({"id": i + 1, "name": u.name, "hp": u.hp, "x": u.x, "target": target})
+    return JSON.stringify({"objects": rows}, "  ")
+
+func load_world(text: String) -&gt; Array:
+    var data = JSON.parse_string(text)
+    var by_id := {}
+    var units := []
+    for row in data["objects"]:                         <span class="c"># pass 1: create</span>
+        var u := make(row["name"], int(row["hp"]), int(row["x"]))   <span class="c"># JSON numbers are floats</span>
+        by_id[int(row["id"])] = u
+        units.append(u)
+    for i in units.size():                              <span class="c"># pass 2: link</span>
+        var t = data["objects"][i]["target"]
+<span class="k">        if t != null: units[i].target = by_id[int(t)]</span>
+    return units
+
+func _ready() -&gt; void:
+    var ada := make("Ada", 100, 40)
+    var grub := make("Grub", 30, 200)
+    var mox := make("Mox", 30, 320)
+    grub.target = ada
+    mox.target = ada
+    ada.target = grub   <span class="c"># the cycle (it also keeps both alive: reference counting)</span>
+    var file := FileAccess.open("user://save.json", FileAccess.WRITE)
+    file.store_string(save_world([ada, grub, mox]))
+    file.close()
+    var loaded := load_world(FileAccess.get_file_as_string("user://save.json"))
+    print(loaded[1].target == loaded[2].target)   <span class="c"># true: one shared Ada</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// SaveDemo.cs. Unity 6 or 2022 LTS. Add to any GameObject and press Play.</span>
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+public class Unit { public string name; public int hp, x; public Unit target; }
+
+[Serializable] public class UnitRow { public int id; public string name; public int hp; public int x; public int target; }
+[Serializable] public class SaveFile { public List&lt;UnitRow&gt; objects = new List&lt;UnitRow&gt;(); }
+
+public class SaveDemo : MonoBehaviour
+{
+    void Start()
+    {
+        var ada  = new Unit { name = "Ada",  hp = 100, x = 40 };
+        var grub = new Unit { name = "Grub", hp = 30,  x = 200, target = ada };
+        var mox  = new Unit { name = "Mox",  hp = 30,  x = 320, target = ada };
+        ada.target = grub;                                     <span class="c">// the cycle</span>
+        var units = new List&lt;Unit&gt; { ada, grub, mox };
+
+        var file = new SaveFile();
+        foreach (var u in units)
+            file.objects.Add(new UnitRow {
+                id = units.IndexOf(u) + 1, name = u.name, hp = u.hp, x = u.x,
+<span class="k">                target = u.target == null ? 0 : units.IndexOf(u.target) + 1 });   // 0 means none</span>
+        string path = Path.Combine(Application.persistentDataPath, "save.json");
+        File.WriteAllText(path, JsonUtility.ToJson(file, true));
+
+        var data = JsonUtility.FromJson&lt;SaveFile&gt;(File.ReadAllText(path));
+        var byId = new Dictionary&lt;int, Unit&gt;();
+        foreach (var r in data.objects)                         <span class="c">// pass 1: create</span>
+            byId[r.id] = new Unit { name = r.name, hp = r.hp, x = r.x };
+        foreach (var r in data.objects)                         <span class="c">// pass 2: link</span>
+<span class="k">            if (r.target != 0) byId[r.id].target = byId[r.target];</span>
+        Debug.Log(byId[2].target == byId[3].target);            <span class="c">// True: one shared Ada</span>
+    }
+}</code></pre>
+  </div>
+  <p>Godot's <code>JSON.stringify</code> sorts keys by default, so its file lists fields alphabetically. Unity's <code>JsonUtility</code> cannot write a bare list or a null <code>int</code>, which is why the rows sit inside a <code>SaveFile</code> class and 0 stands for "no target". The binary view in the demo uses 0 for the same reason.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Saving run-time identities.</strong> Memory addresses, Godot's <code>get_instance_id()</code> and Unity's <code>GetInstanceID()</code> identify an object only while the game runs. A new run hands out different ones. Use IDs that the save file itself assigns, or stable IDs you store on the object.</li>
+    <li><strong>Unity stores plain classes by value.</strong> A field whose type is a <code>[Serializable]</code> C# class is written inline, exactly like the nested serializer. Two fields pointing at one object come back as two objects, and Unity stops nested data at a depth limit with a warning instead of following a cycle forever. References to engine objects (GameObjects, components, assets) are different: those are stored as IDs. For plain classes that must stay shared, Unity 2019.3 and later have the <code>[SerializeReference]</code> attribute.</li>
+    <li><strong>Godot saves only stored properties.</strong> In a scene, Godot writes properties marked for storage, such as <code>@export</code> variables. A plain <code>var</code> on your script is not saved with the scene. Unity likewise skips private fields without <code>[SerializeField]</code>, static fields and C# properties.</li>
+    <li><strong>JSON loses types.</strong> Godot's JSON parser returns every number as a float, and dictionary keys come back as strings. Convert them with <code>int()</code> on load.</li>
+        <li><strong>Loading files you did not write.</strong> Formats that can create any type of object, such as Godot resource files or .NET's old <code>BinaryFormatter</code>, can be made to run code. Microsoft has marked <code>BinaryFormatter</code> obsolete for this reason. For player saves and downloaded content, prefer plain data formats like JSON and build the objects yourself.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines use the ID approach for their own files. A Godot 4 <code>.tscn</code> or <code>.tres</code> file lists each embedded resource once with an ID and refers to it with <code>SubResource("id")</code>, and refers to other files with <code>ExtResource("id")</code>. Nodes in a scene refer to each other by node path. Unity's text scene and prefab files are YAML documents, each object tagged with a file ID, and a reference to another object is written as a <code>fileID</code>, plus a <code>guid</code> when the target lives in another asset file. Unity's Asset Serialization Mode setting chooses text or binary for these files, and text is the usual choice for version control.</p>
+  <p>Order matters in the engines too. Unity restores a component's serialized fields before it calls <code>Awake</code>. Godot calls <code>_init</code> before it applies the values saved in the scene, so exported values are not ready until <code>_enter_tree</code> or <code>_ready</code>.</p>
+  <p>Many games use their own binary formats. Minecraft stores world data in NBT, a binary format that writes a type and a name before each value, a middle ground between raw bytes and JSON.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take two objects in your project where one refers to the other, such as an enemy and its target or a door and the switch that opens it. Write them to a JSON file with an ID for each object and the reference stored as an ID. Load the file into fresh objects using the two passes.</p>
+  <p>You are done when, after loading, changing a value through the reference changes the same object you get from the loaded list: the link is a reference, not a copy. For a stretch, make the two objects refer to each other and check that it still saves.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Serialization flattens objects into text or bytes. Values copy across easily; references do not, because an address means nothing in the next run.</li>
+    <li>Writing a referenced object inline turns shared references into copies and makes cycles loop forever.</li>
+    <li>Give every object an ID, write each object once, and store references as IDs.</li>
+    <li>Load in two passes: create everything, then link IDs back to the new objects.</li>
+    <li>Text is readable and tolerant of change. Binary is small and fast but needs an exact schema.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we build a save system on top of this: choosing what to save, giving objects IDs that stay the same across sessions, and using version numbers so old saves still load.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>TSCN file format</cite> and <cite>Saving games</cite>. How Godot writes scenes with resource IDs, and its own guide to JSON saves.</li>
+    <li>Unity documentation, <cite>Script serialization</cite> (Unity Manual). Which fields Unity saves, the by-value rule for plain classes, and <cite>SerializeReference</cite> in the Scripting API.</li>
+    <li>Unity documentation, <cite>JSON Serialization</cite> (Unity Manual). What <code>JsonUtility</code> can and cannot write.</li>
+      </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX_DEPTH = 8;          // how deep the nested serializer gets before the "stack" runs out
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  var ui = DemoKit.controls('[data-demo="serializer"]');
+  var mode = ui.select({ label: 'Serializer', value: 'nested',
+    options: [{ value: 'nested', label: 'Nested (follow references)' }, { value: 'ids', label: 'IDs (references as numbers)' }],
+    onChange: refresh });
+  var cycle = ui.toggle({ label: 'Ada targets Grub (a cycle)', value: false, onChange: refresh });
+  var hp = ui.slider({ label: 'Ada hp', min: 0, max: 255, step: 1, value: 100, onInput: refresh });
+  var xs = ui.slider({ label: 'Ada x', min: 0, max: 1000, step: 10, value: 40, onInput: refresh });
+  var sizes = ui.readout({ label: 'Size' });
+  var count = ui.readout({ label: 'Objects after loading' });
+
+  var out = document.getElementById('ser-text');
+
+  // The scene: three objects of one type. Grub and Mox both target Ada.
+  function makeWorld() {
+    var ada = { name: 'Ada', hp: hp.value, x: xs.value, target: null };
+    var grub = { name: 'Grub', hp: 30, x: 200, target: ada };
+    var mox = { name: 'Mox', hp: 30, x: 320, target: ada };
+    if (cycle.value) ada.target = grub;
+    return [ada, grub, mox];
+  }
+
+  function spaces(n) { var s = ''; for (var i = 0; i < n; i++) s += ' '; return s; }
+
+  function writeValues(o, bytes) {
+    bytes.push({ v: o.name.length, kind: 'text' });
+    for (var i = 0; i < o.name.length; i++) bytes.push({ v: o.name.charCodeAt(i), kind: 'text' });
+    bytes.push({ v: o.hp, kind: 'num' });
+    bytes.push({ v: o.x & 255, kind: 'num' });          // x as two bytes, low byte first
+    bytes.push({ v: (o.x >> 8) & 255, kind: 'num' });
+  }
+
+  // Nested: write the target inside the object that points at it.
+  function saveNested(objs) {
+    var res = { ok: true, text: '', bytes: [] };
+    function obj(o, depth) {
+      if (depth > MAX_DEPTH) throw new Error('stack overflow');
+      res.text += '{"name":"' + o.name + '","hp":' + o.hp + ',"x":' + o.x + ',"target":';
+      writeValues(o, res.bytes);
+      if (o.target) {
+        res.bytes.push({ v: 1, kind: 'ref' });            // 1: an object follows inline
+        res.text += '\n' + spaces(2 * (depth + 2));
+        obj(o.target, depth + 1);
+        res.text += '}';
+      } else {
+        res.bytes.push({ v: 0, kind: 'ref' });            // 0: no target
+        res.text += 'null}';
+      }
+    }
+    res.bytes.push({ v: objs.length, kind: 'id' });
+    res.text = '[\n';
+    try {
+      for (var i = 0; i < objs.length; i++) {
+        res.text += '  ';
+        obj(objs[i], 0);
+        res.text += (i < objs.length - 1 ? ',\n' : '\n');
+      }
+      res.text += ']';
+    } catch (e) {
+      res.ok = false;
+      res.bytes = [];
+    }
+    return res;
+  }
+
+  // IDs: number every object, write each once, references as numbers.
+  function saveIds(objs) {
+    var res = { ok: true, text: '', bytes: [] };
+    var idOf = new Map();
+    objs.forEach(function (o, i) { idOf.set(o, i + 1); });
+    var lines = [];
+    res.bytes.push({ v: objs.length, kind: 'id' });
+    objs.forEach(function (o, i) {
+      var t = o.target ? String(idOf.get(o.target)) : 'null';
+      lines.push('{"id":' + (i + 1) + ',"name":"' + o.name + '","hp":' + o.hp + ',"x":' + o.x + ',"target":' + t + '}');
+      res.bytes.push({ v: i + 1, kind: 'id' });
+      writeValues(o, res.bytes);
+      res.bytes.push({ v: o.target ? idOf.get(o.target) : 0, kind: 'ref' });
+    });
+    res.text = '{"objects":[\n  ' + lines.join(',\n  ') + '\n]}';
+    return res;
+  }
+
+  // Loading. Both read the text with the browser's JSON parser and build fresh objects.
+  function loadNested(text) {
+    var list = JSON.parse(text);
+    var total = 0;
+    function build(r) {
+      total += 1;
+      return { name: r.name, hp: r.hp, x: r.x, target: r.target ? build(r.target) : null };
+    }
+    var objs = list.map(build);
+    return { objs: objs, total: total };
+  }
+
+  function loadIds(text) {
+    var data = JSON.parse(text);
+    var byId = {};
+    var objs = data.objects.map(function (r) {           // pass 1: create
+      var o = { name: r.name, hp: r.hp, x: r.x, target: null };
+      byId[r.id] = o;
+      return o;
+    });
+    data.objects.forEach(function (r, i) {               // pass 2: link
+      if (r.target !== null) objs[i].target = byId[r.target];
+    });
+    return { objs: objs, total: objs.length };
+  }
+
+  var world, saved, loaded;
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function rebuild() {
+    world = makeWorld();
+    saved = mode.value === 'ids' ? saveIds(world) : saveNested(world);
+    loaded = null;
+    if (saved.ok) loaded = mode.value === 'ids' ? loadIds(saved.text) : loadNested(saved.text);
+
+    if (saved.ok) {
+      out.textContent = saved.text;
+      sizes.set('text ' + saved.text.length + ' B, binary ' + saved.bytes.length + ' B');
+      if (mode.value === 'ids') {
+        count.set(loaded.total + ', links intact');
+      } else {
+        count.set(loaded.total + ' (' + (loaded.total - 3) + ' extra copies of Ada)');
+      }
+    } else {
+      out.innerHTML = escapeHtml(saved.text) + '\n  ...\n\n<span class="bad">Error: stack overflow. Ada contains Grub, which contains Ada, ' +
+        'which contains Grub ... The save never finishes and nothing is written.</span>';
+      sizes.set('nothing written');
+      count.set('none, the save failed');
+    }
+  }
+
+  function refresh() {
+    rebuild();
+    if (handle) handle.redraw();
+  }
+
+  // ---------- drawing ----------
+
+  function layout(s) {
+    var pad = 12, gap = 14;
+    var bw = Math.min(150, (s.width - 2 * pad - 2 * gap) / 3);
+    var total = 3 * bw + 2 * gap;
+    var x0 = (s.width - total) / 2;
+    return { bw: bw, bh: 58, gap: gap, xs: [x0, x0 + bw + gap, x0 + 2 * (bw + gap)] };
+  }
+
+  function arrowHead(ctx, x, y, fromX, fromY, color) {
+    var a = Math.atan2(y - fromY, x - fromX);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 9 * Math.cos(a - 0.45), y - 9 * Math.sin(a - 0.45));
+    ctx.lineTo(x - 9 * Math.cos(a + 0.45), y - 9 * Math.sin(a + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function box(ctx, c, x, y, w, h, o, opts) {
+    ctx.fillStyle = opts.fill || c.surface;
+    ctx.strokeStyle = opts.stroke || c.ink3;
+    ctx.lineWidth = opts.thick ? 2 : 1.25;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 6); else ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = opts.stroke || c.ink;
+    ctx.font = BOLD;
+    ctx.fillText(opts.title || o.name, x + 8, y + 18);
+    if (opts.id) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = c.warn;
+      ctx.font = MONO;
+      ctx.fillText('#' + opts.id, x + w - 7, y + 17);
+      ctx.textAlign = 'left';
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.font = FONT;
+    if (h >= 50) {
+      ctx.fillText('hp ' + o.hp, x + 8, y + 35);
+      ctx.fillText('x ' + o.x, x + 8, y + 51);
+    } else {
+      ctx.fillText('hp ' + o.hp + ', x ' + o.x, x + 8, y + 35);
+    }
+  }
+
+  // Arrows between boxes in one row. Leftward links curve under the row, rightward over it.
+  function links(ctx, c, objs, L, top) {
+    var bottom = top + L.bh;
+    objs.forEach(function (o, i) {
+      if (!o.target) return;
+      var j = objs.indexOf(o.target);
+      if (j < 0) return;
+      var sx = L.xs[i] + L.bw / 2, ex = L.xs[j] + L.bw / 2;
+      var sy, ey, cy;
+      if (j < i) {
+        sx -= 8; ex += 4 + 10 * (i - j);
+        sy = bottom; ey = bottom + 2; cy = bottom + 14 + 14 * (i - j);
+      } else {
+        sx += 8; ex -= 8;
+        sy = top; ey = top - 2; cy = top - 30;
+      }
+      var cx = (sx + ex) / 2;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo(cx, cy, ex, ey);
+      ctx.stroke();
+      arrowHead(ctx, ex, ey, cx, cy, c.topic);
+    });
+  }
+
+  function heading(ctx, c, text, y, s) {
+    ctx.fillStyle = c.ink;
+    ctx.font = BOLD;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, 12, y);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y - 20.5);
+    ctx.lineTo(s.width, y - 20.5);
+    ctx.stroke();
+  }
+
+  var KIND_LABEL = { id: 'count or ID', text: 'name', num: 'number', ref: 'reference' };
+  function kindColor(c, kind) {
+    if (kind === 'id') return c.warn;
+    if (kind === 'text') return c.ink3;
+    if (kind === 'num') return c.good;
+    return c.topic;
+  }
+
+  function hex(v) { return (v < 16 ? '0' : '') + v.toString(16).toUpperCase(); }
+
+  var handle = null;
+  rebuild();
+  handle = DemoKit.canvas('#serializer', {
+    height: 500,
+    animate: false,
+    label: 'Three objects in memory, the objects that loading the saved file builds, and the bytes of the binary save. The text form is shown below the canvas.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s);
+      var ids = mode.value === 'ids';
+
+      // 1. In memory.
+      ctx.fillStyle = c.ink;
+      ctx.font = BOLD;
+      ctx.textAlign = 'left';
+      ctx.fillText('In memory', 12, 20);
+      var top1 = 48;
+      world.forEach(function (o, i) {
+        box(ctx, c, L.xs[i], top1, L.bw, L.bh, o, { id: ids ? i + 1 : 0 });
+      });
+      links(ctx, c, world, L, top1);
+
+      // 2. After saving and loading.
+      var y2 = 168;
+      heading(ctx, c, 'After save and load', y2, s);
+      var top2 = y2 + 30;
+      if (!saved.ok) {
+        ctx.fillStyle = c.bad;
+        ctx.font = FONT;
+        ctx.fillText('Save never finished. Ada writes Grub,', 12, top2);
+        ctx.fillText('which writes Ada again, which writes Grub:', 12, top2 + 16);
+        var w = 46, g = 14, x = 12, y = top2 + 28;
+        var n = Math.max(2, Math.floor((s.width - 24 + g) / (w + g)));
+        for (var k = 0; k < n; k++) {
+          var name = k % 2 === 0 ? 'Ada' : 'Grub';
+          var last = k === n - 1;
+          ctx.strokeStyle = c.bad;
+          ctx.lineWidth = 1.25;
+          ctx.globalAlpha = Math.max(0.25, 1 - k * 0.08);
+          if (!last) {
+            ctx.strokeRect(x, y + k * 4, w, 26);
+            ctx.fillStyle = c.bad;
+            ctx.textAlign = 'center';
+            ctx.fillText(name, x + w / 2, y + k * 4 + 17);
+            ctx.beginPath();
+            ctx.moveTo(x + w + 2, y + k * 4 + 13);
+            ctx.lineTo(x + w + g - 3, y + k * 4 + 15);
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = c.bad;
+            ctx.textAlign = 'left';
+            ctx.fillText('...', x + 4, y + k * 4 + 17);
+          }
+          x += w + g;
+        }
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = c.ink2;
+        ctx.fillText('Switch to IDs to save this scene.', 12, top2 + 108);
+      } else if (ids) {
+        loaded.objs.forEach(function (o, i) {
+          box(ctx, c, L.xs[i], top2, L.bw, L.bh, o, { id: i + 1 });
+        });
+        links(ctx, c, loaded.objs, L, top2);
+        ctx.fillStyle = c.good;
+        ctx.font = FONT;
+        ctx.textAlign = 'left';
+        var shared = loaded.objs[1].target === loaded.objs[2].target;
+        ctx.fillText(shared ? 'Grub and Mox point at the same Ada, as before.' : 'Links broken.', 12, top2 + L.bh + 52);
+      } else {
+        var copyN = 1;
+        loaded.objs.forEach(function (o, i) {
+          box(ctx, c, L.xs[i], top2, L.bw, L.bh, o, {});
+          if (o.target) {
+            copyN += 1;
+            var cyTop = top2 + L.bh + 22;
+            var mid = L.xs[i] + L.bw / 2;
+            ctx.strokeStyle = c.bad;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(mid, top2 + L.bh);
+            ctx.lineTo(mid, cyTop - 3);
+            ctx.stroke();
+            arrowHead(ctx, mid, cyTop - 1, mid, top2 + L.bh, c.bad);
+            box(ctx, c, L.xs[i], cyTop, L.bw, 44, o.target,
+              { stroke: c.bad, thick: true, title: o.target.name + ' copy ' + copyN });
+          }
+        });
+        ctx.fillStyle = c.bad;
+        ctx.font = FONT;
+        ctx.textAlign = 'left';
+        if (copyN > 1) ctx.fillText('Three separate Adas now, not one.', 12, top2 + L.bh + 84);
+      }
+
+      // 3. Binary.
+      var y3 = 380;
+      heading(ctx, c, saved.ok ? 'Binary: ' + saved.bytes.length + ' bytes' : 'Binary: nothing written', y3, s);
+      var cw = 22, ch = 18, pitch = 24;
+      var perRow = Math.max(1, Math.floor((s.width - 24 + 2) / pitch));
+      ctx.font = MONO;
+      ctx.textAlign = 'center';
+      saved.bytes.forEach(function (b, i) {
+        var bx = 12 + (i % perRow) * pitch;
+        var by = y3 + 10 + Math.floor(i / perRow) * (ch + 4);
+        var col = kindColor(c, b.kind);
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, by, cw, ch);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, cw - 1, ch - 1);
+        ctx.fillStyle = c.ink;
+        ctx.fillText(hex(b.v), bx + cw / 2, by + 13);
+      });
+
+      // Legend along the bottom, left of the corner.
+      var lx = 12, ly = s.height - 12;
+      ctx.font = FONT;
+      ctx.textAlign = 'left';
+      ['id', 'text', 'num', 'ref'].forEach(function (k) {
+        var col = kindColor(c, k);
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = col;
+        ctx.fillRect(lx, ly - 10, 12, 12);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = col;
+        ctx.strokeRect(lx + 0.5, ly - 9.5, 11, 11);
+        ctx.fillStyle = c.ink2;
+        var label = KIND_LABEL[k];
+        ctx.fillText(label, lx + 16, ly);
+        lx += 16 + ctx.measureText(label).width + 12;
+      });
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

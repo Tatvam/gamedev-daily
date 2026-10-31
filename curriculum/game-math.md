@@ -25,7 +25,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Angle wrapping and the shortest turn** — How to find the smallest difference between two angles so that objects never spin the long way round. Demo: a turret follows the mouse with a turn speed slider and a toggle between naive and wrapped differences. (published 2026-10-28, angle-wrapping-shortest-turn)
 - [x] **Linear interpolation** — How lerp blends between two values with a parameter from 0 to 1. Demo: a slider for t blends a position, a size and a colour at the same time. (published 2026-10-29, linear-interpolation-lerp)
 - [x] **Inverse lerp and remap** — How to turn a value in one range into a fraction and then into another range. Demo: drag a health value and see it remapped to a bar width and a colour, with a clamp toggle. (published 2026-10-30, inverse-lerp-remap)
-- [ ] **Smoothstep** — How an S-shaped curve eases both ends of a transition. Demo: an A/B view moves two boxes with lerp and with smoothstep beside the two graphs.
+- [x] **Smoothstep** — How an S-shaped curve eases both ends of a transition. Demo: an A/B view moves two boxes with lerp and with smoothstep beside the two graphs. (published 2026-10-31, smoothstep-ease-in-out)
 - [ ] **Easing functions** — How ease-in, ease-out, back and bounce curves give movement character. Demo: pick an easing function from a list to see its graph and a box animated with it.
 - [ ] **Exponential smoothing** — How to chase a target smoothly in a way that gives the same result at any frame rate. Demo: a follower chases the mouse with a smoothing slider, a frame-rate slider and a toggle between the naive and corrected formulas.
 

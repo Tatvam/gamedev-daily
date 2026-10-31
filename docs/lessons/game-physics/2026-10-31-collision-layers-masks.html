@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collision layers and masks · Game Dev Daily</title>
+<meta name="description" content="How a layer bit and a mask on every body decide, with two AND operations, which pairs are tested at all, and how a layer matrix shows the same rule.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-10-31">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .lm-wrap { overflow-x: auto; padding: 12px 8px 4px; border-top: 1px solid var(--line); }
+  .lm { width: auto; margin: 0 auto; font-size: 0.875rem; }
+  .lm th, .lm td { padding: 6px 5px; text-align: center; vertical-align: middle; }
+  .lm th { text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 600; }
+  .lm th.lm-row { text-align: right; white-space: nowrap; }
+  .lm td.lm-mask { font-family: var(--font-mono); font-size: 0.8125rem; text-align: left; color: var(--ink-2); white-space: nowrap; }
+  .lm input { width: 20px; height: 20px; accent-color: var(--topic); margin: 0; cursor: pointer; }
+  .lm-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .lm caption { caption-side: top; font-size: 0.8125rem; color: var(--ink-2); padding-bottom: 6px; }
+  .lm-bit { display: block; font-weight: 400; font-size: 0.75rem; color: var(--ink-3); font-family: var(--font-mono); }
+</style>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Collision layers and masks</h1>
+  <p class="lede">How a layer bit and a mask on every body decide, with two AND operations, which pairs are tested at all, and how a layer matrix shows the same rule.</p>
+</header>
+
+<section data-section="hook">
+  <p>You add shooting to your game. The first bullet spawns at the centre of the ship, overlaps the ship, and explodes on the spot. Every shot after it does the same, and the ship shakes from its own fire.</p>
+  <p>The collision code is not wrong. It tests everything against everything, as asked. This lesson shows how to tell it which pairs should never meet.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Most pairs should never meet</h2>
+  <p>Physically, a bullet that starts inside a ship touches the ship. In a game it must not. Here the realistic answer and the good answer differ, and the game wins: your bullets pass through you, and enemies do not shove the coins around.</p>
+  <p>Deciding which pairs of objects are allowed to collide is called <dfn>collision filtering</dfn>. Almost every engine does it the same way, with two numbers on each body:</p>
+  <ul>
+    <li>The <dfn>layer</dfn> says what the body <em>is</em>. Each kind of object gets its own bit.</li>
+    <li>The <dfn>mask</dfn> says what the body <em>collides with</em>. It has a bit set for every layer it wants to touch.</li>
+  </ul>
+  <p>Box2D calls the same two numbers the category bits and the mask bits.</p>
+
+  <h3>One bit per layer</h3>
+  <p>A <dfn>bit</dfn> is one binary digit. Giving each layer its own power of two means each layer owns one bit, and a set of layers fits in one number:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Layer</th><th class="num">Value</th><th>Binary</th></tr></thead>
+    <tbody>
+      <tr><td>Player</td><td class="num">1</td><td><code>0001</code></td></tr>
+      <tr><td>Enemy</td><td class="num">2</td><td><code>0010</code></td></tr>
+      <tr><td>Bullet</td><td class="num">4</td><td><code>0100</code></td></tr>
+      <tr><td>Pickup</td><td class="num">8</td><td><code>1000</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>To build a mask, combine the layers with a bitwise OR, which keeps every bit that is set in either number:</p>
+<pre><code>player.mask = ENEMY | PICKUP   -- 0010 | 1000 = 1010, which is 10</code></pre>
+  <p>In words: the player touches enemies and pickups, and nothing else. Since no two layers share a bit, this OR is the same as adding: 2 + 8 = 10.</p>
+
+  <h3>The test: two ANDs</h3>
+  <p>A bitwise AND keeps only the bits set in <em>both</em> numbers. If the result is not zero, the two numbers share at least one bit. The filter asks that question twice:</p>
+<pre><code>canCollide = (a.layer &amp; b.mask) ~= 0  and  (b.layer &amp; a.mask) ~= 0</code></pre>
+  <p>In words: A is something B wants to touch, <em>and</em> B is something A wants to touch. Only then does the pair go on to the real shape test.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="The player has layer 0001 and mask 1010. The bullet has layer 0100 and mask 0010. Player layer AND bullet mask is 0000, and bullet layer AND player mask is 0000, so the pair is skipped.">
+      <rect class="d-fill" x="16" y="14" width="290" height="124" rx="8"/>
+      <text class="d-label" x="32" y="38">Player</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="138" y="38">8</text>
+        <text class="d-muted" x="178" y="38">4</text>
+        <text class="d-muted" x="218" y="38">2</text>
+        <text class="d-muted" x="258" y="38">1</text>
+      </g>
+      <text class="d-text" x="32" y="70">layer</text>
+      <rect class="d-box" x="120" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="160" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="200" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-accent-soft" x="240" y="50" width="36" height="28" rx="4"/>
+      <text class="d-text" x="32" y="112">mask</text>
+      <rect class="d-accent-soft" x="120" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="160" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-accent-soft" x="200" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="240" y="92" width="36" height="28" rx="4"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="138" y="69">0</text>
+        <text class="d-mono" x="178" y="69">0</text>
+        <text class="d-mono" x="218" y="69">0</text>
+        <text class="d-mono" x="258" y="69">1</text>
+        <text class="d-mono" x="138" y="111">1</text>
+        <text class="d-mono" x="178" y="111">0</text>
+        <text class="d-mono" x="218" y="111">1</text>
+        <text class="d-mono" x="258" y="111">0</text>
+      </g>
+
+      <rect class="d-fill" x="334" y="14" width="290" height="124" rx="8"/>
+      <text class="d-label" x="350" y="38">Bullet</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="456" y="38">8</text>
+        <text class="d-muted" x="496" y="38">4</text>
+        <text class="d-muted" x="536" y="38">2</text>
+        <text class="d-muted" x="576" y="38">1</text>
+      </g>
+      <text class="d-text" x="350" y="70">layer</text>
+      <rect class="d-box" x="438" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-accent-soft" x="478" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="518" y="50" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="558" y="50" width="36" height="28" rx="4"/>
+      <text class="d-text" x="350" y="112">mask</text>
+      <rect class="d-box" x="438" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="478" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-accent-soft" x="518" y="92" width="36" height="28" rx="4"/>
+      <rect class="d-box" x="558" y="92" width="36" height="28" rx="4"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="456" y="69">0</text>
+        <text class="d-mono" x="496" y="69">1</text>
+        <text class="d-mono" x="536" y="69">0</text>
+        <text class="d-mono" x="576" y="69">0</text>
+        <text class="d-mono" x="456" y="111">0</text>
+        <text class="d-mono" x="496" y="111">0</text>
+        <text class="d-mono" x="536" y="111">1</text>
+        <text class="d-mono" x="576" y="111">0</text>
+      </g>
+
+      <text class="d-mono" x="32" y="176">player.layer &amp; bullet.mask = 0001 &amp; 0010 = 0000</text>
+      <text class="d-mono" x="32" y="204">bullet.layer &amp; player.mask = 0100 &amp; 1010 = 0000</text>
+      <path class="d-bad" d="M500 166 l12 12 M512 166 l-12 12"/>
+      <path class="d-bad" d="M500 194 l12 12 M512 194 l-12 12"/>
+      <text class="d-text" x="524" y="176">no</text>
+      <text class="d-text" x="524" y="204">no</text>
+      <text class="d-label" x="32" y="246">Neither check finds a shared bit, so the pair is skipped before any shape test.</text>
+    </svg>
+    <figcaption>The player's mask has the Enemy and Pickup bits. The bullet's mask has only the Enemy bit. Each AND compares one body's layer with the other's mask, and both come out zero.</figcaption>
+  </figure>
+
+  <p>Now check one pair by hand that should pass. An enemy has layer 2 and mask Player, Enemy and Bullet, which is 1 + 2 + 4 = 7. A bullet has layer 4 and mask 2. Then <code>4 &amp; 7 = 4</code> and <code>2 &amp; 2 = 2</code>. Both are non-zero, so bullets hit enemies.</p>
+
+  <h3>The layer matrix is the same rule as a table</h3>
+  <p>A <dfn>layer matrix</dfn> is a grid with one row and one column per layer, and a tick wherever two layers collide. Read across one row and the ticks are that layer's mask. Unity sets 2D filtering mainly this way, in the Physics 2D project settings.</p>
+  <p>A matrix is always <em>symmetric</em>: Player against Bullet is the same tick as Bullet against Player. Separate masks can disagree. Under the double AND, a disagreement just means no collision. Godot stores a layer and a mask on every object and describes the mask as the layers it scans, so one-sided setups there can behave one-sided. The safe habit everywhere is to keep both sides in agreement.</p>
+
+  <h3>Filter first, shape test second</h3>
+  <p>Two ANDs cost almost nothing next to a shape test, so the filter runs first. When bullets ignore each other, most bullet pairs are rejected before any distance is measured.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Name your layers after what objects <em>are</em> (Player, Enemy, Bullet), never after what they hit. Then write the matrix once, in one place, and give every object its mask from it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The large circle with the dark outline is the player, and it fires a bullet every 0.35 seconds. At the start every box in the matrix is ticked, so every bullet pops on the player the moment it appears. Watch the "player" count climb and the player twitch.</p>
+  <p>Untick Player against Bullet and the shots fly out. Then untick Enemy against Pickup. Drag the player, or click the canvas and use the arrow keys. A dashed ring marks two bodies that overlap but were skipped by the filter.</p>
+
+  <figure class="demo wide" data-demo="layers">
+    <canvas id="layers"></canvas>
+    <div class="lm-wrap">
+      <table class="lm" id="layers-matrix">
+        <caption class="lm-cap">Layer matrix. Each row, read left to right, is that layer's mask in binary.</caption>
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <figcaption>Each row of ticks is that layer's mask, shown in binary in the last column. Tick a pair again while two of its bodies overlap and the solver shoves them apart hard.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's filter and pair loop in Lua. LÖVE runs LuaJIT, which has a built-in <code>bit</code> library for bitwise operations. The mask values are the suggested matrix from the demo. <code>resolve</code> is the push-apart and bounce from the circle lesson; the next lesson looks at it closely.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local bit = require("bit")
+
+local PLAYER = 1   <span class="c">-- 0001</span>
+local ENEMY  = 2   <span class="c">-- 0010</span>
+local BULLET = 4   <span class="c">-- 0100</span>
+local PICKUP = 8   <span class="c">-- 1000</span>
+
+<span class="c">-- layer: what I am. mask: what I collide with.</span>
+local MASK = {
+  [PLAYER] = bit.bor(ENEMY, PICKUP),           <span class="c">-- 10</span>
+  [ENEMY]  = bit.bor(PLAYER, ENEMY, BULLET),   <span class="c">-- 7</span>
+  [BULLET] = ENEMY,                            <span class="c">-- 2</span>
+  [PICKUP] = bit.bor(PLAYER, PICKUP),          <span class="c">-- 9</span>
+}
+
+local function newBody(x, y, r, layer)
+  return { x = x, y = y, vx = 0, vy = 0, r = r, layer = layer, mask = MASK[layer] }
+end
+
+local function canCollide(a, b)
+<span class="k">  return bit.band(a.layer, b.mask) ~= 0
+     and bit.band(b.layer, a.mask) ~= 0</span>
+end
+
+local function circlesOverlap(a, b)
+  local dx, dy, rr = b.x - a.x, b.y - a.y, a.r + b.r
+  return dx * dx + dy * dy &lt; rr * rr
+end
+
+local function collidePairs(bodies)
+  for i = 1, #bodies - 1 do
+    for j = i + 1, #bodies do
+      local a, b = bodies[i], bodies[j]
+      if canCollide(a, b) and circlesOverlap(a, b) then
+        resolve(a, b)   <span class="c">-- push apart and bounce, as in the circle lesson</span>
+      end
+    end
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: every CollisionObject2D has collision_layer and collision_mask.</span>
+<span class="c"># The Inspector numbers layers 1 to 32. Layer n is the bit value 2^(n - 1).</span>
+<span class="c"># Name them in Project Settings &gt; Layer Names &gt; 2D Physics.</span>
+<span class="c"># Here: 1 Player, 2 Enemy, 3 Bullet, 4 Pickup.</span>
+
+func _ready() -&gt; void:
+<span class="k">    collision_layer = 1        <span class="c"># I am a Player (layer 1)</span>
+    collision_mask = 2 | 8     <span class="c"># I scan Enemy (layer 2) and Pickup (layer 4)</span></span>
+
+    <span class="c"># The same thing by layer number instead of bit value:</span>
+    collision_layer = 0
+    collision_mask = 0
+    set_collision_layer_value(1, true)
+    set_collision_mask_value(2, true)
+    set_collision_mask_value(4, true)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity: each GameObject is on exactly one layer, numbered 0 to 31.</span>
+<span class="c">// Which layers collide is the matrix in Project Settings &gt; Physics 2D.</span>
+
+void Awake()
+{
+    int player = LayerMask.NameToLayer("Player");   <span class="c">// a layer index, not a mask</span>
+    int bullet = LayerMask.NameToLayer("Bullet");
+<span class="k">    Physics2D.IgnoreLayerCollision(player, bullet, true);   <span class="c">// untick one cell</span></span>
+
+    <span class="c">// Queries take a mask, built from layer names:</span>
+    int solid = LayerMask.GetMask("Enemy", "Pickup");
+    RaycastHit2D hit = Physics2D.Raycast(transform.position, Vector2.right, 10f, solid);
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Mixing up a layer number and a bit value.</strong> Godot's layer 3 is the value 4. Unity's <code>LayerMask.NameToLayer</code> returns an index such as 8, and passing that 8 straight into a raycast as a mask means "layer 3", not "layer 8". Convert with <code>1 &lt;&lt; index</code> in C#, or use <code>LayerMask.GetMask</code>.</li>
+    <li><strong>A new layer that nothing touches.</strong> Under the double-AND rule, adding a layer to one body's mask is only half the job. The other side must list it too, or the pair is still skipped.</li>
+    <li><strong>Forgetting the queries.</strong> Raycasts and overlap checks take their own mask. A line-of-sight ray with the default mask may stop on a coin or on the shooter itself.</li>
+    <li><strong>Switching a pair on while bodies overlap.</strong> The solver sees a deep overlap and pushes the bodies apart in a single step. You can reproduce it in the demo. Switch filters on only when the bodies are apart.</li>
+    <li><strong>The LÖVE physics module counts differently.</strong> As far as I know, <code>Fixture:setMask</code> in <code>love.physics</code> takes the categories a fixture should <em>not</em> collide with, which is the opposite of the mask in this lesson. Check the LÖVE wiki for your version before relying on it.</li>
+    <li><strong>Running out of bits.</strong> Both engines offer 32 layers. Use them for broad kinds of object, not for every enemy type.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the 2D physics library inside many games and inside LÖVE's physics module, filters with category bits and mask bits and requires both checks to pass, exactly like the <code>canCollide</code> above. It also has a group index that can override the bits for groups of shapes, such as the limbs of one ragdoll.</p>
+  <p>Godot gives every physics object a 32-bit collision layer and collision mask. Unity puts each GameObject on one of 32 layers and filters pairs with a layer collision matrix, with separate matrices for 3D physics and 2D physics. In both engines the default is that new objects collide with each other, so a fresh project behaves like the demo before you untick anything.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>List every kind of physical object in your game on paper, at most eight. Draw the matrix and tick the pairs that should collide. Give each kind a layer bit, compute each mask by reading its row, and assign both in code or in the editor.</p>
+  <p>You are done when a bullet spawned inside its shooter flies out cleanly.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A layer says what a body is. A mask says what it collides with. Each layer owns one bit.</li>
+    <li>A pair is tested only if each body's layer shares a bit with the other's mask: two ANDs, both non-zero.</li>
+    <li>A layer matrix is the same data as a table. Each row is a mask, and the table is symmetric.</li>
+    <li>Run the filter before the shape test. It is nearly free and skips most pairs.</li>
+    <li>Keep layer numbers and bit values apart, and give queries such as raycasts a mask too.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Track 3 begins: once a pair passes the filter and overlaps, the next lesson shows how to push the two bodies apart and how to split that push by mass.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Erin Catto, <cite>Box2D manual</cite>, the section on filtering (category bits, mask bits and group index).</li>
+    <li>Godot Engine documentation, <cite>Physics introduction</cite>, the part on collision layers and masks, and the class reference for <cite>CollisionObject2D</cite>.</li>
+    <li>Unity documentation, <cite>Layer-based collision detection</cite> in the Unity Manual, and the scripting reference for <cite>Physics2D.IgnoreLayerCollision</cite> and <cite>LayerMask</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // fixed timestep, seconds
+  var MAX_FRAME = 0.25;     // cap on simulated time per frame
+
+  var PLAYER = 1, ENEMY = 2, BULLET = 4, PICKUP = 8;
+  // Rows of the matrix, top to bottom.
+  var GROUPS = [
+    { bit: PLAYER, name: 'Player', color: 'topic' },
+    { bit: ENEMY, name: 'Enemy', color: 'bad' },
+    { bit: BULLET, name: 'Bullet', color: 'warn' },
+    { bit: PICKUP, name: 'Pickup', color: 'good' }
+  ];
+  // Columns, highest bit first, so each row of ticks reads as a binary number.
+  var COLUMNS = [3, 2, 1, 0];
+
+  var RADIUS = {}; RADIUS[PLAYER] = 18; RADIUS[ENEMY] = 14; RADIUS[BULLET] = 4; RADIUS[PICKUP] = 8;
+  var MASS = {}; MASS[PLAYER] = 4; MASS[ENEMY] = 2; MASS[BULLET] = 0.2; MASS[PICKUP] = 0.5;
+
+  var ENEMY_SPEED = 70;     // px/s
+  var BULLET_SPEED = 260;   // px/s
+  var FIRE_EVERY = 0.35;    // s
+  var BULLET_LIFE = 1.6;    // s
+  var RESTITUTION = 0.8;
+  var PLAYER_ACCEL = 900;   // px/s^2 from the arrow keys
+  var PLAYER_MAX = 280;     // px/s
+  var MARGIN = 8;
+
+  // matrix[i][j] is true when group i and group j collide. Kept symmetric.
+  var matrix = [];
+  function setMatrix(fn) {
+    for (var i = 0; i < 4; i++) {
+      matrix[i] = [];
+      for (var j = 0; j < 4; j++) matrix[i][j] = fn(i, j);
+    }
+  }
+  var SUGGESTED = {};
+  SUGGESTED[PLAYER] = ENEMY | PICKUP;
+  SUGGESTED[ENEMY] = PLAYER | ENEMY | BULLET;
+  SUGGESTED[BULLET] = ENEMY;
+  SUGGESTED[PICKUP] = PLAYER | PICKUP;
+  setMatrix(function () { return true; });
+
+  function maskOfRow(i) {
+    var m = 0;
+    for (var j = 0; j < 4; j++) if (matrix[i][j]) m |= GROUPS[j].bit;
+    return m;
+  }
+  function rowOf(layer) {
+    for (var i = 0; i < 4; i++) if (GROUPS[i].bit === layer) return i;
+    return 0;
+  }
+  function binary(m) {
+    var s = m.toString(2);
+    while (s.length < 4) s = '0' + s;
+    return s;
+  }
+
+  // ---- matrix table ----
+  var table = document.getElementById('layers-matrix');
+  var boxes = [];      // boxes[i][j] -> checkbox
+  var maskCells = [];
+
+  (function buildTable() {
+    var head = table.querySelector('thead');
+    var body = table.querySelector('tbody');
+    var tr = document.createElement('tr');
+    tr.appendChild(document.createElement('th'));
+    COLUMNS.forEach(function (j) {
+      var th = document.createElement('th');
+      th.scope = 'col';
+      th.innerHTML = '<span class="lm-dot" data-c="' + GROUPS[j].color + '"></span>' + GROUPS[j].name +
+        '<span class="lm-bit">' + GROUPS[j].bit + '</span>';
+      tr.appendChild(th);
+    });
+    var thm = document.createElement('th');
+    thm.scope = 'col';
+    thm.textContent = 'mask';
+    tr.appendChild(thm);
+    head.appendChild(tr);
+
+    for (var i = 0; i < 4; i++) {
+      boxes[i] = [];
+      var row = document.createElement('tr');
+      var th = document.createElement('th');
+      th.scope = 'row';
+      th.className = 'lm-row';
+      th.innerHTML = '<span class="lm-dot" data-c="' + GROUPS[i].color + '"></span>' + GROUPS[i].name;
+      row.appendChild(th);
+      COLUMNS.forEach(function (j) {
+        var td = document.createElement('td');
+        var box = document.createElement('input');
+        box.type = 'checkbox';
+        box.setAttribute('aria-label', GROUPS[i].name + ' collides with ' + GROUPS[j].name);
+        (function (a, b) {
+          box.addEventListener('change', function () {
+            matrix[a][b] = box.checked;
+            matrix[b][a] = box.checked;
+            syncTable();
+          });
+        })(i, j);
+        boxes[i][j] = box;
+        td.appendChild(box);
+        row.appendChild(td);
+      });
+      var tm = document.createElement('td');
+      tm.className = 'lm-mask';
+      maskCells[i] = tm;
+      row.appendChild(tm);
+      body.appendChild(row);
+    }
+  })();
+
+  function paintDots() {
+    var c = DemoKit.colors(table);
+    var dots = table.querySelectorAll('.lm-dot');
+    for (var k = 0; k < dots.length; k++) dots[k].style.background = c[dots[k].getAttribute('data-c')];
+  }
+  document.addEventListener('gdd:theme', paintDots);
+  paintDots();
+
+  function syncTable() {
+    for (var i = 0; i < 4; i++) {
+      for (var j = 0; j < 4; j++) boxes[i][j].checked = matrix[i][j];
+      var m = maskOfRow(i);
+      maskCells[i].innerHTML = binary(m) + '<span class="lm-bit">= ' + m + '</span>';
+    }
+  }
+  syncTable();
+
+  // ---- simulation ----
+  var bodies, pops, ghosts, accumulator, fireTimer, fireAngle, rng, dragging, dragTarget;
+  var hits, pairCount, passedCount, touchingCount;
+  var W = 0, H = 0;
+
+  function newBody(x, y, layer) {
+    return { x: x, y: y, vx: 0, vy: 0, r: RADIUS[layer], layer: layer, mask: 0,
+      life: 0, flash: 0, dead: false };
+  }
+
+  function freeSpot(r) {
+    var x = 0, y = 0;
+    for (var tries = 0; tries < 40; tries++) {
+      x = MARGIN + r + rng() * (W - 2 * (MARGIN + r));
+      y = MARGIN + r + rng() * (H - 2 * (MARGIN + r));
+      var ok = true;
+      for (var k = 0; k < bodies.length; k++) {
+        var b = bodies[k];
+        var dx = b.x - x, dy = b.y - y, rr = b.r + r + 6;
+        if (dx * dx + dy * dy < rr * rr) { ok = false; break; }
+      }
+      if (ok) break;
+    }
+    return { x: x, y: y };
+  }
+
+  function reset() {
+    rng = DemoKit.rng(31);
+    bodies = [];
+    pops = [];
+    ghosts = [];
+    accumulator = 0;
+    fireTimer = 0;
+    fireAngle = 0;
+    dragging = false;
+    dragTarget = null;
+    hits = { player: 0, enemy: 0, pickup: 0, bullet: 0 };
+    bodies.push(newBody(W * 0.3, H * 0.5, PLAYER));
+    var k, p, b;
+    for (k = 0; k < 4; k++) {
+      p = freeSpot(RADIUS[ENEMY]);
+      b = newBody(p.x, p.y, ENEMY);
+      var a = rng() * Math.PI * 2;
+      b.vx = Math.cos(a) * ENEMY_SPEED;
+      b.vy = Math.sin(a) * ENEMY_SPEED;
+      bodies.push(b);
+    }
+    for (k = 0; k < 6; k++) {
+      p = freeSpot(RADIUS[PICKUP]);
+      bodies.push(newBody(p.x, p.y, PICKUP));
+    }
+  }
+
+  function player() { return bodies[0]; }
+
+  function invMass(b) {
+    if (b.layer === PLAYER && dragging) return 0;
+    return 1 / MASS[b.layer];
+  }
+
+  function canCollide(a, b) {
+    return (a.layer & b.mask) !== 0 && (b.layer & a.mask) !== 0;
+  }
+
+  function resolve(a, b, dx, dy, d2, rr) {
+    var dist = Math.sqrt(d2);
+    var nx = 1, ny = 0;
+    if (dist > 1e-6) { nx = dx / dist; ny = dy / dist; }
+    var depth = rr - dist;
+    var ia = invMass(a), ib = invMass(b), sum = ia + ib;
+    if (sum === 0) return;
+    a.x -= nx * depth * ia / sum; a.y -= ny * depth * ia / sum;
+    b.x += nx * depth * ib / sum; b.y += ny * depth * ib / sum;
+    var rvn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (rvn < 0) {
+      var j = -(1 + RESTITUTION) * rvn / sum;
+      a.vx -= j * nx * ia; a.vy -= j * ny * ia;
+      b.vx += j * nx * ib; b.vy += j * ny * ib;
+    }
+  }
+
+  function popBullet(bullet, other) {
+    bullet.dead = true;
+    pops.push({ x: bullet.x, y: bullet.y, t: 0 });
+    if (other.layer === BULLET) { other.dead = true; hits.bullet += 2; return; }
+    var ib = invMass(other);
+    other.vx += bullet.vx * MASS[BULLET] * ib;
+    other.vy += bullet.vy * MASS[BULLET] * ib;
+    other.flash = 0.2;
+    if (other.layer === PLAYER) hits.player += 1;
+    else if (other.layer === ENEMY) hits.enemy += 1;
+    else hits.pickup += 1;
+  }
+
+  function step(dt, keys) {
+    var i, j, b;
+    var masks = {};
+    for (i = 0; i < 4; i++) masks[GROUPS[i].bit] = maskOfRow(i);
+    for (i = 0; i < bodies.length; i++) bodies[i].mask = masks[bodies[i].layer];
+
+    // Player: follows the pointer while dragged, otherwise arrow keys.
+    var pl = player();
+    if (dragging && dragTarget) {
+      pl.vx = (dragTarget.x - pl.x) * 12;
+      pl.vy = (dragTarget.y - pl.y) * 12;
+    } else {
+      var ax = 0, ay = 0;
+      if (keys.has('arrowleft')) ax -= 1;
+      if (keys.has('arrowright')) ax += 1;
+      if (keys.has('arrowup')) ay -= 1;
+      if (keys.has('arrowdown')) ay += 1;
+      pl.vx += ax * PLAYER_ACCEL * dt;
+      pl.vy += ay * PLAYER_ACCEL * dt;
+      var damp = Math.max(0, 1 - 3 * dt);
+      pl.vx *= damp; pl.vy *= damp;
+    }
+    var sp = Math.sqrt(pl.vx * pl.vx + pl.vy * pl.vy);
+    if (sp > PLAYER_MAX * 2) { pl.vx *= PLAYER_MAX * 2 / sp; pl.vy *= PLAYER_MAX * 2 / sp; }
+    else if (!dragging && sp > PLAYER_MAX) { pl.vx *= PLAYER_MAX / sp; pl.vy *= PLAYER_MAX / sp; }
+
+    for (i = 1; i < bodies.length; i++) {
+      b = bodies[i];
+      if (b.layer === ENEMY) {
+        // Ease back to cruising speed after a bump.
+        var s = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        if (s < 1) { b.vx = ENEMY_SPEED; b.vy = 0; }
+        else {
+          var f = 1 + (ENEMY_SPEED / s - 1) * Math.min(1, 2 * dt);
+          b.vx *= f; b.vy *= f;
+        }
+      } else if (b.layer === PICKUP) {
+        var pd = Math.max(0, 1 - 2 * dt);
+        b.vx *= pd; b.vy *= pd;
+      } else if (b.layer === BULLET) {
+        b.life -= dt;
+        if (b.life <= 0) b.dead = true;
+      }
+      if (b.flash > 0) b.flash -= dt;
+    }
+    if (pl.flash > 0) pl.flash -= dt;
+
+    // Fire. The bullet starts at the centre of the player, inside it.
+    if (fire.value) {
+      fireTimer += dt;
+      if (fireTimer >= FIRE_EVERY) {
+        fireTimer -= FIRE_EVERY;
+        fireAngle += 2.4;
+        var shot = newBody(pl.x, pl.y, BULLET);
+        shot.vx = Math.cos(fireAngle) * BULLET_SPEED;
+        shot.vy = Math.sin(fireAngle) * BULLET_SPEED;
+        shot.life = BULLET_LIFE;
+        shot.mask = masks[BULLET];
+        bodies.push(shot);
+      }
+    }
+
+    // Move and bounce off the arena walls (walls collide with everything).
+    for (i = 0; i < bodies.length; i++) {
+      b = bodies[i];
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.x - b.r < MARGIN) { b.x = MARGIN + b.r; b.vx = Math.abs(b.vx); }
+      if (b.x + b.r > W - MARGIN) { b.x = W - MARGIN - b.r; b.vx = -Math.abs(b.vx); }
+      if (b.y - b.r < MARGIN) { b.y = MARGIN + b.r; b.vy = Math.abs(b.vy); }
+      if (b.y + b.r > H - MARGIN) { b.y = H - MARGIN - b.r; b.vy = -Math.abs(b.vy); }
+    }
+
+    // Pairs: filter first, then the circle test.
+    ghosts = [];
+    pairCount = 0; passedCount = 0; touchingCount = 0;
+    for (i = 0; i < bodies.length - 1; i++) {
+      for (j = i + 1; j < bodies.length; j++) {
+        var a = bodies[i], c = bodies[j];
+        if (a.dead || c.dead) continue;
+        pairCount += 1;
+        var dx = c.x - a.x, dy = c.y - a.y, rr = a.r + c.r, d2 = dx * dx + dy * dy;
+        if (!canCollide(a, c)) {
+          if (d2 < rr * rr) ghosts.push([a, c]);
+          continue;
+        }
+        passedCount += 1;
+        if (d2 >= rr * rr) continue;
+        touchingCount += 1;
+        if (a.layer === BULLET) popBullet(a, c);
+        else if (c.layer === BULLET) popBullet(c, a);
+        else resolve(a, c, dx, dy, d2, rr);
+      }
+    }
+    bodies = bodies.filter(function (q) { return !q.dead; });
+
+    for (i = 0; i < pops.length; i++) pops[i].t += dt;
+    pops = pops.filter(function (q) { return q.t < 0.3; });
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="layers"]');
+  var fire = ui.toggle({ label: 'Player fires', value: true });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Tick everything', onClick: function () {
+    setMatrix(function () { return true; }); syncTable(); } });
+  ui.button({ label: 'Suggested matrix', onClick: function () {
+    setMatrix(function (i, j) { return (SUGGESTED[GROUPS[i].bit] & GROUPS[j].bit) !== 0; }); syncTable(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); handle.redraw(); } });
+  var hitOut = ui.readout({ label: 'Bullets popped on' });
+  var pairOut = ui.readout({ label: 'Pairs this step' });
+
+  function updateReadouts() {
+    hitOut.set('player ' + hits.player + ', enemies ' + hits.enemy + ', pickups ' + hits.pickup);
+    pairOut.set(passedCount + ' of ' + pairCount + ' passed the filter, ' + touchingCount + ' touching');
+  }
+
+  // ---- drawing ----
+  function arrow(ctx, x, y, vx, vy, scale) {
+    var ex = x + vx * scale, ey = y + vy * scale;
+    var len = Math.sqrt(vx * vx + vy * vy) * scale;
+    if (len < 4) return;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+    var ang = Math.atan2(ey - y, ex - x);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 6 * Math.cos(ang - 0.5), ey - 6 * Math.sin(ang - 0.5));
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 6 * Math.cos(ang + 0.5), ey - 6 * Math.sin(ang + 0.5));
+    ctx.stroke();
+  }
+
+  function colorOf(c, layer) { return c[GROUPS[rowOf(layer)].color]; }
+
+  var handle = DemoKit.canvas('#layers', {
+    height: 340,
+    drag: true,
+    keys: true,
+    label: 'An arena with a player that fires bullets, four enemies and six pickups. The layer matrix below decides which kinds of object collide. Drag the player or use the arrow keys.',
+    onResize: function (s) {
+      var first = !bodies;
+      W = s.width; H = s.height;
+      if (first) { reset(); pairCount = 0; passedCount = 0; touchingCount = 0; updateReadouts(); return; }
+      for (var i = 0; i < bodies.length; i++) {
+        var b = bodies[i];
+        b.x = DemoKit.clamp(b.x, MARGIN + b.r, Math.max(MARGIN + b.r, W - MARGIN - b.r));
+        b.y = DemoKit.clamp(b.y, MARGIN + b.r, Math.max(MARGIN + b.r, H - MARGIN - b.r));
+      }
+    },
+    onDown: function (p) {
+      var pl = player();
+      var dx = p.x - pl.x, dy = p.y - pl.y, r = pl.r + 14;
+      if (dx * dx + dy * dy <= r * r) { dragging = true; dragTarget = { x: p.x, y: p.y }; }
+    },
+    onMove: function (p) {
+      if (dragging) { dragTarget.x = p.x; dragTarget.y = p.y; }
+    },
+    onUp: function () { dragging = false; dragTarget = null; },
+    update: function (dt, s) {
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        step(STEP, s.keys);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 20) accumulator = 0;
+      updateReadouts();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var i, b;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(MARGIN - 0.5, MARGIN - 0.5, W - 2 * MARGIN + 1, H - 2 * MARGIN + 1);
+
+      // Bodies, larger first so bullets stay visible on top.
+      var order = bodies.slice().sort(function (p, q) { return q.r - p.r; });
+      for (i = 0; i < order.length; i++) {
+        b = order[i];
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = b.flash > 0 ? c.ink : colorOf(c, b.layer);
+        ctx.globalAlpha = b.layer === PLAYER ? 1 : 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (b.layer === PLAYER) {
+          ctx.strokeStyle = c.ink;
+          ctx.lineWidth = dragging ? 3 : 1.5;
+          ctx.stroke();
+        }
+      }
+
+      for (i = 0; i < pops.length; i++) {
+        var q = pops[i];
+        ctx.strokeStyle = c.warn;
+        ctx.globalAlpha = 1 - q.t / 0.3;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 4 + q.t * 50, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      if (debug.value) {
+        // Velocity arrows for the slower bodies.
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = c.ink2;
+        for (i = 0; i < bodies.length; i++) {
+          b = bodies[i];
+          if (b.layer === BULLET) continue;
+          arrow(ctx, b.x, b.y, b.vx, b.vy, 0.35);
+        }
+        // Overlapping pairs the filter skipped.
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1.25;
+        for (i = 0; i < ghosts.length; i++) {
+          var g = ghosts[i];
+          if (g[0].layer === BULLET && g[1].layer === BULLET) continue;
+          var mx = (g[0].x + g[1].x) / 2, my = (g[0].y + g[1].y) / 2;
+          var dx = g[0].x - g[1].x, dy = g[0].y - g[1].y;
+          var rad = Math.sqrt(dx * dx + dy * dy) / 2 + Math.max(g[0].r, g[1].r) + 4;
+          ctx.beginPath();
+          ctx.arc(mx, my, rad, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.fillStyle = c.ink3;
+        ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.fillText('dashed ring: skipped overlap', MARGIN + 8, H - MARGIN - 8);
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

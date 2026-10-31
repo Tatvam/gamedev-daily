@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tilt Tray Twins: one tilt, two marbles, two holes · Game Dev Daily</title>
+<meta name="description" content="A physics puzzle where one tilting tray steers a slippery and a grippy marble at once, with a playable prototype and the grip code in Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-10-31">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Tilt Tray Twins: one tilt, two marbles, two holes</h1>
+  <p class="lede">A physics puzzle where one tilting tray steers a slippery and a grippy marble at once, with a playable prototype and the grip code in Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hold a wooden tray with a steel ball and a rubber ball on it, and each has its own hole. Tip the tray gently and only the steel ball slides; tip it hard and both go, so you have to think about who moves first.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: read, tip, settle</h2>
+  <p>Tilt Tray Twins is a top-down physics puzzle. You never touch a marble. Your only control is the angle of the tray, and every marble on it feels that same angle. The marbles differ in <dfn>grip</dfn>: the least tilt that gets a marble rolling from rest. Steel has very little grip and slides at a slight tip. Rubber has a lot and stays put until the tray is steep.</p>
+  <p>That one difference is the whole puzzle. A gentle tilt is a command for the steel marble alone. A steep tilt is a command for both. Every level is a question of order: which marble do you send first, and where do you park the other one?</p>
+  <p>Every ten seconds the player reads where each marble will go, tips the tray, and lets things settle. Every minute they clear a tray with both marbles in their holes. Every session they work through a set of trays that add walls, more marbles and new materials.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read the tray and pick a marble, tip gently or steeply, then let the marbles settle and check the holes, which leads back to reading. Beside it, two longer loops: every minute a tray cleared, and every session a new set of trays.">
+      <defs>
+        <marker id="tt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Read</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">who should move?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Tip</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">gentle or steep</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Settle</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">level it, check holes</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#tt-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#tt-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#tt-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">both marbles home,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">next tray</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">new walls, new</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">materials to mix</text>
+    </svg>
+    <figcaption>The "Settle" step matters: the grippy marble stops as soon as you ease off, the slippery one keeps rolling, so levelling the tray is a move too.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>One tilt for everything.</strong> The tray tips in any direction, from flat to 100 percent. Every marble feels the same tilt.</li>
+    <li><strong>Grip.</strong> Steel starts rolling above 6 percent tilt. Rubber needs more than 35 percent. While a marble rolls, its grip keeps slowing it, so rubber stops quickly when you ease off and steel coasts a long way.</li>
+    <li><strong>Weight.</strong> Steel weighs twice as much as rubber. Weight does not change how fast a marble rolls down a slope; it only matters when marbles collide, and then steel shoves rubber aside.</li>
+    <li><strong>Holes.</strong> Each marble has a hole of its own colour. A marble that rolls over the wrong hole drops in and pops back to its start, which counts as a <dfn>slip</dfn>. A filled hole is flat, so other marbles roll over it.</li>
+    <li><strong>The goal.</strong> Both marbles in their own holes. The score is total time across the trays, plus how many slips you made.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 210" role="img" aria-label="A tilt scale from flat at the left to fully tipped at the right. Below 6 percent nothing moves. From 6 to 35 percent only the steel marble rolls. Above 35 percent both steel and rubber roll.">
+      <path class="d-stroke" d="M40 90 H600"/>
+      <path class="d-stroke" d="M40 80 V100 M600 80 V100"/>
+      <path class="d-accent" d="M74 72 V108"/>
+      <path class="d-accent" d="M236 72 V108"/>
+      <text class="d-text" x="40" y="60" text-anchor="middle">0%</text>
+      <text class="d-text" x="80" y="60" text-anchor="start">6%</text>
+      <text class="d-text" x="236" y="60" text-anchor="middle">35%</text>
+      <text class="d-text" x="600" y="60" text-anchor="middle">100%</text>
+
+      <text class="d-muted" x="56" y="134" text-anchor="middle">still</text>
+
+      <rect class="d-accent-soft" x="80" y="118" width="150" height="34" rx="6"/>
+      <text class="d-text" x="155" y="140" text-anchor="middle">steel only</text>
+
+      <rect class="d-accent-soft" x="242" y="118" width="358" height="34" rx="6"/>
+      <text class="d-text" x="421" y="140" text-anchor="middle">steel and rubber</text>
+
+      <text class="d-label" x="155" y="186" text-anchor="middle">a private message</text>
+      <text class="d-label" x="421" y="186" text-anchor="middle">a message to everyone</text>
+    </svg>
+    <figcaption>Grip turns one shared control into two channels. The space between the two thresholds is where the puzzle lives.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is a steady hand: the waiter carrying a full tray, or the child with a pocket maze puzzle, who knows exactly how far to tip. The constraint is that you steer everything at once with one control, and the marbles answer it differently. That turns a dexterity toy into a planning puzzle. The mood is calm and tactile, with no enemies and no countdown, only the clock you set for yourself.</p>
+  <p>This is not real physics. A real ball on a hard tray rolls down any slope at all. Grip here is a game rule, loosely like a marble on thick felt, where the soft surface soaks up energy and a small slope is not enough to start it. Players accept the rule quickly if each material looks and sounds like what it does.</p>
+  <p>The hardest part to build is the level design, not the code. The physics is thirty lines. Making trays where the order of moves matters, where a wrong order is recoverable, and where a keyboard player and a touch player can both solve them, takes most of the work.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>On the first tray, tip steeply toward the bottom left and watch the steel marble fall into the orange hole and pop back. Then restart, and try a gentle tip down and to the right first. Watch the rubber marble sit still while steel finds its own way round the wall.</p>
+
+  <figure class="demo wide" data-demo="tilt-tray">
+    <canvas id="tilt-tray"></canvas>
+    <figcaption>Controls: press and hold on the tray (mouse or touch) to tip it toward that point; inside the dashed ring only steel moves. Keyboard: click the canvas, then the arrow keys tip gently (25 percent) and <kbd>Shift</kbd> with an arrow tips steeply (80 percent). Let go to level the tray. <kbd>R</kbd> or the Restart button starts over. Steel is the purple S, rubber the orange R, and each hole is ringed in its marble's colour.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: one tilt applied to every marble, with grip deciding whether it moves. Tray units are the same as the demo (a tray 400 by 280), and <code>tilt</code> is set from the mouse or keys. Walls, holes and marble collisions are left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, STEP = 700, 1 / 120   <span class="c">-- units per second squared at full tilt</span>
+local tilt = { x = 0, y = 0 }  <span class="c">-- each axis -1..1, from mouse or keys</span>
+local marbles = {
+  { x = 170, y = 140, vx = 0, vy = 0, mass = 2, grip = 0.06 }, <span class="c">-- steel</span>
+  { x = 230, y = 140, vx = 0, vy = 0, mass = 1, grip = 0.35 }, <span class="c">-- rubber</span>
+}
+
+local function stepMarble(m, dt)
+  local tx, ty = tilt.x, tilt.y
+  local t = math.sqrt(tx * tx + ty * ty)
+  local speed = math.sqrt(m.vx * m.vx + m.vy * m.vy)
+  if speed &lt; 0.5 then
+<span class="k">    if t &lt;= m.grip then         -- not steep enough: it stays put</span>
+      m.vx, m.vy = 0, 0
+      return
+    end
+    <span class="c">-- starting from rest: grip pushes back along the tilt</span>
+    m.vx = m.vx + G * (tx - m.grip * tx / t) * dt
+    m.vy = m.vy + G * (ty - m.grip * ty / t) * dt
+  else
+    <span class="c">-- rolling: grip pushes back against the motion</span>
+    local ox, oy = m.vx, m.vy
+<span class="k">    m.vx = m.vx + G * (tx - m.grip * ox / speed) * dt</span>
+<span class="k">    m.vy = m.vy + G * (ty - m.grip * oy / speed) * dt</span>
+    if m.vx * ox + m.vy * oy &lt;= 0 then m.vx, m.vy = 0, 0 end <span class="c">-- grip stopped it</span>
+  end
+  m.x = m.x + m.vx * dt
+  m.y = m.y + m.vy * dt
+end
+
+local acc = 0
+function love.update(dt)
+  acc = math.min(acc + dt, 0.1)
+  while acc &gt;= STEP do
+    for _, m in ipairs(marbles) do stepMarble(m, STEP) end
+    acc = acc - STEP
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the mechanic. Grip is a constant push against the motion, the same size whatever the speed, so it acts like a threshold at rest and a brake while rolling. The last check stops a marble instead of letting the brake push it backwards. <code>mass</code> is unused here; the demo uses it only when two marbles collide.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Thresholds the player cannot feel.</strong> If the gap between "steel only" and "both" is invisible, a mistake looks like the game cheated. The prototype draws the rubber threshold as a dashed ring and colours the tilt arrow. Test: hide the ring for one tester and keep it for another, then compare how often each tips past it by accident.</li>
+    <li><strong>Pointer and keys play different games.</strong> A touch player can hold any tilt; a keyboard player has eight directions and two strengths. A level that needs a 15 degree angle is unfair on keys. Solve every level with the keyboard first.</li>
+    <li><strong>Dexterity creeping in.</strong> If clearing a tray depends on holding a tilt for exactly the right fraction of a second, the puzzle turns into a reflex test. Holes in corners and along walls let walls do the aiming. Watch for testers who know the answer and still fail.</li>
+    <li><strong>One solution, found by flailing.</strong> Two marbles in an open tray can often be solved by tipping wildly until both drop in. Time a tester who thinks and one who just shakes the tray. If shaking is as fast, the level needs a trap that punishes it, like the wrong hole on the first tray.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Tilting the world instead of moving the hero is old and well loved. The wooden labyrinth toy, where two knobs tip a board to roll one ball past holes, is the physical ancestor. <cite>Super Monkey Ball</cite> tilts the stage under a ball, and phone games often use the accelerometer to tip a maze. Puzzles where one input moves many pieces at once are just as familiar from sliding tile games such as <cite>2048</cite>, where every tile slides in the chosen direction.</p>
+  <p>Tilt Tray Twins borrows the tilt from the first group and the "one move, many pieces" from the second. What I have not seen at the centre of a game is the split by material: the same tilt is a different command to each marble. I cannot be sure no game has done it, so treat this as a direction to explore, not a gap I can promise.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with the tray edges as walls, two holes as circles, and the arrow keys setting <code>tilt</code> to 0.25 (or 0.8 with Shift). Use the first tray from the demo: one wall, both marbles in the middle, holes in opposite corners. Draw marbles and holes with <code>love.graphics.circle</code>.</p>
+  <p>Hand it to a friend and say only "each ball goes in its own hole". The one question to answer: <strong>do they discover, without being told, that a gentle tilt moves only one marble?</strong> If they find it within a minute and grin, the idea works. If they never find it, the materials need to look more different, or the first tray must make the gentle tilt the only way through.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> twelve trays with two marbles each, walls only, a time and slip count per tray, and the tilt ring always visible.</li>
+    <li><strong>One-month version:</strong> a third material between steel and rubber, a fourth marble on late trays, soft patches of felt that raise grip where they lie, and a level editor.</li>
+    <li><strong>Cut first:</strong> accelerometer control on phones. It feels great but makes the two thresholds hard to hit on purpose; press-and-hold works on every device.</li>
+    <li>The mechanic is the gap between two thresholds. Every feature should make that gap easier to see and use.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the player swap one marble's material once per tray, so the puzzle becomes choosing which marble should be the slippery one.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On how a physical response becomes readable and pleasant to control.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The lenses on puzzles and on the core mechanic are a good check for an idea this small.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why a fixed physics step makes the same tilt give the same result every time.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann). Covers friction and contact resolution of the kind the demo uses for walls and collisions.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var TW = 400, TH = 280, G = 700, STEP = 1 / 120, R = 11, HOLE_R = 13, CATCH = 20;
+  var GENTLE = 0.25, STEEP = 0.8, REST = 0.5, FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var KINDS = {
+    steel: { label: 'S', mass: 2, grip: 0.06 },
+    rubber: { label: 'R', mass: 1, grip: 0.35 }
+  };
+  var ORDER = ['steel', 'rubber'];
+  var LEVELS = [
+    { name: 'Split up', walls: [[286, 0, 14, 180]],
+      start: { steel: [170, 140], rubber: [230, 140] },
+      holes: { steel: [376, 24], rubber: [24, 256] } },
+    { name: 'Cross over', walls: [[0, 132, 300, 16]],
+      start: { steel: [250, 66], rubber: [250, 214] },
+      holes: { steel: [24, 256], rubber: [24, 24] } }
+  ];
+
+  var level, marbles, filled, tilt, target, time, slips, mode, wait, message, msgColor, best, started, acc;
+  var view = { ox: 0, oy: 0, sc: 1, ring: 1 };
+  var handle = null;
+
+  function loadLevel(i) {
+    level = i; marbles = []; filled = {}; acc = 0; wait = 0;
+    ORDER.forEach(function (k) {
+      var st = LEVELS[i].start[k];
+      marbles.push({ kind: k, x: st[0], y: st[1], vx: 0, vy: 0, mass: KINDS[k].mass,
+        grip: KINDS[k].grip, sunk: false, pop: 0 });
+    });
+    mode = 'play';
+    message = i === 0 ? 'Press and hold on the tray, or use the arrow keys' : 'Tray 2: each lane leads to the other marble\'s hole';
+    msgColor = 'ink2';
+  }
+
+  function reset() {
+    tilt = { x: 0, y: 0 }; target = { x: 0, y: 0 };
+    time = 0; slips = 0; started = false;
+    loadLevel(0);
+  }
+
+  function stepMarble(m, dt) {
+    var tx = tilt.x, ty = tilt.y, t = Math.sqrt(tx * tx + ty * ty);
+    var speed = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+    if (speed < REST) {
+      if (t <= m.grip) { m.vx = 0; m.vy = 0; return; }
+      m.vx += G * (tx - m.grip * tx / t) * dt;
+      m.vy += G * (ty - m.grip * ty / t) * dt;
+    } else {
+      var ox = m.vx, oy = m.vy;
+      m.vx += G * (tx - m.grip * ox / speed) * dt;
+      m.vy += G * (ty - m.grip * oy / speed) * dt;
+      if (m.vx * ox + m.vy * oy <= 0) { m.vx = 0; m.vy = 0; }
+    }
+    m.x += m.vx * dt; m.y += m.vy * dt;
+  }
+
+  function bounce(m, nx, ny) {
+    var vn = m.vx * nx + m.vy * ny;
+    if (vn < 0) {
+      var e = vn < -30 ? 0.3 : 0;
+      m.vx -= (1 + e) * vn * nx; m.vy -= (1 + e) * vn * ny;
+    }
+  }
+
+  function collideWalls(m) {
+    if (m.x < R) { m.x = R; bounce(m, 1, 0); }
+    if (m.x > TW - R) { m.x = TW - R; bounce(m, -1, 0); }
+    if (m.y < R) { m.y = R; bounce(m, 0, 1); }
+    if (m.y > TH - R) { m.y = TH - R; bounce(m, 0, -1); }
+    LEVELS[level].walls.forEach(function (w) {
+      var qx = Math.max(w[0], Math.min(m.x, w[0] + w[2]));
+      var qy = Math.max(w[1], Math.min(m.y, w[1] + w[3]));
+      var dx = m.x - qx, dy = m.y - qy, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= R) return;
+      var nx, ny;
+      if (d > 0) { nx = dx / d; ny = dy / d; m.x = qx + nx * R; m.y = qy + ny * R; }
+      else {
+        // Centre inside the wall: push out along the shortest side.
+        var l = m.x - w[0], r = w[0] + w[2] - m.x, u = m.y - w[1], b = w[1] + w[3] - m.y;
+        var mn = Math.min(l, r, u, b);
+        nx = mn === l ? -1 : mn === r ? 1 : 0; ny = mn === u ? -1 : mn === b ? 1 : 0;
+        if (nx !== 0) m.x = nx < 0 ? w[0] - R : w[0] + w[2] + R; else m.y = ny < 0 ? w[1] - R : w[1] + w[3] + R;
+      }
+      bounce(m, nx, ny);
+    });
+  }
+
+  function collidePair(a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d >= 2 * R || d === 0) return;
+    var nx = dx / d, ny = dy / d, over = 2 * R - d, tot = a.mass + b.mass;
+    a.x -= nx * over * b.mass / tot; a.y -= ny * over * b.mass / tot;
+    b.x += nx * over * a.mass / tot; b.y += ny * over * a.mass / tot;
+    var vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vn >= 0) return;
+    var j = -(1 + 0.5) * vn / (1 / a.mass + 1 / b.mass);
+    a.vx -= j / a.mass * nx; a.vy -= j / a.mass * ny;
+    b.vx += j / b.mass * nx; b.vy += j / b.mass * ny;
+  }
+
+  function checkHoles(m) {
+    var holes = LEVELS[level].holes;
+    ORDER.forEach(function (k) {
+      if (m.sunk || filled[k]) return;
+      var h = holes[k], dx = m.x - h[0], dy = m.y - h[1];
+      if (dx * dx + dy * dy >= CATCH * CATCH) return;
+      if (k === m.kind) {
+        m.sunk = true; filled[k] = true;
+        message = (m.kind === 'steel' ? 'Steel' : 'Rubber') + ' is home'; msgColor = 'good';
+      } else {
+        slips += 1;
+        var st = LEVELS[level].start[m.kind];
+        m.x = st[0]; m.y = st[1]; m.vx = 0; m.vy = 0; m.pop = 0.6;
+        message = 'Wrong hole: ' + m.kind + ' popped back to its start'; msgColor = 'bad';
+      }
+    });
+  }
+
+  function physics() {
+    var live = marbles.filter(function (m) { return !m.sunk; });
+    live.forEach(function (m) { stepMarble(m, STEP); });
+    if (live.length === 2) collidePair(live[0], live[1]);
+    live.forEach(function (m) { collideWalls(m); checkHoles(m); });
+    if (filled.steel && filled.rubber) {
+      if (level + 1 < LEVELS.length) {
+        mode = 'clear'; wait = 1.4; message = 'Tray clear!'; msgColor = 'good';
+      } else {
+        mode = 'done';
+        if (best === null || time < best) best = time;
+        message = 'Both trays in ' + time.toFixed(1) + ' s with ' + slips + ' slips. Restart to try again';
+        msgColor = 'good';
+      }
+    }
+  }
+
+  function readKeys(keys) {
+    var x = 0, y = 0;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (keys.has('arrowup') || keys.has('w')) y -= 1;
+    if (keys.has('arrowdown') || keys.has('s')) y += 1;
+    var len = Math.sqrt(x * x + y * y);
+    if (len === 0) return null;
+    var k = (keys.has('shift') ? STEEP : GENTLE) / len;
+    return { x: x * k, y: y * k };
+  }
+
+  function update(dt, s) {
+    marbles.forEach(function (m) { if (m.pop > 0) m.pop -= dt; });
+    var kt = readKeys(s.keys);
+    if (kt) target = kt;
+    else if (s.pointer.down) target = pointerTilt(s.pointer);
+    else target = { x: 0, y: 0 };
+    var f = Math.min(1, dt * 12);
+    tilt.x += (target.x - tilt.x) * f; tilt.y += (target.y - tilt.y) * f;
+    if (Math.abs(tilt.x) < 0.002 && Math.abs(tilt.y) < 0.002 && !kt && !s.pointer.down) { tilt.x = 0; tilt.y = 0; }
+    if (mode === 'clear') {
+      wait -= dt;
+      if (wait <= 0) loadLevel(level + 1);
+      return;
+    }
+    if (mode !== 'play') return;
+    if (!started && (tilt.x * tilt.x + tilt.y * tilt.y) > 0.0004) started = true;
+    if (!started) return;
+    time += dt;
+    acc = Math.min(acc + dt, 0.1);
+    while (acc >= STEP && mode === 'play') { physics(); acc -= STEP; }
+  }
+
+  function pointerTilt(p) {
+    var cx = view.ox + TW / 2 * view.sc, cy = view.oy + TH / 2 * view.sc;
+    var x = (p.x - cx) / view.ring, y = (p.y - cy) / view.ring, len = Math.sqrt(x * x + y * y);
+    if (len > 1) { x /= len; y /= len; }
+    return { x: x, y: y };
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(str, x, y);
+  }
+
+  function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+
+  function draw(ctx, s) {
+    var c = s.colors, top = 46, bottom = 40;
+    var sc = Math.min((s.width - 16) / TW, (s.height - top - bottom) / TH);
+    var ox = (s.width - TW * sc) / 2, oy = top;
+    view.ox = ox; view.oy = oy; view.sc = sc; view.ring = 0.45 * TH * sc;
+    var colorOf = { steel: c.topic, rubber: c.warn };
+    function X(x) { return ox + x * sc; }
+    function Y(y) { return oy + y * sc; }
+
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.fillStyle = c.surface; ctx.fillRect(ox, oy, TW * sc, TH * sc);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 3; ctx.strokeRect(ox, oy, TW * sc, TH * sc);
+    ctx.fillStyle = c.ink3;
+    LEVELS[level].walls.forEach(function (w) { ctx.fillRect(X(w[0]), Y(w[1]), w[2] * sc, w[3] * sc); });
+
+    // Holes, ringed in their marble's colour.
+    ORDER.forEach(function (k) {
+      var h = LEVELS[level].holes[k];
+      circle(ctx, X(h[0]), Y(h[1]), HOLE_R * sc); ctx.fillStyle = c.ink; ctx.fill();
+      ctx.strokeStyle = colorOf[k]; ctx.lineWidth = 3; ctx.stroke();
+    });
+
+    // Threshold ring and tilt arrow at the centre of the tray.
+    var cx = X(TW / 2), cy = Y(TH / 2), mag = Math.sqrt(tilt.x * tilt.x + tilt.y * tilt.y);
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = c.warn; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+    circle(ctx, cx, cy, KINDS.rubber.grip * view.ring); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    if (mag > 0.01) {
+      var col = mag > KINDS.rubber.grip ? c.warn : mag > KINDS.steel.grip ? c.topic : c.ink3;
+      var ex = cx + tilt.x * view.ring, ey = cy + tilt.y * view.ring, ang = Math.atan2(tilt.y, tilt.x);
+      ctx.strokeStyle = col; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(ex + Math.cos(ang) * 8, ey + Math.sin(ang) * 8);
+      ctx.lineTo(ex + Math.cos(ang + 2.4) * 8, ey + Math.sin(ang + 2.4) * 8);
+      ctx.lineTo(ex + Math.cos(ang - 2.4) * 8, ey + Math.sin(ang - 2.4) * 8); ctx.closePath(); ctx.fill();
+    }
+
+    // Marbles, offset slightly opposite the tilt as a shadow.
+    marbles.forEach(function (m) {
+      var hole = LEVELS[level].holes[m.kind];
+      var mx = X(m.sunk ? hole[0] : m.x), my = Y(m.sunk ? hole[1] : m.y), r = (m.sunk ? R * 0.8 : R) * sc;
+      if (!m.sunk) {
+        ctx.globalAlpha = 0.18; ctx.fillStyle = c.ink;
+        circle(ctx, mx - tilt.x * 4 + 2, my - tilt.y * 4 + 3, r); ctx.fill(); ctx.globalAlpha = 1;
+      }
+      circle(ctx, mx, my, r); ctx.fillStyle = colorOf[m.kind]; ctx.fill();
+      if (m.pop > 0) { ctx.strokeStyle = c.bad; ctx.lineWidth = 3; circle(ctx, mx, my, r + 4 + m.pop * 10); ctx.stroke(); }
+      text(ctx, KINDS[m.kind].label, mx, my + 4, c.surface, '700 ' + Math.max(10, Math.round(r)) + 'px', 'center');
+    });
+
+    // HUD.
+    text(ctx, 'Tray ' + (level + 1) + ' of ' + LEVELS.length + ': ' + LEVELS[level].name, 10, 18, c.ink, '600 13px');
+    text(ctx, time.toFixed(1) + ' s   Slips ' + slips + (best === null ? '' : '   Best ' + best.toFixed(1) + ' s'),
+      s.width - 10, 18, c.ink2, '12px', 'right');
+    text(ctx, message, 10, 37, c[msgColor] || c.ink, '12px');
+    var who = mag > KINDS.rubber.grip ? 'both move' : mag > KINDS.steel.grip ? 'steel only' : 'nothing moves';
+    text(ctx, 'Tilt ' + Math.round(mag * 100) + '%: ' + who, 10, s.height - 22, c.ink2, '12px');
+    text(ctx, 'Dashed ring = 35%', 10, s.height - 7, c.ink3, '11px');
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  var ui = DemoKit.controls('[data-demo="tilt-tray"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  best = null;
+  reset();
+
+  handle = DemoKit.canvas('#tilt-tray', {
+    aspect: 400 / 366,
+    minHeight: 300,
+    maxHeight: 520,
+    keys: true,
+    drag: true,
+    label: 'Tilt Tray Twins prototype. A top-down tray with a purple steel marble, an orange rubber marble, walls and two coloured holes. Press and hold or use the arrow keys to tip the tray; hold Shift for a steep tip.',
+    update: update,
+    draw: draw,
+    onDown: function () { wake(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'r') reset();
+    }
+  });
+})();
+</script>
+</body>
+</html>

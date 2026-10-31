@@ -25,7 +25,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Limited palettes** — How restricting the number of colours creates a unified look and faster decisions. Demo: a colour count slider reduces a procedural scene from 32 colours down to 4. (published 2026-10-28, limited-palettes)
 - [x] **Sharing colours between ramps** — How one colour can serve several ramps so that a small palette covers many materials. Demo: click swatches to link ramps in a palette map and see the total colour count drop while the scene stays readable. (published 2026-10-29, sharing-colours-between-ramps)
 - [x] **Contrast with the background** — How value and saturation contrast keep characters and pickups visible on busy backgrounds. Demo: drag a sprite across light and dark backgrounds while adjusting its brightness, with a contrast score shown. (published 2026-10-30, contrast-with-background)
-- [ ] **Colour temperature and mood** — How warm and cool palettes change the mood of the same scene. Demo: a temperature slider shifts a small landscape from dawn to night by remapping its palette.
+- [x] **Colour temperature and mood** — How warm and cool palettes change the mood of the same scene. Demo: a temperature slider shifts a small landscape from dawn to night by remapping its palette. (published 2026-10-31, colour-temperature-mood)
 - [ ] **Classic hardware palettes** — What the Game Boy, NES and PICO-8 palettes look like and how fixed palettes shaped classic game art. Demo: choose a palette button to remap a scene to that palette using nearest colour matching.
 
 ## Track 3: Light, shading, and materials

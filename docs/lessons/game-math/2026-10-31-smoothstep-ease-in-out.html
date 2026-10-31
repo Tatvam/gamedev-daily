@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smoothstep: why does my camera jolt when it starts and stops? · Game Dev Daily</title>
+<meta name="description" content="How smoothstep bends the straight 0 to 1 ramp of lerp into an S-shaped curve, so a camera or door starts gently, speeds up, and settles softly.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-10-31">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  article { --sm-lin: #2f5fe8; --sm-s: #b35f00; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) article { --sm-lin: #7397ff; --sm-s: #ffa31a; }
+  }
+  html[data-theme="dark"] article { --sm-lin: #7397ff; --sm-s: #ffa31a; }
+  .v-lin { color: var(--sm-lin); font-weight: 650; }
+  .v-s { color: var(--sm-s); font-weight: 650; }
+  .v-t { color: var(--topic); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Smoothstep: why does my camera jolt when it starts and stops?</h1>
+  <p class="lede">How smoothstep bends the straight 0 to 1 ramp of lerp into an S-shaped curve, so a camera or door starts gently, speeds up, and settles softly.</p>
+</header>
+
+<section data-section="hook">
+  <p>The player walks through a doorway and the camera pans to the next room in exactly one second, using lerp. It works, but it feels mechanical: the camera leaps to full speed on the first frame and stops dead on the last, with a small jolt at each end.</p>
+  <p>Real things speed up and slow down. Today we keep lerp and change only the number we feed it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Bend t before you use it</h2>
+  <p>Recall the lerp lesson: <code>lerp(a, b, t) = a + (b - a) * t</code>. The start is a, the end is b, and <span class="v-t">t</span> is the fraction of the way from 0 to 1. For a timed move, t is the time so far divided by the duration, so it grows at a steady rate.</p>
+  <p>That steady rate is the problem. The speed is the same on the first frame as in the middle, and then it drops to zero in one frame. Your eye reads a sudden change of speed as a jolt.</p>
+  <p>The fix is to pass t through a curve first. A curve that turns 0 to 1 into 0 to 1, but changes slowly near both ends and quickly in the middle, is called an <dfn>easing curve</dfn>. The simplest useful one is <dfn>smoothstep</dfn>, named for its S shape.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Left: a graph with t from 0 to 1 across and the output from 0 to 1 upwards. A blue straight line goes corner to corner for lerp. An orange S-shaped curve starts flat, rises steeply in the middle and ends flat for smoothstep. Right: two rows of eleven dots showing positions at equal steps of time. The blue lerp dots are evenly spaced. The orange smoothstep dots are bunched near both ends and spread out in the middle.">
+      <path class="d-thin" d="M50 250 H262 M50 250 V40"/>
+      <path class="d-dash" d="M250 250 V50 H50 M150 250 V150 H50"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="50" y="270">0</text>
+        <text class="d-mono" x="150" y="270">0.5</text>
+        <text class="d-mono" x="250" y="270">1</text>
+        <text class="d-text" x="150" y="292">time fraction t</text>
+      </g>
+      <g text-anchor="end">
+        <text class="d-mono" x="42" y="254">0</text>
+        <text class="d-mono" x="42" y="154">0.5</text>
+        <text class="d-mono" x="42" y="54">1</text>
+      </g>
+      <text class="d-label" x="50" y="28">output (y up)</text>
+
+      <path d="M50 250 L250 50" style="stroke: var(--sm-lin); stroke-width: 3; fill: none"/>
+      <path d="M50.0 250.0 L60.0 248.6 L70.0 244.4 L80.0 237.8 L90.0 229.2 L100.0 218.8 L110.0 206.8 L120.0 193.7 L130.0 179.6 L140.0 164.9 L150.0 150.0 L160.0 135.0 L170.0 120.4 L180.0 106.3 L190.0 93.2 L200.0 81.3 L210.0 70.8 L220.0 62.2 L230.0 55.6 L240.0 51.4 L250.0 50.0" style="stroke: var(--sm-s); stroke-width: 3; fill: none"/>
+
+      <path d="M64 76 H86" style="stroke: var(--sm-lin); stroke-width: 3"/>
+      <text class="d-text" x="92" y="80">lerp: t</text>
+      <path d="M64 100 H86" style="stroke: var(--sm-s); stroke-width: 3"/>
+      <text class="d-text" x="92" y="104">smoothstep</text>
+
+      <text class="d-text" x="340" y="80">lerp: equal gaps</text>
+      <path class="d-thin" d="M340 110 H600"/>
+      <g style="fill: var(--sm-lin)">
+        <circle cx="340" cy="110" r="5"/><circle cx="366" cy="110" r="5"/><circle cx="392" cy="110" r="5"/>
+        <circle cx="418" cy="110" r="5"/><circle cx="444" cy="110" r="5"/><circle cx="470" cy="110" r="5"/>
+        <circle cx="496" cy="110" r="5"/><circle cx="522" cy="110" r="5"/><circle cx="548" cy="110" r="5"/>
+        <circle cx="574" cy="110" r="5"/><circle cx="600" cy="110" r="5"/>
+      </g>
+      <text class="d-text" x="340" y="180">smoothstep: bunched at the ends</text>
+      <path class="d-thin" d="M340 210 H600"/>
+      <g style="fill: var(--sm-s)">
+        <circle cx="340" cy="210" r="5"/><circle cx="347.3" cy="210" r="5"/><circle cx="367" cy="210" r="5"/>
+        <circle cx="396.2" cy="210" r="5"/><circle cx="431.5" cy="210" r="5"/><circle cx="470" cy="210" r="5"/>
+        <circle cx="508.5" cy="210" r="5"/><circle cx="543.8" cy="210" r="5"/><circle cx="573" cy="210" r="5"/>
+        <circle cx="592.7" cy="210" r="5"/><circle cx="600" cy="210" r="5"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="340" y="236">a</text>
+        <text class="d-mono" x="600" y="236">b</text>
+      </g>
+      <text class="d-muted" x="340" y="268">one dot every tenth of the move's time</text>
+    </svg>
+    <figcaption>Left: the graph uses maths axes, with the output growing upwards. Right: where the object is at t = 0, 0.1, 0.2 and so on up to 1. Close dots mean slow movement, wide gaps mean fast movement. Both rows start at a and end at b at the same moments.</figcaption>
+  </figure>
+
+  <h3>The formula</h3>
+  <p>Smoothstep takes t from 0 to 1 and returns a new fraction <span class="v-s">s</span>, also from 0 to 1:</p>
+<pre><code>s = t * t * (3 - 2 * t)</code></pre>
+  <p>In words: t squared, times three minus twice t. You will also see it written as 3t² − 2t³, which is the same thing multiplied out. Worked example with <span class="v-t">t = 0.25</span>, a quarter of the time:</p>
+  <ol>
+    <li>t × t = 0.25 × 0.25 = 0.0625.</li>
+    <li>3 − 2 × 0.25 = 3 − 0.5 = 2.5.</li>
+    <li>s = 0.0625 × 2.5 = <span class="v-s">0.15625</span>.</li>
+  </ol>
+  <p>After a quarter of the time the object has covered about 16 percent of the way instead of 25 percent. Check the other key points. At t = 0, s = 0. At t = 1, s = 1 × 1 × (3 − 2) = 1. At t = 0.5, s = 0.25 × 2 = 0.5, so the middle is the same as lerp. At t = 0.75, s = 0.84375, which mirrors the quarter: 1 − 0.15625.</p>
+  <p>To use it, feed s to lerp instead of t: <code>x = lerp(a, b, smoothstep(t))</code>. Smoothstep does not replace lerp. It only reshapes the fraction.</p>
+
+  <h3>Where the speed goes</h3>
+  <p>Compare how far each version moves in one tenth of the time. With lerp every tenth moves 0.1 of the way. With smoothstep, t from 0 to 0.1 moves s from 0 to 0.028, almost nothing, while t from 0.4 to 0.5 moves s from 0.352 to 0.5, which is 0.148. The time saved at the ends is spent in the middle. If you know calculus: the speed of s compared with lerp is 6t(1 − t), which is 0 at both ends and peaks at 1.5 in the middle.</p>
+
+  <h3>The shader form: smoothstep between two edges</h3>
+  <p>Shading languages define smoothstep with two edges: <code>smoothstep(edge0, edge1, x)</code>. It is yesterday's clamped inverse lerp followed by the S curve: t = clamp((x − edge0) / (edge1 − edge0), 0, 1), then t × t × (3 − 2t). A fog that starts at 20 metres and is complete at 60 metres, seen at 30 metres: t = (30 − 20) / (60 − 20) = 0.25, so the fog amount is 0.15625.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Always clamp t first</p>
+    <p>The S curve only behaves between 0 and 1. Outside it the formula turns back: t = 1.25 gives 0.78, t = 1.5 gives 0, and t = 2 gives −4. A camera whose timer runs past the duration would slide back towards the start and then shoot off the other way. Clamp t to 0 to 1 before applying the curve.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The two crates make the same move from pad a to pad b in the same time. The <span class="v-lin">blue crate</span> uses lerp and the <span class="v-s">orange crate</span> uses smoothstep. Press Play and watch the orange crate creep away, overtake the blue one at the halfway point, and settle gently onto its pad.</p>
+  <p>Then drag anywhere on the canvas, or use the <span class="v-t">t</span> slider, to scrub through the move; with the canvas focused, the arrow keys move t by 0.05. The faint dots are where each crate is at every tenth of the time. Finally, switch <strong>Clamp t to 0 to 1</strong> off and drag t past 1 to see the curve turn back.</p>
+  <figure class="demo" data-demo="smoothstep">
+    <canvas id="smoothstep"></canvas>
+    <figcaption>The graph uses maths axes: t grows to the right and the output grows upwards. The tracks below share the graph's horizontal scale, so the blue crate always sits directly under the dashed t line. The speed readout compares each crate with the average speed of the whole move.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A crate in LÖVE that moves between two pads in one second, the same move as the demo. Press space to send it to the other pad. <code>smooth01</code> holds the line that matters.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Screen coordinates: x grows right, y grows down, as in LÖVE.</span>
+local A, B = 40, 360           <span class="c">-- the two pads, in pixels</span>
+local DURATION = 1.0           <span class="c">-- seconds per move</span>
+
+local function lerp(a, b, t)
+  return a + (b - a) * t
+end
+
+local function clamp01(t)
+  return math.max(0, math.min(1, t))
+end
+
+<span class="c">-- The S curve on 0..1. Clamp first: outside 0..1 the curve turns back.</span>
+local function smooth01(t)
+  t = clamp01(t)
+<span class="k">  return t * t * (3 - 2 * t)</span>
+end
+
+<span class="c">-- Shader style: 0 below edge0, 1 above edge1, S-shaped in between.</span>
+local function smoothstep(edge0, edge1, x)
+  if edge0 == edge1 then return x &lt; edge0 and 0 or 1 end   <span class="c">-- avoid dividing by 0</span>
+  return smooth01((x - edge0) / (edge1 - edge0))
+end
+
+print(smooth01(0.25))          <span class="c">-- 0.15625</span>
+print(smooth01(1.5))           <span class="c">-- 1, thanks to the clamp</span>
+print(smoothstep(20, 60, 30))  <span class="c">-- 0.15625, fog at 30 m</span>
+
+local crateX, from, to, elapsed = A, A, B, 0
+
+function love.keypressed(key)
+  if key == "space" then
+    if to == B then to = A else to = B end
+    from, elapsed = crateX, 0
+  end
+end
+
+function love.update(dt)
+  elapsed = elapsed + dt
+  crateX = lerp(from, to, smooth01(elapsed / DURATION))
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", crateX - 20, 200, 40, 40)
+end</code></pre>
+  </div>
+  <p>Built-in versions: Godot's <code>smoothstep(from, to, x)</code> is the shader form with two edges and returns 0 to 1. Unity's <code>Mathf.SmoothStep(from, to, t)</code> is different: it returns a value between from and to, like a lerp that eases, so it plays the role of <code>lerp(from, to, smooth01(t))</code>. GLSL has <code>smoothstep(edge0, edge1, x)</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Not clamping t.</strong> When the timer runs past the duration, t goes above 1 and the plain formula runs backwards: 0 at t = 1.5 and −4 at t = 2. Below 0 it climbs again: t = −0.5 gives 1. Clamp before the curve, as <code>smooth01</code> does.</li>
+    <li><strong>Mixing up the two signatures.</strong> The shader form and Godot take two edges and a value and return a fraction. Unity takes a start, an end and a fraction and returns a position. Test with t = 0.25 and expect 0.15625 of the way.</li>
+    <li><strong>Equal edges.</strong> If edge0 equals edge1 the inverse lerp divides by zero; guard it as above, which turns it into a hard step. The GLSL specification also leaves the result undefined when edge0 is greater than edge1, so in shaders do not rely on a reversed range.</li>
+    <li><strong>Smoothing the position instead of t.</strong> Smoothstep shapes the fraction of a timed move. Applying it to a position every frame does not ease anything. Chasing a moving target is a different problem, covered by exponential smoothing.</li>
+    <li><strong>Interrupted moves.</strong> If a new move starts halfway, start it from the current position, as the code does with <code>from = crateX</code>, or the crate jumps.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Smoothstep is one of the most common functions in shaders. The usual trick is to use it as a soft threshold: <code>smoothstep(0.4, 0.6, value)</code> instead of a hard cut-off gives soft edges to circles, outlines, fog bands and dissolve effects. GLSL and HLSL both have it built in.</p>
+  <p>The same curve is the fade function in Ken Perlin's original noise. His later improved noise replaced it with a smoother cousin, 6t⁵ − 15t⁴ + 10t³, often called smootherstep, which also starts and ends with no change in acceleration. In gameplay code it is a common default for camera pans, doors and sliding menus.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a timed move in your own project that uses lerp with a timer: a door, a camera pan, a menu panel. Add <code>smooth01</code> and change <code>lerp(a, b, t)</code> to <code>lerp(a, b, smooth01(t))</code>. Put the choice on a key so you can compare them while the game runs.</p>
+  <p>You are done when, at a quarter of the duration, the object is about 16 percent of the way along instead of 25 percent, and letting the timer run long past the duration leaves it resting on b. For a bonus, fade a sign in with the Lua <code>smoothstep(5, 2, distance)</code> above as the player walks from 5 metres to 2 metres away, and check that 3.5 metres gives 0.5.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Smoothstep reshapes the fraction t: <code>s = t * t * (3 - 2 * t)</code>, then <code>lerp(a, b, s)</code>.</li>
+    <li>It starts and ends with zero speed and moves fastest in the middle, at 1.5 times the average speed.</li>
+    <li>At t = 0.25 it gives 0.15625, at 0.5 it gives 0.5, and it is symmetric about the middle.</li>
+    <li>Clamp t to 0 to 1 first. Outside that range the curve turns back.</li>
+    <li>The shader form <code>smoothstep(edge0, edge1, x)</code> is a clamped inverse lerp followed by the same curve. Unity's version takes different arguments.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Smoothstep is one easing curve; next we look at a whole family of them, from ease-in and ease-out to curves that overshoot and bounce.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>The Khronos Group, <cite>The OpenGL Shading Language</cite> specification, the built-in function <code>smoothstep</code>.</li>
+    <li>Ken Perlin, <cite>Improving Noise</cite>, SIGGRAPH 2002, for the 6t⁵ − 15t⁴ + 10t³ fade curve.</li>
+    <li>Godot Engine documentation, <cite>@GlobalScope</cite>: <cite>smoothstep</cite>.</li>
+    <li>Unity Scripting API, <cite>Mathf.SmoothStep</cite>.</li>
+    <li>LÖVE wiki, <cite>love.keypressed</cite> and <cite>love.graphics.rectangle</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var T_MIN = -0.25, T_MAX = 1.25;         // horizontal scale, shared by the graph and the tracks
+  var V_MIN = -0.3, V_MAX = 1.3;           // vertical scale of the graph (maths axes, y up)
+  var G_TOP = 34, G_BOT = 190;             // graph area
+  var TRACK_L = 238, TRACK_S = 302;        // the two crate tracks
+  var X0 = 34, X1 = 300;
+
+  var t = 0.25;
+  var phase = 0;                           // animation clock in seconds
+  var handle = null;
+  var cache = {};
+
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+  function curve(x) { return x * x * (3 - 2 * x); }
+  function num(n, d) {
+    var str = n.toFixed(d);
+    if (Number(str) === 0) str = (0).toFixed(d);
+    return str.charAt(0) === '-' ? '−' + str.slice(1) : str;
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.getElementById('smoothstep')).getPropertyValue(name).trim() || fallback;
+  }
+  function redraw() { if (handle) handle.redraw(); }
+  function stop() { if (handle) handle.pause(); }
+
+  var ui = DemoKit.controls('[data-demo="smoothstep"]');
+  var tSlider = ui.slider({ label: 'Time fraction t', min: T_MIN, max: T_MAX, step: 0.01, value: t,
+    format: function (x) { return num(x, 2); },
+    onInput: function (x) { t = x; stop(); redraw(); } });
+  var clampOn = ui.toggle({ label: 'Clamp t to 0 to 1', value: true, onChange: redraw });
+  var outL = ui.readout({ label: 'Lerp: s = t' });
+  var outS = ui.readout({ label: 'Smoothstep: s = t × t × (3 − 2t)' });
+  var outV = ui.readout({ label: 'Speed compared with average (lerp, smoothstep)' });
+
+  function setOut(out, key, text) {
+    if (cache[key] !== text) { cache[key] = text; out.set(text); }
+  }
+
+  function tx(v) { return X0 + (v - T_MIN) / (T_MAX - T_MIN) * (X1 - X0); }
+  function gy(v) { return G_BOT - (v - V_MIN) / (V_MAX - V_MIN) * (G_BOT - G_TOP); }
+  function xToT(x) {
+    var v = T_MIN + (x - X0) / (X1 - X0) * (T_MAX - T_MIN);
+    return DemoKit.clamp(Math.round(v * 100) / 100, T_MIN, T_MAX);
+  }
+
+  // The two easing rules, with or without the clamp, as in smooth01 in the Lua code.
+  function lin(x) { return clampOn.value ? clamp01(x) : x; }
+  function smo(x) { return curve(clampOn.value ? clamp01(x) : x); }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function dot(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function plot(ctx, f, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (var i = 0; i <= 150; i++) {
+      var v = T_MIN + (T_MAX - T_MIN) * i / 150;
+      var y = gy(DemoKit.clamp(f(v), V_MIN, V_MAX));
+      if (i === 0) ctx.moveTo(tx(v), y); else ctx.lineTo(tx(v), y);
+    }
+    ctx.stroke();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function track(ctx, c, y, f, color, name) {
+    // Pads a and b.
+    ctx.fillStyle = c.surface2;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    [0, 1].forEach(function (v) {
+      ctx.fillRect(tx(v) - 15, y + 12, 30, 6);
+      ctx.strokeRect(tx(v) - 15, y + 12, 30, 6);
+    });
+    ctx.strokeStyle = c.ink3;
+    line(ctx, tx(0), y, tx(1), y);
+    // Where the crate is at every tenth of the time.
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.45;
+    for (var k = 0; k <= 10; k++) dot(ctx, tx(f(k / 10)), y, 3);
+    ctx.globalAlpha = 1;
+    // Label.
+    ctx.font = BOLD;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(name, X0, y - 20);
+    // The crate.
+    var x = tx(f(t));
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 11, y - 11, 22, 22);
+    ctx.strokeStyle = c.surface;
+    ctx.lineWidth = 1.5;
+    line(ctx, x - 11, y - 11, x + 11, y + 11);
+    line(ctx, x + 11, y - 11, x - 11, y + 11);
+  }
+
+  handle = DemoKit.canvas('#smoothstep', {
+    height: 360,
+    drag: true,
+    keys: true,
+    label: 'A graph of lerp as a straight blue line and smoothstep as an orange S curve, with a dashed line at the current t. Below, two crates move from pad a to pad b: the blue one with lerp and the orange one with smoothstep. Drag across the canvas or use the left and right arrow keys to change t.',
+    update: function (dt) {
+      phase = (phase + dt) % 4;
+      var next;
+      if (phase < 0.4) next = 0;
+      else if (phase < 1.9) next = (phase - 0.4) / 1.5;
+      else if (phase < 2.4) next = 1;
+      else if (phase < 3.9) next = 1 - (phase - 2.4) / 1.5;
+      else next = 0;
+      t = next;
+      tSlider.set(Math.round(t * 100) / 100);
+    },
+    onDown: function (p) { stop(); t = xToT(p.x); tSlider.set(t); },
+    onMove: function (p) { if (p.down) { t = xToT(p.x); tSlider.set(t); } },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') t = Math.max(T_MIN, Math.round((t - 0.05) * 100) / 100);
+      else if (key === 'arrowright') t = Math.min(T_MAX, Math.round((t + 0.05) * 100) / 100);
+      else return;
+      stop();
+      tSlider.set(t);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var colL = cssVar('--sm-lin', '#2f5fe8');
+      var colS = cssVar('--sm-s', '#b35f00');
+      X0 = 34;
+      X1 = s.width - 16;
+
+      // The 0..1 band, grid and axes of the graph.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(tx(0), G_TOP, tx(1) - tx(0), G_BOT - G_TOP);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      [0.5, 1].forEach(function (v) { line(ctx, tx(v), G_TOP, tx(v), G_BOT); });
+      [0.5, 1].forEach(function (v) { line(ctx, X0, gy(v), X1, gy(v)); });
+      ctx.strokeStyle = c.ink3;
+      line(ctx, X0, gy(0), X1, gy(0));
+      line(ctx, tx(0), G_TOP, tx(0), G_BOT);
+
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      [0.5, 1].forEach(function (v) { ctx.fillText(num(v, v === 1 ? 0 : 1), tx(v) + 10, gy(0) + 15); });
+      ctx.textAlign = 'right';
+      ctx.fillText('0', tx(0) - 5, gy(0) + 15);
+      ctx.fillText('0.5', tx(0) - 5, gy(0.5) + 4);
+      ctx.fillText('1', tx(0) - 5, gy(1) + 4);
+      ctx.fillText('t', X1, gy(0) - 6);
+      ctx.textAlign = 'left';
+      ctx.fillText('output s (y up)', X0, G_TOP - 10);
+
+      plot(ctx, lin, colL);
+      plot(ctx, smo, colS);
+
+      // The current t, carried down to the tracks.
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      line(ctx, tx(t), G_TOP, tx(t), TRACK_S + 22);
+      ctx.setLineDash([]);
+
+      var sl = lin(t), ss = smo(t);
+      ctx.fillStyle = colL;
+      dot(ctx, tx(t), gy(DemoKit.clamp(sl, V_MIN, V_MAX)), 6);
+      ctx.fillStyle = colS;
+      dot(ctx, tx(t), gy(DemoKit.clamp(ss, V_MIN, V_MAX)), 6);
+
+      track(ctx, c, TRACK_L, lin, colL, 'lerp');
+      track(ctx, c, TRACK_S, smo, colS, 'smoothstep');
+
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      ctx.fillText('a', tx(0) - 22, TRACK_L + 20);
+      ctx.fillText('b', tx(1) + 22, TRACK_L + 20);
+
+      // Readouts. Speed is the slope of each curve: 1 for lerp, 6t(1 − t) for smoothstep.
+      var inside = t >= 0 && t <= 1;
+      var used = clampOn.value ? clamp01(t) : t;
+      var vl = (clampOn.value && !inside) ? 0 : 1;
+      var vs = (clampOn.value && !inside) ? 0 : 6 * used * (1 - used);
+      setOut(outL, 'l', 's = ' + num(sl, 3));
+      var sText = num(used, 2) + ' × ' + num(used, 2) + ' × (3 − 2 × ' + num(used, 2) + ') = ' + num(ss, 5);
+      if (clampOn.value && !inside) sText += ' (t clamped from ' + num(t, 2) + ')';
+      setOut(outS, 's', sText);
+      var vText = num(vl, 2) + ', ' + num(vs, 2);
+      if (vs < -1e-9) vText += ' (smoothstep moving backwards)';
+      setOut(outV, 'v', vText);
+    }
+  });
+})();
+</script>
+</body>
+</html>

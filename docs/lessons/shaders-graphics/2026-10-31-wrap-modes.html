@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wrap modes: repeat, clamp and mirror · Game Dev Daily</title>
+<meta name="description" content="A UV outside 0 to 1 has to land somewhere. Repeat wraps it with fract, clamp pins it to the edge, mirror folds it back. One line of maths each.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-10-31">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Wrap modes: repeat, clamp and mirror</h1>
+  <p class="lede">A UV outside 0 to 1 has to land somewhere. Repeat wraps it with fract, clamp pins it to the edge, mirror folds it back. One line of maths each.</p>
+</header>
+
+<section data-section="hook">
+  <p>You scale a sprite up and a thin line of colour from its <em>opposite</em> edge appears along the border. Or you tile a grass texture and instead of repeating it smears into long streaks. Both come from one sampler setting that decides what a UV of 1.2 or -0.3 means: the wrap mode.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every UV has to land inside the texture</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. When it reads a texture, it hands the sampler a UV. The texture covers 0 to 1, but scaling, scrolling or distorting the UV easily asks for 1.55 or -0.4.</p>
+  <p>Yesterday a sample was four steps: wrap, multiply by the size, floor, read. The <dfn>wrap mode</dfn> is the first step: a rule that maps any number into 0 to 1. It is set separately for u and v, so a texture can repeat sideways and clamp vertically.</p>
+
+  <h3>The three common modes</h3>
+  <ul>
+    <li><strong>Repeat.</strong> Keep only the part after the point: <code>fract(u)</code>. 1.3 becomes 0.3 and -0.3 becomes 0.7. The texture tiles forever.</li>
+    <li><strong>Clamp to edge.</strong> Pin the value to the range: <code>clamp(u, 0.0, 1.0)</code>. Past the right edge you read the last column, so edge colours stretch into streaks.</li>
+    <li><strong>Mirrored repeat.</strong> Tile, but flip every second copy: <code>1.0 - abs(mod(u, 2.0) - 1.0)</code>. 1.3 becomes 0.7. Copies meet edge to matching edge, so the seam never jumps.</li>
+  </ul>
+  <p>Reading the mirror formula: <code>mod(u, 2.0)</code> gives 0 to 2, minus 1 gives -1 to 1, <code>abs</code> folds that into a V from 1 down to 0 and back, and <code>1.0 -</code> flips the V so it starts at 0.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Three graphs of the wrapped u against the original u, from minus 1 to 2. Repeat is a sawtooth that climbs from 0 to 1 and drops back at every whole number. Clamp is flat at 0 below 0, climbs from 0 to 1, then stays flat at 1. Mirror is a zigzag that climbs from 0 to 1 and then falls back to 0. The 0 to 1 range is shaded on each graph and is the same for all three.">
+      <g text-anchor="middle">
+        <text class="d-text" x="118" y="22">repeat</text>
+        <text class="d-mono" x="118" y="42">fract(u)</text>
+        <text class="d-text" x="334" y="22">clamp to edge</text>
+        <text class="d-mono" x="334" y="42">clamp(u, 0.0, 1.0)</text>
+        <text class="d-text" x="550" y="22">mirrored repeat</text>
+        <text class="d-mono" x="550" y="42">1 - abs(mod(u, 2) - 1)</text>
+      </g>
+
+      <rect class="d-accent-soft" x="91" y="60" width="55" height="90"/>
+      <rect class="d-accent-soft" x="307" y="60" width="55" height="90"/>
+      <rect class="d-accent-soft" x="523" y="60" width="55" height="90"/>
+
+      <path class="d-thin" d="M36 150 H201 M252 150 H417 M468 150 H633"/>
+      <path class="d-dash" d="M36 60 H201 M252 60 H417 M468 60 H633"/>
+
+      <path class="d-accent" d="M36 150 L91 60 M91 150 L146 60 M146 150 L201 60"/>
+      <path class="d-dash" d="M91 60 V150 M146 60 V150"/>
+      <path class="d-accent" d="M252 150 H307 L362 60 H417"/>
+      <path class="d-accent" d="M468 60 L523 150 L578 60 L633 150"/>
+
+      <g text-anchor="end">
+        <text class="d-muted" x="30" y="154">0</text>
+        <text class="d-muted" x="30" y="64">1</text>
+        <text class="d-muted" x="246" y="154">0</text>
+        <text class="d-muted" x="246" y="64">1</text>
+        <text class="d-muted" x="462" y="154">0</text>
+        <text class="d-muted" x="462" y="64">1</text>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="36" y="170">-1</text>
+        <text class="d-muted" x="91" y="170">0</text>
+        <text class="d-muted" x="146" y="170">1</text>
+        <text class="d-muted" x="201" y="170">2</text>
+        <text class="d-muted" x="252" y="170">-1</text>
+        <text class="d-muted" x="307" y="170">0</text>
+        <text class="d-muted" x="362" y="170">1</text>
+        <text class="d-muted" x="417" y="170">2</text>
+        <text class="d-muted" x="468" y="170">-1</text>
+        <text class="d-muted" x="523" y="170">0</text>
+        <text class="d-muted" x="578" y="170">1</text>
+        <text class="d-muted" x="633" y="170">2</text>
+        <text class="d-text" x="320" y="204">across: the u the shader asks for     up: the u that is sampled</text>
+      </g>
+    </svg>
+    <figcaption>Each graph maps the u the shader asks for (across) to the u that is actually sampled (up). Inside the shaded 0 to 1 range all three agree. Outside, repeat drops back to 0, clamp goes flat and mirror turns round.</figcaption>
+  </figure>
+
+  <h3>A fourth mode: clamp to border</h3>
+  <p><dfn>Clamp to border</dfn> returns a fixed border colour, often transparent black, for any UV outside 0 to 1. Desktop OpenGL, Direct3D and Vulkan have it; WebGL 1 and OpenGL ES 2.0 do not. LÖVE has a version called <code>"clampzero"</code>; check its wiki for which systems support it. Unity's import settings and Godot's Repeat property do not list it, so there you test the UV in the shader.</p>
+
+  <h3>Which way is up</h3>
+  <p>The demo uses v up with (0, 0) at the bottom-left, as WebGL's <code>gl_FragCoord</code> and Unity's UVs do; the red texel marks (0, 0). Godot and LÖVE put (0, 0) at the top-left with v down, so "past the top edge" there means v below 0.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Tiling surfaces repeat. Sprites, UI images and colour ramps clamp. Mirror is for textures that were not made to tile but need to.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is an 8 by 8 texture. The right panel is a surface whose UV runs past both edges: at <em>UV range</em> 3 it spans -1 to 2, with the 0 to 1 square outlined in cyan. Everything outside that square is the wrap mode's doing.</p>
+  <p>Switch <em>Wrap u</em> to clamp and watch the orange right column stretch into a band; the arrow stops repeating. Switch to mirror and the arrow points left in every second copy. Set only <em>Wrap v</em> to clamp to see that the two axes are independent. Drag on the right panel to see which texel one pixel reads, and walk the <em>Stage</em> menu.</p>
+
+  <figure class="demo" data-demo="wrap-modes">
+    <canvas id="wrap-modes"></canvas>
+    <figcaption>In stage 1 the screen cannot show values below 0 or above 1, so a channel stops changing once it leaves the cyan square, even though the numbers keep going; the readout shows them. In stage 2 repeat gives ramps that restart, clamp gives flat bands and mirror gives ramps that turn round. The grey checker is the transparent border.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the wrap mode is a property of the image, set with <code>Image:setWrap(horizontal, vertical)</code>. The shader only stretches the UV with the same <code>range</code> as the demo; the sampler does the wrapping. LÖVE shaders use the entry point <code>effect</code> instead of <code>main</code>. Press <kbd>u</kbd> or <kbd>v</kbd> to cycle the mode on each axis, <kbd>-</kbd> and <kbd>=</kbd> to change the range, and hover the right panel for a readout made with the same maths on the CPU.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SIZE = 8                 <span class="c">-- the texture is 8 by 8 texels</span>
+local PANEL = 256              <span class="c">-- each panel is 256 by 256 pixels</span>
+local T = PANEL / SIZE         <span class="c">-- one texel is 32 pixels on screen</span>
+local MODES = { "repeat", "clamp", "mirroredrepeat" }
+local wrapU, wrapV = 1, 1      <span class="c">-- index into MODES for each axis</span>
+local range = 3                <span class="c">-- texture widths across the surface</span>
+local image, shader
+
+local pixelcode = [[
+uniform float u_range;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = (texture_coords - 0.5) * u_range + 0.5;  // 0 to 1 stays in the middle
+  return Texel(tex, uv) * color;                     // the wrap mode does the rest
+}
+]]
+
+local function inRange(x, a, b) return x &gt;= a and x &lt;= b end
+
+<span class="c">-- The texture: texel (i, j), i to the right, j up, both 0 to 7.</span>
+local function texel(i, j)
+  if i == 0 and j == 0 then return 0.9, 0.2, 0.2 end          <span class="c">-- origin marker</span>
+  if (inRange(i, 1, 4) and inRange(j, 3, 4)) or (i == 5 and inRange(j, 2, 5))
+    or (i == 6 and inRange(j, 3, 4)) then
+    return 1, 0.85, 0.25                                      <span class="c">-- arrow pointing right</span>
+  end
+  if i == 7 then return 0.95, 0.55, 0.2 end                   <span class="c">-- right column</span>
+  if j == 7 then return 0.3, 0.75, 0.4 end                    <span class="c">-- top row</span>
+  if (i + j) % 2 == 0 then return 0.12, 0.14, 0.24 end
+  return 0.2, 0.23, 0.36
+end
+
+<span class="c">-- What the sampler does with one coordinate, for the readout.</span>
+local function wrap(x, mode)
+<span class="k">  if mode == "repeat" then return x - math.floor(x) end      -- fract
+  if mode == "clamp" then return math.max(0, math.min(1, x)) end
+  local m = x - 2 * math.floor(x / 2)                        -- mod(x, 2)
+  return 1 - math.abs(m - 1)                                 -- mirroredrepeat</span>
+end
+
+function love.load()
+  local data = love.image.newImageData(SIZE, SIZE)
+  for j = 0, SIZE - 1 do
+    for i = 0, SIZE - 1 do
+      local r, g, b = texel(i, j)
+      data:setPixel(i, SIZE - 1 - j, r, g, b, 1)   <span class="c">-- image rows go down</span>
+    end
+  end
+  image = love.graphics.newImage(data)
+  image:setFilter("nearest", "nearest")
+<span class="k">  image:setWrap(MODES[wrapU], MODES[wrapV])</span>
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "u" then wrapU = wrapU % #MODES + 1 end
+  if key == "v" then wrapV = wrapV % #MODES + 1 end
+  if key == "=" then range = math.min(5, range + 0.25) end
+  if key == "-" then range = math.max(1, range - 0.25) end
+<span class="k">  image:setWrap(MODES[wrapU], MODES[wrapV])</span>
+end
+
+function love.draw()
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.draw(image, 20, 20, 0, T)        <span class="c">-- left: the texture as it is</span>
+  shader:send("u_range", range)
+  love.graphics.setShader(shader)
+  love.graphics.draw(image, 300, 20, 0, T)       <span class="c">-- right: the wrapped surface</span>
+  love.graphics.setShader()
+  love.graphics.print("u: " .. MODES[wrapU] .. "   v: " .. MODES[wrapV] ..
+    "   range: " .. range, 20, 290)
+
+  local mx, my = love.mouse.getPosition()
+  local su, sv = (mx - 300) / PANEL, (my - 20) / PANEL
+  if su &gt;= 0 and su &lt;= 1 and sv &gt;= 0 and sv &lt;= 1 then
+    local u = (su - 0.5) * range + 0.5             <span class="c">-- v counts down in LÖVE</span>
+    local v = (sv - 0.5) * range + 0.5
+    love.graphics.print(string.format("uv (%.2f, %.2f) wraps to (%.2f, %.2f)",
+      u, v, wrap(u, MODES[wrapU]), wrap(v, MODES[wrapV])), 20, 310)
+  end
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_range;    // texture widths across the surface
+uniform vec2 u_wrap;      // mode for u and v: 0 repeat, 1 clamp, 2 mirror, 3 border
+uniform vec2 u_probe;     // surface uv of the probe, 0 to 1, y up
+uniform float u_stage;    // 0 raw uv ... 3 final colour
+uniform float u_grid;     // 1.0 draws tile edges and the 0 to 1 square
+
+const float SIZE = 8.0;   // the texture is 8 by 8 texels
+
+float inRange(float x, float a, float b) {   // 1.0 when a &lt;= x &lt;= b, for whole numbers
+  return step(a - 0.5, x) * step(x, b + 0.5);
+}
+
+// The texture, made with maths: the colour of texel (i, j), i to the right, j up.
+vec3 texel(vec2 ij) {
+  vec3 col = mix(vec3(0.12, 0.14, 0.24), vec3(0.2, 0.23, 0.36), mod(ij.x + ij.y, 2.0));
+  col = mix(col, vec3(0.3, 0.75, 0.4), inRange(ij.y, 7.0, 7.0));    // top row
+  col = mix(col, vec3(0.95, 0.55, 0.2), inRange(ij.x, 7.0, 7.0));   // right column
+  float shaft = inRange(ij.x, 1.0, 4.0) * inRange(ij.y, 3.0, 4.0);
+  float head = inRange(ij.x, 5.0, 5.0) * inRange(ij.y, 2.0, 5.0)
+             + inRange(ij.x, 6.0, 6.0) * inRange(ij.y, 3.0, 4.0);
+  col = mix(col, vec3(1.0, 0.85, 0.25), shaft + head);              // arrow pointing right
+  col = mix(col, vec3(0.9, 0.2, 0.2), inRange(ij.x, 0.0, 0.0) * inRange(ij.y, 0.0, 0.0));
+  return col;
+}
+
+// Step 1 of a sample: bring one coordinate into 0 to 1.
+float wrapCoord(float x, float mode) {
+  if (mode &lt; 0.5) return fract(x);                        // repeat
+  if (mode &lt; 1.5) return clamp(x, 0.0, 1.0);              // clamp to edge
+  if (mode &lt; 2.5) return 1.0 - abs(mod(x, 2.0) - 1.0);    // mirrored repeat
+  return x;                                               // border: tested by onBorder
+}
+
+vec2 wrapUv(vec2 uv) {
+  return vec2(wrapCoord(uv.x, u_wrap.x), wrapCoord(uv.y, u_wrap.y));
+}
+
+float outside(float x) {                  // 1.0 when x is outside 0 to 1
+  return 1.0 - step(0.0, x) * step(x, 1.0);
+}
+
+float onBorder(vec2 uv) {                 // 1.0 when a border axis is outside
+  return max(step(2.5, u_wrap.x) * outside(uv.x), step(2.5, u_wrap.y) * outside(uv.y));
+}
+
+// Steps 2 and 3: scale to texels and floor.
+vec2 texelIndex(vec2 w) {
+  return clamp(floor(w * SIZE), 0.0, SIZE - 1.0);
+}
+
+vec3 emptyColour(vec2 px, float lw) {      // a grey checker for "transparent"
+  float c = mod(floor(px.x / (6.0 * lw)) + floor(px.y / (6.0 * lw)), 2.0);
+  return mix(vec3(0.18), vec3(0.26), c);
+}
+
+float boxEdge(vec2 p, vec2 lo, vec2 hi) {           // distance to the outline of a box
+  vec2 q = abs(p - 0.5 * (lo + hi)) - 0.5 * (hi - lo);
+  return abs(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));
+}
+
+vec3 drawLine(vec3 col, float d, float lw, vec3 ink) {  // d and lw in pixels
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));
+  return mix(col, ink, 1.0 - smoothstep(0.3 * lw, lw, d));
+}
+
+float gridShade(vec2 p, float cellPx, float lw) {   // 1.0 on a cell edge
+  vec2 f = fract(p);
+  vec2 e = min(f, 1.0 - f) * cellPx;                // to the nearest edge, pixels
+  return 1.0 - smoothstep(0.0, lw, min(e.x, e.y));
+}
+
+void main() {
+  vec2 res = u_resolution;
+  float m = 0.06 * res.y;                                         // margin, pixels
+  float S = min(res.y - 2.0 * m, 0.5 * (res.x - 3.0 * m));        // panel size, pixels
+  vec2 a0 = vec2(0.5 * (res.x - 2.0 * S - m), 0.5 * (res.y - S)); // texture panel
+  vec2 b0 = a0 + vec2(S + m, 0.0);                                // surface panel
+  float lw = max(1.0, res.y / 300.0);                             // line width, pixels
+  vec2 px = gl_FragCoord.xy;                                      // origin bottom-left, y up
+  vec3 col = vec3(0.1, 0.11, 0.13);
+  vec3 white = vec3(1.0);
+  vec3 cyan = vec3(0.3, 0.9, 1.0);
+
+  vec2 probeUv = (u_probe - 0.5) * u_range + 0.5;   // the uv the probe pixel asks for
+  vec2 pw = wrapUv(probeUv);                        // where the wrap mode sends it
+  vec2 pij = texelIndex(pw);                        // the texel it reads
+  float pBorder = onBorder(probeUv);
+
+  // Left panel: the texture itself, uv 0 to 1 on both axes.
+  vec2 t = (px - a0) / S;
+  if (t.x &gt;= 0.0 &amp;&amp; t.x &lt;= 1.0 &amp;&amp; t.y &gt;= 0.0 &amp;&amp; t.y &lt;= 1.0) {
+    col = texel(texelIndex(t));
+    if (u_grid &gt; 0.5) col = mix(col, vec3(0.0), 0.5 * gridShade(t * SIZE, S / SIZE, lw));
+    if (pBorder &lt; 0.5) {
+      col = drawLine(col, boxEdge(t, pij / SIZE, (pij + 1.0) / SIZE) * S, lw, white);
+      col = drawLine(col, abs(length(t - pw) * S - 3.0 * lw), lw, white);
+    }
+  }
+
+  // Right panel: the surface. Its uv runs past both edges of the texture.
+  vec2 s = (px - b0) / S;
+  if (s.x &gt;= 0.0 &amp;&amp; s.x &lt;= 1.0 &amp;&amp; s.y &gt;= 0.0 &amp;&amp; s.y &lt;= 1.0) {
+    vec2 uv = (s - 0.5) * u_range + 0.5;    // the 0 to 1 square sits in the middle
+    vec2 w = wrapUv(uv);
+    vec2 ij = texelIndex(w);
+    vec3 c = texel(ij);
+    if (u_stage &lt; 2.5) c = vec3(ij / (SIZE - 1.0), 0.0);
+    if (u_stage &lt; 1.5) c = vec3(w, 0.0);
+    if (u_stage &lt; 0.5) c = vec3(uv, 0.0);
+    if (u_stage &gt; 0.5) c = mix(c, emptyColour(px, lw), onBorder(uv));
+    col = c;
+    if (u_grid &gt; 0.5) {
+      col = mix(col, white, 0.6 * gridShade(uv, S / u_range, 0.7 * lw));   // tile edges
+      col = drawLine(col, boxEdge(uv, vec2(0.0), vec2(1.0)) * S / u_range, lw, cyan);
+    }
+    col = drawLine(col, abs(length(s - u_probe) * S - 3.0 * lw), lw, white);
+  }
+
+  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, a0, a0 + S)));
+  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, b0, b0 + S)));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this in a ShaderMaterial on a Sprite2D. The easy way is to skip
+// the maths: set CanvasItem &gt; Texture &gt; Repeat to Enabled or Mirror. This
+// version does the wrap itself, so it can mix modes per axis.
+shader_type canvas_item;
+
+uniform float uv_range = 3.0;   // texture widths across the sprite
+uniform int wrap_u = 0;         // 0 repeat, 1 clamp, 2 mirror
+uniform int wrap_v = 0;
+
+float wrap_coord(float x, int mode) {
+    if (mode == 0) { return fract(x); }
+    if (mode == 1) { return clamp(x, 0.0, 1.0); }
+    return 1.0 - abs(mod(x, 2.0) - 1.0);
+}
+
+void fragment() {
+    vec2 uv = (UV - 0.5) * uv_range + 0.5;   // UV (0, 0) is the top-left in Godot
+<span class="k">    uv = vec2(wrap_coord(uv.x, wrap_u), wrap_coord(uv.y, wrap_v));</span>
+    COLOR = texture(TEXTURE, uv);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. The easy way is the texture's import
+// setting Wrap Mode (Repeat, Clamp, Mirror, Mirror Once, or Per-axis).
+// This version does the wrap itself, so a material can choose per axis.
+Shader "GameDevDaily/WrapModes"
+{
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+        _Range ("UV range", Float) = 3
+        _WrapU ("Wrap u (0 repeat, 1 clamp, 2 mirror)", Float) = 0
+        _WrapV ("Wrap v (0 repeat, 1 clamp, 2 mirror)", Float) = 0
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float _Range;
+            float _WrapU;
+            float _WrapV;
+
+            float wrapCoord(float x, float mode)
+            {
+                if (mode &lt; 0.5) return frac(x);
+                if (mode &lt; 1.5) return saturate(x);
+                float m = x - 2.0 * floor(x / 2.0);   // not fmod: it differs below 0
+                return 1.0 - abs(m - 1.0);
+            }
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+                float2 uv = (i.uv - 0.5) * _Range + 0.5;   // (0, 0) is the bottom-left
+<span class="k">                uv = float2(wrapCoord(uv.x, _WrapU), wrapCoord(uv.y, _WrapV));</span>
+                return tex2D(_MainTex, uv);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p><code>vert_img</code> and <code>v2f_img</code> come from <code>UnityCG.cginc</code> and pass the mesh UV straight through. In URP or Shader Graph, set the mode on the texture asset, or build the same maths from <em>Fraction</em>, <em>Saturate</em>, <em>Absolute</em> and <em>Floor</em> nodes before the UV input of <em>Sample Texture 2D</em>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The opposite edge bleeding in.</strong> Linear filtering blends the four nearest texels. At the border of a repeating texture some of those come from the far side, so a sprite gets a faint line of its opposite edge. Sprites and UI images should clamp.</li>
+    <li><strong>Clamp streaks.</strong> Clamp copies the outermost texels forever. If the edge is not a plain colour, distortion or scrolling past it shows streaks. Leave a one texel margin of background colour.</li>
+    <li><strong>fmod is not mod.</strong> GLSL's <code>mod(x, y)</code> is <code>x - y * floor(x / y)</code> and is never negative for positive <code>y</code>. HLSL's <code>fmod</code> keeps the sign of <code>x</code>, so <code>fmod(-0.3, 2.0)</code> is -0.3 and the mirror breaks below 0. Write the floor version yourself, as in the Unity tab.</li>
+    <li><strong>Non-power-of-two textures in WebGL 1.</strong> A texture whose sides are not powers of two (such as 100 by 60) must use clamp to edge and no mipmaps there; otherwise it samples as black. WebGL 2 lifts this rule.</li>
+    <li><strong>A line at the seam when you wrap by hand.</strong> The GPU picks a mipmap level from how fast the UV changes between neighbouring pixels. Where <code>fract</code> jumps from 1 to 0 that change looks huge, so a thin line of the smallest mipmap can appear along the seam. Prefer the sampler's own wrap mode, or turn mipmaps off for that texture.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The texture hardware applies the wrap mode as part of every read, so repeat, clamp and mirror cost nothing extra, on a phone or anywhere else. Wrapping by hand, as in the Godot and Unity tabs, adds a few arithmetic instructions per pixel: cheap, but not free, and it brings the seam problem above. Use it only when the hardware modes cannot do what you need.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Floors, walls, terrain and water repeat, which is why tiling textures are painted so the left edge matches the right. Sprites, fonts and UI panels clamp to keep their edges clean, and so do colour ramps, where reading past the end should give the last colour, not the first.</p>
+  <p>Defaults differ. LÖVE images start with <code>"clamp"</code>. Godot 4's canvas items inherit their repeat setting from the parent node, and at the top of the tree that defaults to Disabled. Unity imports textures of the Default type with Wrap Mode set to Repeat. When a texture behaves differently after moving it between engines, check this setting first.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Use the LÖVE example to see the edge bleed for yourself, then add a mode by hand.</p>
+  <ol>
+    <li>Set <code>range = 1</code> and change the filter to <code>image:setFilter("linear", "linear")</code>. Look closely at the left edge of the right panel with repeat on u: a soft orange fringe from the far column appears. Press <kbd>u</kbd> to clamp and watch it go.</li>
+    <li>Add Unity's "mirror once" to the shader by hand: mirror once around 0, then clamp. In <code>effect</code>, add the line <code>uv.x = clamp(abs(uv.x), 0.0, 1.0);</code> before the <code>Texel</code> call.</li>
+  </ol>
+  <p>Before you run it, predict on paper what u = -0.4 and u = 1.6 become. You are done when, at range 3, you see two arrows pointing away from each other with flat orange to their right, and at range 5 flat orange on both sides.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The wrap mode is the first step of every sample: it maps any UV into 0 to 1.</li>
+    <li>Repeat is <code>fract(u)</code>, clamp to edge is <code>clamp(u, 0.0, 1.0)</code>, mirrored repeat is <code>1.0 - abs(mod(u, 2.0) - 1.0)</code>.</li>
+    <li>Each axis has its own mode, and the sampler applies it in hardware at no extra cost.</li>
+    <li>Repeat for tiling surfaces, clamp for sprites, UI and ramps, mirror for textures that do not tile.</li>
+    <li>Engines differ in defaults, in which corner is (0, 0) and in how <code>mod</code> treats negatives.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson looks at texture filtering: what nearest and linear do when a tiny texture is stretched over many pixels.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>The Khronos Group, <cite>OpenGL ES 2.0 specification</cite>, section 3.7 on texturing (REPEAT, CLAMP_TO_EDGE, MIRRORED_REPEAT and the rules for non-power-of-two textures).</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, the built-in functions <code>fract</code>, <code>mod</code> and <code>clamp</code>.</li>
+    <li>Microsoft, <cite>HLSL intrinsic functions</cite>: <code>fmod</code>, <code>frac</code> and <code>saturate</code>.</li>
+    <li>Godot Engine documentation, <cite>CanvasItem</cite> (texture_repeat) and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity documentation, <cite>Texture Import Settings</cite> (Wrap Mode) and <cite>Built-in shader helper functions</cite>.</li>
+    <li>LÖVE wiki, <cite>Image:setWrap</cite> and <cite>WrapMode</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_range;    // texture widths across the surface",
+    "uniform vec2 u_wrap;      // mode for u and v: 0 repeat, 1 clamp, 2 mirror, 3 border",
+    "uniform vec2 u_probe;     // surface uv of the probe, 0 to 1, y up",
+    "uniform float u_stage;    // 0 raw uv ... 3 final colour",
+    "uniform float u_grid;     // 1.0 draws tile edges and the 0 to 1 square",
+    "",
+    "const float SIZE = 8.0;   // the texture is 8 by 8 texels",
+    "",
+    "float inRange(float x, float a, float b) {   // 1.0 when a <= x <= b, for whole numbers",
+    "  return step(a - 0.5, x) * step(x, b + 0.5);",
+    "}",
+    "",
+    "// The texture, made with maths: the colour of texel (i, j), i to the right, j up.",
+    "vec3 texel(vec2 ij) {",
+    "  vec3 col = mix(vec3(0.12, 0.14, 0.24), vec3(0.2, 0.23, 0.36), mod(ij.x + ij.y, 2.0));",
+    "  col = mix(col, vec3(0.3, 0.75, 0.4), inRange(ij.y, 7.0, 7.0));    // top row",
+    "  col = mix(col, vec3(0.95, 0.55, 0.2), inRange(ij.x, 7.0, 7.0));   // right column",
+    "  float shaft = inRange(ij.x, 1.0, 4.0) * inRange(ij.y, 3.0, 4.0);",
+    "  float head = inRange(ij.x, 5.0, 5.0) * inRange(ij.y, 2.0, 5.0)",
+    "             + inRange(ij.x, 6.0, 6.0) * inRange(ij.y, 3.0, 4.0);",
+    "  col = mix(col, vec3(1.0, 0.85, 0.25), shaft + head);              // arrow pointing right",
+    "  col = mix(col, vec3(0.9, 0.2, 0.2), inRange(ij.x, 0.0, 0.0) * inRange(ij.y, 0.0, 0.0));",
+    "  return col;",
+    "}",
+    "",
+    "// Step 1 of a sample: bring one coordinate into 0 to 1.",
+    "float wrapCoord(float x, float mode) {",
+    "  if (mode < 0.5) return fract(x);                        // repeat",
+    "  if (mode < 1.5) return clamp(x, 0.0, 1.0);              // clamp to edge",
+    "  if (mode < 2.5) return 1.0 - abs(mod(x, 2.0) - 1.0);    // mirrored repeat",
+    "  return x;                                               // border: tested by onBorder",
+    "}",
+    "",
+    "vec2 wrapUv(vec2 uv) {",
+    "  return vec2(wrapCoord(uv.x, u_wrap.x), wrapCoord(uv.y, u_wrap.y));",
+    "}",
+    "",
+    "float outside(float x) {                  // 1.0 when x is outside 0 to 1",
+    "  return 1.0 - step(0.0, x) * step(x, 1.0);",
+    "}",
+    "",
+    "float onBorder(vec2 uv) {                 // 1.0 when a border axis is outside",
+    "  return max(step(2.5, u_wrap.x) * outside(uv.x), step(2.5, u_wrap.y) * outside(uv.y));",
+    "}",
+    "",
+    "// Steps 2 and 3: scale to texels and floor.",
+    "vec2 texelIndex(vec2 w) {",
+    "  return clamp(floor(w * SIZE), 0.0, SIZE - 1.0);",
+    "}",
+    "",
+    "vec3 emptyColour(vec2 px, float lw) {      // a grey checker for \"transparent\"",
+    "  float c = mod(floor(px.x / (6.0 * lw)) + floor(px.y / (6.0 * lw)), 2.0);",
+    "  return mix(vec3(0.18), vec3(0.26), c);",
+    "}",
+    "",
+    "float boxEdge(vec2 p, vec2 lo, vec2 hi) {           // distance to the outline of a box",
+    "  vec2 q = abs(p - 0.5 * (lo + hi)) - 0.5 * (hi - lo);",
+    "  return abs(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));",
+    "}",
+    "",
+    "vec3 drawLine(vec3 col, float d, float lw, vec3 ink) {  // d and lw in pixels",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));",
+    "  return mix(col, ink, 1.0 - smoothstep(0.3 * lw, lw, d));",
+    "}",
+    "",
+    "float gridShade(vec2 p, float cellPx, float lw) {   // 1.0 on a cell edge",
+    "  vec2 f = fract(p);",
+    "  vec2 e = min(f, 1.0 - f) * cellPx;                // to the nearest edge, pixels",
+    "  return 1.0 - smoothstep(0.0, lw, min(e.x, e.y));",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 res = u_resolution;",
+    "  float m = 0.06 * res.y;                                         // margin, pixels",
+    "  float S = min(res.y - 2.0 * m, 0.5 * (res.x - 3.0 * m));        // panel size, pixels",
+    "  vec2 a0 = vec2(0.5 * (res.x - 2.0 * S - m), 0.5 * (res.y - S)); // texture panel",
+    "  vec2 b0 = a0 + vec2(S + m, 0.0);                                // surface panel",
+    "  float lw = max(1.0, res.y / 300.0);                             // line width, pixels",
+    "  vec2 px = gl_FragCoord.xy;                                      // origin bottom-left, y up",
+    "  vec3 col = vec3(0.1, 0.11, 0.13);",
+    "  vec3 white = vec3(1.0);",
+    "  vec3 cyan = vec3(0.3, 0.9, 1.0);",
+    "",
+    "  vec2 probeUv = (u_probe - 0.5) * u_range + 0.5;   // the uv the probe pixel asks for",
+    "  vec2 pw = wrapUv(probeUv);                        // where the wrap mode sends it",
+    "  vec2 pij = texelIndex(pw);                        // the texel it reads",
+    "  float pBorder = onBorder(probeUv);",
+    "",
+    "  // Left panel: the texture itself, uv 0 to 1 on both axes.",
+    "  vec2 t = (px - a0) / S;",
+    "  if (t.x >= 0.0 && t.x <= 1.0 && t.y >= 0.0 && t.y <= 1.0) {",
+    "    col = texel(texelIndex(t));",
+    "    if (u_grid > 0.5) col = mix(col, vec3(0.0), 0.5 * gridShade(t * SIZE, S / SIZE, lw));",
+    "    if (pBorder < 0.5) {",
+    "      col = drawLine(col, boxEdge(t, pij / SIZE, (pij + 1.0) / SIZE) * S, lw, white);",
+    "      col = drawLine(col, abs(length(t - pw) * S - 3.0 * lw), lw, white);",
+    "    }",
+    "  }",
+    "",
+    "  // Right panel: the surface. Its uv runs past both edges of the texture.",
+    "  vec2 s = (px - b0) / S;",
+    "  if (s.x >= 0.0 && s.x <= 1.0 && s.y >= 0.0 && s.y <= 1.0) {",
+    "    vec2 uv = (s - 0.5) * u_range + 0.5;    // the 0 to 1 square sits in the middle",
+    "    vec2 w = wrapUv(uv);",
+    "    vec2 ij = texelIndex(w);",
+    "    vec3 c = texel(ij);",
+    "    if (u_stage < 2.5) c = vec3(ij / (SIZE - 1.0), 0.0);",
+    "    if (u_stage < 1.5) c = vec3(w, 0.0);",
+    "    if (u_stage < 0.5) c = vec3(uv, 0.0);",
+    "    if (u_stage > 0.5) c = mix(c, emptyColour(px, lw), onBorder(uv));",
+    "    col = c;",
+    "    if (u_grid > 0.5) {",
+    "      col = mix(col, white, 0.6 * gridShade(uv, S / u_range, 0.7 * lw));   // tile edges",
+    "      col = drawLine(col, boxEdge(uv, vec2(0.0), vec2(1.0)) * S / u_range, lw, cyan);",
+    "    }",
+    "    col = drawLine(col, abs(length(s - u_probe) * S - 3.0 * lw), lw, white);",
+    "  }",
+    "",
+    "  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, a0, a0 + S)));",
+    "  col = mix(col, vec3(0.45), 1.0 - smoothstep(0.0, lw, boxEdge(px, b0, b0 + S)));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join('\n');
+
+  var SIZE = 8;
+  var MODE_NAMES = ['repeat', 'clamp to edge', 'mirrored repeat', 'clamp to border'];
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var modeOptions = [
+    { value: '0', label: 'Repeat' },
+    { value: '1', label: 'Clamp to edge' },
+    { value: '2', label: 'Mirrored repeat' },
+    { value: '3', label: 'Clamp to border (transparent)' }
+  ];
+
+  var ui = DemoKit.controls('[data-demo="wrap-modes"]');
+  var wrapU = ui.select({ label: 'Wrap u', options: modeOptions, value: '0', onChange: redraw });
+  var wrapV = ui.select({ label: 'Wrap v', options: modeOptions, value: '0', onChange: redraw });
+  var range = ui.slider({ label: 'UV range', min: 1, max: 5, step: 0.25, value: 3, unit: ' widths', onInput: redraw });
+  var probeU = ui.slider({ label: 'Probe u', min: 0, max: 1, step: 0.01, value: 0.85, onInput: redraw });
+  var probeV = ui.slider({ label: 'Probe v', min: 0, max: 1, step: 0.01, value: 0.5, onInput: redraw });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Raw uv as red and green' },
+      { value: '1', label: '2. Wrapped uv' },
+      { value: '2', label: '3. Texel index (× 8, floor)' },
+      { value: '3', label: '4. Final: the texel colour' }
+    ],
+    value: '3',
+    onChange: redraw
+  });
+  var grid = ui.toggle({ label: 'Show tile edges and the 0 to 1 square', value: true, onChange: redraw });
+  var readout = ui.readout({ label: 'Probe' });
+
+  // The same rules as wrapCoord() and onBorder() in the shader.
+  function wrapCoord(x, mode) {
+    if (mode === 0) return x - Math.floor(x);
+    if (mode === 1) return DemoKit.clamp(x, 0, 1);
+    if (mode === 2) return 1 - Math.abs((x - 2 * Math.floor(x / 2)) - 1);
+    return x;
+  }
+  function outside(x) { return x < 0 || x > 1; }
+
+  // The same colour rule as texel() in the shader, for the readout.
+  function texelName(i, j) {
+    if (i === 0 && j === 0) return 'red origin marker';
+    if ((i >= 1 && i <= 4 && j >= 3 && j <= 4) || (i === 5 && j >= 2 && j <= 5) ||
+        (i === 6 && j >= 3 && j <= 4)) return 'yellow arrow';
+    if (i === 7) return 'orange right column';
+    if (j === 7) return 'green top row';
+    return 'background';
+  }
+
+  function fmt(x, y) { return '(' + x.toFixed(2) + ', ' + y.toFixed(2) + ')'; }
+
+  function updateReadout() {
+    var mu = Number(wrapU.value), mv = Number(wrapV.value);
+    var u = (probeU.value - 0.5) * range.value + 0.5;
+    var v = (probeV.value - 0.5) * range.value + 0.5;
+    var text = 'uv ' + fmt(u, v) + ' with u ' + MODE_NAMES[mu] + ', v ' + MODE_NAMES[mv];
+    if ((mu === 3 && outside(u)) || (mv === 3 && outside(v))) {
+      readout.set(text + ' → outside on a border axis: the transparent border colour');
+      return;
+    }
+    var wu = wrapCoord(u, mu), wv = wrapCoord(v, mv);
+    var i = DemoKit.clamp(Math.floor(wu * SIZE), 0, SIZE - 1);
+    var j = DemoKit.clamp(Math.floor(wv * SIZE), 0, SIZE - 1);
+    readout.set(text + ' → wrapped ' + fmt(wu, wv) + ' → texel (' + i + ', ' + j + '): ' + texelName(i, j));
+  }
+
+  // The same layout as main() in the shader, in CSS pixels with y down.
+  function surfaceUv(p, s) {
+    var W = s.width, H = s.height;
+    var m = 0.06 * H;
+    var S = Math.min(H - 2 * m, 0.5 * (W - 3 * m));
+    if (S <= 0) return null;
+    var bx = 0.5 * (W - 2 * S - m) + S + m;
+    var top = 0.5 * (H - S);
+    return [(p.x - bx) / S, 1 - (p.y - top) / S];
+  }
+
+  var dragging = false;
+  function moveProbe(p, s) {
+    var uv = surfaceUv(p, s);
+    if (!uv) return;
+    probeU.set(Math.round(DemoKit.clamp(uv[0], 0, 1) * 100) / 100);
+    probeV.set(Math.round(DemoKit.clamp(uv[1], 0, 1) * 100) / 100);
+    redraw();
+  }
+
+  handle = DemoKit.shader('#wrap-modes', {
+    fragment: fragment,
+    aspect: 2,
+    minHeight: 220,
+    maxHeight: 360,
+    animate: false,
+    drag: true,
+    label: 'A live fragment shader with two panels. The left panel is an 8 by 8 texture with a yellow arrow, an orange right column, a green top row and a red origin texel. The right panel is a surface whose UV runs past the texture edges, drawn with the chosen wrap mode on each axis. A white ring marks the probe pixel and a white box on the left marks the texel it reads. Drag on the right panel or use the sliders below.',
+    uniforms: {
+      u_range: function () { return range.value; },
+      u_wrap: function () { return [Number(wrapU.value), Number(wrapV.value)]; },
+      u_probe: function () { return [probeU.value, probeV.value]; },
+      u_stage: function () { return Number(stage.value); },
+      u_grid: function () { return grid.value ? 1 : 0; }
+    },
+    onDown: function (p, s) {
+      var uv = surfaceUv(p, s);
+      dragging = !!uv && uv[0] >= -0.05 && uv[0] <= 1.05 && uv[1] >= -0.05 && uv[1] <= 1.05;
+      if (dragging) moveProbe(p, s);
+    },
+    onMove: function (p, s) { if (dragging && p.down) moveProbe(p, s); },
+    onUp: function () { dragging = false; }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

@@ -25,7 +25,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 - [x] **Generous hitboxes** — Why the player's hurtbox is usually smaller than the sprite and pickups are larger than they look. Demo: A bullet dodging game with hitboxes drawn on screen and sliders for player hurtbox size and pickup size. (published 2026-10-28, generous-hitboxes)
 - [x] **Aim assist** — How slowing the reticle near targets and bending shots toward them helps without taking control away. Demo: A target range aimed with keys or mouse with separate toggles for reticle friction and bullet magnetism and a slider for strength. (published 2026-10-29, aim-assist)
 - [x] **Last-hit protection and hidden mercy** — How games stretch the last sliver of health and soften the first hit to create close escapes. Demo: A survival arena with a toggle that makes the final portion of the health bar absorb more damage, and a tally of near-death escapes. (published 2026-10-30, last-hit-protection)
-- [ ] **Checkpoints and the cost of failure** — How the distance to the last checkpoint and the speed of the restart decide whether failure motivates or frustrates. Demo: A hard obstacle course with sliders for checkpoint spacing and respawn delay and a record of time lost to retries.
+- [x] **Checkpoints and the cost of failure** — How the distance to the last checkpoint and the speed of the restart decide whether failure motivates or frustrates. Demo: A hard obstacle course with sliders for checkpoint spacing and respawn delay and a record of time lost to retries. (published 2026-10-31, checkpoints-cost-of-failure)
 
 ## Track 3: Loops, pacing and level design
 
