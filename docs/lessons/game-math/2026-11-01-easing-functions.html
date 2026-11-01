@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Easing functions: why does my menu slide in like a robot? · Game Dev Daily</title>
+<meta name="description" content="How ease-in, ease-out, back and bounce curves reshape the 0 to 1 fraction of a timed move so that menus, pickups and cameras move with character.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-01">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  article { --ea-lin: #2f5fe8; --ea-out: #b35f00; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) article { --ea-lin: #7397ff; --ea-out: #ffa31a; }
+  }
+  html[data-theme="dark"] article { --ea-lin: #7397ff; --ea-out: #ffa31a; }
+  .v-lin { color: var(--ea-lin); font-weight: 650; }
+  .v-e { color: var(--ea-out); font-weight: 650; }
+  .v-t { color: var(--topic); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Easing functions: why does my menu slide in like a robot?</h1>
+  <p class="lede">How ease-in, ease-out, back and bounce curves reshape the 0 to 1 fraction of a timed move so that menus, pickups and cameras move with character.</p>
+</header>
+
+<section data-section="hook">
+  <p>The pause menu slides in from the left in half a second. It arrives on time, but it moves like a machine part: full speed on the first frame, a dead stop on the last. Yesterday smoothstep fixed one kind of move. Today we open the toolbox: curves that start slow, end slow, overshoot, or bounce.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One slot, many curves</h2>
+  <p>A timed move has a fraction of time passed, <span class="v-t">t</span>, from 0 to 1, and lerp turns it into a position: <code>lerp(a, b, t) = a + (b - a) * t</code>, where a is the start and b is the end.</p>
+  <p>An <dfn>easing function</dfn> is any function that sits between the timer and lerp. It takes t and returns a new fraction, <span class="v-e">e</span>. 0 must go to 0 and 1 to 1, so the move still starts at a and ends at b on time. In between, anything goes:</p>
+<pre><code>x = lerp(a, b, ease(t))</code></pre>
+  <p>On a graph with t across and e upwards, a flat stretch means slow movement and a steep stretch means fast movement. The straight diagonal is plain lerp, called <dfn>linear</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 414" role="img" aria-label="Six small graphs, each with t from 0 to 1 across and the eased value from 0 to 1 upwards, with a thin blue diagonal for linear. Ease-in starts flat and ends steep. Ease-out starts steep and ends flat. Ease-in-out is flat at both ends. Ease-out cubic rises even faster than ease-out and flattens earlier. Back rises past the dashed line at 1 and comes back down to it. Bounce rises to 1, drops and rises again three more times, each drop smaller.">
+      <text class="d-text" x="40" y="24">Ease-in</text>
+      <path class="d-thin" d="M40 164 H190 M40 164 V40"/>
+      <path class="d-dash" d="M40 44 H190 V164"/>
+      <path d="M40 164 L190 44" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M40.0 164.0 L43.8 163.9 L47.5 163.7 L51.3 163.3 L55.0 162.8 L58.8 162.1 L62.5 161.3 L66.3 160.3 L70.0 159.2 L73.8 157.9 L77.5 156.5 L81.3 154.9 L85.0 153.2 L88.8 151.3 L92.5 149.3 L94.5 148.1 L96.3 147.1 L100.0 144.8 L103.8 142.3 L107.5 139.7 L111.3 136.9 L115.0 134.0 L118.8 130.9 L122.5 127.7 L126.3 124.3 L130.0 120.8 L133.8 117.1 L137.5 113.3 L141.3 109.3 L145.0 105.2 L148.8 100.9 L149.1 100.5 L152.5 96.5 L156.3 91.9 L160.0 87.2 L163.8 82.3 L167.5 77.3 L171.3 72.1 L175.0 66.8 L176.4 64.8 L178.8 61.3 L182.5 55.7 L186.3 49.9 L190.0 44.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="40" y="186">t × t</text>
+      <text class="d-text" x="250" y="24">Ease-out</text>
+      <path class="d-thin" d="M250 164 H400 M250 164 V40"/>
+      <path class="d-dash" d="M250 44 H400 V164"/>
+      <path d="M250 164 L400 44" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M250.0 164.0 L253.8 158.1 L257.5 152.3 L261.3 146.7 L265.0 141.2 L268.8 135.9 L272.5 130.7 L276.3 125.7 L280.0 120.8 L283.8 116.1 L287.5 111.5 L291.3 107.1 L295.0 102.8 L298.8 98.7 L302.5 94.7 L304.5 92.6 L306.3 90.9 L310.0 87.2 L313.8 83.7 L317.5 80.3 L321.3 77.1 L325.0 74.0 L328.8 71.1 L332.5 68.3 L336.3 65.7 L340.0 63.2 L343.8 60.9 L347.5 58.7 L351.3 56.7 L355.0 54.8 L358.8 53.1 L359.1 52.9 L362.5 51.5 L366.3 50.1 L370.0 48.8 L373.8 47.7 L377.5 46.7 L381.3 45.9 L385.0 45.2 L386.4 45.0 L388.8 44.7 L392.5 44.3 L396.3 44.1 L400.0 44.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="250" y="186">1 − (1 − t)²</text>
+      <text class="d-text" x="460" y="24">Ease-in-out</text>
+      <path class="d-thin" d="M460 164 H610 M460 164 V40"/>
+      <path class="d-dash" d="M460 44 H610 V164"/>
+      <path d="M460 164 L610 44" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M460.0 164.0 L463.8 163.8 L467.5 163.4 L471.3 162.7 L475.0 161.6 L478.8 160.3 L482.5 158.6 L486.3 156.7 L490.0 154.4 L493.8 151.8 L497.5 149.0 L501.3 145.8 L505.0 142.4 L508.8 138.7 L512.5 134.6 L514.5 132.3 L516.3 130.3 L520.0 125.6 L523.8 120.7 L527.5 115.4 L531.3 109.8 L535.0 104.0 L538.8 98.1 L542.5 92.6 L546.3 87.4 L550.0 82.4 L553.8 77.8 L557.5 73.4 L561.3 69.3 L565.0 65.6 L568.8 62.2 L569.1 61.9 L572.5 59.0 L576.3 56.1 L580.0 53.6 L583.8 51.4 L587.5 49.4 L591.3 47.8 L595.0 46.4 L596.4 46.0 L598.8 45.3 L602.5 44.6 L606.3 44.1 L610.0 44.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="460" y="186">in, then out</text>
+      <text class="d-text" x="40" y="226">Ease-out cubic</text>
+      <path class="d-thin" d="M40 378 H190 M40 378 V254"/>
+      <path class="d-dash" d="M40 258 H190 V378"/>
+      <path d="M40 378 L190 258" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M40.0 378.0 L43.8 369.2 L47.5 360.9 L51.3 353.0 L55.0 345.5 L58.8 338.4 L62.5 331.7 L66.3 325.4 L70.0 319.4 L73.8 313.9 L77.5 308.6 L81.3 303.7 L85.0 299.2 L88.8 294.9 L92.5 291.0 L94.5 288.9 L96.3 287.3 L100.0 283.9 L103.8 280.8 L107.5 278.0 L111.3 275.4 L115.0 273.0 L118.8 270.9 L122.5 268.9 L126.3 267.2 L130.0 265.7 L133.8 264.3 L137.5 263.1 L141.3 262.1 L145.0 261.2 L148.8 260.5 L149.1 260.4 L152.5 259.9 L156.3 259.4 L160.0 259.0 L163.8 258.6 L167.5 258.4 L171.3 258.2 L175.0 258.1 L176.4 258.1 L178.8 258.1 L182.5 258.0 L186.3 258.0 L190.0 258.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="40" y="400">1 − (1 − t)³</text>
+      <text class="d-text" x="250" y="226">Back</text>
+      <path class="d-thin" d="M250 378 H400 M250 378 V254"/>
+      <path class="d-dash" d="M250 258 H400 V378"/>
+      <path d="M250 378 L400 258" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M250.0 378.0 L253.8 364.4 L257.5 351.7 L261.3 339.9 L265.0 328.9 L268.8 318.8 L272.5 309.6 L276.3 301.1 L280.0 293.3 L283.8 286.3 L287.5 279.9 L291.3 274.2 L295.0 269.1 L298.8 264.7 L302.5 260.8 L304.5 258.9 L306.3 257.4 L310.0 254.5 L313.8 252.1 L317.5 250.2 L321.3 248.6 L325.0 247.5 L328.8 246.7 L332.5 246.2 L336.3 246.0 L340.0 246.1 L343.8 246.4 L347.5 246.9 L351.3 247.6 L355.0 248.4 L358.8 249.3 L359.1 249.4 L362.5 250.3 L366.3 251.4 L370.0 252.4 L373.8 253.5 L377.5 254.5 L381.3 255.4 L385.0 256.3 L386.4 256.6 L388.8 257.0 L392.5 257.5 L396.3 257.9 L400.0 258.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="250" y="400">goes above 1</text>
+      <text class="d-text" x="460" y="226">Bounce</text>
+      <path class="d-thin" d="M460 378 H610 M460 378 V254"/>
+      <path class="d-dash" d="M460 258 H610 V378"/>
+      <path d="M460 378 L610 258" style="stroke: var(--ea-lin); stroke-width: 1.5; fill: none"/>
+      <path d="M460.0 378.0 L463.8 377.4 L467.5 375.7 L471.3 372.9 L475.0 368.9 L478.8 363.8 L482.5 357.6 L486.3 350.2 L490.0 341.7 L493.8 332.1 L497.5 321.3 L501.3 309.4 L505.0 296.3 L508.8 282.1 L512.5 266.8 L514.5 258.0 L516.3 261.6 L520.0 268.8 L523.8 274.8 L527.5 279.7 L531.3 283.5 L535.0 286.1 L538.8 287.6 L542.5 288.0 L546.3 287.2 L550.0 285.3 L553.8 282.3 L557.5 278.1 L561.3 272.8 L565.0 266.3 L568.8 258.7 L569.1 258.0 L572.5 261.3 L576.3 263.8 L580.0 265.2 L583.8 265.5 L587.5 264.6 L591.3 262.6 L595.0 259.4 L596.4 258.0 L598.8 259.1 L602.5 259.9 L606.3 259.5 L610.0 258.0" style="stroke: var(--ea-out); stroke-width: 3; fill: none"/>
+      <text class="d-mono" x="460" y="400">four arcs up to 1</text>
+    </svg>
+    <figcaption>The orange curve is the easing function, the thin blue diagonal is linear for comparison, and the dashed lines mark 1. All six graphs use maths axes, with the output growing upwards. Flat parts are slow movement, steep parts are fast movement.</figcaption>
+  </figure>
+
+  <h3>Ease-in: slow start</h3>
+  <p>The simplest curve is t times t, written t². In words, multiply the fraction by itself. Worked example at <span class="v-t">t = 0.5</span>, half the time: e = 0.5 × 0.5 = <span class="v-e">0.25</span>. Halfway through the time the object has covered only a quarter of the way, so it starts gently and finishes fast. This is <dfn>ease-in</dfn>: "in" names the start of the motion. Multiplying three times, t³, gives a stronger ease-in called cubic: at t = 0.5 it gives 0.125.</p>
+
+  <h3>Ease-out: the mirror</h3>
+  <p>To get a slow finish, run ease-in backwards. Turn the time around with 1 − t, apply ease-in, and turn the result around again with 1 minus it:</p>
+<pre><code>easeOut(t) = 1 - easeIn(1 - t)       -- so for t²:  1 - (1 - t) * (1 - t)</code></pre>
+  <p>Worked example at t = 0.5: 1 − t = 0.5, squared is 0.25, and 1 − 0.25 = <span class="v-e">0.75</span>. A fast start that settles softly. This is <dfn>ease-out</dfn>, the usual choice for things that arrive, such as menus and pop-ups.</p>
+
+  <h3>Ease-in-out: both halves</h3>
+  <p><dfn>Ease-in-out</dfn> runs ease-in, squashed into the first half of the time and the way, then ease-out for the rest. For the square curve:</p>
+<pre><code>if t &lt; 0.5 then e = 2 * t * t else e = 1 - 2 * (1 - t) * (1 - t) end</code></pre>
+  <p>Worked example at t = 0.25: 2 × 0.25 × 0.25 = <span class="v-e">0.125</span>. At t = 0.5 both halves give 0.5, so they join without a jump.</p>
+
+  <h3>Back: overshoot and return</h3>
+  <p>A curve may leave the 0 to 1 band in the middle, as long as it ends at 1. <dfn>Back</dfn> shoots past the end and returns, like a panel that slides slightly too far. The common version uses a strength <strong>s</strong> and the shifted time u = t − 1:</p>
+<pre><code>e = 1 + (s + 1) * u * u * u + s * u * u</code></pre>
+  <p>Worked example with s = 2 and t = 0.5, so u = −0.5: u³ = −0.125 and u² = 0.25, so e = 1 + 3 × (−0.125) + 2 × 0.25 = 1 − 0.375 + 0.5 = <span class="v-e">1.125</span>. Halfway through, the panel is 12.5 percent past its target. With s = 0 the curve is exactly ease-out cubic, 1 − (1 − t)³. The usual value is s = 1.70158, which peaks at 1.1, a 10 percent overshoot, at about t = 0.58.</p>
+
+  <h3>Bounce: landing on the floor</h3>
+  <p><dfn>Bounce</dfn> treats e = 1 as the floor: the object falls onto it, hops, lands, hops smaller, and settles. The floor is at the top of the graph, so each hop is a dip below 1. The curve is four pieces of the U-shaped parabola t². The first rises from 0 to 1; each later one dips, to 0.75, then 0.9375, then 0.984375, and returns to 1. Each piece is 7.5625 × (t − c)² + h, where c is the middle of the piece and h its lowest value.</p>
+  <p>Worked example at t = 0.5, which falls in the second arc. Its middle is c = 1.5 / 2.75, about 0.545, and h = 0.75. So t − c is about −0.045, squared is about 0.00207, times 7.5625 is 0.015625, and e = 0.75 + 0.015625 = <span class="v-e">0.765625</span>: in the air after the first bounce.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Clamp t, not e</p>
+    <p>Clamp t to 0 to 1 before calling any easing function: outside that range the formulas run off. Ease-in at t = 1.5 gives 2.25, and bounce at t = 1.5 gives about 3.23. But do not clamp the result of back: going above 1 is the whole point.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Pick a curve from the <strong>Easing</strong> list. The <span class="v-lin">blue box</span> always moves with linear, and the <span class="v-e">orange box</span> uses the curve you picked. The coin's size uses the same eased value, the way a pickup pops into view. Watch where the orange box is when the blue one is halfway.</p>
+  <p>Drag across the canvas, or use the <span class="v-t">t</span> slider, to scrub through the move; with the canvas focused, the left and right arrow keys move t by 0.05. Choose <strong>Back</strong> and drag the <strong>Back strength s</strong> slider from 0 to 3 to watch the overshoot grow. It starts at 1.70, the rounded 1.70158.</p>
+  <figure class="demo" data-demo="easing">
+    <canvas id="easing"></canvas>
+    <figcaption>The graph uses maths axes: t grows to the right and the eased value e grows upwards, with the dashed band edge at 1. The tracks share the graph's horizontal scale, so the blue box sits under the dashed t line. Speed is compared with linear, so 1 means the same speed as the blue box.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A small easing library in plain Lua with the same names and numbers as the demo, then a pause menu in LÖVE that slides in with <code>outBack</code> when you press Escape. Swap the easing name to try the others.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Each easing takes t in 0..1 and returns the shaped fraction.</span>
+local ease = {}
+function ease.linear(t)    return t end
+function ease.inQuad(t)    return t * t end
+function ease.outQuad(t)   return 1 - (1 - t) * (1 - t) end
+function ease.inCubic(t)   return t * t * t end
+function ease.outCubic(t)  return 1 - (1 - t) * (1 - t) * (1 - t) end
+function ease.inOutQuad(t)
+  if t &lt; 0.5 then return 2 * t * t end
+  return 1 - 2 * (1 - t) * (1 - t)
+end
+
+local BACK = 1.70158                <span class="c">-- overshoot of about 10 percent</span>
+function ease.outBack(t)
+  local u = t - 1
+<span class="k">  return 1 + (BACK + 1) * u * u * u + BACK * u * u</span>
+end
+
+function ease.outBounce(t)
+  local n, d = 7.5625, 2.75
+  if t &lt; 1 / d then return n * t * t end
+  if t &lt; 2 / d then t = t - 1.5 / d; return n * t * t + 0.75 end
+  if t &lt; 2.5 / d then t = t - 2.25 / d; return n * t * t + 0.9375 end
+  t = t - 2.625 / d
+  return n * t * t + 0.984375
+end
+
+<span class="c">-- Clamp t (never the result), then lerp with the eased fraction.</span>
+local function tween(from, to, elapsed, duration, easing)
+  if duration &lt;= 0 then return to end                <span class="c">-- avoid dividing by 0</span>
+  local t = math.max(0, math.min(1, elapsed / duration))
+  return from + (to - from) * easing(t)
+end
+
+print(ease.outQuad(0.5), ease.outBack(0.5), ease.outBounce(0.5))
+<span class="c">-- 0.75   about 1.0877   0.765625</span>
+
+<span class="c">-- Screen coordinates: x grows right, y grows down, as in LÖVE.</span>
+local menuX, elapsed, open = -200, 0, false
+function love.keypressed(key)
+  if key == "escape" then open = not open; elapsed = 0 end
+end
+function love.update(dt)
+  elapsed = elapsed + dt
+  if open then
+    menuX = tween(-200, 40, elapsed, 0.5, ease.outBack)
+  else
+    menuX = tween(40, -200, elapsed, 0.3, ease.inQuad)
+  end
+end
+function love.draw()
+  love.graphics.rectangle("fill", menuX, 100, 180, 240)
+end</code></pre>
+  </div>
+  <p>Built-in versions: Godot's <code>Tween</code> takes a curve family and a direction, for example <code>set_trans(Tween.TRANS_BACK)</code> with <code>set_ease(Tween.EASE_OUT)</code>. Unity has no easing list in <code>Mathf</code> apart from <code>Mathf.SmoothStep</code>; an <code>AnimationCurve</code> lets you draw your own curve and read it with <code>Evaluate(t)</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Mixing up "in" and "out".</strong> Ease-in is slow at the start, ease-out is slow at the end. Check with t = 0.5: ease-in gives less than 0.5, ease-out gives more.</li>
+    <li><strong>Not clamping t.</strong> When the timer runs past the duration, ease-in and bounce shoot far past 1, and the menu flies off screen. Clamp t to 0 to 1 first, as <code>tween</code> does.</li>
+    <li><strong>Clamping the result of back.</strong> Clamping e to 1 cuts off the overshoot. For values that cannot exceed 1, such as opacity, choose a curve that stays in range instead.</li>
+    <li><strong>A duration of zero.</strong> elapsed / duration divides by zero. The guard in <code>tween</code> jumps straight to the end instead.</li>
+    <li><strong>Interrupted moves.</strong> If the player closes the menu halfway through opening, the code above starts the closing tween from 40 and the menu jumps. Start from the current position instead.</li>
+    <li><strong>Easing a position every frame.</strong> Easing shapes the fraction of a <em>timed</em> move. Following a moving target needs exponential smoothing, the next lesson.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Easing is everywhere in game interfaces: menus that slide and settle, buttons that grow when selected, damage numbers that pop up and fade. Back suits things that pop into place, bounce suits things that drop and land.</p>
+  <p>The names come from Robert Penner's easing equations, published for Flash animation and followed by most tweening libraries since. Godot's <code>Tween</code> includes back, bounce, elastic and more. On the web, CSS has the keywords <code>ease-in</code>, <code>ease-out</code> and <code>ease-in-out</code>, which are defined as cubic Bezier curves, a curve type later in this track.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take one thing in your project that appears or arrives: a menu, a pickup, a title card. Copy the <code>ease</code> table and <code>tween</code>, and drive the move with them. Put the easing on a key so you can cycle through <code>outQuad</code>, <code>outBack</code> and <code>outBounce</code> while the game runs.</p>
+  <p>You are done when the object still arrives exactly on time with every curve, and letting the timer run long past the duration leaves it resting at its target. For a bonus, make a pickup pop in by using <code>tween(0, 1, elapsed, 0.4, ease.outBack)</code> as its scale, and check that it peaks at about 1.1 times full size.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An easing function reshapes the fraction t: <code>lerp(a, b, ease(t))</code>. It keeps 0 at 0 and 1 at 1.</li>
+    <li>Ease-in (t × t) starts slow, ease-out (1 − (1 − t)²) ends slow, and ease-out is ease-in run backwards.</li>
+    <li>Ease-in-out uses ease-in for the first half of the time and ease-out for the second.</li>
+    <li>Back overshoots on purpose; with s = 1.70158 it peaks at 1.1. Bounce is four arcs that each touch 1.</li>
+    <li>Clamp t before easing, never the result, and guard against a zero duration.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Easing needs a fixed start, end and duration; next we chase a target that keeps moving with exponential smoothing, and make it behave the same at any frame rate.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Penner, <cite>Programming Macromedia Flash MX</cite> (2002), the chapter on motion, tweening and easing, where these easing equations were published.</li>
+    <li>Andrey Sitnik and Ivan Solovev, <cite>Easing Functions Cheat Sheet</cite> (easings.net), graphs of the common curves.</li>
+    <li>W3C, <cite>CSS Easing Functions Level 1</cite>, for the definitions of <code>ease-in</code> and <code>ease-out</code>.</li>
+    <li>Godot Engine documentation, <cite>Tween</cite>.</li>
+    <li>Unity Scripting API, <cite>AnimationCurve</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var V_MIN = -0.1, V_MAX = 1.3;           // vertical scale of the graph (maths axes, y up)
+  var G_TOP = 34, G_BOT = 186;             // graph area
+  var TRACK_L = 236, TRACK_E = 290;        // the two box tracks
+  var COIN_Y = 358;                        // the popping coin
+  var X0 = 36, X1 = 260;
+
+  var t = 0.5;
+  var phase = 0;                           // animation clock in seconds
+  var handle = null;
+  var cache = {};
+  var D = 2.75, N = 7.5625;
+
+  function num(n, d) {
+    var str = n.toFixed(d);
+    if (Number(str) === 0) str = (0).toFixed(d);
+    return str.charAt(0) === '-' ? '−' + str.slice(1) : str;
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.getElementById('easing')).getPropertyValue(name).trim() || fallback;
+  }
+  function redraw() { if (handle) handle.redraw(); }
+  function stop() { if (handle) handle.pause(); }
+
+  var ui = DemoKit.controls('[data-demo="easing"]');
+  var pick = ui.select({ label: 'Easing', value: 'outQuad', onChange: redraw, options: [
+    { value: 'linear', label: 'Linear' },
+    { value: 'inQuad', label: 'Ease-in (quad)' },
+    { value: 'outQuad', label: 'Ease-out (quad)' },
+    { value: 'inOutQuad', label: 'Ease-in-out (quad)' },
+    { value: 'inCubic', label: 'Ease-in (cubic)' },
+    { value: 'outCubic', label: 'Ease-out (cubic)' },
+    { value: 'outBack', label: 'Back (ease-out)' },
+    { value: 'outBounce', label: 'Bounce (ease-out)' }
+  ] });
+  var tSlider = ui.slider({ label: 'Time fraction t', min: 0, max: 1, step: 0.01, value: t,
+    format: function (x) { return num(x, 2); },
+    onInput: function (x) { t = x; stop(); redraw(); } });
+  var back = ui.slider({ label: 'Back strength s', min: 0, max: 3, step: 0.01, value: 1.70,
+    format: function (x) { return num(x, 2); }, onInput: redraw });
+  var outF = ui.readout({ label: 'Eased value e' });
+  var outV = ui.readout({ label: 'Speed compared with linear' });
+
+  function setOut(out, key, text) {
+    if (cache[key] !== text) { cache[key] = text; out.set(text); }
+  }
+
+  // The same easing functions as the Lua code.
+  var ease = {
+    linear: function (x) { return x; },
+    inQuad: function (x) { return x * x; },
+    outQuad: function (x) { return 1 - (1 - x) * (1 - x); },
+    inCubic: function (x) { return x * x * x; },
+    outCubic: function (x) { return 1 - (1 - x) * (1 - x) * (1 - x); },
+    inOutQuad: function (x) { return x < 0.5 ? 2 * x * x : 1 - 2 * (1 - x) * (1 - x); },
+    outBack: function (x) { var s = back.value, u = x - 1; return 1 + (s + 1) * u * u * u + s * u * u; },
+    outBounce: function (x) {
+      if (x < 1 / D) return N * x * x;
+      if (x < 2 / D) { x -= 1.5 / D; return N * x * x + 0.75; }
+      if (x < 2.5 / D) { x -= 2.25 / D; return N * x * x + 0.9375; }
+      x -= 2.625 / D;
+      return N * x * x + 0.984375;
+    }
+  };
+
+  // The worked sum for the readout, with the current t filled in.
+  function explain(name, x, e) {
+    var tt = num(x, 2), r = num(1 - x, 2), v = num(e, 4);
+    switch (name) {
+      case 'linear': return 'e = t = ' + v;
+      case 'inQuad': return 't × t = ' + tt + ' × ' + tt + ' = ' + v;
+      case 'outQuad': return '1 − (1 − t)² = 1 − ' + r + '² = ' + v;
+      case 'inCubic': return 't × t × t = ' + tt + '³ = ' + v;
+      case 'outCubic': return '1 − (1 − t)³ = 1 − ' + r + '³ = ' + v;
+      case 'inOutQuad':
+        return x < 0.5 ? 'first half: 2 × t × t = 2 × ' + tt + '² = ' + v
+                       : 'second half: 1 − 2 × (1 − t)² = 1 − 2 × ' + r + '² = ' + v;
+      case 'outBack':
+        var sv = back.value, u = x - 1;
+        return 'u = ' + num(u, 2) + ': 1 + ' + num(sv + 1, 2) + ' × (' + num(u * u * u, 3) + ')' +
+          ' + ' + num(sv, 2) + ' × ' + num(u * u, 3) + ' = ' + v;
+      case 'outBounce':
+        var arc = x < 1 / D ? 0 : x < 2 / D ? 1 : x < 2.5 / D ? 2 : 3;
+        var mid = [0, 1.5, 2.25, 2.625][arc] / D, low = [0, 0.75, 0.9375, 0.984375][arc];
+        return 'piece ' + (arc + 1) + ' of 4: 7.5625 × (t − ' + num(mid, 3) + ')² + ' + low + ' = ' + v;
+    }
+    return v;
+  }
+
+  function f(x) { return ease[pick.value](x); }
+  function speed(x) {
+    var h = 0.001;
+    var a = Math.max(0, x - h), b = Math.min(1, x + h);
+    return (f(b) - f(a)) / (b - a);
+  }
+
+  function tx(v) { return X0 + v * (X1 - X0); }
+  function gy(v) { return G_BOT - (v - V_MIN) / (V_MAX - V_MIN) * (G_BOT - G_TOP); }
+  function xToT(x) {
+    var v = (x - X0) / (X1 - X0);
+    return DemoKit.clamp(Math.round(v * 100) / 100, 0, 1);
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function dot(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function plot(ctx, g, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    for (var i = 0; i <= 200; i++) {
+      var v = i / 200;
+      var y = gy(DemoKit.clamp(g(v), V_MIN, V_MAX));
+      if (i === 0) ctx.moveTo(tx(v), y); else ctx.lineTo(tx(v), y);
+    }
+    ctx.stroke();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function track(ctx, c, y, g, color, name) {
+    ctx.fillStyle = c.surface2;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    [0, 1].forEach(function (v) {
+      ctx.fillRect(tx(v) - 14, y + 12, 28, 6);
+      ctx.strokeRect(tx(v) - 14, y + 12, 28, 6);
+    });
+    line(ctx, tx(0), y, tx(1), y);
+    // Where the box is at every tenth of the time.
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.45;
+    for (var k = 0; k <= 10; k++) dot(ctx, tx(g(k / 10)), y, 3);
+    ctx.globalAlpha = 1;
+    ctx.font = BOLD;
+    ctx.textAlign = 'left';
+    ctx.fillText(name, X0, y - 18);
+    var x = tx(g(t));
+    ctx.fillRect(x - 10, y - 10, 20, 20);
+  }
+
+  handle = DemoKit.canvas('#easing', {
+    height: 400,
+    drag: true,
+    keys: true,
+    label: 'A graph of the chosen easing curve in orange against a blue linear diagonal, with a dashed line at the current t. Below, a blue box moves with linear and an orange box with the chosen easing, and a coin grows to full size with the eased value. Drag across the canvas or use the left and right arrow keys to change t.',
+    update: function (dt) {
+      phase = (phase + dt) % 3;
+      if (phase < 0.5) t = 0;
+      else if (phase < 2) t = (phase - 0.5) / 1.5;
+      else t = 1;
+      tSlider.set(Math.round(t * 100) / 100);
+    },
+    onDown: function (p) { stop(); t = xToT(p.x); tSlider.set(t); },
+    onMove: function (p) { if (p.down) { t = xToT(p.x); tSlider.set(t); } },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') t = Math.max(0, Math.round((t - 0.05) * 100) / 100);
+      else if (key === 'arrowright') t = Math.min(1, Math.round((t + 0.05) * 100) / 100);
+      else return;
+      stop();
+      tSlider.set(t);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var colL = cssVar('--ea-lin', '#2f5fe8');
+      var colE = cssVar('--ea-out', '#b35f00');
+      X0 = 36;
+      // Leave room on the right for back to overshoot by up to 25 percent.
+      X1 = X0 + (s.width - X0 - 24) / 1.27;
+
+      // The 0..1 band, grid and axes of the graph.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(tx(0), gy(1), tx(1) - tx(0), gy(0) - gy(1));
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      [0.5, 1].forEach(function (v) { line(ctx, tx(v), G_TOP, tx(v), G_BOT); });
+      line(ctx, tx(0), gy(0.5), tx(1), gy(0.5));
+      ctx.strokeStyle = c.ink3;
+      line(ctx, tx(0), gy(0), tx(1) + 10, gy(0));
+      line(ctx, tx(0), G_TOP, tx(0), G_BOT);
+      ctx.setLineDash([4, 4]);
+      line(ctx, tx(0), gy(1), tx(1) + 10, gy(1));
+      ctx.setLineDash([]);
+
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      ctx.fillText('0.5', tx(0.5), gy(0) + 15);
+      ctx.fillText('1', tx(1), gy(0) + 15);
+      ctx.textAlign = 'right';
+      ctx.fillText('0', tx(0) - 5, gy(0) + 4);
+      ctx.fillText('0.5', tx(0) - 5, gy(0.5) + 4);
+      ctx.fillText('1', tx(0) - 5, gy(1) + 4);
+      ctx.textAlign = 'left';
+      ctx.fillText('t', tx(1) + 14, gy(0) + 4);
+      ctx.fillText('eased value e (y up)', X0, G_TOP - 12);
+
+      plot(ctx, ease.linear, colL, 1.5);
+      plot(ctx, f, colE, 3);
+
+      // The current t, carried down to the tracks.
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      line(ctx, tx(t), G_TOP, tx(t), TRACK_E + 22);
+      ctx.setLineDash([]);
+
+      var e = f(t);
+      ctx.fillStyle = colL;
+      dot(ctx, tx(t), gy(t), 5);
+      ctx.fillStyle = colE;
+      dot(ctx, tx(t), gy(DemoKit.clamp(e, V_MIN, V_MAX)), 6);
+
+      ctx.fillStyle = colL;
+      track(ctx, c, TRACK_L, ease.linear, colL, 'linear');
+      ctx.fillStyle = colE;
+      track(ctx, c, TRACK_E, f, colE, 'eased');
+
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      ctx.fillText('a', tx(0) - 22, TRACK_L + 18);
+      ctx.fillText('b', tx(1) + 22, TRACK_L + 18);
+
+      // The coin: its size is the eased value, so back makes it pop past full size.
+      var cx = X0 + 26, full = 18;
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(cx, COIN_Y, full, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      var r = full * Math.max(0, e);
+      if (r > 0.2) {
+        ctx.fillStyle = colE;
+        dot(ctx, cx, COIN_Y, r);
+        ctx.fillStyle = c.surface;
+        dot(ctx, cx, COIN_Y, r * 0.45);
+      }
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('coin size ' + Math.round(e * 100) + '%', cx + full + 26, COIN_Y - 4);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('dashed ring = 100%', cx + full + 26, COIN_Y + 12);
+
+      setOut(outF, 'f', 't = ' + num(t, 2) + ': ' + explain(pick.value, t, e) +
+        (e > 1.00005 ? ' (past the end)' : ''));
+      setOut(outV, 'v', num(speed(t), 2));
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resolving penetration · Game Dev Daily</title>
+<meta name="description" content="How to push overlapping bodies apart, split the push by inverse mass, and choose a correction strength and slop so resting bodies stay put.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-01">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Resolving penetration</h1>
+  <p class="lede">How to push overlapping bodies apart, split the push by inverse mass, and choose a correction strength and slop so resting bodies stay put.</p>
+</header>
+
+<section data-section="hook">
+  <p>Two crates spawn inside each other and the light one shoves the heavy one across the room. A box resting on the floor sinks into it. Your "on ground" check says no while the player is plainly standing on the floor. All three come from the few lines that push overlapping bodies apart.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Overlap is a debt to pay back</h2>
+  <p>Because bodies move in steps, two of them can end a step partly inside each other: <dfn>penetration</dfn>. Detection gives you its <dfn>normal</dfn> <code>n</code>, a unit vector from body A towards body B, and its <dfn>depth</dfn> <code>d</code>, how far they overlap along it. <dfn>Resolving</dfn> the penetration means moving the bodies along the normal until the overlap is gone, or nearly gone.</p>
+
+  <h3>The bug: push one body out</h3>
+  <p>The first version everybody writes moves B out by the full depth:</p>
+<pre><code>b.x = b.x + nx * depth
+b.y = b.y + ny * depth</code></pre>
+  <p>Against a wall this is right, because a wall must not move. Between two moving bodies, whichever comes second in your list does all the moving. A 1 kg box shoves a 4 kg crate aside, and swapping their order in the list changes the game.</p>
+
+  <h3>Split the push by inverse mass</h3>
+  <p>A heavy body should move less than a light one. The tidy way to say that uses the <dfn>inverse mass</dfn>:</p>
+<pre><code>invMass = 1 / mass</code></pre>
+  <p>In words: the heavier the body, the smaller its inverse mass. A static body such as the floor gets exactly 0, meaning "infinitely heavy". Each body's share of the push is its inverse mass divided by the total:</p>
+<pre><code>shareA = a.invMass / (a.invMass + b.invMass)
+shareB = b.invMass / (a.invMass + b.invMass)</code></pre>
+  <p>In words: the shares add up to 1, so together the bodies move exactly the distance you asked for, and the lighter one moves most of it. A moves back along <code>n</code>, B moves forward.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A small 1 kilogram box A overlaps a large 4 kilogram box B by a depth d. The normal n points from A to B. A is pushed left by 0.8 d and B is pushed right by 0.2 d. Beside the boxes, the inverse masses 1 and 0.25 give shares of 0.8 and 0.2.">
+      <rect class="d-box" x="70" y="100" width="80" height="80" rx="3"/>
+      <rect class="d-box" x="126" y="60" width="120" height="120" rx="3"/>
+      <rect class="d-bad-fill" x="126" y="100" width="24" height="80" fill-opacity="0.5"/>
+      <text class="d-text" x="98" y="137" text-anchor="middle">A</text>
+      <text class="d-muted" x="98" y="155" text-anchor="middle">1 kg</text>
+      <text class="d-text" x="198" y="117" text-anchor="middle">B</text>
+      <text class="d-muted" x="198" y="135" text-anchor="middle">4 kg</text>
+      <path class="d-accent" d="M136 40 H184"/>
+      <path class="d-accent-fill" d="M192 40 L182 35 L182 45 Z"/>
+      <text class="d-label" x="202" y="45">n</text>
+      <path class="d-thin" d="M126 192 V204 M150 192 V204 M126 198 H150"/>
+      <text class="d-label" x="138" y="222" text-anchor="middle">depth d</text>
+      <path class="d-accent" d="M64 150 H30"/>
+      <path class="d-accent-fill" d="M22 150 L32 145 L32 155 Z"/>
+      <text class="d-label" x="44" y="134" text-anchor="middle">0.8 d</text>
+      <path class="d-accent" d="M252 150 H258"/>
+      <path class="d-accent-fill" d="M266 150 L256 145 L256 155 Z"/>
+      <text class="d-label" x="272" y="155">0.2 d</text>
+      <g class="d-mono">
+        <text x="330" y="72">invMass A = 1 / 1 = 1</text>
+        <text x="330" y="96">invMass B = 1 / 4 = 0.25</text>
+        <text x="330" y="132">shareA = 1 / 1.25 = 0.8</text>
+        <text x="330" y="156">shareB = 0.25 / 1.25 = 0.2</text>
+      </g>
+      <text class="d-muted" x="330" y="194">A static wall has invMass 0,</text>
+      <text class="d-muted" x="330" y="212">so its share is always 0.</text>
+    </svg>
+    <figcaption>The overlap (red) is paid back in proportion to inverse mass: the 1 kg box moves four times as far as the 4 kg crate.</figcaption>
+  </figure>
+
+  <p>A 24 pixel overlap moves the box 19.2 pixels and the crate 4.8. Equal halves is the same rule with every mass set to 1, so it looks fine until bodies of different weight meet.</p>
+
+  <div class="callout">
+    <p class="callout-title">Positions are not enough</p>
+    <p>Pushing a falling box out of the floor leaves its downward velocity alone, so the next step carries it back in, faster each time. The code below also removes the part of the velocity that points into the contact, split by the same shares: a collision with no bounce. Later lessons replace it with restitution and impulses.</p>
+  </div>
+
+  <h2>How much to fix per step</h2>
+  <p>The <dfn>correction strength</dfn> is the fraction of the overlap removed per step. The <dfn>slop</dfn> is a small overlap you choose to leave alone:</p>
+<pre><code>push = math.max(depth - SLOP, 0) * STRENGTH</code></pre>
+  <p>In words: ignore the first <code>SLOP</code> pixels, then remove <code>STRENGTH</code> of the rest.</p>
+  <p>Run the numbers for a box resting on the floor, with gravity at 1500 pixels per second squared and a step of 1/60 s. Each step gravity gives it 1500 × 1/60 = 25 pixels per second, which carries it 25 × 1/60 = 0.42 pixels into the floor. The overlap settles where the push cancels that: <code>STRENGTH × (overlap − SLOP) = 0.42</code>. With strength 0.8 and slop 0.5, that is 1.02 pixels before the push and 0.60 after.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Strength</th><th class="num">Slop</th><th class="num">Before push</th><th class="num">After push</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">100%</td><td class="num">0 px</td><td class="num">0.42 px</td><td class="num">0.00 px</td></tr>
+      <tr><td class="num">100%</td><td class="num">0.5 px</td><td class="num">0.92 px</td><td class="num">0.50 px</td></tr>
+      <tr><td class="num">80%</td><td class="num">0.5 px</td><td class="num">1.02 px</td><td class="num">0.60 px</td></tr>
+      <tr><td class="num">20%</td><td class="num">0 px</td><td class="num">2.08 px</td><td class="num">1.67 px</td></tr>
+      <tr><td class="num">5%</td><td class="num">0 px</td><td class="num">8.33 px</td><td class="num">7.92 px</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>A low strength is soft: deep overlaps ease out over several steps, but resting bodies visibly sink, and at 0% they fall through. Full strength is rigid, but a deep overlap is fixed in one frame, which looks like a teleport. Physics says solids never overlap; the game answer is that a sub-pixel overlap nobody sees beats a pop everybody does.</p>
+
+  <h3>Why leave any overlap at all</h3>
+  <p>With full strength and no slop, a resting box ends every step <em>exactly</em> touching the floor. A test made after the step, such as "is the player on the ground?", finds zero overlap and says no, every step. A slop of half a pixel keeps the contact there when you look for it, and nobody can see half a pixel.</p>
+
+  <h3>Walls go last</h3>
+  <p>Resolve box against box first and box against wall last. Then a static body has the final word each step, and a push from a neighbour cannot leave a box inside the floor.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the bug: a 1 kg box and a 4 kg crate spawned 24 pixels inside each other, split with <strong>Push the second body only</strong>. The crate jumps all 24 pixels. Switch to <strong>Equal halves</strong> (12 and 12), then <strong>By inverse mass</strong> (19.2 and 4.8). Changing the split or the mass replays the spawn.</p>
+  <p>Now watch the lone box. At 100% strength and 0 slop it reads "not on ground". Raise the slop to 0.5 and it is on the ground. At 5% strength it rests 7.9 pixels deep; at 0% it falls through. Last, at 100% and 0 slop, press <strong>Crate on light box</strong> with the inverse-mass split: the crate sinks about 10 pixels, because in one pass the floor's push cannot reach it through the light box.</p>
+
+  <figure class="demo wide" data-demo="penetration">
+    <canvas id="penetration"></canvas>
+    <figcaption>Red: overlap left after the step. Orange arrows: normals, from A to B. Dashed: where the pair spawned. Drag a box; a held box counts as static. Keyboard: 1, 2 or 3 (the corner numbers) picks a box, arrow keys move it.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo with <strong>By inverse mass</strong>, strength 80% and slop 0.5. On the first step the push is (24 − 0.5) × 0.8 = 18.8 pixels, so the box moves 15.04 left and the crate 3.76 right. Within a few steps they settle at 18.8 and 4.7, leaving the 0.5 pixel slop.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GRAVITY  = 1500    <span class="c">-- pixels per second squared, +y is down</span>
+local STEP     = 1 / 60  <span class="c">-- fixed timestep in seconds</span>
+local STRENGTH = 0.8     <span class="c">-- remove 80% of the overlap each step</span>
+local SLOP     = 0.5     <span class="c">-- pixels of overlap left alone</span>
+
+<span class="c">-- Centre x, y, half sizes hw, hh, velocity vx, vy. invMass 0 means static.</span>
+local function newBox(x, y, w, h, mass)
+  local invMass = 0
+  if mass &gt; 0 then invMass = 1 / mass end
+  return { x = x, y = y, hw = w / 2, hh = h / 2, vx = 0, vy = 0, invMass = invMass }
+end
+
+local ground = newBox(400, 350, 2000, 100, 0)   <span class="c">-- top edge at y = 300</span>
+local light  = newBox(100, 280, 40, 40, 1)
+local crate  = newBox(128, 268, 64, 64, 4)      <span class="c">-- 24 px inside light</span>
+local boxes, walls = { light, crate }, { ground }
+
+<span class="c">-- Depth and normal (pointing from a to b), or nil when apart.</span>
+local function overlap(a, b)
+  local ox = math.min(a.x + a.hw, b.x + b.hw) - math.max(a.x - a.hw, b.x - b.hw)
+  local oy = math.min(a.y + a.hh, b.y + b.hh) - math.max(a.y - a.hh, b.y - b.hh)
+  if ox &lt;= 0 or oy &lt;= 0 then return nil end
+  if ox &lt; oy then
+    if b.x &lt; a.x then return ox, -1, 0 end
+    return ox, 1, 0
+  end
+  if b.y &lt; a.y then return oy, 0, -1 end
+  return oy, 0, 1
+end
+
+local function resolve(a, b)
+  local depth, nx, ny = overlap(a, b)
+  if not depth then return end
+  local total = a.invMass + b.invMass
+  if total == 0 then return end                 <span class="c">-- two static bodies</span>
+<span class="k">  local shareA, shareB = a.invMass / total, b.invMass / total
+  local push = math.max(depth - SLOP, 0) * STRENGTH
+  a.x, a.y = a.x - nx * push * shareA, a.y - ny * push * shareA
+  b.x, b.y = b.x + nx * push * shareB, b.y + ny * push * shareB</span>
+  <span class="c">-- Stop the motion into the contact, split the same way (no bounce yet).</span>
+  local vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
+  if vn &lt; 0 then
+    a.vx, a.vy = a.vx + nx * vn * shareA, a.vy + ny * vn * shareA
+    b.vx, b.vy = b.vx - nx * vn * shareB, b.vy - ny * vn * shareB
+  end
+end
+
+local function step(dt)
+  for _, b in ipairs(boxes) do
+    b.vy = b.vy + GRAVITY * dt
+    b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
+  end
+  for i = 1, #boxes do
+    for j = i + 1, #boxes do resolve(boxes[i], boxes[j]) end
+  end
+  for _, b in ipairs(boxes) do                  <span class="c">-- walls last: they win</span>
+    for _, w in ipairs(walls) do resolve(w, b) end
+  end
+end
+
+local accumulator = 0
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, b in ipairs(boxes) do
+    love.graphics.rectangle("line", b.x - b.hw, b.y - b.hh, b.hw * 2, b.hh * 2)
+  end
+end</code></pre>
+  </div>
+  <p>In Godot, the physics server separates overlapping <code>RigidBody2D</code> nodes, and <code>CharacterBody2D.move_and_slide()</code> pushes the character out of overlaps, with a margin set by its <code>safe_margin</code> property. In Unity, the 2D solver separates <code>Rigidbody2D</code> bodies, and the Physics 2D project settings include <strong>Baumgarte Scale</strong>, the same idea as <code>STRENGTH</code>. You still need the code above for bodies you move yourself.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Moving only one body.</strong> The result depends on list order. Split by inverse mass, and give static bodies an inverse mass of 0 rather than a huge mass.</li>
+    <li><strong>Fixing positions but not velocities.</strong> The velocity into the floor keeps growing under gravity, so each step carries the box deeper until it passes through.</li>
+    <li><strong>Pushing a Verlet body.</strong> When velocity comes from the change in position, every push becomes speed: 20 pixels in one 1/60 s step is 20 × 60 = 1200 pixels per second. Use a low strength or cap the push per step.</li>
+    <li><strong>Chains in one pass.</strong> Each pair is fixed as if it were alone, so a heavy crate on a light box sinks in, deeper as the mass ratio grows. Repeating the pass helps; that is the stacking lesson later in this track.</li>
+    <li><strong>Two static bodies.</strong> Their total inverse mass is 0, so the shares divide by zero. Skip the pair, as <code>resolve</code> does.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the open source 2D engine by Erin Catto, corrects overlap a fraction at a time and leaves a small allowed overlap; in version 2 of its source these are the Baumgarte factor and the linear slop constant. Unity's 2D physics is built on Box2D, which is why its settings use the same Baumgarte name.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find the code in your project that pushes bodies out of each other. Give every body an inverse mass, split the push by it, and add a strength and a slop. Let a box rest on the floor and print its overlap after each step.</p>
+  <p>Predict it first: the sink per step is gravity × step², and the resting overlap is <code>SLOP + sink / STRENGTH − sink</code>. You are done when the printed number matches your prediction to two decimal places.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Split the push by inverse mass. The shares add up to 1, and a static body (inverse mass 0) never moves.</li>
+    <li>Strength trades firmness for smoothness, and sets how deep resting bodies settle.</li>
+    <li>A small slop keeps resting contacts touching, so checks after the step still find them.</li>
+    <li>Also remove the velocity into the contact, or the body keeps falling in.</li>
+    <li>Resolve against static bodies last so they always win.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, restitution replaces "stop the motion into the contact" with a value that decides how much bounce a collision keeps.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Randy Gaul, <cite>How to Create a Custom 2D Physics Engine: The Basics and Impulse Resolution</cite> (Envato Tuts+, 2013). Positional correction with a percentage and a slop.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Its collision resolution chapters split interpenetration by inverse mass.</li>
+    <li>Erin Catto, <cite>Box2D</cite>, open source physics engine. The version 2 contact solver uses a Baumgarte factor and linear slop.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 1500;      // pixels per second squared, +y is down
+  var STEP = 1 / 60;       // fixed timestep in seconds
+  var MAX_FRAME = 0.25;
+  var KEY_SPEED = 150;     // pixels per second when moving a box with the keys
+  var HEIGHT = 300;
+  var FLOOR_H = 36;
+  var WALL = 6;            // visible thickness of the side walls
+
+  var W = 0, floorTop = HEIGHT - FLOOR_H;
+  var light, crate, lone, boxes, walls, start, hold = null, accumulator = 0;
+  var setup = 'pair', selected = 1;
+
+  function newBox(x, y, w, h, mass, name) {
+    return { x: x, y: y, hw: w / 2, hh: h / 2, vx: 0, vy: 0,
+             mass: mass, invMass: mass > 0 ? 1 / mass : 0, name: name };
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="penetration"]');
+  var split = ui.select({ label: 'Split the push', value: 'second',
+    options: [
+      { value: 'second', label: 'Push the second body only' },
+      { value: 'equal', label: 'Equal halves' },
+      { value: 'mass', label: 'By inverse mass' }
+    ],
+    onChange: function () { build(); } });
+  var strength = ui.slider({ label: 'Correction strength', min: 0, max: 100, step: 5, value: 100, unit: '%' });
+  var slop = ui.slider({ label: 'Slop', min: 0, max: 2, step: 0.1, value: 0, unit: ' px' });
+  var crateMass = ui.slider({ label: 'Crate mass', min: 1, max: 10, step: 1, value: 4, unit: ' kg',
+    onInput: function () { build(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var outPair = ui.readout({ label: 'Pair moved' });
+  var outLone = ui.readout({ label: 'Lone box on the floor' });
+  ui.button({ label: 'Side by side', onClick: function () { setup = 'pair'; build(); } });
+  ui.button({ label: 'Crate on light box', onClick: function () { setup = 'stack'; build(); } });
+  ui.button({ label: 'Reset', onClick: function () { build(); } });
+
+  // ---- Scene ----
+  function build() {
+    if (!W) return;
+    walls = [
+      newBox(W / 2, floorTop + 50, W + 400, 100, 0, 'floor'),
+      newBox(WALL - 50, HEIGHT / 2, 100, HEIGHT * 4, 0, 'left wall'),
+      newBox(W - WALL + 50, HEIGHT / 2, 100, HEIGHT * 4, 0, 'right wall')
+    ];
+    var lx = Math.max(64, W * 0.2);
+    light = newBox(lx, floorTop - 20, 40, 40, 1, 'light');
+    crate = newBox(lx + 28, floorTop - 32, 64, 64, crateMass.value, 'crate');   // 24 px inside light
+    lone = newBox(W * 0.62, floorTop - 24 - 110, 48, 48, 1, 'lone');
+    if (setup === 'stack') {
+      crate.x = lx;
+      crate.y = floorTop - 40 - 32 - 4;      // 4 px above the light box
+      start = null;
+    } else {
+      start = { light: light.x, crate: crate.x, ly: light.y, cy: crate.y };
+    }
+    boxes = [light, crate, lone];             // list order matters for "second body only"
+    hold = null;
+    accumulator = 0;
+  }
+
+  // ---- Physics ----
+  function overlap(a, b) {
+    var ox = Math.min(a.x + a.hw, b.x + b.hw) - Math.max(a.x - a.hw, b.x - b.hw);
+    var oy = Math.min(a.y + a.hh, b.y + b.hh) - Math.max(a.y - a.hh, b.y - b.hh);
+    if (ox <= 0 || oy <= 0) return null;
+    if (ox < oy) return { depth: ox, nx: b.x < a.x ? -1 : 1, ny: 0, ox: ox, oy: oy };
+    return { depth: oy, nx: 0, ny: b.y < a.y ? -1 : 1, ox: ox, oy: oy };
+  }
+
+  function shares(a, b) {
+    var total = a.invMass + b.invMass;
+    if (total === 0) return null;            // two static bodies
+    if (a.invMass === 0) return [0, 1];
+    if (b.invMass === 0) return [1, 0];
+    if (split.value === 'second') return [0, 1];
+    if (split.value === 'equal') return [0.5, 0.5];
+    return [a.invMass / total, b.invMass / total];
+  }
+
+  function resolve(a, b) {
+    var c = overlap(a, b);
+    if (!c) return;
+    var sh = shares(a, b);
+    if (!sh) return;
+    var push = Math.max(c.depth - slop.value, 0) * (strength.value / 100);
+    a.x -= c.nx * push * sh[0]; a.y -= c.ny * push * sh[0];
+    b.x += c.nx * push * sh[1]; b.y += c.ny * push * sh[1];
+    var vn = (b.vx - a.vx) * c.nx + (b.vy - a.vy) * c.ny;
+    if (vn < 0) {
+      a.vx += c.nx * vn * sh[0]; a.vy += c.ny * vn * sh[0];
+      b.vx -= c.nx * vn * sh[1]; b.vy -= c.ny * vn * sh[1];
+    }
+  }
+
+  function grab(box, tx, ty, by, dx, dy) {
+    hold = { box: box, tx: tx, ty: ty, by: by, dx: dx || 0, dy: dy || 0 };
+    box.invMass = 0;                          // a held box acts as a static body
+    box.vx = 0; box.vy = 0;
+  }
+
+  function release() {
+    if (!hold) return;
+    var b = hold.box;
+    b.invMass = b.mass > 0 ? 1 / b.mass : 0;
+    b.vx = 0; b.vy = 0;
+    hold = null;
+  }
+
+  function placeHeld() {
+    if (!hold) return;
+    var b = hold.box;
+    b.x = DemoKit.clamp(hold.tx, WALL + b.hw, W - WALL - b.hw);
+    b.y = DemoKit.clamp(hold.ty, b.hh, floorTop - b.hh);
+    hold.tx = b.x; hold.ty = b.y;
+    b.vx = 0; b.vy = 0;
+  }
+
+  function stepWorld(s) {
+    // Keyboard: arrows move the selected box while held down.
+    var kx = 0, ky = 0;
+    if (s.keys) {
+      if (s.keys.has('arrowleft')) kx -= 1;
+      if (s.keys.has('arrowright')) kx += 1;
+      if (s.keys.has('arrowup')) ky -= 1;
+      if (s.keys.has('arrowdown')) ky += 1;
+    }
+    if (kx !== 0 || ky !== 0) {
+      if (!hold) grab(boxes[selected], boxes[selected].x, boxes[selected].y, 'keys');
+      if (hold.by === 'keys') {
+        hold.tx += kx * KEY_SPEED * STEP;
+        hold.ty += ky * KEY_SPEED * STEP;
+      }
+    } else if (hold && hold.by === 'keys') {
+      release();
+    }
+    placeHeld();
+
+    var i, j, k;
+    for (i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      if (b.invMass === 0) continue;
+      b.vy += GRAVITY * STEP;
+      b.x += b.vx * STEP;
+      b.y += b.vy * STEP;
+    }
+    for (i = 0; i < boxes.length; i++) {
+      for (j = i + 1; j < boxes.length; j++) resolve(boxes[i], boxes[j]);
+    }
+    for (i = 0; i < boxes.length; i++) {          // walls last: they win
+      for (k = 0; k < walls.length; k++) resolve(walls[k], boxes[i]);
+    }
+  }
+
+  function sync(s) {
+    if (s.width !== W) { W = s.width; build(); }
+  }
+
+  // ---- Drawing helpers ----
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.5) return;
+    var ux = dx / len, uy = dy / len, head = 7;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+    line(ctx, x1, y1, x2 - ux * head * 0.6, y2 - uy * head * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * head - uy * head * 0.5, y2 - uy * head + ux * head * 0.5);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.5, y2 - uy * head - ux * head * 0.5);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function fmt(v, digits) {
+    var k = Math.pow(10, digits), r = Math.round(v * k) / k;
+    if (r === 0) r = 0;
+    return r.toFixed(digits);
+  }
+
+  function drawContact(ctx, c, a, b) {
+    var o = overlap(a, b);
+    if (!o) return;
+    var left = Math.max(a.x - a.hw, b.x - b.hw), top = Math.max(a.y - a.hh, b.y - b.hh);
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = c.bad;
+    ctx.fillRect(left, top, o.ox, o.oy);
+    ctx.globalAlpha = 1;
+    var cx = left + o.ox / 2, cy = top + o.oy / 2;
+    arrow(ctx, cx, cy, cx + o.nx * 22, cy + o.ny * 22, c.warn);
+  }
+
+  var canvasEl = document.getElementById('penetration');
+
+  DemoKit.canvas('#penetration', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A floor with three boxes: a 1 kilogram box and a crate that start inside each other, and a lone box that falls onto the floor. Overlaps are shaded red with an arrow for the contact normal. Boxes can be dragged, or chosen with the keys 1, 2 and 3 and moved with the arrow keys.',
+    update: function (dt, s) {
+      sync(s);
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 30) {
+        stepWorld(s);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      sync(s);
+      var c = s.colors;
+      var i;
+
+      // Floor and walls.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, floorTop, s.width, HEIGHT - floorTop);
+      ctx.fillRect(0, 0, WALL, floorTop);
+      ctx.fillRect(s.width - WALL, 0, WALL, floorTop);
+      ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5;
+      line(ctx, 0, floorTop, s.width, floorTop);
+
+      // Where the pair spawned.
+      if (debug.value && start) {
+        ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(start.light - light.hw, start.ly - light.hh, light.hw * 2, light.hh * 2);
+        ctx.strokeRect(start.crate - crate.hw, start.cy - crate.hh, crate.hw * 2, crate.hh * 2);
+        ctx.setLineDash([]);
+      }
+
+      // Boxes.
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      var focused = document.activeElement === canvasEl;
+      for (i = 0; i < boxes.length; i++) {
+        var b = boxes[i];
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(b.x - b.hw, b.y - b.hh, b.hw * 2, b.hh * 2);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = hold && hold.box === b ? c.warn : c.topic;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x - b.hw, b.y - b.hh, b.hw * 2, b.hh * 2);
+        if (focused && i === selected) {
+          ctx.strokeStyle = c.ink2; ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(b.x - b.hw - 4, b.y - b.hh - 4, b.hw * 2 + 8, b.hh * 2 + 8);
+          ctx.setLineDash([]);
+        }
+        ctx.fillStyle = c.ink;
+        ctx.textAlign = 'center';
+        ctx.fillText(b.mass + ' kg', b.x, b.y + 4);
+        ctx.fillStyle = c.ink3;
+        ctx.textAlign = 'left';
+        ctx.fillText(String(i + 1), b.x - b.hw + 5, b.y - b.hh + 14);
+        ctx.textAlign = 'center';
+      }
+
+      // Overlaps and normals left after the step.
+      if (debug.value) {
+        var j, k;
+        for (i = 0; i < boxes.length; i++) {
+          for (j = i + 1; j < boxes.length; j++) drawContact(ctx, c, boxes[i], boxes[j]);
+          for (k = 0; k < walls.length; k++) drawContact(ctx, c, walls[k], boxes[i]);
+        }
+      }
+
+      // Ground check for the lone box, made after the step.
+      var g = overlap(walls[0], lone);
+      ctx.fillStyle = g ? c.good : c.bad;
+      ctx.fillText(g ? 'on ground' : 'not on ground', lone.x, lone.y - lone.hh - 8);
+      outLone.set('overlap ' + fmt(g ? g.depth : 0, 2) + ' px, on ground: ' + (g ? 'yes' : 'no'));
+
+      if (start) {
+        outPair.set('light box ' + fmt(Math.abs(light.x - start.light), 1) + ' px, crate ' +
+          fmt(Math.abs(crate.x - start.crate), 1) + ' px');
+      } else {
+        outPair.set('not measured with the crate on top');
+      }
+    },
+    onDown: function (p) {
+      for (var i = boxes.length - 1; i >= 0; i--) {
+        var b = boxes[i];
+        if (Math.abs(p.x - b.x) <= b.hw && Math.abs(p.y - b.y) <= b.hh) {
+          release();
+          selected = i;
+          grab(b, b.x, b.y, 'pointer', p.x - b.x, p.y - b.y);
+          return;
+        }
+      }
+    },
+    onMove: function (p) {
+      if (!hold || hold.by !== 'pointer' || !p.down) return;
+      hold.tx = p.x - hold.dx;
+      hold.ty = p.y - hold.dy;
+    },
+    onUp: function () {
+      if (hold && hold.by === 'pointer') release();
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === '1' || key === '2' || key === '3') {
+        if (hold && hold.by === 'keys') release();
+        selected = Number(key) - 1;
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

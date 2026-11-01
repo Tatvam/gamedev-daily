@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wolfenstein 3D: a 3D view from a flat grid, one ray per column · Game Dev Daily</title>
+<meta name="description" content="How Wolfenstein 3D drew a 3D maze on a 1992 PC: cast one ray per screen column across a 2D grid and size each wall slice by its distance.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-01">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Wolfenstein 3D: a 3D view from a flat grid, one ray per column</h1>
+  <p class="lede">How Wolfenstein 3D drew a 3D maze on a 1992 PC: cast one ray per screen column across a 2D grid and size each wall slice by its distance.</p>
+</header>
+
+<section data-section="hook">
+  <p>Wolfenstein 3D, released by id Software in 1992, let players run through corridors in first person on ordinary PCs with no 3D hardware. Yet the game never stores a 3D world. Its levels are flat grids of squares, and the 3D view is worked out from that grid one screen column at a time.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: the processor draws every pixel</h2>
+  <p>A PC of the early 1990s had no chip to draw triangles or test depth. The graphics card showed whatever bytes the processor wrote into video memory, at 320 by 200 pixels with 256 colours. Every wall pixel was calculated and written by the main processor, which also ran the game. A general 3D renderer, with walls at any angle and height to sort and clip, was too much work. So the game shrank the problem.</p>
+
+  <h2>The trick: make the world simple enough for rays</h2>
+  <p>The released source code shows the rules. A map is a grid of at most 64 by 64 squares. Each square is either empty or a solid wall block (doors, which slide inside their square, are a special case). Every wall is a whole square, all walls are the same height, and the floor and ceiling are flat. The ceiling is filled with one colour per level and the floor with one fixed colour; neither is textured.</p>
+  <p>Those rules have a useful result: looking straight ahead, any column of the screen shows ceiling at the top, floor at the bottom, and at most one wall slice in between, centred on the horizon. To draw a column, the renderer only needs to know which wall that column sees and how far away it is.</p>
+  <p>Finding that is called <dfn>raycasting</dfn>: start at the player and follow a straight line, the <dfn>ray</dfn>, in the direction that column looks, until it enters a wall square. One ray per column, so a 320 pixel wide view costs 320 rays, whatever the size of the map.</p>
+
+  <h3>Walking the grid</h3>
+  <p>A ray can only enter a new square where it crosses a grid line, so the renderer jumps from crossing to crossing. It tracks how far along the ray the next vertical grid line is and how far the next horizontal one is, takes the nearer, moves into the square beyond, and checks whether it is a wall. This is a kind of <dfn>DDA</dfn> (digital differential analyser), a stepping method that only needs additions inside its loop.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Left: a top-down grid of squares with a column of wall squares on the right. A ray leaves the player and crosses grid lines, alternately vertical and horizontal ones, marked with dots, until it enters a wall square. The squares it passes through are shaded. Right: a screen view where a near wall gives a tall slice and a far wall gives a short slice, with height equal to focal length divided by distance.">
+      <g>
+        <rect class="d-fill" x="60" y="140" width="40" height="40"/>
+        <rect class="d-fill" x="100" y="140" width="40" height="40"/>
+        <rect class="d-fill" x="100" y="100" width="40" height="40"/>
+        <rect class="d-fill" x="140" y="100" width="40" height="40"/>
+        <rect class="d-fill" x="180" y="100" width="40" height="40"/>
+        <rect class="d-fill" x="180" y="60" width="40" height="40"/>
+        <rect class="d-fill" x="220" y="60" width="40" height="40"/>
+        <rect class="d-accent-soft" x="260" y="20" width="40" height="200"/>
+      </g>
+      <g>
+        <path class="d-thin" d="M20 20 H300 M20 60 H300 M20 100 H300 M20 140 H300 M20 180 H300 M20 220 H300"/>
+        <path class="d-thin" d="M20 20 V220 M60 20 V220 M100 20 V220 M140 20 V220 M180 20 V220 M220 20 V220 M260 20 V220 M300 20 V220"/>
+      </g>
+      <text class="d-text" x="280" y="40" text-anchor="middle">wall</text>
+      <path class="d-accent" d="M72 164 L260 76"/>
+      <circle class="d-accent-fill" cx="72" cy="164" r="6"/>
+      <text class="d-text" x="60" y="240" text-anchor="middle">player</text>
+      <g>
+        <circle class="d-accent-fill" cx="100" cy="151" r="4.5"/>
+        <circle class="d-box" cx="123" cy="140" r="4.5"/>
+        <circle class="d-accent-fill" cx="140" cy="132" r="4.5"/>
+        <circle class="d-accent-fill" cx="180" cy="114" r="4.5"/>
+        <circle class="d-box" cx="209" cy="100" r="4.5"/>
+        <circle class="d-accent-fill" cx="220" cy="95" r="4.5"/>
+        <circle class="d-accent-fill" cx="260" cy="76" r="6"/>
+      </g>
+      <text class="d-label" x="246" y="248" text-anchor="end">hit after 7 crossings</text>
+      <circle class="d-accent-fill" cx="26" cy="266" r="4.5"/>
+      <text class="d-muted" x="38" y="270">crosses a vertical line</text>
+      <circle class="d-box" cx="190" cy="266" r="4.5"/>
+      <text class="d-muted" x="202" y="270">crosses a horizontal line</text>
+
+      <rect class="d-box" x="360" y="20" width="260" height="200" rx="4"/>
+      <path class="d-dash" d="M360 120 H620"/>
+      <text class="d-muted" x="490" y="40" text-anchor="middle">ceiling: one flat colour</text>
+      <text class="d-muted" x="490" y="210" text-anchor="middle">floor: one flat colour</text>
+      <rect class="d-accent-soft" x="400" y="56" width="22" height="128"/>
+      <rect class="d-accent-soft" x="540" y="98" width="22" height="44"/>
+      <text class="d-text" x="432" y="124">near</text>
+      <text class="d-text" x="572" y="124">far</text>
+      <text class="d-label" x="490" y="248" text-anchor="middle">slice height = focal ÷ distance</text>
+      <text class="d-muted" x="490" y="270" text-anchor="middle">each slice is centred on the horizon</text>
+    </svg>
+    <figcaption>Left: the ray only stops at grid lines, never in between, and checks the square beyond each one. Right: the distance it travelled becomes the height of one column of wall.</figcaption>
+  </figure>
+
+  <p>In Wolfenstein 3D this loop is hand-written assembly, a routine called <code>AsmRefresh</code>, with one branch for vertical walls and one for horizontal walls. As it passes through an empty square it marks that square as seen in a 64 by 64 table. Later the game only considers drawing enemies and objects that stand in, or next to, a marked square, so the rays do double duty as a visibility test.</p>
+
+  <h3>From distance to height</h3>
+  <p>Perspective makes things shrink in proportion to distance. A wall twice as far away looks half as tall, so the slice height is a constant divided by the distance. That constant, the <dfn>focal length</dfn>, is set by the field of view: with a view <code>w</code> pixels wide and a field of view <code>fov</code>, it is <code>(w / 2) / tan(fov / 2)</code>.</p>
+  <p>Which distance, though? The obvious answer, the length of the ray, is wrong. Rays at the edge of the screen travel further than the centre ray to reach the same flat wall, so a straight wall would bulge in the middle and curve away at the sides. This is the <dfn>fisheye</dfn> effect.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 240" role="img" aria-label="A player faces a flat wall. The centre ray is 150 units long and the edge ray is 192 units long, but both hit points are 150 units away measured along the facing direction.">
+      <path class="d-stroke" d="M30 40 H330"/>
+      <text class="d-muted" x="180" y="26" text-anchor="middle">flat wall</text>
+      <path class="d-dash" d="M180 190 V40"/>
+      <path class="d-accent" d="M180 190 L300 40"/>
+      <path class="d-accent" d="M180 190 L60 40"/>
+      <path class="d-dash" d="M300 40 V190 M180 190 H300"/>
+      <circle class="d-accent-fill" cx="180" cy="190" r="6"/>
+      <text class="d-text" x="180" y="216" text-anchor="middle">player, facing up</text>
+      <text class="d-label" x="252" y="120" text-anchor="start">ray 192</text>
+      <text class="d-muted" x="172" y="80" text-anchor="end">ray 150</text>
+      <text class="d-muted" x="308" y="140">150</text>
+      <text class="d-muted" x="20" y="236">along the facing direction, both are 150 away</text>
+    </svg>
+    <figcaption>Use the distance along the facing direction, ray length times the cosine of the angle between the ray and the view.</figcaption>
+  </figure>
+
+  <p>The fix is to measure distance along the direction the player faces. The game's <code>CalcHeight</code> function does the same thing by projecting the hit point onto the view direction, and it clamps very small distances to a minimum so the division cannot overflow.</p>
+  <p>The rays are also not spread at equal angles. They aim through equally spaced points on a flat screen, so each column's angle is the <code>atan</code> of its position across the screen. The source builds a table of these angles when the view size is set.</p>
+
+  <h3>Texture and light for almost nothing</h3>
+  <p>Where the ray hits inside a square also tells the renderer which column of the wall picture to draw: the fractional part of the hit coordinate picks one of the texture's 64 columns, which is then stretched to the slice height. And each wall type has two pictures, one for faces hit across a vertical grid line and one for horizontal lines, shaded differently, which gives the maze a sense of light without any lighting maths.</p>
+  <p>In his release notes for the source code, John Carmack wrote that "ray casting was a lot simpler to do at the time", compared with a renderer based on binary space partitioning, the method Doom would use. He also wrote that the wall-stretching routines were generated as machine code while the game ran, the fastest method on the machines without a memory cache that were the original target.</p>
+
+  <div class="callout">
+    <p class="callout-title">The idea in one line</p>
+    <p>Restrict the world until each screen column has one simple question, then answer it once per column.</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>The same grid walk still finds which tiles a bullet crosses, whether an enemy can see the player, and which block a ray hits in voxel worlds. And the bargain remains: if you set the rules of your world, choose rules that make the expensive question cheap.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Left is the map the game stores; right is what the player sees. Tap squares to add or remove walls, drag the player dot, or focus the map and use the arrow keys. Set <strong>Columns</strong> to 8 and the view becomes a few wide slices, one per ray; raise it to 320 and it turns smooth. Then switch off <strong>Correct fisheye</strong> and face a long wall.</p>
+
+  <figure class="demo wide" data-demo="raycast">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="raycast-map"></canvas><span class="demo-label">The stored map</span></div>
+      <div class="demo-stage"><canvas id="raycast-view"></canvas><span class="demo-label">What the player sees</span></div>
+    </div>
+    <figcaption>Tap a column of the view to inspect its ray. The dots on that ray mark every grid line it crossed. The work grows with the number of columns, not with the size of the map.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the same map, field of view, column count and minimum distance as the demo. The map is a list of strings: <code>0</code> is empty and other digits are wall types. The demo moves in fixed steps; this version moves smoothly with the arrow keys.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local MAP = {
+  "111111111111", "100000000001", "100000220001", "100000220001",
+  "100000000001", "100300000001", "100300001111", "100000000001",
+  "122200000001", "100000033001", "100000000001", "111111111111",
+}
+local FOV, COLUMNS, MIN_DIST = math.rad(60), 40, 0.05
+local player = { x = 2.5, y = 10.5, angle = math.rad(300) }
+local SHADE = { ["1"] = {0.35, 0.55, 0.9}, ["2"] = {0.3, 0.7, 0.4}, ["3"] = {0.9, 0.65, 0.25} }
+
+local function tileAt(cx, cy)            <span class="c">-- outside the map counts as wall</span>
+  local row = MAP[cy + 1]
+  if row == nil or cx &lt; 0 or cx &gt;= #row then return "1" end
+  return row:sub(cx + 1, cx + 1)
+end
+
+local function castRay(px, py, angle)
+  local dx, dy = math.cos(angle), math.sin(angle)
+  local cellX, cellY = math.floor(px), math.floor(py)
+  local stepX = dx &lt; 0 and -1 or 1
+  local stepY = dy &lt; 0 and -1 or 1
+  local deltaX = math.abs(1 / dx)        <span class="c">-- ray length from one vertical line to the next</span>
+  local deltaY = math.abs(1 / dy)        <span class="c">-- and from one horizontal line to the next</span>
+  local nextX = (dx &lt; 0 and px - cellX or cellX + 1 - px) * deltaX
+  local nextY = (dy &lt; 0 and py - cellY or cellY + 1 - py) * deltaY
+  for _ = 1, 64 do
+    local dist, side
+<span class="k">    if nextX &lt; nextY then                -- the vertical line is nearer: cross it</span>
+      dist, side = nextX, "x"
+      nextX = nextX + deltaX
+      cellX = cellX + stepX
+    else
+      dist, side = nextY, "y"
+      nextY = nextY + deltaY
+      cellY = cellY + stepY
+    end
+    local tile = tileAt(cellX, cellY)
+    if tile ~= "0" then return dist, side, tile end
+  end
+  return nil                             <span class="c">-- gave up: nothing within 64 crossings</span>
+end
+
+function love.update(dt)
+  local turn, move = 0, 0
+  if love.keyboard.isDown("left") then turn = turn - 1 end
+  if love.keyboard.isDown("right") then turn = turn + 1 end
+  if love.keyboard.isDown("up") then move = move + 1 end
+  if love.keyboard.isDown("down") then move = move - 1 end
+  player.angle = player.angle + turn * 2 * dt
+  local nx = player.x + math.cos(player.angle) * move * 2 * dt
+  local ny = player.y + math.sin(player.angle) * move * 2 * dt
+  if tileAt(math.floor(nx), math.floor(ny)) == "0" then
+    player.x, player.y = nx, ny
+  end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local half = math.tan(FOV / 2)
+  local focal = (w / 2) / half
+  local colW = w / COLUMNS
+  love.graphics.setColor(0.2, 0.2, 0.25)        <span class="c">-- ceiling: one flat colour</span>
+  love.graphics.rectangle("fill", 0, 0, w, h / 2)
+  love.graphics.setColor(0.4, 0.4, 0.4)         <span class="c">-- floor: another</span>
+  love.graphics.rectangle("fill", 0, h / 2, w, h / 2)
+  for i = 0, COLUMNS - 1 do
+    local screenX = (2 * (i + 0.5) / COLUMNS - 1) * half  <span class="c">-- evenly spaced on the screen</span>
+    local rayAngle = player.angle + math.atan(screenX)
+    local dist, side, tile = castRay(player.x, player.y, rayAngle)
+    if dist then
+<span class="k">      local perp = math.max(dist * math.cos(rayAngle - player.angle), MIN_DIST)</span>
+<span class="k">      local sliceH = focal / perp</span>
+      local c = SHADE[tile] or SHADE["1"]
+      local k = (side == "y") and 0.65 or 1     <span class="c">-- darker face for horizontal lines</span>
+      love.graphics.setColor(c[1] * k, c[2] * k, c[3] * k)
+      love.graphics.rectangle("fill", i * colW, (h - sliceH) / 2, colW + 1, sliceH)
+    end
+  end
+end</code></pre>
+  </div>
+  <p>To add a texture, take the hit point <code>player.x + math.cos(rayAngle) * dist</code> (or the <code>y</code> version when <code>side</code> is <code>"x"</code>), keep its fractional part with <code>% 1</code>, and multiply by the texture width to choose the column to stretch.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the ray length as the distance.</strong> Straight walls bow outwards. Multiply by the cosine of the angle from the view direction, as the demo does when <strong>Correct fisheye</strong> is on.</li>
+    <li><strong>Spreading rays at equal angles.</strong> It looks close, but walls stretch towards the screen edges. Aim the rays at equally spaced points across a flat screen and take the <code>atan</code>.</li>
+    <li><strong>Dividing by a tiny distance.</strong> With the player pressed against a wall, the distance nears zero and the slice height explodes. Clamp it, as Wolfenstein 3D did, and keep the player a little away from walls.</li>
+    <li><strong>A ray that never stops.</strong> If the map has a gap in its outer wall, a ray can run forever. Cap the number of crossings and treat outside the map as wall.</li>
+    <li><strong>Forgetting the limits.</strong> No angled walls, no stairs, no rooms above rooms. That is the price of the speed.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>id Software's earlier games Hovertank 3D and Catacomb 3-D were first-person maze games built on the same grid idea, and Wolfenstein 3D refined it. The engine was licensed to other studios, and Spear of Destiny, the follow-up, ran on it too. Today grid raycasting is a common first 3D project, and the same grid walk is used for line of sight and bullet tracing in tile-based games and for picking blocks in voxel games.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a minimum-distance collision to <code>love.update</code>: before moving, test the square at <code>nx + 0.3</code> in the direction of travel (and the same for <code>ny</code>), and move along each axis separately so the player slides along walls instead of stopping dead. You are done when you can run along a wall at an angle without ever getting close enough to see the slice fill the whole screen.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Wolfenstein 3D stores a flat grid, at most 64 by 64 squares, not a 3D world.</li>
+    <li>With equal-height walls and flat floors, each screen column shows at most one wall slice, so one ray per column is enough.</li>
+    <li>The ray jumps from grid line to grid line and checks each square it enters.</li>
+    <li>Slice height is focal length divided by the distance along the view direction; using the raw ray length gives fisheye.</li>
+    <li>Choosing strict world rules can turn an expensive general problem into a cheap special one.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes Doom (1993), which dropped the grid and used binary space partitioning to draw walls at any angle in front-to-back order.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The engine details here were checked against the released source code in this session. No other source page could be opened, so the surrounding history (release year, earlier games, licensing) is written without live verification. Look these up:</p>
+  <ul>
+    <li>id Software, <a href="https://github.com/id-Software/wolf3d">Wolfenstein 3D source code</a>, the original release, with John Carmack's <cite>RELEASE.TXT</cite> notes in the README. See <code>WL_DRAW.C</code>, <code>WL_DR_A.ASM</code>, <code>WL_MAIN.C</code> and <code>WL_DEF.H</code>.</li>
+    <li>Fabien Sanglard, <cite>Game Engine Black Book: Wolfenstein 3D</cite>, a book-length study of the hardware and the engine.</li>
+    <li>David Kushner, <cite>Masters of Doom</cite>, a history of id Software.</li>
+    <li>John Amanatides and Andrew Woo, <cite>A Fast Voxel Traversal Algorithm for Ray Tracing</cite> (1987), a standard description of the grid walk.</li>
+    <li>Lode Vandevenne, <cite>Raycasting</cite>, a widely used tutorial on the technique.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same names and numbers as the Lua code.
+  var MAP = [
+    '111111111111', '100000000001', '100000220001', '100000220001',
+    '100000000001', '100300000001', '100300001111', '100000000001',
+    '122200000001', '100000033001', '100000000001', '111111111111'
+  ];
+  var N = 12;
+  var FOV = 60 * Math.PI / 180;
+  var MIN_DIST = 0.05;
+  var START = { x: 2.5, y: 10.5, deg: 300 };
+
+  var grid = [];
+  function resetMap() {
+    grid = MAP.map(function (row) { return row.split('').map(Number); });
+  }
+  resetMap();
+
+  var player = { x: START.x, y: START.y, deg: START.deg };
+
+  function tileAt(cx, cy) {
+    if (cy < 0 || cy >= N || cx < 0 || cx >= N) return 1;
+    return grid[cy][cx];
+  }
+  function isBorder(cx, cy) { return cx === 0 || cy === 0 || cx === N - 1 || cy === N - 1; }
+
+  // Grid walk. If crossings is an array, every crossing point is pushed to it.
+  // If visited is an object, every empty square the ray passes is marked in it.
+  function castRay(px, py, angle, crossings, visited) {
+    var dx = Math.cos(angle), dy = Math.sin(angle);
+    var cellX = Math.floor(px), cellY = Math.floor(py);
+    var stepX = dx < 0 ? -1 : 1;
+    var stepY = dy < 0 ? -1 : 1;
+    var deltaX = Math.abs(1 / dx);
+    var deltaY = Math.abs(1 / dy);
+    var nextX = (dx < 0 ? px - cellX : cellX + 1 - px) * deltaX;
+    var nextY = (dy < 0 ? py - cellY : cellY + 1 - py) * deltaY;
+    if (visited) visited[cellY * N + cellX] = true;
+    for (var n = 1; n <= 64; n += 1) {
+      var dist, side;
+      if (nextX < nextY) {
+        dist = nextX; side = 'x';
+        nextX += deltaX; cellX += stepX;
+      } else {
+        dist = nextY; side = 'y';
+        nextY += deltaY; cellY += stepY;
+      }
+      if (crossings) crossings.push({ x: px + dx * dist, y: py + dy * dist, side: side });
+      var tile = tileAt(cellX, cellY);
+      if (tile !== 0) return { dist: dist, side: side, tile: tile, steps: n, cx: cellX, cy: cellY };
+      if (visited) visited[cellY * N + cellX] = true;
+    }
+    return null;
+  }
+
+  // Controls
+  var ui = DemoKit.controls('[data-demo="raycast"]');
+  var columns = ui.slider({ label: 'Columns (one ray each)', min: 8, max: 320, step: 8, value: 40, onInput: refresh });
+  var facing = ui.slider({ label: 'Facing (0 = right on the map, 90 = down)', min: 0, max: 355, step: 5, value: START.deg, unit: '°',
+    onInput: function (v) { player.deg = v; refresh(); } });
+  var inspect = ui.slider({ label: 'Inspect column at', min: 0, max: 100, step: 1, value: 50, unit: '%', onInput: refresh });
+  var fisheyeFix = ui.toggle({ label: 'Correct fisheye', value: true, onChange: refresh });
+  var showVisited = ui.toggle({ label: 'Mark squares the rays passed through', value: false, onChange: refresh });
+  ui.button({ label: 'Turn left', onClick: function () { turn(-15); } });
+  ui.button({ label: 'Forward', onClick: function () { move(0.25); } });
+  ui.button({ label: 'Back', onClick: function () { move(-0.25); } });
+  ui.button({ label: 'Turn right', onClick: function () { turn(15); } });
+  ui.button({ label: 'Reset map', onClick: function () {
+    resetMap(); player.x = START.x; player.y = START.y; player.deg = START.deg; facing.set(START.deg); refresh();
+  } });
+  var raysOut = ui.readout({ label: 'Work this frame' });
+  var rayOut = ui.readout({ label: 'Inspected ray' });
+
+  function turn(d) {
+    player.deg = ((player.deg + d) % 360 + 360) % 360;
+    facing.set(player.deg);
+    refresh();
+  }
+  function move(amount) {
+    var a = player.deg * Math.PI / 180;
+    var nx = player.x + Math.cos(a) * amount;
+    var ny = player.y + Math.sin(a) * amount;
+    if (tileAt(Math.floor(nx), Math.floor(ny)) === 0) { player.x = nx; player.y = ny; }
+    refresh();
+  }
+
+  // Cast every column once; both panels draw from this.
+  var frame = null;
+  function castAll() {
+    var count = columns.value;
+    var angle = player.deg * Math.PI / 180;
+    var half = Math.tan(FOV / 2);
+    var pick = Math.min(count - 1, Math.floor(inspect.value / 100 * count));
+    var visited = showVisited.value ? {} : null;
+    var rays = [];
+    var steps = 0;
+    var crossings = [];
+    for (var i = 0; i < count; i += 1) {
+      var screenX = (2 * (i + 0.5) / count - 1) * half;
+      var rayAngle = angle + Math.atan(screenX);
+      var hit = castRay(player.x, player.y, rayAngle, i === pick ? crossings : null, visited);
+      var perp = null;
+      if (hit) {
+        steps += hit.steps;
+        var d = fisheyeFix.value ? hit.dist * Math.cos(rayAngle - angle) : hit.dist;
+        perp = Math.max(d, MIN_DIST);
+      }
+      rays.push({ angle: rayAngle, hit: hit, perp: perp });
+    }
+    frame = { rays: rays, pick: pick, crossings: crossings, visited: visited, steps: steps, count: count };
+
+    raysOut.set(count + ' rays, ' + steps + ' squares tested');
+    var r = rays[pick];
+    if (r.hit) {
+      rayOut.set('column ' + (pick + 1) + ': ' + r.hit.steps + ' crossings, distance ' +
+        r.perp.toFixed(2) + (fisheyeFix.value ? '' : ' (raw ray length)'));
+    } else {
+      rayOut.set('column ' + (pick + 1) + ': no wall within 64 crossings');
+    }
+  }
+
+  var mapHandle = null, viewHandle = null;
+  function refresh() {
+    castAll();
+    if (mapHandle) mapHandle.redraw();
+    if (viewHandle) viewHandle.redraw();
+  }
+
+  function wallColor(tile, c) {
+    if (tile === 2) return c.good;
+    if (tile === 3) return c.warn;
+    return c.topic;
+  }
+
+  // ---- Map panel ----
+  function layout(s) {
+    var cs = Math.min(s.width - 16, s.height - 40) / N;
+    return { cs: cs, ox: (s.width - cs * N) / 2, oy: 30 + (s.height - 40 - cs * N) / 2 };
+  }
+  var drag = null;   // 'player', or the wall value being painted
+
+  function cellAt(p, s) {
+    var L = layout(s);
+    var gx = (p.x - L.ox) / L.cs, gy = (p.y - L.oy) / L.cs;
+    return { gx: gx, gy: gy, cx: Math.floor(gx), cy: Math.floor(gy) };
+  }
+  function paint(c, value) {
+    if (c.cx < 0 || c.cy < 0 || c.cx >= N || c.cy >= N || isBorder(c.cx, c.cy)) return false;
+    if (c.cx === Math.floor(player.x) && c.cy === Math.floor(player.y)) return false;
+    if (grid[c.cy][c.cx] === value) return false;
+    grid[c.cy][c.cx] = value;
+    return true;
+  }
+  function placePlayer(c) {
+    if (c.gx <= 0 || c.gy <= 0 || c.gx >= N || c.gy >= N) return;
+    if (tileAt(c.cx, c.cy) !== 0) return;
+    player.x = c.gx; player.y = c.gy;
+  }
+
+  mapHandle = DemoKit.canvas('#raycast-map', {
+    aspect: 1.1, maxHeight: 360, minHeight: 260, animate: false, drag: true, keys: true,
+    label: 'Top-down grid map with the player and the rays. Tap squares to toggle walls, drag the player, or use the arrow keys to turn and move.',
+    onDown: function (p, s) {
+      var c = cellAt(p, s);
+      var dx = c.gx - player.x, dy = c.gy - player.y;
+      if (dx * dx + dy * dy < 0.6 * 0.6) { drag = 'player'; return; }
+      if (c.cx < 0 || c.cy < 0 || c.cx >= N || c.cy >= N) { drag = null; return; }
+      drag = grid[c.cy][c.cx] === 0 ? 1 : 0;
+      if (paint(c, drag)) refresh();
+    },
+    onMove: function (p, s) {
+      if (!p.down || drag === null) return;
+      var c = cellAt(p, s);
+      if (drag === 'player') { placePlayer(c); refresh(); }
+      else if (paint(c, drag)) refresh();
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft' || key === 'a') turn(-15);
+      else if (key === 'arrowright' || key === 'd') turn(15);
+      else if (key === 'arrowup' || key === 'w') move(0.25);
+      else if (key === 'arrowdown' || key === 's') move(-0.25);
+    },
+    draw: function (ctx, s) {
+      if (!frame) castAll();
+      var c = s.colors;
+      var L = layout(s), cs = L.cs, ox = L.ox, oy = L.oy;
+      function X(v) { return ox + v * cs; }
+      function Y(v) { return oy + v * cs; }
+
+      for (var y = 0; y < N; y += 1) {
+        for (var x = 0; x < N; x += 1) {
+          var t = grid[y][x];
+          if (t !== 0) {
+            ctx.fillStyle = wallColor(t, c);
+            ctx.globalAlpha = 0.75;
+            ctx.fillRect(X(x), Y(y), cs, cs);
+            ctx.globalAlpha = 1;
+          } else if (frame.visited && frame.visited[y * N + x]) {
+            ctx.fillStyle = c.surface2;
+            ctx.fillRect(X(x), Y(y), cs, cs);
+          }
+        }
+      }
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var g = 0; g <= N; g += 1) {
+        ctx.moveTo(X(g), Y(0)); ctx.lineTo(X(g), Y(N));
+        ctx.moveTo(X(0), Y(g)); ctx.lineTo(X(N), Y(g));
+      }
+      ctx.stroke();
+
+      // All rays
+      var many = frame.count > 80;
+      ctx.strokeStyle = c.ink3;
+      ctx.globalAlpha = many ? 0.25 : 0.5;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var i = 0; i < frame.rays.length; i += 1) {
+        var r = frame.rays[i];
+        if (!r.hit) continue;
+        ctx.moveTo(X(player.x), Y(player.y));
+        ctx.lineTo(X(player.x + Math.cos(r.angle) * r.hit.dist), Y(player.y + Math.sin(r.angle) * r.hit.dist));
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Inspected ray and its grid crossings
+      var pr = frame.rays[frame.pick];
+      if (pr.hit) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(X(player.x), Y(player.y));
+        ctx.lineTo(X(player.x + Math.cos(pr.angle) * pr.hit.dist), Y(player.y + Math.sin(pr.angle) * pr.hit.dist));
+        ctx.stroke();
+        for (var k = 0; k < frame.crossings.length; k += 1) {
+          var q = frame.crossings[k];
+          var last = k === frame.crossings.length - 1;
+          ctx.beginPath();
+          ctx.arc(X(q.x), Y(q.y), last ? 5 : 3.5, 0, Math.PI * 2);
+          if (q.side === 'x') { ctx.fillStyle = c.ink; ctx.fill(); }
+          else { ctx.fillStyle = c.surface; ctx.fill(); ctx.strokeStyle = c.ink; ctx.lineWidth = 1.5; ctx.stroke(); }
+        }
+      }
+
+      // Player
+      var a = player.deg * Math.PI / 180;
+      ctx.fillStyle = c.bad;
+      ctx.beginPath();
+      ctx.arc(X(player.x), Y(player.y), Math.max(5, cs * 0.22), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(X(player.x), Y(player.y));
+      ctx.lineTo(X(player.x + Math.cos(a) * 0.7), Y(player.y + Math.sin(a) * 0.7));
+      ctx.stroke();
+    }
+  });
+
+  // ---- View panel ----
+  function pickFromView(p, s) {
+    var pct = Math.round(DemoKit.clamp(p.x / s.width, 0, 0.999) * 100);
+    if (pct !== inspect.value) { inspect.set(pct); refresh(); }
+  }
+
+  viewHandle = DemoKit.canvas('#raycast-view', {
+    aspect: 1.1, maxHeight: 360, minHeight: 260, animate: false,
+    label: 'The first-person view built from the rays, one vertical wall slice per column.',
+    onDown: pickFromView,
+    onMove: function (p, s) { if (p.down) pickFromView(p, s); },
+    draw: function (ctx, s) {
+      if (!frame) castAll();
+      var c = s.colors;
+      var top = 30;                       // leave room for the panel label
+      var w = s.width, h = s.height - top;
+      var mid = top + h / 2;
+      var focal = (w / 2) / Math.tan(FOV / 2);
+      var colW = w / frame.count;
+
+      ctx.fillStyle = c.surface2;         // ceiling: one flat colour
+      ctx.fillRect(0, top, w, h / 2);
+      ctx.fillStyle = c.line;             // floor: another
+      ctx.fillRect(0, mid, w, h / 2);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, top, w, h);
+      ctx.clip();
+      for (var i = 0; i < frame.rays.length; i += 1) {
+        var r = frame.rays[i];
+        if (!r.hit) continue;
+        var sliceH = focal / r.perp;
+        var x0 = i * colW;
+        ctx.fillStyle = wallColor(r.hit.tile, c);
+        ctx.fillRect(x0, mid - sliceH / 2, colW + 0.6, sliceH);
+        if (r.hit.side === 'y') {          // darker face for horizontal lines
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+          ctx.fillRect(x0, mid - sliceH / 2, colW + 0.6, sliceH);
+        }
+      }
+      // Outline the inspected column
+      var pr = frame.rays[frame.pick];
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      var ph = pr.hit ? focal / pr.perp : 0;
+      ctx.strokeRect(frame.pick * colW + 1, Math.max(top + 1, mid - ph / 2), Math.max(colW - 2, 2), Math.min(h - 2, ph));
+      ctx.restore();
+
+      if (pr.hit) {
+        ctx.fillStyle = c.ink2;
+        ctx.textAlign = 'right';
+        ctx.fillText('slice ' + Math.round(focal / pr.perp) + ' px', w - 10, 20);
+      }
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

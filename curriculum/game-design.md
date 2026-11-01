@@ -29,7 +29,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 3: Loops, pacing and level design
 
-- [ ] **Core loops** — How a game's repeated cycle of action, reward and investment works at the scale of seconds, minutes and sessions. Demo: A tiny gather, sell and upgrade game with a loop diagram that highlights the current phase as you play.
+- [x] **Core loops** — How a game's repeated cycle of action, reward and investment works at the scale of seconds, minutes and sessions. Demo: A tiny gather, sell and upgrade game with a loop diagram that highlights the current phase as you play. (published 2026-11-01, core-loops)
 - [ ] **Positive feedback loops** — How giving advantages to the leader creates snowballing, and when that is exciting or unfair. Demo: A two-sided battle simulation with a slider for how much each win strengthens the winner and a graph of the lead over time.
 - [ ] **Negative feedback loops** — How catch-up mechanics keep contests close, and what they cost in fairness. Demo: A race against computer rivals with a slider for catch-up strength and a graph of the gaps between racers.
 - [ ] **Pacing and intensity curves** — How alternating tension and rest keeps players engaged for longer than constant action. Demo: Drag points on an intensity curve and play a scrolling level whose enemy density follows the curve you drew.

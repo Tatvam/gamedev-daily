@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bubble Freight: float the crates, mind the thorns · Game Dev Daily</title>
+<meta name="description" content="A physics game where you blow soap bubbles around crates and fan them over a spike pit, trading lift for lifetime, with a playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-01">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Bubble Freight: float the crates, mind the thorns</h1>
+  <p class="lede">A physics game where you blow soap bubbles around crates and fan them over a spike pit, trading lift for lifetime, with a playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>The bridge to the loading dock is gone, and between you and the dock is a pit full of spikes. All you have is a bubble wand and a big fan, so every crate crosses inside a soap bubble that is always about to burst.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: puff, fan, top up</h2>
+  <p>Bubble Freight is a side-view physics game about one question asked over and over: how big should this bubble be? You hold on a crate to blow a bubble around it. A bigger bubble gives more <dfn>lift</dfn>, the upward push of the air inside, and catches more of the fan's wind. It also wears out faster. If it bursts over the pit, the crate is lost.</p>
+  <p>Every ten seconds the player puffs, fans, and tops up a sinking bubble. Every minute they finish a shift of five crates. Every session they unlock new yards with crosswinds, thorny branches and fragile cargo.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: puff the bubble until the crate floats, fan it across the pit, then top it up when it sinks, which leads back to puffing. Beside it, two longer loops: every minute a shift of five crates, and every session a new yard.">
+      <defs>
+        <marker id="bf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Puff</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">until it just floats</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Fan</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">push it over the pit</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Top up</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">it leaks, so it sinks</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#bf-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#bf-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#bf-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a shift of five crates,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">light and heavy</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">new yards: wind,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">branches, glass</text>
+    </svg>
+    <figcaption>Puffing makes the bubble rise and leaking makes it sink, so the short loop is really a balancing act between the two, with the fan pushing you forward the whole time.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Blowing.</strong> Hold on a crate and its bubble grows. A new bubble can only start on the ground. In the air you can top up, but not save a falling crate.</li>
+    <li><strong>Lift.</strong> Lift grows with the radius squared. Each crate has a <dfn>float size</dfn>: the radius at which lift equals its weight. Smaller, it sinks; bigger, it rises.</li>
+    <li><strong>Leaking.</strong> A bubble you are not blowing shrinks slowly, so a floating crate soon sinks.</li>
+    <li><strong>Strain.</strong> Every bubble builds up <dfn>strain</dfn> and bursts when strain reaches 1. Strain builds with the radius cubed, so a bubble twice as big lasts an eighth as long. Past 58 pixels it bursts at once.</li>
+    <li><strong>The fan.</strong> Hold the fan to push floating bubbles toward the dock, harder for wide bubbles and light crates.</li>
+    <li><strong>Hazards.</strong> Thorns on the ceiling and a hanging branch pop bubbles. Pit spikes break crates. The dock's edge blocks a crate that sinks below it.</li>
+    <li><strong>The goal.</strong> Get each crate over the dock, where a dock hand catches it. Score one point per crate delivered, with time as the tie-break.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A chart of bubble life against bubble radius. Life falls steeply as the radius grows. Dashed lines mark the float size of the light crate at radius 26 with about 36 seconds of life, the medium crate at 32 with about 20 seconds, and the heavy crate at 37 with about 13 seconds. At radius 58 the bubble bursts at once.">
+      <path class="d-stroke" d="M60 40 V200 H600"/>
+      <text class="d-muted" x="52" y="44" text-anchor="end">40 s</text>
+      <text class="d-muted" x="52" y="124" text-anchor="end">20 s</text>
+      <text class="d-muted" x="52" y="204" text-anchor="end">0</text>
+      <text class="d-label" x="70" y="28">bubble life</text>
+      <text class="d-muted" x="120" y="218" text-anchor="middle">20</text>
+      <text class="d-muted" x="240" y="218" text-anchor="middle">30</text>
+      <text class="d-muted" x="360" y="218" text-anchor="middle">40</text>
+      <text class="d-muted" x="480" y="218" text-anchor="middle">50</text>
+      <text class="d-muted" x="600" y="218" text-anchor="middle">60</text>
+      <text class="d-text" x="330" y="242" text-anchor="middle">bubble radius (pixels)</text>
+
+      <path class="d-accent" d="M182 40 L192 56 L210 77 L240 105 L270 125 L300 140 L330 151 L360 160 L390 167 L420 172 L450 176 L480 179.5 L530 184 L576 187"/>
+
+      <path class="d-dash" d="M192 200 V64"/>
+      <path class="d-dash" d="M262 200 V64"/>
+      <path class="d-dash" d="M322 200 V64"/>
+      <text class="d-text" x="198" y="150">light</text>
+      <text class="d-text" x="268" y="172">medium</text>
+      <text class="d-text" x="328" y="194">heavy</text>
+
+      <path class="d-bad" d="M576 200 V60"/>
+      <text class="d-muted" x="568" y="72" text-anchor="end">bursts at once</text>
+    </svg>
+    <figcaption>The dashed lines are float sizes. A light crate floats on a bubble that lasts over half a minute. A heavy one floats on a bubble that lasts about 13 seconds, and every extra puff to climb or speed up eats into that.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the careful courier, handling something fragile with a tool that is even more fragile. The constraint is that one input, blowing, sets three things at once: height, speed under the fan, and time left. Bigger is better at everything except staying alive. The mood is gentle and a little comic: failure is a pop, not an explosion.</p>
+  <p>The physics is made up for play. Real soap bubbles do not lift crates, and a real bubble's life depends on much more than its size. What matters is that the rules are simple and visible.</p>
+  <p>The hardest part to build is the tuning. Vertical control has lag: you puff, and the crate keeps sinking a moment before it turns. Too much lag and players overcorrect into the thorns; too little and there is no skill. The drag numbers below decide that, and only playtesters can set them.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Puff the first crate just past the dashed float ring, then hold the fan. As the bubble leaks, give short puffs to stay under the branch and above the dock's edge. On the heavy crates, watch how much faster the life arc empties.</p>
+
+  <figure class="demo wide" data-demo="bubble-freight">
+    <canvas id="bubble-freight"></canvas>
+    <figcaption>Controls: press and hold on the crate (mouse or touch) to blow; press and hold the FAN panel to blow wind toward the dock. Keyboard: click the canvas, then hold <kbd>Space</kbd> to blow and <kbd>F</kbd> or the right arrow for the fan. <kbd>R</kbd> or the Restart button starts the shift again. The dashed ring is the float size, and the arc outside the bubble is its remaining life.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: one step for one crate and its bubble, in the demo's units (a yard 640 by 360 pixels, <code>c.y</code> at the crate's bottom). Ground, pit, thorns and delivery are left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local G, LIFT, FAN = 240, 0.355, 4       <span class="c">-- gravity, lift per r^2, fan push per r</span>
+local GROW, LEAK, RMAX = 24, 2.5, 58     <span class="c">-- radius change in px/s, largest radius</span>
+local STRAIN_R, STRAIN_T = 40, 10        <span class="c">-- a 40 px bubble lasts 10 seconds</span>
+local DRAG_X, DRAG_Y = 1.0, 2.2
+
+local function pop(c) c.r = 0; c.strain = 0 end
+
+local function stepBubble(c, dt, blowing, fanOn)
+  if blowing and (c.r &gt; 0 or c.grounded) then
+    if c.r == 0 then c.r = c.size * 0.7 end   <span class="c">-- a new bubble wraps the crate</span>
+    c.r = c.r + GROW * dt
+    if c.r &gt; RMAX then pop(c) end             <span class="c">-- overblown</span>
+  elseif c.r &gt; 0 then
+    c.r = c.r - LEAK * dt
+    if c.r &lt; c.size * 0.7 then pop(c) end     <span class="c">-- leaked away</span>
+  end
+  if c.r &gt; 0 then
+<span class="k">    c.strain = c.strain + (c.r / STRAIN_R) ^ 3 / STRAIN_T * dt</span>
+    if c.strain &gt;= 1 then pop(c) end
+  end
+<span class="k">  local ay = G - LIFT * c.r * c.r / c.mass   -- down is positive</span>
+  local ax = 0
+  if fanOn and c.r &gt; 0 then ax = FAN * c.r / c.mass end
+  if c.grounded then
+    if ay &gt;= 0 then return end                 <span class="c">-- too small to lift off</span>
+    c.grounded = false
+  end
+  c.vx = (c.vx + ax * dt) * (1 - DRAG_X * dt)
+  c.vy = (c.vy + ay * dt) * (1 - DRAG_Y * dt)
+  c.x = c.x + c.vx * dt
+  c.y = c.y + c.vy * dt
+end</code></pre>
+  </div>
+  <p>Call <code>stepBubble(crate, STEP, love.keyboard.isDown("space"), love.keyboard.isDown("f"))</code> from <code>love.update</code> with a fixed step of 1/120 of a second, as the demo does. The two highlighted lines are the whole trade-off. Strain grows with the radius cubed, and lift grows with the radius squared. The float size of a crate is <code>math.sqrt(G * mass / LIFT)</code>: 26 pixels for the light crate of mass 1, 37 for the heavy crate of mass 2.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Lag that feels like lies.</strong> If the crate keeps sinking after a puff, players puff again and shoot into the thorns. Test: ask a tester to hold a crate level for five seconds. If their swings grow, raise <code>DRAG_Y</code> or slow <code>GROW</code>.</li>
+    <li><strong>One safe size.</strong> If one size works for every crate, the game becomes "puff to the ring, hold fan". Count puffs per crate in a playtest. If heavy crates need only one, shorten bubble life or widen the pit.</li>
+    <li><strong>Hidden timers.</strong> A bubble that bursts without warning feels unfair. The prototype draws a life arc and wobbles the bubble near the end. Watch whether testers check the arc before climbing.</li>
+    <li><strong>Mouse and keys play different games.</strong> With one finger on a phone you cannot blow and fan at once; on a keyboard you can. Design levels where alternating is enough, or make the fan blow in automatic gusts.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Floating across danger is familiar ground. In <cite>Balloon Fight</cite> on the NES the player flaps upward while hanging from balloons that enemies pop, and many games with hover fuel share the same up-and-down balancing. Escort games, where what you protect is weaker than you, are a family of their own.</p>
+  <p>What I have not seen at the centre of a game is one resource that is lift, sail and lifetime at once, so every puff is a loan against the bubble's life. I cannot be sure no game has done it, so treat this as a direction to explore, not a promised gap.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a ledge, a gap, a dock and a spike line. Draw the crate with <code>love.graphics.rectangle</code> and the bubble and float ring with <code>love.graphics.circle("line", ...)</code>. Skip the thorns.</p>
+  <p>Give a friend two heavy crates and say only "get them to the dock". The one question: <strong>do they learn short top-up puffs, or blow one big bubble and race?</strong> If they find the small puffs by the second crate, the trade-off reads. If they always race, big bubbles live too long.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one yard, three crate weights, the fan, thorns, and ten shifts that mix the crates differently. Score by crates delivered and time.</li>
+    <li><strong>One-month version:</strong> crosswinds that change by height, glass crates that break on hard landings, two crates sharing one bubble, and a yard editor.</li>
+    <li><strong>Cut first:</strong> bubble-to-bubble collisions. They look lovely but double the tuning. Send crates one at a time.</li>
+    <li>The idea is one resource with three uses. New features should spend it in new ways, not add a second resource.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the player pop a bubble on purpose and catch the crate with a new bubble on a floating platform halfway across, so a crossing becomes a series of short hops.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On response and lag in a control, which is exactly what the puff has to get right.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The lenses on risk and reward, and on balance, fit the size trade-off.</li>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (New Riders, 2012). On resources and feedback loops, useful for a resource that does three jobs.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why the step size is fixed, so the same puff gives the same flight every time.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 640, H = 360, STEP = 1 / 120, HUD = 58;
+  var G = 240, LIFT = 0.355, FAN = 4, GROW = 24, LEAK = 2.5, RMAX = 58;
+  var STRAIN_R = 40, STRAIN_T = 10, DRAG_X = 1.0, DRAG_Y = 2.2;
+  var GROUND = 240, PIT_L = 140, PIT_R = 500, PIT_Y = 340, CEIL = 26, START_X = 70;
+  var BRANCH = { x: 290, y: 0, w: 50, h: 140 };
+  var FANBTN = { x: 10, y: 262, w: 120, h: 84 };
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var KINDS = {
+    light: { size: 22, mass: 1 },
+    medium: { size: 26, mass: 1.5 },
+    heavy: { size: 30, mass: 2 }
+  };
+  var SHIFT = ['light', 'medium', 'heavy', 'medium', 'heavy'];
+
+  var crate, index, delivered, lost, time, started, mode, wait, message, msgColor, acc, best;
+  var blowLatch, fanLatch, fanPower, fanAngle, popFx, wasBlowing;
+  var view = { ox: 0, oy: HUD, sc: 1 };
+  var handle = null;
+
+  function newCrate(i) {
+    var k = KINDS[SHIFT[i]];
+    crate = { kind: SHIFT[i], x: START_X, y: GROUND, vx: 0, vy: 0, size: k.size, mass: k.mass,
+      r: 0, strain: 0, grounded: true, state: 'wait' };
+  }
+
+  function reset() {
+    index = 0; delivered = 0; lost = 0; time = 0; started = false; acc = 0; wait = 0;
+    mode = 'play'; blowLatch = false; fanLatch = false; fanPower = 0; fanAngle = 0; popFx = null;
+    wasBlowing = false;
+    message = 'Hold on the crate (or Space) to blow a bubble'; msgColor = 'ink2';
+    newCrate(0);
+  }
+
+  function floatSize(c) { return Math.sqrt(G * c.mass / LIFT); }
+
+  function pop(c, why) {
+    if (c.r > 0) popFx = { x: c.x, y: c.y - c.r, r: c.r, t: 0.4 };
+    c.r = 0; c.strain = 0;
+    if (why) { message = why; msgColor = 'bad'; }
+  }
+
+  function stepBubble(c, dt, blowing, fanOn) {
+    if (blowing && (c.r > 0 || c.grounded)) {
+      if (c.r === 0) c.r = c.size * 0.7;
+      c.r += GROW * dt;
+      if (c.r > RMAX) pop(c, 'Overblown! The bubble burst');
+    } else if (c.r > 0) {
+      c.r -= LEAK * dt;
+      if (c.r < c.size * 0.7) pop(c, 'The bubble leaked away');
+    }
+    if (c.r > 0) {
+      c.strain += Math.pow(c.r / STRAIN_R, 3) / STRAIN_T * dt;
+      if (c.strain >= 1) pop(c, 'The bubble wore out and burst');
+    }
+    var ay = G - LIFT * c.r * c.r / c.mass;
+    var ax = fanOn && c.r > 0 ? FAN * c.r / c.mass : 0;
+    if (c.grounded) {
+      if (ay >= 0) return;
+      c.grounded = false;
+    }
+    c.vx = (c.vx + ax * dt) * (1 - DRAG_X * dt);
+    c.vy = (c.vy + ay * dt) * (1 - DRAG_Y * dt);
+    var ny = c.y + c.vy * dt;
+    var support = c.x < PIT_L || c.x > PIT_R;
+    if (c.vy >= 0 && c.y <= GROUND + 0.01 && ny >= GROUND && support) {
+      ny = GROUND; c.vy = 0; c.vx = 0; c.grounded = true;
+    }
+    c.y = ny;
+    c.x += c.vx * dt;
+    var h = c.size / 2;
+    if (c.x < h) { c.x = h; c.vx = 0; }
+    if (c.x > W - h) { c.x = W - h; c.vx = 0; }
+    if (c.y > GROUND + 0.01) {
+      if (c.x - h < PIT_L) { c.x = PIT_L + h; c.vx = 0; }
+      if (c.x + h > PIT_R) { c.x = PIT_R - h; c.vx = 0; }
+    }
+  }
+
+  function hazards(c) {
+    if (c.r > 0 && c.y - 2 * c.r < CEIL) pop(c, 'Popped on the ceiling thorns');
+    if (c.r > 0) {
+      var cx = c.x, cy = c.y - c.r;
+      var qx = Math.max(BRANCH.x, Math.min(cx, BRANCH.x + BRANCH.w));
+      var qy = Math.max(BRANCH.y, Math.min(cy, BRANCH.y + BRANCH.h));
+      if ((cx - qx) * (cx - qx) + (cy - qy) * (cy - qy) < c.r * c.r) pop(c, 'Popped on the hanging branch');
+    }
+    if (c.state === 'fly' && c.x - c.size / 2 > PIT_R && c.y <= GROUND) {
+      c.state = 'landing';
+      if (c.r > 0) pop(c, null);
+      message = 'Caught by the dock hand'; msgColor = 'good';
+    }
+    if (c.state === 'landing' && c.grounded) {
+      c.state = 'done'; delivered += 1; endCrate('Delivered!', 'good');
+    } else if (c.y >= PIT_Y) {
+      c.state = 'done'; lost += 1; endCrate('Crate lost on the spikes', 'bad');
+    }
+  }
+
+  function endCrate(text, color) {
+    message = text; msgColor = color;
+    mode = 'between'; wait = 1.1;
+  }
+
+  function physics(blowing, fanOn) {
+    var c = crate;
+    if (c.state === 'wait' && !c.grounded) c.state = 'fly';
+    if (c.state === 'wait' || c.state === 'fly') {
+      stepBubble(c, STEP, blowing, fanOn);
+      if (c.state === 'wait' && !c.grounded) c.state = 'fly';
+      if (c.state === 'fly' && c.grounded && c.x < PIT_L && c.r === 0) c.state = 'wait';
+    } else if (c.state === 'landing') {
+      stepBubble(c, STEP, false, false);
+    }
+    hazards(c);
+  }
+
+  function update(dt, s) {
+    if (popFx) { popFx.t -= dt; if (popFx.t <= 0) popFx = null; }
+    var blowing = blowLatch || s.keys.has('space');
+    var fanOn = fanLatch || s.keys.has('f') || s.keys.has('arrowright');
+    fanPower += ((fanOn ? 1 : 0) - fanPower) * Math.min(1, dt * 6);
+    fanAngle += fanPower * dt * 14;
+    if (mode === 'between') {
+      wait -= dt;
+      if (wait <= 0) {
+        index += 1;
+        if (index < SHIFT.length) {
+          newCrate(index); mode = 'play';
+          message = 'Crate ' + (index + 1) + ': ' + SHIFT[index] + ', floats at ' + Math.round(floatSize(crate)) + ' px';
+          msgColor = 'ink2';
+        } else {
+          mode = 'over';
+          if (best === null || delivered > best.n || (delivered === best.n && time < best.t)) best = { n: delivered, t: time };
+          message = 'Shift over: ' + delivered + ' of ' + SHIFT.length + ' delivered. Restart to try again';
+          msgColor = delivered >= 3 ? 'good' : 'ink';
+        }
+      }
+      return;
+    }
+    if (mode !== 'play') return;
+    if (blowing && !wasBlowing && crate.r === 0 && !crate.grounded) {
+      message = 'Too late: new bubbles only start on the ground'; msgColor = 'warn';
+    }
+    wasBlowing = blowing;
+    if (!started && blowing) started = true;
+    if (!started) return;
+    time += dt;
+    acc = Math.min(acc + dt, 0.1);
+    while (acc >= STEP && mode === 'play') { physics(blowing, fanOn); acc -= STEP; }
+  }
+
+  function toWorld(p) { return { x: (p.x - view.ox) / view.sc, y: (p.y - view.oy) / view.sc }; }
+
+  function onDown(p) {
+    wake();
+    var w = toWorld(p);
+    if (w.x >= FANBTN.x && w.x <= FANBTN.x + FANBTN.w && w.y >= FANBTN.y && w.y <= FANBTN.y + FANBTN.h) {
+      fanLatch = true; return;
+    }
+    if (mode !== 'play') return;
+    var c = crate, h = c.size / 2, pad = 18 / view.sc + 6;
+    var inCrate = Math.abs(w.x - c.x) <= h + pad && w.y >= c.y - c.size - pad && w.y <= c.y + pad;
+    var dx = w.x - c.x, dy = w.y - (c.y - c.r);
+    var inBubble = c.r > 0 && dx * dx + dy * dy <= (c.r + pad) * (c.r + pad);
+    if (inCrate || inBubble) blowLatch = true;
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(str, x, y);
+  }
+
+  function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var sc = Math.min((s.width - 8) / W, (s.height - HUD - 4) / H);
+    var ox = (s.width - W * sc) / 2, oy = HUD;
+    view.ox = ox; view.oy = oy; view.sc = sc;
+    function X(x) { return ox + x * sc; }
+    function Y(y) { return oy + y * sc; }
+    var i;
+
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.fillStyle = c.surface; ctx.fillRect(ox, oy, W * sc, H * sc);
+
+    // Wind streaks while the fan runs.
+    if (fanPower > 0.05) {
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45 * fanPower;
+      for (i = 0; i < 14; i++) {
+        var wx = (i * 97 + s.time * 220) % (W + 60) - 30, wy = 50 + (i * 53) % 180;
+        ctx.beginPath(); ctx.moveTo(X(wx), Y(wy)); ctx.lineTo(X(wx + 28), Y(wy)); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Ceiling thorns and the hanging branch.
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(ox, oy, W * sc, 10 * sc);
+    for (i = 0; i < 32; i++) {
+      ctx.beginPath(); ctx.moveTo(X(i * 20), Y(10)); ctx.lineTo(X(i * 20 + 10), Y(CEIL)); ctx.lineTo(X(i * 20 + 20), Y(10)); ctx.fill();
+    }
+    ctx.fillRect(X(BRANCH.x + 15), Y(0), 20 * sc, (BRANCH.h - 20) * sc);
+    for (i = 0; i < 5; i++) {
+      var by = 20 + i * 22;
+      ctx.beginPath(); ctx.moveTo(X(BRANCH.x + 15), Y(by)); ctx.lineTo(X(BRANCH.x), Y(by + 8)); ctx.lineTo(X(BRANCH.x + 15), Y(by + 16)); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(BRANCH.x + 35), Y(by)); ctx.lineTo(X(BRANCH.x + BRANCH.w), Y(by + 8)); ctx.lineTo(X(BRANCH.x + 35), Y(by + 16)); ctx.fill();
+    }
+    ctx.beginPath(); ctx.moveTo(X(BRANCH.x + 15), Y(BRANCH.h - 20)); ctx.lineTo(X(BRANCH.x + 25), Y(BRANCH.h)); ctx.lineTo(X(BRANCH.x + 35), Y(BRANCH.h - 20)); ctx.fill();
+
+    // Ledge, dock and pit spikes.
+    ctx.fillStyle = c.line;
+    ctx.fillRect(X(0), Y(GROUND), PIT_L * sc, (H - GROUND) * sc);
+    ctx.fillRect(X(PIT_R), Y(GROUND), (W - PIT_R) * sc, (H - GROUND) * sc);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(GROUND)); ctx.lineTo(X(PIT_L), Y(GROUND)); ctx.lineTo(X(PIT_L), Y(H)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(W), Y(GROUND)); ctx.lineTo(X(PIT_R), Y(GROUND)); ctx.lineTo(X(PIT_R), Y(H)); ctx.stroke();
+    ctx.fillStyle = c.bad;
+    for (i = 0; i < 18; i++) {
+      var sx = PIT_L + i * 20;
+      ctx.beginPath(); ctx.moveTo(X(sx), Y(H)); ctx.lineTo(X(sx + 10), Y(PIT_Y - 4)); ctx.lineTo(X(sx + 20), Y(H)); ctx.fill();
+    }
+    text(ctx, 'DOCK', X((PIT_R + W) / 2), Y(GROUND + 30), c.ink2, '600 ' + Math.max(11, Math.round(16 * sc)) + 'px', 'center');
+
+    // Fan on the left wall, and its hold panel.
+    var fx = X(14), fy = Y(170), fr = 30 * sc;
+    ctx.fillStyle = c.ink3; ctx.fillRect(X(0), Y(130), 8 * sc, 80 * sc);
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = Math.max(2, 4 * sc);
+    for (i = 0; i < 3; i++) {
+      var a = fanAngle + i * 2.094;
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + Math.cos(a) * fr * 0.35, fy + Math.sin(a) * fr); ctx.stroke();
+    }
+    var held = fanPower > 0.5;
+    ctx.fillStyle = held ? c.topic : c.surface; ctx.strokeStyle = c.topic; ctx.lineWidth = 2;
+    ctx.fillRect(X(FANBTN.x), Y(FANBTN.y), FANBTN.w * sc, FANBTN.h * sc);
+    ctx.strokeRect(X(FANBTN.x), Y(FANBTN.y), FANBTN.w * sc, FANBTN.h * sc);
+    text(ctx, 'FAN', X(FANBTN.x + FANBTN.w / 2), Y(FANBTN.y + FANBTN.h / 2) + 2, held ? c.surface : c.topic,
+      '700 ' + Math.max(12, Math.round(20 * sc)) + 'px', 'center');
+    text(ctx, 'hold', X(FANBTN.x + FANBTN.w / 2), Y(FANBTN.y + FANBTN.h / 2) + Math.max(14, 22 * sc), held ? c.surface : c.ink3,
+      Math.max(10, Math.round(13 * sc)) + 'px', 'center');
+
+    // Crate, float ring, bubble and life arc.
+    var k = crate;
+    if (mode === 'play' || k.state === 'done') {
+      var half = k.size / 2, r0 = floatSize(k);
+      if (k.state !== 'done') {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+        circle(ctx, X(k.x), Y(k.y - r0), r0 * sc); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (k.r > 0) {
+        var wob = k.strain > 0.75 ? Math.sin(s.time * 30) * 1.5 * (k.strain - 0.75) * 4 : 0;
+        var bx = X(k.x), byy = Y(k.y - k.r), br = (k.r + wob) * sc;
+        ctx.globalAlpha = 0.14; ctx.fillStyle = c.topic; circle(ctx, bx, byy, br); ctx.fill();
+        ctx.globalAlpha = 0.35 + 0.6 * (1 - k.strain); ctx.strokeStyle = c.topic; ctx.lineWidth = 2;
+        circle(ctx, bx, byy, br); ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = k.strain > 0.75 ? c.bad : c.good; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(bx, byy, br + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - k.strain)); ctx.stroke();
+      }
+      if (k.state !== 'done' || k.y < PIT_Y) {
+        ctx.fillStyle = c.warn; ctx.fillRect(X(k.x - half), Y(k.y - k.size), k.size * sc, k.size * sc);
+        ctx.strokeStyle = c.surface; ctx.lineWidth = Math.max(1, 2 * sc);
+        ctx.beginPath(); ctx.moveTo(X(k.x - half + 3), Y(k.y - k.size + 3)); ctx.lineTo(X(k.x + half - 3), Y(k.y - 3));
+        ctx.moveTo(X(k.x + half - 3), Y(k.y - k.size + 3)); ctx.lineTo(X(k.x - half + 3), Y(k.y - 3)); ctx.stroke();
+      }
+    }
+    if (popFx) {
+      ctx.globalAlpha = Math.max(0, popFx.t / 0.4); ctx.strokeStyle = c.topic; ctx.lineWidth = 2;
+      for (i = 0; i < 8; i++) {
+        var pa = i * Math.PI / 4, d1 = popFx.r * (1.3 - popFx.t), d2 = d1 + 8;
+        ctx.beginPath();
+        ctx.moveTo(X(popFx.x + Math.cos(pa) * d1), Y(popFx.y + Math.sin(pa) * d1));
+        ctx.lineTo(X(popFx.x + Math.cos(pa) * d2), Y(popFx.y + Math.sin(pa) * d2)); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // HUD.
+    var cnum = Math.min(index + 1, SHIFT.length);
+    text(ctx, 'Crate ' + cnum + ' of ' + SHIFT.length + ': ' + SHIFT[cnum - 1], 8, 16, c.ink, '600 13px');
+    text(ctx, 'Delivered ' + delivered + '  Lost ' + lost + '  ' + time.toFixed(1) + ' s', s.width - 8, 16, c.ink2, '12px', 'right');
+    text(ctx, message, 8, 34, c[msgColor] || c.ink, '12px');
+    var info;
+    if (mode === 'over') {
+      info = best ? 'Best: ' + best.n + ' delivered in ' + best.t.toFixed(1) + ' s' : '';
+    } else if (crate.r > 0) {
+      var rate = Math.pow(crate.r / STRAIN_R, 3) / STRAIN_T;
+      info = 'Bubble ' + Math.round(crate.r) + ' px, floats at ' + Math.round(floatSize(crate)) + ', about ' +
+        Math.max(0, (1 - crate.strain) / rate).toFixed(0) + ' s left';
+    } else {
+      info = 'No bubble. This crate floats at ' + Math.round(floatSize(crate)) + ' px';
+    }
+    text(ctx, info, 8, 51, c.ink3, '11px');
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  var ui = DemoKit.controls('[data-demo="bubble-freight"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+
+  best = null;
+  reset();
+
+  handle = DemoKit.canvas('#bubble-freight', {
+    aspect: 640 / 420,
+    minHeight: 270,
+    maxHeight: 480,
+    keys: true,
+    drag: true,
+    label: 'Bubble Freight prototype. A crate on a ledge at the left, a spike pit with a thorny branch hanging over it, and a dock at the right. Hold on the crate or Space to blow a bubble around it, and hold the fan panel or F to push it toward the dock.',
+    update: update,
+    draw: draw,
+    onDown: onDown,
+    onUp: function () { blowLatch = false; fanLatch = false; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'r') reset();
+    }
+  });
+})();
+</script>
+</body>
+</html>

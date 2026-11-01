@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building a save system: stable IDs and versioned saves · Game Dev Daily</title>
+<meta name="description" content="What a save file should hold, how stable IDs find the right object in a fresh level, and how version numbers and migrations keep old saves loading.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-01">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .save-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+  }
+  .save-file {
+    display: grid;
+    gap: 6px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 0.875rem;
+  }
+  .save-file label { font-weight: 600; color: var(--ink); }
+  .save-file textarea {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 9.5rem;
+    resize: vertical;
+  }
+  .save-file textarea:focus-visible { outline: 2px solid var(--topic); outline-offset: 1px; }
+</style>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Building a save system: stable IDs and versioned saves</h1>
+  <p class="lede">What a save file should hold, how stable IDs find the right object in a fresh level, and how version numbers and migrations keep old saves loading.</p>
+</header>
+
+<section data-section="hook">
+  <p>A player pushes a crate onto a switch and saves. You ship an update that adds a lamp to the start of the level, and the player loads their save. The crate is back where it started, the lamp has turned red and moved onto the switch, or the game refuses to load at all.</p>
+  <p>The serializer from the last lesson was fine. What was missing is a save system around it: what to store, how to find each object again, and a plan for format changes.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A save is a list of changes to a level</h2>
+  <p>A <dfn>save system</dfn> is the code that decides what to write when the player saves, and how to rebuild their game from it later. Two kinds of data are involved:</p>
+  <ul>
+    <li><strong>Authored data</strong> is what the designer built: the level layout, the meshes, the default colour of every crate. It ships with the game and is loaded from the scene file every time.</li>
+    <li><strong>Run-time state</strong> is what the player changed: where the crate is now, which doors are open, what is in the inventory, the play time.</li>
+  </ul>
+  <p>A save holds only the run-time state. Loading a game is therefore two steps in a fixed order: first load the level as authored, exactly as a new game would, then lay the saved state over it. This keeps saves small and means that fixing a typo in the level reaches old saves too. Anything the game can rebuild, such as textures, physics shapes or a cached path, stays out. A reference to an asset is saved as its path or address, never as the asset.</p>
+
+  <h3>Stable IDs: finding the crate again</h3>
+  <p>When the save says "this crate is at 230, 90", the loader has to find that crate in a freshly loaded level. The IDs from the serialization lesson only lived for one file. Here the save and the level are two different files, often made by different builds of the game.</p>
+  <p>A <dfn>stable ID</dfn> is a name for an object that stays the same across runs and across updates, such as <code>crate_a</code>. It is assigned once, by the designer or by an editor tool when the object is placed, and it is stored in the level file. Some choices that look like IDs are not stable:</p>
+  <ul>
+    <li>The position in the scene's list of objects. Insert one object at the top of the level and every saved row lands on the wrong object.</li>
+    <li>Run-time IDs such as Godot's <code>get_instance_id()</code> or Unity's <code>GetInstanceID()</code>. They change every run.</li>
+    <li>The node or GameObject name, unless your team treats renaming as a breaking change.</li>
+  </ul>
+  <p>Objects created while playing, such as a dropped item, have no authored ID. Give each one an ID when it spawns and save its kind (which scene or prefab to create) next to its state. On load, any saved row whose ID is not in the level is spawned from that kind. Authored objects that the player destroyed need a row too, marked as removed, or they will be back after loading.</p>
+
+  <h3>Version numbers and migrations</h3>
+  <p>The format of the save will change: a field gets renamed, a number changes units, a list becomes a dictionary. Old saves will still exist on players' machines. So every save starts with a <dfn>version number</dfn>, the format it was written in, and the loader keeps a chain of <dfn>migrations</dfn>: small functions that each turn data of version <em>n</em> into data of version <em>n</em> + 1.</p>
+  <p>Order and ownership matter here. The migrations run on the plain data, after parsing and before any game object sees it. A version 1 save goes through 1 to 2, then 2 to 3, until it reaches the current version. Each saveable object owns one thing: turning its state into a row and reading the current kind of row back. It never needs to know that older formats existed. The save manager owns the file, the version number and the chain.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 236" role="img" aria-label="The load pipeline in six steps: load the fresh level, read and parse the file, check the version, migrate to the current version, match rows to objects by stable ID, and apply the state. Below, migration is shown as a chain from version 1 to 2 to 3, and matching is shown with three cases.">
+      <g>
+        <rect class="d-box" x="10" y="20" width="94" height="52" rx="6"/>
+        <rect class="d-box" x="116" y="20" width="94" height="52" rx="6"/>
+        <rect class="d-box" x="222" y="20" width="94" height="52" rx="6"/>
+        <rect class="d-box" x="328" y="20" width="94" height="52" rx="6"/>
+        <rect class="d-box" x="434" y="20" width="94" height="52" rx="6"/>
+        <rect class="d-box" x="540" y="20" width="94" height="52" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="57" y="42">1. Load the</text>
+        <text class="d-text" x="57" y="60">fresh level</text>
+        <text class="d-text" x="163" y="42">2. Read and</text>
+        <text class="d-text" x="163" y="60">parse file</text>
+        <text class="d-text" x="269" y="42">3. Check</text>
+        <text class="d-text" x="269" y="60">version</text>
+        <text class="d-text" x="375" y="42">4. Migrate</text>
+        <text class="d-text" x="375" y="60">to current</text>
+        <text class="d-text" x="481" y="42">5. Match by</text>
+        <text class="d-text" x="481" y="60">stable ID</text>
+        <text class="d-text" x="587" y="42">6. Apply</text>
+        <text class="d-text" x="587" y="60">state</text>
+      </g>
+      <g>
+        <path class="d-accent" d="M104 46 H112"/>
+        <path class="d-accent" d="M210 46 H218"/>
+        <path class="d-accent" d="M316 46 H324"/>
+        <path class="d-accent" d="M422 46 H430"/>
+        <path class="d-accent" d="M528 46 H536"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="163" y="92">broken: stop</text>
+        <text class="d-muted" x="269" y="92">newer: refuse</text>
+      </g>
+
+      <text class="d-label" x="10" y="116">Inside step 4</text>
+      <rect class="d-fill" x="10" y="148" width="56" height="34" rx="6"/>
+      <rect class="d-fill" x="128" y="148" width="56" height="34" rx="6"/>
+      <rect class="d-box" x="246" y="148" width="56" height="34" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="38" y="170">v1</text>
+        <text class="d-mono" x="156" y="170">v2</text>
+        <text class="d-mono" x="274" y="170">v3</text>
+        <text class="d-muted" x="97" y="142">1 to 2</text>
+        <text class="d-muted" x="215" y="142">2 to 3</text>
+      </g>
+      <path class="d-accent" d="M68 165 H120"/>
+      <path class="d-accent-fill" d="M126 165 l-8 -5 v10 z"/>
+      <path class="d-accent" d="M186 165 H238"/>
+      <path class="d-accent-fill" d="M244 165 l-8 -5 v10 z"/>
+      <text class="d-muted" x="10" y="208">Each migration changes one version</text>
+      <text class="d-muted" x="10" y="224">into the next. v3 is the current format.</text>
+
+      <text class="d-label" x="360" y="116">Inside step 5</text>
+      <text class="d-text" x="360" y="150">crate_a: in save and level, apply</text>
+      <text class="d-text" x="360" y="176">lamp_a: new in level, keep default</text>
+      <text class="d-text" x="360" y="202">arrow_7: not in level, spawn kind</text>
+    </svg>
+    <figcaption>Loading lays the save over a freshly loaded level. Saving runs the other way: each object writes its state under its ID, the manager adds the current version number and writes the file.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Write a version number into the very first save you ship. Never edit an old migration after release; add a new one.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>You are running build v1. Drag <code>crate_a</code> somewhere new (or focus the canvas and use the arrow keys), press <strong>Recolour</strong>, then press <strong>Save</strong>. The save file appears in the text box. Now switch <strong>Build</strong> to v2, a newer release that adds <code>lamp_a</code> to the front of the level and stores positions as <code>pos</code> and colours as hex. The level starts fresh. Press <strong>Load</strong> and watch the five load steps under the scene.</p>
+  <p>Then repeat with <strong>Run migrations</strong> off, and again with <strong>Match objects by</strong> set to list position. Finally, save in v2, switch back to v1 and load. You can also edit the text box by hand before loading.</p>
+
+  <figure class="demo wide" data-demo="save-system">
+    <canvas id="save-system"></canvas>
+    <div class="demo-controls"></div>
+    <div class="save-buttons">
+      <button type="button" class="btn" id="ss-save">Save</button>
+      <button type="button" class="btn" id="ss-load">Load</button>
+      <button type="button" class="btn" id="ss-next">Select next</button>
+      <button type="button" class="btn" id="ss-colour">Recolour</button>
+      <button type="button" class="btn" id="ss-fresh">Fresh level</button>
+    </div>
+    <div class="save-file">
+      <label for="ss-text">Save file (the file on disk, kept when you switch builds)</label>
+      <textarea id="ss-text" spellcheck="false" autocomplete="off" placeholder="Press Save to write the file here."></textarea>
+    </div>
+    <figcaption>On the canvas, Enter or N selects the next object, C recolours it and the arrow keys move it. Objects outlined in red received a saved row meant for a different object. The model leaves out spawned and removed objects, real files and save slots.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version is build v2 of the demo: the same four objects, the same IDs, positions and colours, and the same v1 to v2 migration. It uses <code>json.lua</code> by rxi, a single file you put next to <code>main.lua</code>; key order in its output may differ from the demo. Press the right arrow and C to change <code>crate_a</code>, S to save, L to load, and O to write an old v1 save so you can watch the migration run.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua, build v2. Needs json.lua (rxi) in the same folder.</span>
+local json = require("json")
+
+local VERSION = 2
+local HEX = { red = "#d04040", green = "#3a9a4a", blue = "#3a6fd0", gold = "#d0a020" }
+
+<span class="c">-- The level as authored. Build v2 added lamp_a at the front.</span>
+local objects = {
+  { id = "lamp_a",   x = 60,  y = 60,  color = HEX.gold },
+  { id = "crate_a",  x = 160, y = 120, color = HEX.red },
+  { id = "crate_b",  x = 260, y = 120, color = HEX.blue },
+  { id = "barrel_a", x = 360, y = 120, color = HEX.green },
+}
+local byId = {}
+for _, o in ipairs(objects) do byId[o.id] = o end
+
+local migrations = {}
+migrations[1] = function (data)   <span class="c">-- v1 to v2: x, y became pos; colour names became hex</span>
+  for _, row in ipairs(data.objects) do
+    row.pos = { row.x, row.y }
+    row.x, row.y = nil, nil
+    row.color = HEX[row.color] or "#808080"
+  end
+  data.version = 2
+end
+
+local function saveGame()
+  local rows = {}
+  for i, o in ipairs(objects) do
+    rows[i] = { id = o.id, pos = { o.x, o.y }, color = o.color }
+  end
+<span class="k">  love.filesystem.write("save.json", json.encode({ version = VERSION, objects = rows }))</span>
+  return "saved"
+end
+
+local function loadGame()
+  local text = love.filesystem.read("save.json")
+  if not text then return "no save yet" end
+  local ok, data = pcall(json.decode, text)
+  if not ok or type(data) ~= "table" or type(data.objects) ~= "table" then
+    return "unreadable save, nothing changed"
+  end
+  local v = tonumber(data.version) or 1        <span class="c">-- no number: the oldest format</span>
+  if v &gt; VERSION then return "save is from a newer build" end
+<span class="k">  for from = v, VERSION - 1 do migrations[from](data) end</span>
+  for _, row in ipairs(data.objects) do
+<span class="k">    local o = byId[row.id]                     -- match by stable ID</span>
+    if o and row.pos then o.x, o.y, o.color = row.pos[1], row.pos[2], row.color end
+  end
+  return "loaded version " .. v
+end
+
+local message = "S save, L load, O write an old v1 save"
+function love.keypressed(key)
+  if key == "right" then byId.crate_a.x = byId.crate_a.x + 10 end
+  if key == "c" then byId.crate_a.color = HEX.gold end   <span class="c">-- the demo cycles colours</span>
+  if key == "s" then message = saveGame() end
+  if key == "l" then message = loadGame() end
+  if key == "o" then
+    love.filesystem.write("save.json",
+      '{"version":1,"objects":[{"id":"crate_a","x":230,"y":90,"color":"gold"}]}')
+    message = "wrote a v1 save"
+  end
+end
+
+local function rgb(hex)
+  return tonumber(hex:sub(2, 3), 16) / 255, tonumber(hex:sub(4, 5), 16) / 255,
+         tonumber(hex:sub(6, 7), 16) / 255
+end
+
+function love.draw()
+  for _, o in ipairs(objects) do
+    love.graphics.setColor(rgb(o.color))
+    love.graphics.rectangle("fill", o.x - 18, o.y - 18, 36, 36)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.print(o.id, o.x - 18, o.y + 24)
+  end
+  love.graphics.print(message, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># saveable.gd. Godot 4. Attach to each Node2D you want saved and set save_id.</span>
+extends Node2D
+
+@export var save_id: String = ""
+
+func _ready() -&gt; void:
+    add_to_group("saveable")
+
+func save_row() -&gt; Dictionary:
+    return {"id": save_id, "pos": [position.x, position.y],
+            "color": "#" + modulate.to_html(false)}
+
+func load_row(row: Dictionary) -&gt; void:   <span class="c"># only ever sees the current format</span>
+    position = Vector2(row["pos"][0], row["pos"][1])
+    modulate = Color.html(row["color"])
+
+
+<span class="c"># save_manager.gd. Godot 4. Add as an autoload, or any node in the scene.</span>
+extends Node
+
+const VERSION := 2
+const PATH := "user://save.json"
+const HEX := {"red": "#d04040", "green": "#3a9a4a", "blue": "#3a6fd0", "gold": "#d0a020"}
+
+func migrate_1_to_2(data: Dictionary) -&gt; void:
+    for row in data["objects"]:
+        row["pos"] = [row["x"], row["y"]]
+        row.erase("x")
+        row.erase("y")
+        row["color"] = HEX.get(row["color"], "#808080")
+    data["version"] = 2
+
+func save_game() -&gt; void:
+    var rows := []
+    for node in get_tree().get_nodes_in_group("saveable"):
+        rows.append(node.save_row())
+    var file := FileAccess.open(PATH, FileAccess.WRITE)
+<span class="k">    file.store_string(JSON.stringify({"version": VERSION, "objects": rows}))</span>
+    file.close()
+
+func load_game() -&gt; String:   <span class="c"># call after the fresh level has run _ready</span>
+    if not FileAccess.file_exists(PATH):
+        return "no save yet"
+    var data = JSON.parse_string(FileAccess.get_file_as_string(PATH))
+    if typeof(data) != TYPE_DICTIONARY or not data.has("objects"):
+        return "unreadable save, nothing changed"
+    var v := int(data.get("version", 1))   <span class="c"># JSON numbers arrive as floats</span>
+    if v &gt; VERSION:
+        return "save is from a newer build"
+<span class="k">    if v &lt; 2: migrate_1_to_2(data)</span>
+    var by_id := {}
+    for node in get_tree().get_nodes_in_group("saveable"):
+        by_id[node.save_id] = node
+    for row in data["objects"]:
+<span class="k">        if by_id.has(row["id"]): by_id[row["id"]].load_row(row)</span>
+    return "loaded version %d" % v</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// SaveManager.cs. Unity 6 or 2022 LTS. Put SaveManager on one GameObject, Saveable on each saved one.</span>
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+[System.Serializable] public class SaveRow { public string id; public float x, y; public Vector2 pos; public string color; }
+[System.Serializable] public class SaveFile { public int version; public List&lt;SaveRow&gt; objects = new List&lt;SaveRow&gt;(); }
+
+public class SaveManager : MonoBehaviour
+{
+    const int Version = 2;
+    static readonly Dictionary&lt;string, string&gt; Hex = new Dictionary&lt;string, string&gt; {
+        { "red", "#d04040" }, { "green", "#3a9a4a" }, { "blue", "#3a6fd0" }, { "gold", "#d0a020" } };
+    string PathOnDisk =&gt; Path.Combine(Application.persistentDataPath, "save.json");
+
+    static void Migrate1To2(SaveFile data)   <span class="c">// v1 rows have x and y; v2 rows have pos</span>
+    {
+        foreach (var row in data.objects)
+        {
+            row.pos = new Vector2(row.x, row.y);
+            row.color = Hex.TryGetValue(row.color ?? "", out var h) ? h : "#808080";
+        }
+        data.version = 2;
+    }
+
+    public void SaveGame()
+    {
+        var file = new SaveFile { version = Version };
+        foreach (var s in FindObjectsByType&lt;Saveable&gt;(FindObjectsSortMode.None))
+            file.objects.Add(s.ToRow());
+<span class="k">        File.WriteAllText(PathOnDisk, JsonUtility.ToJson(file, true));</span>
+    }
+
+    public string LoadGame()   <span class="c">// call after the fresh scene has loaded</span>
+    {
+        if (!File.Exists(PathOnDisk)) return "no save yet";
+        SaveFile data;
+        try { data = JsonUtility.FromJson&lt;SaveFile&gt;(File.ReadAllText(PathOnDisk)); }
+        catch (System.Exception) { return "unreadable save, nothing changed"; }
+        if (data == null || data.objects == null) return "unreadable save, nothing changed";
+        int v = data.version == 0 ? 1 : data.version;   <span class="c">// a missing int reads as 0</span>
+        if (v &gt; Version) return "save is from a newer build";
+<span class="k">        if (v &lt; 2) Migrate1To2(data);</span>
+        var byId = new Dictionary&lt;string, Saveable&gt;();
+        foreach (var s in FindObjectsByType&lt;Saveable&gt;(FindObjectsSortMode.None)) byId[s.saveId] = s;
+        foreach (var row in data.objects)
+<span class="k">            if (row.id != null &amp;&amp; byId.TryGetValue(row.id, out var target)) target.FromRow(row);</span>
+        return "loaded version " + v;
+    }
+}
+
+<span class="c">// Saveable.cs, its own file. Needs a SpriteRenderer on the same GameObject.</span>
+using UnityEngine;
+
+public class Saveable : MonoBehaviour
+{
+    public string saveId;   <span class="c">// set once in the Inspector, never changed</span>
+
+    public SaveRow ToRow() =&gt; new SaveRow {
+        id = saveId, pos = transform.position,
+        color = "#" + ColorUtility.ToHtmlStringRGB(GetComponent&lt;SpriteRenderer&gt;().color) };
+
+    public void FromRow(SaveRow row)
+    {
+        transform.position = row.pos;
+        if (ColorUtility.TryParseHtmlString(row.color, out var c)) GetComponent&lt;SpriteRenderer&gt;().color = c;
+    }
+}</code></pre>
+  </div>
+  <p><code>JsonUtility</code> needs one class holding every field any version used, so the v1 fields <code>x</code> and <code>y</code> stay in <code>SaveRow</code> and are written as zeros in new saves. Fields missing from the text keep their defaults, which is what lets it read a version 1 file at all. Godot gives you plain dictionaries, so its migration can rename keys freely.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Shipping without a version number.</strong> The first format change then has to guess which format a file is in. If you forgot, treat "no version" as version 1, as all three tabs do, and start writing a number now.</li>
+    <li><strong>Applying before the level is ready.</strong> Load the fresh level, wait until its objects have run their setup code, then apply the save. Otherwise <code>_ready</code> or <code>Start</code> runs after loading and resets the values you just restored. In Godot a parent's <code>_ready</code> runs after its children's, so the scene root's <code>_ready</code> is one safe place.</li>
+    <li><strong>Half-applied loads.</strong> Parse, check and migrate the whole file before touching a single object. A loader that fails on row three has already moved rows one and two.</li>
+    <li><strong>Losing the save when the game crashes mid-write.</strong> If the power fails while the file is being written, the player is left with half a file. Write the new save to a temporary file first, then replace the old one, and keep the previous save as a backup.</li>
+    <li><strong>Trusting the file.</strong> Players edit saves. Clamp values on load and do not use a format that can create arbitrary objects, for the reasons given in the serialization lesson.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Neither engine ships a complete save system; both leave the format to you. Godot gives you the <code>user://</code> folder, <code>FileAccess</code> and JSON, and its documentation has a <cite>Saving games</cite> tutorial in which every saveable node is put in a group and returns a dictionary of its state. Unity gives you <code>Application.persistentDataPath</code>, <code>JsonUtility</code> and <code>PlayerPrefs</code>, which is meant for small settings rather than game progress.</p>
+  <p>Minecraft: Java Edition writes a data version number into its world data and upgrades old worlds step by step when it loads them. Mojang published the library it uses for this as DataFixerUpper. Factorio lets mods ship migration files that run when a save made with an older version of the mod is loaded.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick two objects in your project that the player can change, such as a door that opens and a crate that moves. Give each a stable ID field and set it by hand. Write a save that holds a version number and one row per object, and a load that applies rows by ID after the level has loaded.</p>
+  <p>Then change the format: rename one field and bump the version to 2. Write the migration from 1 to 2. You are done when a save written before the change loads correctly after it, and a save with version 99 is refused with a message instead of a crash.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Save run-time state only. Load the authored level first, then lay the save over it.</li>
+    <li>Match saved rows to objects with stable IDs assigned once, never with list positions or run-time IDs.</li>
+    <li>Put a version number in every save and keep a chain of migrations, each turning one version into the next.</li>
+    <li>Migrate the plain data before any object reads it, so objects only know the current format.</li>
+    <li>Refuse saves from a newer build, and never change anything until the whole file has been read and checked.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Track 3 begins with finite state machines: splitting a character's behaviour into named states with explicit transitions instead of tangled if statements.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Saving games</cite> and <cite>File paths in Godot projects</cite>. Godot's own JSON save tutorial and what <code>user://</code> points to on each platform.</li>
+    <li>Unity documentation, <cite>JSON Serialization</cite> (Unity Manual) and <cite>Application.persistentDataPath</cite> (Scripting API).</li>
+    <li>LÖVE wiki, <cite>love.filesystem</cite>. Where LÖVE keeps a game's save directory.</li>
+    <li>rxi, <cite>json.lua</cite>. The small pure Lua JSON library used in the Lua tab.</li>
+    <li>Mojang, <cite>DataFixerUpper</cite>. The open source library Minecraft uses to upgrade old data.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var WORLD_W = 440, WORLD_H = 200;
+  var PALETTE = ['#d04040', '#3a9a4a', '#3a6fd0', '#d0a020'];
+  var HEX = { red: '#d04040', green: '#3a9a4a', blue: '#3a6fd0', gold: '#d0a020' };
+  var NAME = { '#d04040': 'red', '#3a9a4a': 'green', '#3a6fd0': 'blue', '#d0a020': 'gold' };
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  // The level as authored in each build. Build 2 adds lamp_a at the front.
+  var LEVEL_1 = [
+    { id: 'crate_a', kind: 'crate', x: 160, y: 120, color: '#d04040' },
+    { id: 'crate_b', kind: 'crate', x: 260, y: 120, color: '#3a6fd0' },
+    { id: 'barrel_a', kind: 'barrel', x: 360, y: 120, color: '#3a9a4a' }
+  ];
+  var LEVEL_2 = [{ id: 'lamp_a', kind: 'lamp', x: 60, y: 60, color: '#d0a020' }].concat(LEVEL_1);
+
+  // Migration from version n to n + 1, on plain parsed data.
+  var MIGRATIONS = {
+    1: function (data) {
+      data.objects.forEach(function (row) {
+        row.pos = [row.x, row.y];
+        delete row.x;
+        delete row.y;
+        row.color = HEX[row.color] || '#808080';
+      });
+      data.version = 2;
+    }
+  };
+
+  var STAGES = ['Read', 'Version', 'Migrate', 'Match', 'Apply'];
+
+  var ui = DemoKit.controls('[data-demo="save-system"]');
+  var buildSel = ui.select({ label: 'Build', value: '1',
+    options: [{ value: '1', label: 'v1 (first release)' }, { value: '2', label: 'v2 (adds lamp_a, new format)' }],
+    onChange: startBuild });
+  var matchSel = ui.select({ label: 'Match objects by', value: 'id',
+    options: [{ value: 'id', label: 'Stable ID' }, { value: 'index', label: 'List position' }],
+    onChange: function () { refresh(); } });
+  var migrate = ui.toggle({ label: 'Run migrations', value: true });
+  var result = ui.readout({ label: 'Result' });
+
+  var text = document.getElementById('ss-text');
+  var objects = [];
+  var selected = 1;
+  var stages = null;
+  var handle = null;
+  var dragging = null;
+
+  function build() { return Number(buildSel.value); }
+
+  function freshLevel() {
+    var src = build() === 2 ? LEVEL_2 : LEVEL_1;
+    objects = src.map(function (o) {
+      return { id: o.id, kind: o.kind, x: o.x, y: o.y, color: o.color, wrong: false, got: '' };
+    });
+    selected = Math.min(objects.length - 1, build() === 2 ? 1 : 0);
+  }
+
+  function startBuild() {
+    freshLevel();
+    stages = null;
+    result.set('Started build v' + build() + ' with a fresh level' +
+      (build() === 2 ? ' (lamp_a added)' : '') + '. The save file is unchanged.');
+    refresh();
+  }
+
+  function refresh() { if (handle) handle.redraw(); }
+
+  function clearMarks() { objects.forEach(function (o) { o.wrong = false; o.got = ''; }); }
+
+  function save() {
+    var v = build();
+    var byIndex = matchSel.value === 'index';
+    var rows = objects.map(function (o) {
+      var r = [];
+      if (!byIndex) r.push('"id":"' + o.id + '"');
+      var x = Math.round(o.x), y = Math.round(o.y);
+      if (v === 1) r.push('"x":' + x, '"y":' + y, '"color":"' + (NAME[o.color] || 'red') + '"');
+      else r.push('"pos":[' + x + ',' + y + ']', '"color":"' + o.color + '"');
+      return '{' + r.join(',') + '}';
+    });
+    text.value = '{"version":' + v + ',"objects":[\n  ' + rows.join(',\n  ') + '\n]}';
+    clearMarks();
+    stages = null;
+    result.set('Saved ' + objects.length + ' objects in format v' + v +
+      (byIndex ? ', without IDs: rows are matched by list position.' : ', each under its stable ID.'));
+    refresh();
+  }
+
+  function setStage(i, state, note) { stages[i] = { state: state, note: note }; }
+
+  function fail(i, message) {
+    for (var k = i + 1; k < STAGES.length; k++) setStage(k, 'idle', '');
+    result.set(message);
+    refresh();
+  }
+
+  function rowProblem(row, v) {
+    if (!row || typeof row !== 'object') return 'a row is not an object';
+    var who = typeof row.id === 'string' ? row.id : 'a row';
+    if (v === 2) {
+      if (!Array.isArray(row.pos) || typeof row.pos[0] !== 'number' || typeof row.pos[1] !== 'number') {
+        return who + ' has no "pos" field' + (typeof row.x === 'number' ? ' (it is a v1 row)' : '');
+      }
+      if (typeof row.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(row.color)) return who + ' has no hex "color"';
+    } else {
+      if (typeof row.x !== 'number' || typeof row.y !== 'number') return who + ' has no "x" and "y"';
+      if (!HEX[row.color]) return who + ' has an unknown colour name';
+    }
+    return '';
+  }
+
+  function load() {
+    var current = build();
+    stages = [];
+    clearMarks();
+
+    var data;
+    try { data = JSON.parse(text.value); } catch (e) { data = undefined; }
+    if (!data || typeof data !== 'object' || !Array.isArray(data.objects)) {
+      setStage(0, 'bad', 'broken');
+      return fail(0, 'The save could not be parsed. Nothing was changed.');
+    }
+    setStage(0, 'ok', data.objects.length + ' rows');
+
+    var v = typeof data.version === 'number' ? data.version : 1;
+    if (v > current) {
+      setStage(1, 'bad', 'v' + v + ' > v' + current);
+      return fail(1, 'This save is version ' + v + ' and build v' + current + ' only reads up to ' + current +
+        '. Refused, nothing changed.');
+    }
+    setStage(1, 'ok', 'v' + v);
+
+    if (v < current && migrate.value) {
+      for (var from = v; from < current; from++) MIGRATIONS[from](data);
+      setStage(2, 'ok', v + ' to ' + current);
+    } else if (v < current) {
+      setStage(2, 'skip', 'off');
+    } else {
+      setStage(2, 'skip', 'none');
+    }
+
+    // Check every row in the current format before touching any object.
+    for (var i = 0; i < data.objects.length; i++) {
+      var problem = rowProblem(data.objects[i], current);
+      if (problem) {
+        setStage(3, 'idle', '');
+        setStage(4, 'bad', 'bad rows');
+        return fail(4, 'Build v' + current + ' cannot read this save: ' + problem +
+          '. Load stopped before changing anything, so the player\'s progress is lost.');
+      }
+    }
+
+    var pairs = [], skipped = 0, misplaced = 0, moves = [];
+    var rows = data.objects;
+    if (matchSel.value === 'id') {
+      var byId = {};
+      objects.forEach(function (o) { byId[o.id] = o; });
+      rows.forEach(function (row) {
+        var o = typeof row.id === 'string' ? byId[row.id] : null;
+        if (o) pairs.push([o, row]); else skipped += 1;
+      });
+      setStage(3, skipped === rows.length && rows.length ? 'bad' : 'ok', 'by ID');
+    } else {
+      for (var j = 0; j < rows.length; j++) {
+        if (j < objects.length) pairs.push([objects[j], rows[j]]); else skipped += 1;
+      }
+      setStage(3, 'ok', 'by order');
+    }
+
+    pairs.forEach(function (p, k) {
+      var o = p[0], row = p[1];
+      if (current === 2) { o.x = row.pos[0]; o.y = row.pos[1]; o.color = row.color; }
+      else { o.x = row.x; o.y = row.y; o.color = HEX[row.color]; }
+      o.x = DemoKit.clamp(o.x, 20, WORLD_W - 20);
+      o.y = DemoKit.clamp(o.y, 20, WORLD_H - 30);
+      o.got = 'row ' + (rows.indexOf(row) + 1);
+      if (matchSel.value === 'index') {
+        // Was this row written for this object? Rows with IDs tell us; rows without
+        // IDs only tell us when the save came from a level with a different list.
+        var meant = typeof row.id === 'string' ? row.id : (v === 1 && current === 2 ? LEVEL_1[k] && LEVEL_1[k].id : o.id);
+        if (meant !== o.id) { o.wrong = true; misplaced += 1; moves.push((meant || 'row ' + (k + 1)) + '\u2019s row went to ' + o.id); }
+      }
+    });
+    setStage(4, misplaced ? 'bad' : 'ok', pairs.length + ' applied');
+
+    var untouched = objects.filter(function (o) { return !o.got; }).map(function (o) { return o.id; });
+    var msg = 'Loaded a v' + v + ' save into build v' + current + '. ';
+    if (misplaced) {
+      msg += misplaced + ' object' + (misplaced > 1 ? 's' : '') + ' got a row meant for another object (red outline): ' +
+        moves.join(', ') + '. ';
+    }
+    if (untouched.length) msg += untouched.join(', ') + ' not in the save: kept the level default. ';
+    if (skipped) msg += skipped + (skipped > 1 ? ' rows matched no object and were' : ' row matched no object and was') + ' skipped.';
+    result.set(msg.trim());
+    refresh();
+  }
+
+  function nextObject() {
+    selected = (selected + 1) % objects.length;
+    refresh();
+  }
+
+  function recolour() {
+    var o = objects[selected];
+    if (!o) return;
+    var i = PALETTE.indexOf(o.color);
+    o.color = PALETTE[(i + 1) % PALETTE.length];
+    refresh();
+  }
+
+  function fresh() {
+    freshLevel();
+    stages = null;
+    result.set('Fresh level: everything back to the authored defaults, as when the game starts.');
+    refresh();
+  }
+
+  document.getElementById('ss-save').addEventListener('click', save);
+  document.getElementById('ss-load').addEventListener('click', load);
+  document.getElementById('ss-next').addEventListener('click', nextObject);
+  document.getElementById('ss-colour').addEventListener('click', recolour);
+  document.getElementById('ss-fresh').addEventListener('click', fresh);
+
+  // ---------- layout and drawing ----------
+
+  function view(s) {
+    var scale = Math.min((s.width - 24) / WORLD_W, (s.height - 158) / WORLD_H, 1);
+    var w = WORLD_W * scale, h = WORLD_H * scale;
+    return { scale: scale, x: (s.width - w) / 2, y: 34, w: w, h: h };
+  }
+
+  function toScreen(V, o) { return { x: V.x + o.x * V.scale, y: V.y + o.y * V.scale }; }
+
+  function drawObject(ctx, c, V, o, isSel) {
+    var p = toScreen(V, o);
+    var r = 18 * V.scale;
+    ctx.fillStyle = o.color;
+    ctx.strokeStyle = o.wrong ? c.bad : c.ink;
+    ctx.lineWidth = o.wrong ? 3 : 1.25;
+    ctx.beginPath();
+    if (o.kind === 'crate') {
+      ctx.rect(p.x - r, p.y - r, 2 * r, 2 * r);
+    } else if (o.kind === 'barrel') {
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    } else {
+      ctx.moveTo(p.x, p.y - r);
+      ctx.lineTo(p.x + r, p.y + r);
+      ctx.lineTo(p.x - r, p.y + r);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.stroke();
+    if (o.kind === 'crate') {
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r);
+      ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r);
+      ctx.stroke();
+    }
+    if (isSel) {
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(p.x - r - 6, p.y - r - 6, 2 * r + 12, 2 * r + 12);
+      ctx.setLineDash([]);
+    }
+    ctx.font = MONO;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = o.wrong ? c.bad : c.ink2;
+    ctx.fillText(o.id, p.x, p.y + r + 16);
+  }
+
+  function hit(V, pt) {
+    for (var i = objects.length - 1; i >= 0; i--) {
+      var p = toScreen(V, objects[i]);
+      var r = 18 * V.scale + 6;
+      if (Math.abs(pt.x - p.x) <= r && Math.abs(pt.y - p.y) <= r) return i;
+    }
+    return -1;
+  }
+
+  function moveSelected(dx, dy) {
+    var o = objects[selected];
+    if (!o) return;
+    o.x = DemoKit.clamp(o.x + dx, 20, WORLD_W - 20);
+    o.y = DemoKit.clamp(o.y + dy, 20, WORLD_H - 30);
+  }
+
+  freshLevel();
+  result.set('Running build v1. Move and recolour objects, then press Save.');
+
+  handle = DemoKit.canvas('#save-system', {
+    aspect: 1.6,
+    minHeight: 300,
+    maxHeight: 360,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A small level with crates, a barrel and, in build v2, a lamp. Drag objects or use the keyboard, then save and load through the text box. Below the level, five load steps show which passed.',
+    onDown: function (p, s) {
+      var V = view(s);
+      var i = hit(V, p);
+      if (i >= 0) {
+        selected = i;
+        var q = toScreen(V, objects[i]);
+        dragging = { dx: p.x - q.x, dy: p.y - q.y };
+      }
+    },
+    onMove: function (p, s) {
+      if (!dragging || !p.down) return;
+      var V = view(s);
+      var o = objects[selected];
+      o.x = DemoKit.clamp((p.x - dragging.dx - V.x) / V.scale, 20, WORLD_W - 20);
+      o.y = DemoKit.clamp((p.y - dragging.dy - V.y) / V.scale, 20, WORLD_H - 30);
+    },
+    onUp: function () { dragging = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'n' || key === 'enter') nextObject();
+      else if (key === 'c') recolour();
+      else if (key === 'arrowleft') moveSelected(-10, 0);
+      else if (key === 'arrowright') moveSelected(10, 0);
+      else if (key === 'arrowup') moveSelected(0, -10);
+      else if (key === 'arrowdown') moveSelected(0, 10);
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var V = view(s);
+
+      ctx.textAlign = 'left';
+      ctx.font = BOLD;
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Build v' + build() + ', level of ' + objects.length + ' objects', 12, 20);
+      if (objects[selected]) {
+        ctx.font = FONT;
+        ctx.fillStyle = c.ink2;
+        ctx.textAlign = 'right';
+        ctx.fillText('selected: ' + objects[selected].id, s.width - 12, 20);
+      }
+
+      ctx.fillStyle = c.surface2;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.fillRect(V.x, V.y, V.w, V.h);
+      ctx.strokeRect(V.x + 0.5, V.y + 0.5, V.w - 1, V.h - 1);
+
+      objects.forEach(function (o, i) { drawObject(ctx, c, V, o, i === selected); });
+
+      // The load pipeline.
+      var top = V.y + V.h + 30;
+      ctx.textAlign = 'left';
+      ctx.font = BOLD;
+      ctx.fillStyle = c.ink;
+      ctx.fillText(stages ? 'Last load' : 'Load steps (press Load)', 12, top - 8);
+      var gap = 6, n = STAGES.length;
+      var bw = Math.min(110, (s.width - 24 - gap * (n - 1)) / n);
+      var x0 = (s.width - (bw * n + gap * (n - 1))) / 2;
+      for (var i = 0; i < n; i++) {
+        var st = stages && stages[i] ? stages[i] : { state: 'idle', note: '' };
+        var col = st.state === 'ok' ? c.good : st.state === 'bad' ? c.bad : st.state === 'skip' ? c.warn : c.ink3;
+        var bx = x0 + i * (bw + gap);
+        ctx.globalAlpha = st.state === 'idle' ? 0.08 : 0.16;
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, top, bw, 50);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = st.state === 'idle' ? 1 : 2;
+        ctx.strokeRect(bx + 0.5, top + 0.5, bw - 1, 49);
+        ctx.textAlign = 'center';
+        ctx.font = BOLD;
+        ctx.fillStyle = st.state === 'idle' ? c.ink3 : c.ink;
+        ctx.fillText(STAGES[i], bx + bw / 2, top + 20);
+        ctx.font = FONT;
+        ctx.fillStyle = st.state === 'idle' ? c.ink3 : col;
+        var word = st.state === 'ok' ? 'ok' : st.state === 'bad' ? 'failed' : st.state === 'skip' ? 'skipped' : '';
+        ctx.fillText(st.note || word, bx + bw / 2, top + 38);
+      }
+
+      // Legend, kept left of the bottom-right corner.
+      var ly = top + 74;
+      var lx = 12;
+      ctx.font = FONT;
+      ctx.textAlign = 'left';
+      [['ok', c.good], ['skipped', c.warn], ['failed', c.bad]].forEach(function (e) {
+        ctx.fillStyle = e[1];
+        ctx.fillRect(lx, ly - 10, 12, 12);
+        ctx.fillStyle = c.ink2;
+        ctx.fillText(e[0], lx + 16, ly);
+        lx += 16 + ctx.measureText(e[0]).width + 14;
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>
