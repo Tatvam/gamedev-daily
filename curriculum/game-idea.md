@@ -30,7 +30,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 3: Puzzle mechanics
 
-- [ ] **Shadow Stencil** — A puzzle game where the player moves a lamp so that the shadows of fixed objects fall on a wall in a target pattern. Demo: A top-down room with a draggable light, three blocks and a far wall showing lit and dark stretches that must match a pattern strip.
+- [x] **Shadow Stencil** — A puzzle game where the player moves a lamp so that the shadows of fixed objects fall on a wall in a target pattern. Demo: A top-down room with a draggable light, three blocks and a far wall showing lit and dark stretches that must match a pattern strip. (published 2026-11-02, shadow-stencil)
 - [ ] **Ghost of Your Last Try** — A puzzle platformer where every restart leaves a ghost that repeats your previous attempt, so you must cooperate with your past selves to hold switches and doors. Demo: A single room with two pressure plates and a door, where up to three recorded ghosts replay earlier runs while the player makes the final dash.
 - [ ] **Folding Map** — A puzzle game played on a paper map that can be folded along its creases, which brings distant tiles side by side so the traveller can step across. Demo: A six by six grid map with clickable crease lines that fold columns or rows away, and a traveller moved with arrow keys toward a goal.
 - [ ] **Pigment Slide** — A sliding puzzle where blocks of paint merge when they collide and mix into new colours, and each target tile demands a specific colour. Demo: A small grid where arrow keys slide all paint blocks at once, red, yellow and blue blocks combine into secondary colours, and targets light up when covered correctly.

@@ -30,7 +30,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 3: Architecture patterns
 
-- [ ] **Finite state machines** — How splitting behaviour into named states with explicit transitions removes tangled if statements. Demo: Control a character with the keyboard while a live state diagram highlights the current state and the transition that just fired.
+- [x] **Finite state machines** — How splitting behaviour into named states with explicit transitions removes tangled if statements. Demo: Control a character with the keyboard while a live state diagram highlights the current state and the transition that just fired. (published 2026-11-02, finite-state-machines)
 - [ ] **Hierarchical and pushdown state machines** — How nested states share behaviour and how a stack of states handles pause menus and interruptions. Demo: Push and pop states such as play, pause and dialogue on a visible stack and see which state receives input and which ones still draw.
 - [ ] **The component pattern** — Why composing objects from small reusable parts scales better than deep inheritance trees. Demo: Tick components such as movement, health, glow and gravity on and off for an entity and watch its behaviour change immediately.
 - [ ] **Entity component system (ECS)** — How storing components in tables and running systems over matching entities differs from objects that update themselves. Demo: A table of entities and components sits beside a canvas, and toggling each system highlights the rows it queries and the entities it moves.

@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finite state machines: one state at a time · Game Dev Daily</title>
+<meta name="description" content="How named states with enter, update and exit, and explicit transitions, replace tangled boolean flags, and how to write one in Godot and Unity.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Finite state machines: one state at a time</h1>
+  <p class="lede">How named states with enter, update and exit, and explicit transitions, replace tangled boolean flags, and how to write one in Godot and Unity.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hold Down to crouch, tap Jump, and your character flies into the air still squashed flat. Or you press Down at the top of a jump and it crouches on thin air. Nobody wrote "crouch in mid-air" on purpose. It came out of two booleans that were never told about each other.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Flags multiply</h2>
+  <p>A first player controller usually tracks what the character is doing with booleans, called <dfn>flags</dfn>:</p>
+<pre><code><span class="c">-- One flag per behaviour. Each block looks reasonable alone.</span>
+if jumpPressed and not isJumping then
+  isJumping = true
+  vy = -JUMP_SPEED
+end
+isCrouching = love.keyboard.isDown("down")
+if not isCrouching then x = x + move * SPEED * dt end</code></pre>
+  <p>Three flags (<code>isRunning</code>, <code>isJumping</code>, <code>isCrouching</code>) allow eight combinations. Only some of them make sense, but nothing in the code says which. Each bug is fixed by adding a condition, such as <code>and not isCrouching</code> on the jump, and the rules end up spread across every <code>if</code> in the file. Each new flag doubles the combinations.</p>
+
+  <h2>One state at a time</h2>
+  <p>A <dfn>finite state machine</dfn> (FSM) replaces the flags with one variable. The character is always in exactly one of a short, fixed list of <dfn>states</dfn>: Idle, Run, Jump, Fall or Crouch. The variable that holds the name of the active one is the <dfn>current state</dfn>.</p>
+  <p>The machine moves from one state to another only along a <dfn>transition</dfn>: an arrow from one named state to another, labelled with what causes it. If there is no arrow, the change cannot happen. That is the whole trick. "Jump while crouching" is not a bug you remember to guard against; Crouch simply has no jump arrow.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="State diagram with five states. Start points into Idle. Idle and Run connect both ways, labelled move and stop. Idle and Run each have a jump arrow to Jump. Jump goes to Fall at the apex, and Fall goes to Idle on landing. Idle and Run each have a down arrow to Crouch, and Crouch returns to Idle on release. Crouch has no arrow to Jump.">
+      <defs>
+        <marker id="fsm-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <g>
+        <rect class="d-box" x="90" y="30" width="100" height="40" rx="8"/>
+        <rect class="d-box" x="450" y="30" width="100" height="40" rx="8"/>
+        <rect class="d-accent-soft" x="90" y="130" width="100" height="40" rx="8"/>
+        <rect class="d-box" x="450" y="130" width="100" height="40" rx="8"/>
+        <rect class="d-box" x="270" y="230" width="100" height="40" rx="8"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="140" y="55">Fall</text>
+        <text class="d-text" x="500" y="55">Jump</text>
+        <text class="d-text" x="140" y="155">Idle</text>
+        <text class="d-text" x="500" y="155">Run</text>
+        <text class="d-text" x="320" y="255">Crouch</text>
+      </g>
+      <circle class="d-accent-fill" cx="30" cy="150" r="6"/>
+      <text class="d-muted" x="16" y="130">start</text>
+      <g marker-end="url(#fsm-ink)">
+        <path class="d-stroke" d="M36 150 H87"/>
+        <path class="d-stroke" d="M450 50 H193"/>
+        <path class="d-stroke" d="M140 70 V127"/>
+        <path class="d-stroke" d="M190 143 H447"/>
+        <path class="d-stroke" d="M450 158 H193"/>
+        <path class="d-stroke" d="M180 130 L456 72"/>
+        <path class="d-stroke" d="M500 130 V73"/>
+        <path class="d-stroke" d="M165 170 L280 228"/>
+        <path class="d-stroke" d="M270 248 L124 173"/>
+        <path class="d-stroke" d="M480 170 L372 228"/>
+      </g>
+      <g>
+        <text class="d-label" x="320" y="42" text-anchor="middle">apex (vy &#8805; 0)</text>
+        <text class="d-label" x="150" y="104">land</text>
+        <text class="d-label" x="510" y="104">jump</text>
+        <text class="d-label" x="300" y="94" text-anchor="middle">jump</text>
+        <text class="d-label" x="320" y="136" text-anchor="middle">move</text>
+        <text class="d-label" x="320" y="176" text-anchor="middle">stop</text>
+        <text class="d-label" x="236" y="192">down</text>
+        <text class="d-label" x="130" y="232">release</text>
+        <text class="d-label" x="444" y="222">down</text>
+      </g>
+      <text class="d-muted" x="320" y="292" text-anchor="middle">Crouch has no jump arrow, so a crouch-jump cannot happen.</text>
+    </svg>
+    <figcaption>The player's states and every allowed transition. Each arrow's label is the condition that fires it. Anything without an arrow is impossible by construction.</figcaption>
+  </figure>
+
+  <h3>Each state is a small object</h3>
+  <p>Each state gets up to three functions. <code>update(dt)</code> runs every frame while the state is current: it does that state's work and returns the name of the next state, or nothing to stay. <code>enter()</code> runs once when the state becomes current, and <code>exit()</code> runs once when it stops being current. Jump's <code>enter</code> sets the upward speed. Crouch's <code>enter</code> shrinks the hitbox and its <code>exit</code> restores it, so no path out of Crouch can forget to stand up.</p>
+
+  <h2>What happens, in what order</h2>
+  <p>Here is one frame in which the player, running, presses Jump:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 170" role="img" aria-label="Timeline of two frames. In frame N: read input, where jump is pressed; Run.update, which returns jump; Run.exit; Jump.enter, which sets vy to minus 380; draw. The exit and enter boxes are bracketed as the state change. In frame N plus 1, Jump.update runs for the first time.">
+      <text class="d-label" x="20" y="22">Frame N</text>
+      <text class="d-label" x="510" y="22">Frame N+1</text>
+      <path class="d-thin" d="M20 32 V40 H484 V32"/>
+      <path class="d-thin" d="M510 32 V40 H620 V32"/>
+      <g>
+        <rect class="d-box" x="20" y="54" width="84" height="40" rx="5"/>
+        <rect class="d-box" x="114" y="54" width="84" height="40" rx="5"/>
+        <rect class="d-accent-soft" x="208" y="54" width="84" height="40" rx="5"/>
+        <rect class="d-accent-soft" x="302" y="54" width="84" height="40" rx="5"/>
+        <rect class="d-box" x="396" y="54" width="88" height="40" rx="5"/>
+        <rect class="d-box" x="510" y="54" width="110" height="40" rx="5"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="62" y="79">input</text>
+        <text class="d-text" x="156" y="79">Run.update</text>
+        <text class="d-text" x="250" y="79">Run.exit</text>
+        <text class="d-text" x="344" y="79">Jump.enter</text>
+        <text class="d-text" x="440" y="79">draw</text>
+        <text class="d-text" x="565" y="79">Jump.update</text>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="62" y="114">jump = true</text>
+        <text class="d-muted" x="156" y="114">returns "jump"</text>
+        <text class="d-muted" x="344" y="114">vy = -380</text>
+        <text class="d-muted" x="440" y="114">in Jump</text>
+        <text class="d-muted" x="565" y="114">first rise</text>
+      </g>
+      <path class="d-thin" d="M208 126 V134 H386 V126"/>
+      <text class="d-mono" x="297" y="154" text-anchor="middle">change("jump")</text>
+    </svg>
+    <figcaption>The old state finishes its update and decides. Then the old state exits, the current state changes, and the new state enters. The new state's update first runs on the next frame.</figcaption>
+  </figure>
+
+  <p>Three rules follow.</p>
+  <ul>
+    <li><strong>Exit before enter.</strong> The old state cleans up before the new one sets up, so the new state never sees leftovers.</li>
+    <li><strong>One transition per update.</strong> The decision is made once, then applied. Letting <code>enter</code> trigger another change can bounce through states nobody sees.</li>
+    <li><strong>The order of checks is the priority.</strong> If Jump and Down are both pressed on the same frame in Idle, the first check wins. In our code that is Jump. With flags this priority is accidental; here it is one line.</li>
+  </ul>
+
+  <h2>Who owns the data</h2>
+  <p>The <strong>machine</strong> owns the current state, and only <code>change</code> writes to it. The <strong>player</strong> owns the shared data every state needs: position and vertical speed. Each <strong>state</strong> owns its side effects: whatever it sets in <code>enter</code>, it undoes in <code>exit</code>. </p>
+
+  <h2>How the engines express it</h2>
+  <p>Both engines ship a visual state machine, but for <em>animation</em>. In <strong>Godot 4</strong>, an <code>AnimationTree</code> can use an <code>AnimationNodeStateMachine</code> as its root, and code asks it to move with <code>travel()</code> on its playback object. In <strong>Unity</strong>, an Animator Controller is a graph of animation states and transitions, and a script derived from <code>StateMachineBehaviour</code> can receive <code>OnStateEnter</code>, <code>OnStateUpdate</code> and <code>OnStateExit</code> for a state.</p>
+  <p>For gameplay logic, neither engine's scripting API gives you a general state machine class, so you write it. The two common shapes are the same in both engines:</p>
+  <ul>
+    <li><strong>An enum and a match or switch.</strong> All states in one script, as in the code below. Easy to follow up to about six states.</li>
+    <li><strong>One object per state.</strong> In Godot, often one child node per state under a "StateMachine" node. In Unity, often one plain C# class per state. More files, but each state keeps its own code and data.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Driving gameplay from the animation graph gives you the diagram for free, but the rules of play then wait on animation blending and transition timing. Keeping gameplay in code and letting the animation graph follow it avoids that.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the game area (or tab to it) and use the arrow keys and Space, or the on-screen buttons. One state is always lit, and the arrow that fired last stays highlighted. Hold Down and press Jump: nothing happens, because Crouch has no jump arrow.</p>
+  <p>Then switch to <strong>Boolean flags</strong>, try the same, and press Down at the top of a jump. Two flags turn on together and the character crouches in mid-air.</p>
+
+  <figure class="demo wide" data-demo="fsm">
+    <canvas id="fsm"></canvas>
+    <figcaption>Slow motion makes the Jump to Fall transition at the top of the arc easy to catch. The on-screen buttons take one finger at a time. The model leaves out slopes, ledges, animations and input buffering. With reduced motion, press Play to start.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the same states, numbers and check order as the demo. The floor sits at y = 300 instead of the demo's own height. Each state is a table of functions, and <code>change</code> is the only place that writes <code>current</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Arrow keys move, Down crouches, Space jumps.</span>
+local SPEED, JUMP_SPEED, GRAVITY = 160, 380, 1200
+local FLOOR_Y, STAND_H, CROUCH_H = 300, 36, 20
+
+local player = { x = 200, y = FLOOR_Y, vy = 0, h = STAND_H }
+local input = { move = 0, down = false, jump = false }
+
+local function moveAndFall(dt)
+  player.x = player.x + input.move * SPEED * dt
+  player.vy = player.vy + GRAVITY * dt
+  player.y = player.y + player.vy * dt
+end
+
+local states = {}
+states.idle = { update = function(dt)
+<span class="k">  if input.jump then return "jump" end          <span class="c">-- first check wins</span>
+  if input.down then return "crouch" end
+  if input.move ~= 0 then return "run" end</span>
+end }
+states.run = { update = function(dt)
+  player.x = player.x + input.move * SPEED * dt
+  if input.jump then return "jump" end
+  if input.down then return "crouch" end
+  if input.move == 0 then return "idle" end
+end }
+states.crouch = {
+  enter = function() player.h = CROUCH_H end,
+  exit = function() player.h = STAND_H end,
+  update = function(dt)
+    if not input.down then return "idle" end     <span class="c">-- no jump arrow</span>
+  end }
+states.jump = {
+  enter = function() player.vy = -JUMP_SPEED end,
+  update = function(dt)
+    moveAndFall(dt)
+    if player.vy &gt;= 0 then return "fall" end
+  end }
+states.fall = { update = function(dt)
+  moveAndFall(dt)
+  if player.y &gt;= FLOOR_Y then
+    player.y, player.vy = FLOOR_Y, 0
+    return "idle"
+  end
+end }
+
+local current = "idle"
+
+<span class="k">local function change(name)
+  if states[current].exit then states[current].exit() end   <span class="c">-- exit first</span>
+  current = name
+  if states[current].enter then states[current].enter() end <span class="c">-- then enter</span>
+end</span>
+
+function love.keypressed(key)
+  if key == "space" then input.jump = true end
+end
+
+function love.update(dt)
+  input.move = 0
+  if love.keyboard.isDown("left") then input.move = input.move - 1 end
+  if love.keyboard.isDown("right") then input.move = input.move + 1 end
+  input.down = love.keyboard.isDown("down")
+<span class="k">  local nextState = states[current].update(dt)
+  if nextState then change(nextState) end</span>
+  input.jump = false
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", player.x - 12, player.y - player.h, 24, player.h)
+  love.graphics.print("state: " .. current, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># player.gd on a Node2D. Godot 4. Arrows move, Down crouches, Space jumps.</span>
+<span class="c"># No physics nodes needed: the floor is the line y = 300.</span>
+extends Node2D
+
+enum State { IDLE, RUN, JUMP, FALL, CROUCH }
+
+const SPEED := 160.0
+const JUMP_SPEED := 380.0
+const GRAVITY := 1200.0
+const FLOOR_Y := 300.0
+const STAND_H := 36.0
+const CROUCH_H := 20.0
+
+<span class="k">var state := State.IDLE</span>
+var vy := 0.0
+var h := STAND_H
+
+func _ready() -&gt; void:
+    position = Vector2(200, FLOOR_Y)
+
+func _process(delta: float) -&gt; void:
+    var move := Input.get_axis("ui_left", "ui_right")
+    var down := Input.is_action_pressed("ui_down")
+    var jump := Input.is_action_just_pressed("ui_accept")
+    var new_state := state
+    match state:
+        State.IDLE:
+            if jump:
+                new_state = State.JUMP
+            elif down:
+                new_state = State.CROUCH
+            elif move != 0.0:
+                new_state = State.RUN
+        State.RUN:
+            position.x += move * SPEED * delta
+            if jump:
+                new_state = State.JUMP
+            elif down:
+                new_state = State.CROUCH
+            elif move == 0.0:
+                new_state = State.IDLE
+        State.CROUCH:
+            if not down:
+                new_state = State.IDLE
+        State.JUMP, State.FALL:
+            position.x += move * SPEED * delta
+            vy += GRAVITY * delta
+            position.y += vy * delta
+            if state == State.JUMP and vy &gt;= 0.0:
+                new_state = State.FALL
+            elif state == State.FALL and position.y &gt;= FLOOR_Y:
+                position.y = FLOOR_Y
+                vy = 0.0
+                new_state = State.IDLE
+    if new_state != state:
+        change_state(new_state)
+    queue_redraw()
+
+<span class="k">func change_state(new_state: State) -&gt; void:
+    if state == State.CROUCH:
+        h = STAND_H              <span class="c"># exit Crouch</span>
+    state = new_state
+    if state == State.CROUCH:
+        h = CROUCH_H             <span class="c"># enter Crouch</span>
+    elif state == State.JUMP:
+        vy = -JUMP_SPEED         <span class="c"># enter Jump</span></span>
+
+func _draw() -&gt; void:
+    draw_rect(Rect2(-12, -h, 24, h), Color.WHITE)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// PlayerStates.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Put it on a Cube at the origin. 1 unit = 100 demo pixels, and y points up,</span>
+<span class="c">// so gravity is subtracted. The cube scales around its centre when crouching.</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class PlayerStates : MonoBehaviour
+{
+    enum State { Idle, Run, Jump, Fall, Crouch }
+
+    const float Speed = 1.6f, JumpSpeed = 3.8f, Gravity = 12f;
+    const float StandH = 0.36f, CrouchH = 0.20f;
+
+<span class="k">    State state = State.Idle;</span>
+    float vy;
+
+    void Start() { transform.localScale = new Vector3(0.24f, StandH, 0.24f); }
+
+    void Update()
+    {
+        var kb = Keyboard.current;
+        if (kb == null) return;
+        float move = (kb.rightArrowKey.isPressed ? 1f : 0f) - (kb.leftArrowKey.isPressed ? 1f : 0f);
+        bool down = kb.downArrowKey.isPressed;
+        bool jump = kb.spaceKey.wasPressedThisFrame;
+        float dt = Time.deltaTime;
+        Vector3 p = transform.position;
+        State next = state;
+
+        switch (state)
+        {
+            case State.Idle:
+                if (jump) next = State.Jump;
+                else if (down) next = State.Crouch;
+                else if (move != 0f) next = State.Run;
+                break;
+            case State.Run:
+                p.x += move * Speed * dt;
+                if (jump) next = State.Jump;
+                else if (down) next = State.Crouch;
+                else if (move == 0f) next = State.Idle;
+                break;
+            case State.Crouch:
+                if (!down) next = State.Idle;
+                break;
+            case State.Jump:
+            case State.Fall:
+                p.x += move * Speed * dt;
+                vy -= Gravity * dt;
+                p.y += vy * dt;
+                if (state == State.Jump &amp;&amp; vy &lt;= 0f) next = State.Fall;
+                else if (state == State.Fall &amp;&amp; p.y &lt;= 0f) { p.y = 0f; vy = 0f; next = State.Idle; }
+                break;
+        }
+        transform.position = p;
+        if (next != state) ChangeState(next);
+    }
+
+<span class="k">    void ChangeState(State next)
+    {
+        if (state == State.Crouch) SetHeight(StandH);    <span class="c">// exit Crouch</span>
+        state = next;
+        if (state == State.Crouch) SetHeight(CrouchH);   <span class="c">// enter Crouch</span>
+        else if (state == State.Jump) vy = JumpSpeed;    <span class="c">// enter Jump</span>
+    }</span>
+
+    void SetHeight(float h)
+    {
+        Vector3 s = transform.localScale;
+        s.y = h;
+        transform.localScale = s;
+    }
+}</code></pre>
+  </div>
+  <p>The GDScript and C# versions use the enum shape, so enter and exit become branches inside one change function. The rule is the same: one place changes the state, and exit runs before enter.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Writing the state variable from anywhere.</strong> If other scripts set <code>state = JUMP</code> directly, exit and enter are skipped and the crouch hitbox stays small. Route every change through one function.</li>
+    <li><strong>Changing state inside enter.</strong> An <code>enter</code> that immediately calls <code>change</code> runs the next state's enter before the first one has finished. Return the next state from update instead, and let the following frame decide.</li>
+    <li><strong>Per-state data that is never reset.</strong> A timer for "how long have I been dashing" must be set to zero in Dash's <code>enter</code>, or the second dash starts half finished.</li>
+    <li><strong>Losing a button press across a change.</strong> A jump pressed on the frame Fall lands is consumed by Fall, which ignores it. Players feel an eaten jump. An input buffer, which keeps a press alive for a few frames, fixes it.</li>
+    <li><strong>State explosion.</strong> Shooting while running, jumping or falling turns five states into ten. That calls for nested states or two machines side by side, the next lesson's subject.</li>
+      </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The animation graphs of both engines are state machines you can open and inspect. Godot's <code>AnimationNodeStateMachine</code> even finds a path through several states when you call <code>travel()</code>. Outside animation, the same idea runs player controllers, enemy behaviour, menus and the flow of a match (waiting, countdown, playing, results).</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a script in your project with two or more <code>is_something</code> or <code>isSomething</code> flags that describe what an object is doing. Draw its states and arrows on paper, then replace the flags with an enum, a match or switch, and one <code>change_state</code> function that handles exit and enter. You are done when every assignment to the state variable is inside that function and the impossible combination you found on paper can no longer happen.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A finite state machine keeps exactly one current state, so impossible combinations of flags cannot exist.</li>
+    <li>Transitions are explicit arrows. If there is no arrow, the change cannot happen.</li>
+    <li>Each state has enter, update and exit. Whatever enter sets up, exit undoes.</li>
+    <li>In one frame: the old state's update decides, the old state exits, the current state changes, the new state enters. Its update runs next frame.</li>
+    <li>Godot and Unity provide visual state machines for animation. Gameplay machines are usually an enum and a match or switch, or one object per state.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we nest states inside states and keep a stack of them, so that a pause menu or a dialogue box can interrupt play and hand control back exactly where it left off.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "State". Builds a player controller from flags to a state machine, then on to hierarchical and pushdown machines.</li>
+    <li>Godot Engine documentation (4.5), class reference for <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/AnimationNodeStateMachine.xml">AnimationNodeStateMachine</a></cite> and <cite><a href="https://raw.githubusercontent.com/godotengine/godot/4.5-stable/doc/classes/AnimationNodeStateMachinePlayback.xml">AnimationNodeStateMachinePlayback</a></cite> (<code>travel</code>).</li>
+    <li>Unity C# reference source, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Modules/Animation/Managed/StateMachineBehaviour.cs">StateMachineBehaviour.cs</a></cite>, listing <code>OnStateEnter</code>, <code>OnStateUpdate</code> and <code>OnStateExit</code>.</li>
+    <li>Unity Manual, <cite>State Machine Basics</cite> (Animation section).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPEED = 160, JUMP_SPEED = 380, GRAVITY = 1200;
+  var STAND_H = 36, CROUCH_H = 20, BODY_W = 24;
+  var FLOOR = 104;          // feet line of the game area
+  var GAME_H = 152;         // game area height
+  var BTN_Y = 114, BTN_H = 30;
+  var ROWS = [208, 292, 376];
+  var NODE_W = 66, NODE_H = 28;
+  var NAMES = { idle: 'Idle', run: 'Run', jump: 'Jump', fall: 'Fall', crouch: 'Crouch' };
+  var POS = { fall: [0.2, 0], jump: [0.8, 0], idle: [0.2, 1], run: [0.8, 1], crouch: [0.5, 2] };
+  var EDGES = [
+    { from: 'idle', to: 'run', label: 'move' },
+    { from: 'run', to: 'idle', label: 'stop' },
+    { from: 'idle', to: 'jump', label: 'jump' },
+    { from: 'run', to: 'jump', label: 'jump' },
+    { from: 'idle', to: 'crouch', label: 'down' },
+    { from: 'run', to: 'crouch', label: 'down' },
+    { from: 'crouch', to: 'idle', label: 'release' },
+    { from: 'jump', to: 'fall', label: 'apex' },
+    { from: 'fall', to: 'idle', label: 'land' }
+  ];
+  var BUTTONS = [
+    { id: 'left', label: 'Left' },
+    { id: 'right', label: 'Right' },
+    { id: 'down', label: 'Down' },
+    { id: 'jump', label: 'Jump' }
+  ];
+
+  var p, input, current, timeInState, last, flags, impossibleFrames, simTime;
+  var touch = null;
+  var jumpQueued = false;
+  var handle = null;
+  var canvasEl = document.getElementById('fsm');
+
+  function hasEdge(from, to) {
+    for (var i = 0; i < EDGES.length; i++) {
+      if (EDGES[i].from === from && EDGES[i].to === to) return EDGES[i];
+    }
+    return null;
+  }
+
+  function reset() {
+    var w = handle ? handle.state.width : 320;
+    p = { x: w / 2, y: FLOOR, vy: 0, h: STAND_H, face: 1 };
+    input = { move: 0, down: false, jump: false };
+    current = 'idle';
+    timeInState = 0;
+    last = null;
+    flags = { isRunning: false, isJumping: false, isCrouching: false };
+    impossibleFrames = 0;
+    simTime = 0;
+    jumpQueued = false;
+    updateReadouts();
+  }
+
+  function moveAndFall(dt) {
+    p.x += input.move * SPEED * dt;
+    p.vy += GRAVITY * dt;
+    p.y += p.vy * dt;
+  }
+
+  var states = {
+    idle: {
+      update: function () {
+        if (input.jump) return 'jump';
+        if (input.down) return 'crouch';
+        if (input.move !== 0) return 'run';
+        return null;
+      }
+    },
+    run: {
+      update: function (dt) {
+        p.x += input.move * SPEED * dt;
+        if (input.jump) return 'jump';
+        if (input.down) return 'crouch';
+        if (input.move === 0) return 'idle';
+        return null;
+      }
+    },
+    crouch: {
+      enter: function () { p.h = CROUCH_H; },
+      exit: function () { p.h = STAND_H; },
+      update: function () {
+        if (!input.down) return 'idle';
+        return null;
+      }
+    },
+    jump: {
+      enter: function () { p.vy = -JUMP_SPEED; },
+      update: function (dt) {
+        moveAndFall(dt);
+        if (p.vy >= 0) return 'fall';
+        return null;
+      }
+    },
+    fall: {
+      update: function (dt) {
+        moveAndFall(dt);
+        if (p.y >= FLOOR) {
+          p.y = FLOOR;
+          p.vy = 0;
+          return 'idle';
+        }
+        return null;
+      }
+    }
+  };
+
+  function change(name) {
+    var edge = hasEdge(current, name);
+    if (states[current].exit) states[current].exit();
+    last = { from: current, to: name, label: edge ? edge.label : '?', at: simTime };
+    current = name;
+    if (states[current].enter) states[current].enter();
+    timeInState = 0;
+  }
+
+  function readInput(s) {
+    var k = s.keys;
+    var left = k.has('arrowleft') || k.has('a') || touch === 'left';
+    var right = k.has('arrowright') || k.has('d') || touch === 'right';
+    input.move = (right ? 1 : 0) - (left ? 1 : 0);
+    input.down = k.has('arrowdown') || k.has('s') || touch === 'down';
+    input.jump = jumpQueued;
+    jumpQueued = false;
+  }
+
+  function updateFlags(dt) {
+    flags.isRunning = input.move !== 0;
+    if (input.jump && !flags.isJumping) {
+      flags.isJumping = true;
+      p.vy = -JUMP_SPEED;
+    }
+    flags.isCrouching = input.down;
+    p.h = flags.isCrouching ? CROUCH_H : STAND_H;
+    if (!flags.isCrouching) p.x += input.move * SPEED * dt;
+    if (flags.isJumping) {
+      p.vy += GRAVITY * dt;
+      p.y += p.vy * dt;
+      if (p.y >= FLOOR) {
+        p.y = FLOOR;
+        p.vy = 0;
+        flags.isJumping = false;
+      }
+    }
+    if (flags.isJumping && flags.isCrouching) impossibleFrames += 1;
+  }
+
+  function updateReadouts() {
+    if (!stateOut) return;
+    if (mode.value === 'fsm') {
+      stateOut.set(NAMES[current] + ' for ' + timeInState.toFixed(1) + ' s');
+      lastOut.set(last ? NAMES[last.from] + ' → ' + NAMES[last.to] + ' on "' + last.label + '"' : 'none yet');
+    } else {
+      stateOut.set('none, three flags instead');
+      lastOut.set('flags have no transitions');
+    }
+  }
+
+  var ui = DemoKit.controls('[data-demo="fsm"]');
+  var mode = ui.select({
+    label: 'Mode',
+    options: [{ value: 'fsm', label: 'State machine' }, { value: 'flags', label: 'Boolean flags' }],
+    value: 'fsm',
+    onChange: function () { reset(); if (handle) handle.redraw(); }
+  });
+  var slow = ui.toggle({ label: 'Slow motion (quarter speed)', value: false });
+  ui.button({ label: 'Reset', onClick: function () { reset(); if (handle) handle.redraw(); } });
+  var stateOut = ui.readout({ label: 'Current state' });
+  var lastOut = ui.readout({ label: 'Last transition' });
+
+  function buttonAt(x, y, w) {
+    if (y < BTN_Y || y > BTN_Y + BTN_H) return null;
+    var gap = 8;
+    var bw = (w - gap * 5) / 4;
+    for (var i = 0; i < BUTTONS.length; i++) {
+      var bx = gap + i * (bw + gap);
+      if (x >= bx && x <= bx + bw) return BUTTONS[i].id;
+    }
+    return null;
+  }
+
+  function step(dt, s) {
+    var sdt = slow.value ? dt * 0.25 : dt;
+    if (touch && !s.pointer.inside) touch = null;
+    readInput(s);
+    simTime += sdt;
+    if (input.move !== 0) p.face = input.move;
+    if (mode.value === 'fsm') {
+      timeInState += sdt;
+      var next = states[current].update(sdt);
+      if (next) change(next);
+    } else {
+      updateFlags(sdt);
+    }
+    p.x = DemoKit.clamp(p.x, BODY_W / 2 + 4, s.width - BODY_W / 2 - 4);
+    updateReadouts();
+  }
+
+  function nodeCenter(id, w) {
+    return { x: POS[id][0] * w, y: ROWS[POS[id][1]] };
+  }
+
+  function clipDist(dx, dy) {
+    var hw = NODE_W / 2 + 3, hh = NODE_H / 2 + 3;
+    var tx = Math.abs(dx) > 1e-6 ? hw / Math.abs(dx) : Infinity;
+    var ty = Math.abs(dy) > 1e-6 ? hh / Math.abs(dy) : Infinity;
+    return Math.min(tx, ty);
+  }
+
+  function labelBox(ctx, text, x, y, fill, ink, bg) {
+    var tw = ctx.measureText(text).width;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - tw / 2 - 3, y - 8, tw + 6, 16);
+    ctx.fillStyle = fill ? fill : ink;
+    ctx.fillText(text, x, y);
+  }
+
+  function drawEdge(ctx, e, w, c, isLast, fade) {
+    var a = nodeCenter(e.from, w), b = nodeCenter(e.to, w);
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var ux = dx / len, uy = dy / len;
+    var nx = -uy, ny = ux;
+    var paired = !!hasEdge(e.to, e.from);
+    var off = paired ? 6 : 0;
+    var ca = clipDist(ux, uy), cb = clipDist(-ux, -uy);
+    var sx = a.x + ux * ca + nx * off, sy = a.y + uy * ca + ny * off;
+    var ex = b.x - ux * cb + nx * off, ey = b.y - uy * cb + ny * off;
+    var col = isLast ? c.topic : c.ink3;
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineWidth = isLast ? 3 : 1.25;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - ux * 9 + nx * 4.5, ey - uy * 9 + ny * 4.5);
+    ctx.lineTo(ex - ux * 9 - nx * 4.5, ey - uy * 9 - ny * 4.5);
+    ctx.closePath();
+    ctx.fill();
+    if (isLast && fade > 0) {
+      var t = 1 - fade;
+      ctx.beginPath();
+      ctx.arc(sx + (ex - sx) * t, sy + (ey - sy) * t, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    var lo = paired ? 15 : 0;
+    var lx = (sx + ex) / 2 + nx * lo, ly = (sy + ey) / 2 + ny * lo;
+    ctx.font = (isLast ? '600 ' : '') + '12px system-ui, sans-serif';
+    labelBox(ctx, e.label, lx, ly, isLast ? c.topic : null, c.ink2, c.surface);
+  }
+
+  function drawGraph(ctx, s, c) {
+    var w = s.width;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('State diagram: exactly one state is lit', 10, GAME_H + 20);
+    ctx.textAlign = 'center';
+    var fade = last ? Math.max(0, 1 - (simTime - last.at) / 0.4) : 0;
+    for (var i = 0; i < EDGES.length; i++) {
+      var e = EDGES[i];
+      var isLast = !!last && last.from === e.from && last.to === e.to;
+      if (!isLast) drawEdge(ctx, e, w, c, false, 0);
+    }
+    if (last) {
+      var le = hasEdge(last.from, last.to);
+      if (le) drawEdge(ctx, le, w, c, true, fade);
+    }
+    for (var id in POS) {
+      if (!Object.prototype.hasOwnProperty.call(POS, id)) continue;
+      var n = nodeCenter(id, w);
+      var on = id === current;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(n.x - NODE_W / 2, n.y - NODE_H / 2, NODE_W, NODE_H, 7);
+      else ctx.rect(n.x - NODE_W / 2, n.y - NODE_H / 2, NODE_W, NODE_H);
+      ctx.fillStyle = on ? c.topic : c.surface;
+      ctx.fill();
+      ctx.lineWidth = on ? 2 : 1.25;
+      ctx.strokeStyle = on ? c.topic : c.ink3;
+      ctx.stroke();
+      ctx.fillStyle = on ? c.bg : c.ink;
+      ctx.font = (on ? '700 ' : '') + '13px system-ui, sans-serif';
+      ctx.fillText(NAMES[id], n.x, n.y + 1);
+    }
+  }
+
+  function wrap(ctx, text, x, y, maxW, lineH) {
+    var words = text.split(' ');
+    var line = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, x, y);
+        line = words[i];
+        y += lineH;
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, y);
+    return y + lineH;
+  }
+
+  function drawFlags(ctx, s, c) {
+    var w = s.width;
+    var names = ['isRunning', 'isJumping', 'isCrouching'];
+    var gap = 10;
+    var bw = (w - gap * 4) / 3;
+    var top = GAME_H + 34;
+    var bad = flags.isJumping && flags.isCrouching;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Boolean flags: any of them can be on at once', 10, GAME_H + 20);
+    ctx.textAlign = 'center';
+    for (var i = 0; i < names.length; i++) {
+      var on = flags[names[i]];
+      var bx = gap + i * (bw + gap);
+      var badBox = bad && (names[i] === 'isJumping' || names[i] === 'isCrouching');
+      ctx.fillStyle = on ? c.topic : c.surface;
+      ctx.fillRect(bx, top, bw, 48);
+      ctx.lineWidth = badBox ? 3 : 1.25;
+      ctx.strokeStyle = badBox ? c.bad : c.ink3;
+      ctx.strokeRect(bx, top, bw, 48);
+      ctx.fillStyle = on ? c.bg : c.ink;
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText(names[i], bx + bw / 2, top + 16);
+      ctx.font = '700 13px system-ui, sans-serif';
+      ctx.fillText(on ? 'true' : 'false', bx + bw / 2, top + 34);
+    }
+    ctx.textAlign = 'left';
+    ctx.font = '13px system-ui, sans-serif';
+    var y = top + 74;
+    ctx.fillStyle = c.ink2;
+    y = wrap(ctx, 'Three flags give 8 combinations. Which ones are allowed is spread across separate if statements.', 10, y, w - 20, 18);
+    y += 6;
+    ctx.fillStyle = bad ? c.bad : c.ink2;
+    ctx.font = (bad ? '700 ' : '') + '13px system-ui, sans-serif';
+    y = wrap(ctx, bad ? 'Impossible right now: jumping and crouching are both true.' : 'Try: hold Down and press Jump, or press Down in mid-air.', 10, y, w - 20, 18);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    wrap(ctx, 'Frames spent in an impossible combination: ' + impossibleFrames, 10, y + 6, w - 100, 18);
+  }
+
+  function drawGame(ctx, s, c) {
+    var w = s.width;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, w, GAME_H);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, FLOOR + 1);
+    ctx.lineTo(w, FLOOR + 1);
+    ctx.stroke();
+
+    var bad = mode.value === 'flags' && flags.isJumping && flags.isCrouching;
+    ctx.fillStyle = bad ? c.bad : c.topic;
+    ctx.fillRect(p.x - BODY_W / 2, p.y - p.h, BODY_W, p.h);
+    ctx.fillStyle = c.bg;
+    var eyeX = p.x + p.face * 5 - 2;
+    ctx.fillRect(eyeX, p.y - p.h + 6, 4, 4);
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    if (document.activeElement !== canvasEl) ctx.fillText('Click here, then arrows and Space', 8, 14);
+
+    var gap = 8;
+    var bw = (w - gap * 5) / 4;
+    ctx.textAlign = 'center';
+    for (var i = 0; i < BUTTONS.length; i++) {
+      var b = BUTTONS[i];
+      var bx = gap + i * (bw + gap);
+      var active = touch === b.id ||
+        (b.id === 'left' && input.move < 0) || (b.id === 'right' && input.move > 0) ||
+        (b.id === 'down' && input.down);
+      ctx.fillStyle = active ? c.topic : c.surface;
+      ctx.fillRect(bx, BTN_Y, bw, BTN_H);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, BTN_Y + 0.5, bw - 1, BTN_H - 1);
+      ctx.fillStyle = active ? c.bg : c.ink;
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.fillText(b.label, bx + bw / 2, BTN_Y + BTN_H / 2 + 1);
+    }
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#fsm', {
+    height: 420,
+    keys: true,
+    label: 'A small platformer character above a live state diagram. Arrow keys or the on-screen buttons move, crouch and jump; the diagram lights the current state and the last transition.',
+    update: function (dt, s) { step(dt, s); },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      drawGame(ctx, s, c);
+      if (mode.value === 'fsm') drawGraph(ctx, s, c);
+      else drawFlags(ctx, s, c);
+    },
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'arrowup' || key === 'w')) jumpQueued = true;
+    },
+    onDown: function (pt, s) {
+      var b = buttonAt(pt.x, pt.y, s.width);
+      touch = b;
+      if (b === 'jump') jumpQueued = true;
+    },
+    onMove: function (pt, s) {
+      if (!pt.down || touch === null) return;
+      var b = buttonAt(pt.x, pt.y, s.width);
+      if (b !== 'jump') touch = b;
+    },
+    onUp: function () { touch = null; }
+  });
+  p.x = handle.state.width / 2;
+})();
+</script>
+</body>
+</html>

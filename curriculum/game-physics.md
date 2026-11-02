@@ -31,7 +31,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 3: Collision response
 
 - [x] **Resolving penetration** — How to push overlapping bodies apart and how to split the correction by mass. Demo: drop boxes into each other with a toggle for equal or mass-weighted correction and a slider for correction strength. (published 2026-11-01, resolving-penetration)
-- [ ] **Restitution and bouncing** — How a restitution value controls the energy kept after a bounce. Demo: drop balls with a restitution slider from 0 to 1 and compare their bounce heights.
+- [x] **Restitution and bouncing** — How a restitution value controls the energy kept after a bounce. Demo: drop balls with a restitution slider from 0 to 1 and compare their bounce heights. (published 2026-11-02, restitution-and-bouncing)
 - [ ] **Impulses and momentum** — How an instant change in velocity conserves momentum when two bodies collide on a line. Demo: launch two carts at each other with mass and speed sliders and read the momentum before and after.
 - [ ] **Impulse resolution in 2D** — How to apply an impulse along the contact normal so that circles bounce off each other correctly. Demo: shoot a cue ball into a rack of balls with sliders for restitution and mass.
 - [ ] **Contact friction** — How an impulse along the contact tangent stops objects from sliding forever. Demo: tilt a ramp with an angle slider and adjust friction until the box starts to slide.

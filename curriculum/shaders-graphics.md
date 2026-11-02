@@ -27,7 +27,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Texture sampling** — How a sampler returns a texel for a UV, shown with a texture generated in code. Demo: move a probe across a small generated texture to see the sampled texel, with sliders for UV scale and offset. (published 2026-10-30, texture-sampling)
 - [x] **Wrap modes** — How repeat, clamp and mirror decide what happens outside the 0 to 1 range. Demo: switch wrap mode while a slider scales the UV beyond the edges of the texture. (published 2026-10-31, wrap-modes)
 - [x] **Texture filtering** — How nearest and linear filtering differ when a texture is magnified. Demo: an A/B view zooms into a tiny generated texture with both filters. (published 2026-11-01, texture-filtering)
-- [ ] **Mipmaps** — How smaller copies of a texture prevent shimmering when it is drawn small or at a steep angle. Demo: a checker floor stretches into the distance with a mipmap toggle and a bias slider.
+- [x] **Mipmaps** — How smaller copies of a texture prevent shimmering when it is drawn small or at a steep angle. Demo: a checker floor stretches into the distance with a mipmap toggle and a bias slider. (published 2026-11-02, mipmaps-and-shimmering)
 
 ## Track 3: Lighting
 

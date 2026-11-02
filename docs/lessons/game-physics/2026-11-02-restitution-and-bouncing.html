@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restitution and bouncing · Game Dev Daily</title>
+<meta name="description" content="How one restitution number decides how much speed a bounce keeps, why the height kept is its square, and how to stop balls sinking or buzzing.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Restitution and bouncing</h1>
+  <p class="lede">How one restitution number decides how much speed a bounce keeps, why the height kept is its square, and how to stop balls sinking or buzzing.</p>
+</header>
+
+<section data-section="hook">
+  <p>You write <code>vy = -vy * 0.5</code> when the ball hits the floor. It bounces twice, then slowly sinks into the ground and falls out of the level. You fix that, and now the resting ball plays its bounce sound sixty times a second.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One number for bounciness</h2>
+  <p>The <dfn>restitution</dfn> of a collision, usually written <code>e</code>, is the speed the bodies separate with divided by the speed they approached with, measured along the contact normal. The <dfn>normal</dfn> is the unit vector pointing out of the surface, towards the ball.</p>
+  <ul>
+    <li><code>e = 0</code>: no bounce. The ball stops moving into the surface and stays on it. That is what the previous lesson did.</li>
+    <li><code>e = 1</code>: a perfect bounce. The ball leaves as fast as it arrived.</li>
+    <li>In between: the ball keeps that fraction of its speed into the surface.</li>
+  </ul>
+
+  <h3>Only the part into the surface bounces</h3>
+  <p>A ball hitting the floor at an angle should keep moving sideways, so split the velocity in two. The <dfn>normal speed</dfn> is how fast the ball moves along the normal:</p>
+<pre><code>vn = vx * nx + vy * ny</code></pre>
+  <p>In words: a dot product. When <code>vn</code> is negative, the ball is moving into the surface. The rest of the velocity, the <dfn>tangent</dfn> part, slides along the surface and is not touched here (friction is a later lesson).</p>
+  <p>The bounce replaces the normal part <code>vn</code> with <code>-e * vn</code>. Taking away <code>vn</code> and adding <code>-e * vn</code> is one subtraction:</p>
+<pre><code>vx = vx - (1 + e) * vn * nx
+vy = vy - (1 + e) * vn * ny</code></pre>
+  <p>In words: remove the speed into the surface once to stop the ball, and remove it <code>e</code> more times to send it back out.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a ball's velocity hits a floor and is split into a tangent part along the floor and a normal part into the floor. After the bounce the tangent part is unchanged and the normal part points up, scaled by e. Right: a ball dropped from height h rises to e squared h, then e to the fourth h.">
+      <!-- Left panel: velocity split -->
+      <path class="d-stroke" d="M20 200 H330"/>
+      <text class="d-muted" x="24" y="222">floor</text>
+      <path class="d-stroke" d="M175 200 V160"/>
+      <path class="d-fill" d="M175 150 L170 162 L180 162 Z"/>
+      <text class="d-label" x="186" y="162">n</text>
+      <!-- incoming -->
+      <path class="d-accent" d="M75 60 L169 194"/>
+      <path class="d-accent-fill" d="M173 199 L162 191 L171 185 Z"/>
+      <text class="d-label" x="126" y="118">v before</text>
+      <path class="d-dash" d="M75 60 H170"/>
+      <text class="d-muted" x="100" y="48">tangent part</text>
+      <path class="d-dash" d="M75 60 V196"/>
+      <text class="d-muted" x="68" y="132" text-anchor="end">normal</text>
+      <text class="d-muted" x="68" y="148" text-anchor="end">part vn</text>
+      <!-- outgoing -->
+      <path class="d-good" d="M177 198 L268 133"/>
+      <path class="d-good-fill" d="M274 129 L263 131 L268 140 Z"/>
+      <text class="d-label" x="232" y="116">v after</text>
+      <path class="d-dash" d="M274 198 V132"/>
+      <text class="d-muted" x="282" y="160">−e · vn</text>
+      <text class="d-muted" x="214" y="218">same tangent part</text>
+      <!-- Right panel: heights -->
+      <path class="d-stroke" d="M380 230 H620"/>
+      <path class="d-thin" d="M400 50 V230"/>
+      <text class="d-label" x="392" y="55" text-anchor="end">h</text>
+      <path class="d-dash" d="M400 50 H600"/>
+      <path class="d-good" d="M408 57 Q440 50 460 230"/>
+      <path class="d-good" d="M460 230 Q495 54 530 230"/>
+      <path class="d-good" d="M530 230 Q555 144 580 230"/>
+      <path class="d-dash" d="M470 142 H600"/>
+      <text class="d-label" x="604" y="134" text-anchor="end">e² h</text>
+      <path class="d-dash" d="M540 187 H600"/>
+      <text class="d-label" x="604" y="179" text-anchor="end">e⁴ h</text>
+      <circle class="d-accent-fill" cx="408" cy="50" r="7"/>
+      <text class="d-muted" x="384" y="254">each bounce keeps e² of the height</text>
+    </svg>
+    <figcaption>Left: only the part of the velocity along the normal is reversed and scaled by e; the part along the floor carries on. Right: with e = 0.7, each bounce rises to 0.49 of the one before.</figcaption>
+  </figure>
+
+  <h3>Check one step by hand</h3>
+  <p>Screen coordinates, so <code>+y</code> is down and the floor normal is <code>(0, -1)</code>. A ball arrives with velocity <code>(120, 780)</code> pixels per second and <code>e = 0.6</code>.</p>
+  <ul>
+    <li><code>vn = 120 × 0 + 780 × (−1) = −780</code>. Negative, so it is moving into the floor.</li>
+    <li><code>vx = 120 − 1.6 × (−780) × 0 = 120</code>. The sideways speed is kept.</li>
+    <li><code>vy = 780 − 1.6 × (−780) × (−1) = 780 − 1248 = −468</code>. Up at 0.6 × 780.</li>
+  </ul>
+
+  <h2>Speed keeps e, height keeps e squared</h2>
+  <p>A ball thrown up at speed <code>v</code> under gravity <code>g</code> rises to <code>h = v² / (2g)</code>. In words: height grows with the square of the launch speed. The bounce multiplies the speed by <code>e</code>, so it multiplies the height by <code>e²</code>.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Restitution e</th><th class="num">Speed kept</th><th class="num">Height kept (e²)</th><th>Feels like</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0.3</td><td class="num">30%</td><td class="num">9%</td><td>a sandbag</td></tr>
+      <tr><td class="num">0.5</td><td class="num">50%</td><td class="num">25%</td><td>a dull thud and a hop</td></tr>
+      <tr><td class="num">0.7</td><td class="num">70%</td><td class="num">49%</td><td>a basketball-like bounce</td></tr>
+      <tr><td class="num">0.9</td><td class="num">90%</td><td class="num">81%</td><td>a rubber super ball</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Designers usually think in heights: "it should come back to half the height". Then pick <code>e = sqrt(0.5) ≈ 0.71</code>, not 0.5.</p>
+
+  <div class="callout">
+    <p class="callout-title">The game answer</p>
+    <p>Real restitution changes with impact speed and material, and an ideal ball makes endless ever-smaller bounces. Games use one constant per material and cancel the tiny bounces, as the next section shows.</p>
+  </div>
+
+  <h2>The two bugs</h2>
+  <p><strong>Flipping without pushing out.</strong> A ball moves in steps, so it ends the impact step a little inside the floor. <code>vy = -e * vy</code> sends it up, but once the bounces are small, one step up is not enough to leave the floor. The next step it is still "colliding", so the code flips the velocity again, back down. It flips every step and gravity wins, so the ball sinks. The fix: push the ball out to the surface, and bounce only when <code>vn</code> is negative.</p>
+  <p><strong>Bouncing forever at rest.</strong> With gravity at 1500 pixels per second squared and steps of 1/60 s, a resting ball gains 1500 × 1/60 = 25 pixels per second each step and touches the floor again. Every step looks like a new tiny impact, so a sound or dust puff fires 60 times a second. The fix is a <dfn>rest threshold</dfn>: if the ball hits slower than, say, 60 pixels per second, use <code>e = 0</code> and do not count it as a bounce. A 60 pixel per second bounce would rise only 60² / 3000 = 1.2 pixels, so nothing visible is lost.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both balls fall 180 pixels. Ball A has <code>e = 0.5</code>, ball B has <code>e = 0.8</code>. The demo starts with the bug, <strong>Flip the velocity only</strong>: watch both balls bounce a few times and then sink through the floor.</p>
+  <p>Switch to <strong>Push out, then bounce</strong>. Each speed ratio now reads exactly <code>e</code>, and the height ratio is close to <code>e²</code>. Once a ball comes to rest, look at its bounce events: they keep counting up. Raise the <strong>Rest threshold</strong> to 60 and press <strong>Drop again</strong>: A stops after 4 events and B after 9. Drag a ball to throw it at a wall.</p>
+
+  <figure class="demo wide" data-demo="restitution">
+    <canvas id="restitution"></canvas>
+    <figcaption>Debug drawing: the arrow is the velocity, the dashed line is the next peak that e² predicts, the solid ticks are the measured peaks, and a ring flashes on every bounce event. Keyboard: Space or R drops both balls again.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is one lane of the demo with <strong>Push out, then bounce</strong>, <code>e = 0.5</code> and a 60 pixel per second threshold. It peaks near 41 pixels, a little under the 45 that <code>e² × 180</code> predicts, because the ball is snapped to the floor and the peak is sampled once per step.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GRAVITY     = 1500    <span class="c">-- pixels per second squared, +y is down</span>
+local STEP        = 1 / 60  <span class="c">-- fixed timestep in seconds</span>
+local RESTITUTION = 0.5     <span class="c">-- 0 = no bounce, 1 = keeps all its speed</span>
+local REST_SPEED  = 60      <span class="c">-- pixels per second: slower hits do not bounce</span>
+local FLOOR, LEFT, RIGHT = 312, 0, 160
+
+local ball = { x = 80, y = 120, vx = 0, vy = 0, r = 12, bounces = 0 }
+
+<span class="c">-- (nx, ny) is the surface normal, pointing out of the surface towards the ball.</span>
+local function bounce(b, nx, ny)
+  local vn = b.vx * nx + b.vy * ny        <span class="c">-- speed along the normal</span>
+  if vn &gt;= 0 then return end              <span class="c">-- already leaving: leave it alone</span>
+  local e = RESTITUTION
+  if -vn &lt; REST_SPEED then
+    e = 0                                 <span class="c">-- too slow: just stop, no event</span>
+  else
+    b.bounces = b.bounces + 1             <span class="c">-- play a sound here</span>
+  end
+<span class="k">  b.vx = b.vx - (1 + e) * vn * nx
+  b.vy = b.vy - (1 + e) * vn * ny</span>
+end
+
+local function step(dt)
+  ball.vy = ball.vy + GRAVITY * dt
+  ball.x = ball.x + ball.vx * dt
+  ball.y = ball.y + ball.vy * dt
+  <span class="c">-- Push out first, then bounce.</span>
+  if ball.y + ball.r &gt; FLOOR then ball.y = FLOOR - ball.r; bounce(ball, 0, -1) end
+  if ball.x - ball.r &lt; LEFT then ball.x = LEFT + ball.r; bounce(ball, 1, 0) end
+  if ball.x + ball.r &gt; RIGHT then ball.x = RIGHT - ball.r; bounce(ball, -1, 0) end
+end
+
+local accumulator = 0
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.circle("fill", ball.x, ball.y, ball.r)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># A CharacterBody2D that bounces by itself. Godot's +y is down too.</span>
+const GRAVITY := 1500.0
+const RESTITUTION := 0.5
+const REST_SPEED := 60.0
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.y += GRAVITY * delta
+    var hit := move_and_collide(velocity * delta)
+    if hit:
+        var n := hit.get_normal()
+        var vn := velocity.dot(n)
+        if vn &lt; 0.0:
+            var e := RESTITUTION if -vn &gt;= REST_SPEED else 0.0
+<span class="k">            velocity -= (1.0 + e) * vn * n</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Let the Rigidbody2D bounce: give it a material with bounciness.</span>
+void Start()
+{
+    var mat = new PhysicsMaterial2D("Ball");
+<span class="k">    mat.bounciness = 0.5f;   <span class="c">// the restitution</span></span>
+    mat.friction = 0f;
+    GetComponent&lt;Rigidbody2D&gt;().sharedMaterial = mat;
+}
+<span class="c">// The rest threshold is a project setting: Physics2D.velocityThreshold.</span>
+<span class="c">// Unity measures it in world units (metres) per second, not pixels.</span></code></pre>
+  </div>
+  <p>In Godot, a <code>RigidBody2D</code> takes its bounciness from the <code>bounce</code> property of a <code>PhysicsMaterial</code> set as its physics material override. In Unity, <code>PhysicsMaterial2D.bounciness</code> plays the same role. When two materials meet, each engine combines their values by its own rule; check your version's manual.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Impact damage without a threshold.</strong> The rest threshold matters for gameplay too: a resting crate that "lands" every step deals fall damage every step.</li>
+    <li><strong>Scaling the whole velocity.</strong> <code>v = reflect(v) * e</code> also slows the sideways motion, so a ball skimming the floor brakes hard. If you want that, call it friction and give it its own number.</li>
+    <li><strong>Restitution above 1.</strong> Each bounce adds energy, and the ball climbs higher until it flies out of the level. For a bumper or a spring pad, set the outgoing speed directly instead.</li>
+    <li><strong>Expecting e² exactly.</strong> With 60 steps per second the measured height ratio is a few hundredths lower, for example 0.23 instead of 0.25. The speed ratio is exact. More steps per second shrink the gap.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The engines from these lessons all expose restitution as a material setting: <code>bounce</code> on Godot's <code>PhysicsMaterial</code>, <code>bounciness</code> on Unity's <code>PhysicsMaterial2D</code>. Box2D, the open source engine by Erin Catto that Unity's 2D physics is built on, treats collisions slower than a velocity threshold as having no bounce, the same idea as <code>REST_SPEED</code>. Unity exposes it as <code>Physics2D.velocityThreshold</code>, and as <code>Physics.bounceThreshold</code> for 3D.</p>
+  <p>Bumpers and spring pads are where the game answer wins outright: they launch at a designed speed, which no real material does.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take any bouncing object in your project, or the Lua above. Print the height of each peak. Choose the height you want the first bounce to reach as a fraction of the drop, set <code>e</code> to its square root, and check the printout lands within a few percent.</p>
+  <p>Then count bounce events while it rests. You are done when the count stops growing once it is still.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Restitution <code>e</code> is the fraction of the speed into the surface that comes back out.</li>
+    <li>Bounce with <code>v = v - (1 + e) * vn * n</code>; it changes only the normal part.</li>
+    <li>Height kept is <code>e²</code>, so for a target height ratio use its square root.</li>
+    <li>Push out first, and bounce only when <code>vn</code> is negative, or the ball sinks.</li>
+    <li>A rest threshold turns tiny bounces into a clean stop and stops event spam.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, two moving bodies: impulses and momentum, where restitution is applied to their relative speed and split by mass.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Randy Gaul, <cite>How to Create a Custom 2D Physics Engine: The Basics and Impulse Resolution</cite> (Envato Tuts+, 2013). Derives the bounce from relative velocity along the normal and restitution.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Covers the coefficient of restitution and resting contacts.</li>
+    <li>Erin Catto, <cite>Box2D</cite>, open source physics engine. Its contact solver applies restitution only above a velocity threshold.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 1500;     // pixels per second squared, +y is down
+  var STEP = 1 / 60;      // fixed timestep in seconds
+  var MAX_FRAME = 0.25;
+  var R = 12;             // ball radius in pixels
+  var DROP = 180;         // drop height of the ball's bottom above the floor
+  var HEIGHT = 340;
+  var FLOOR_GAP = 28;     // floor thickness drawn below the floor line
+  var MAX_THROW = 1500;   // pixels per second
+  var floorY = HEIGHT - FLOOR_GAP;
+  var laneW = 160;
+  var accumulator = 0;
+  var held = -1;
+  var drag = { x: 0, y: 0, t: 0, vx: 0, vy: 0 };
+
+  var ui = DemoKit.controls('[data-demo="restitution"]');
+  var rule = ui.select({ label: 'Bounce rule', value: 'flip',
+    options: [
+      { value: 'flip', label: 'Flip the velocity only (bug)' },
+      { value: 'push', label: 'Push out, then bounce' }
+    ],
+    onChange: function () { reset(); } });
+  var eA = ui.slider({ label: 'Restitution A', min: 0, max: 1, step: 0.05, value: 0.5 });
+  var eB = ui.slider({ label: 'Restitution B', min: 0, max: 1, step: 0.05, value: 0.8 });
+  var thr = ui.slider({ label: 'Rest threshold', min: 0, max: 150, step: 5, value: 0, unit: ' px/s' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Drop again', onClick: function () { reset(); } });
+
+  var balls = [makeBall('A', eA), makeBall('B', eB)];
+
+  function makeBall(name, slider) {
+    return { name: name, slider: slider };
+  }
+
+  function resetBall(b) {
+    b.x = laneW / 2;
+    b.y = floorY - DROP - R;
+    b.vx = 0; b.vy = 0;
+    b.lost = false;
+    b.rising = false;
+    b.peak = 0;
+    b.prevPeak = DROP;
+    b.peaks = [];
+    b.predicted = null;
+    b.ratio = null;
+    b.speedRatio = null;
+    b.bounces = 0;
+    b.flash = 0;
+  }
+
+  function reset() {
+    accumulator = 0;
+    held = -1;
+    balls.forEach(resetBall);
+  }
+  reset();
+
+  function heightOf(b) { return floorY - (b.y + R); }
+
+  function event(b) {
+    b.bounces += 1;
+    b.flash = 0.15;
+  }
+
+  // The buggy rule: flip the velocity whenever the ball overlaps, no push out.
+  function flipOnly(b, e) {
+    if (b.y + R > floorY) { b.vy = -e * b.vy; event(b); }
+    if (b.x - R < 0) { b.vx = -e * b.vx; event(b); }
+    if (b.x + R > laneW) { b.vx = -e * b.vx; event(b); }
+  }
+
+  // The fixed rule. (nx, ny) points out of the surface towards the ball.
+  function bounce(b, nx, ny, e, isFloor) {
+    var vn = b.vx * nx + b.vy * ny;
+    if (vn >= 0) return;
+    var useE = e;
+    if (-vn < thr.value) {
+      useE = 0;
+    } else {
+      event(b);
+      b.speedRatio = e;
+      if (isFloor && b.prevPeak !== null) b.predicted = e * e * b.prevPeak;
+    }
+    b.vx = b.vx - (1 + useE) * vn * nx;
+    b.vy = b.vy - (1 + useE) * vn * ny;
+    if (useE > 0 && -vn > 0) b.speedRatio = Math.abs(b.vx * nx + b.vy * ny) / -vn;
+  }
+
+  function pushOut(b, e) {
+    if (b.y + R > floorY) { b.y = floorY - R; bounce(b, 0, -1, e, true); }
+    if (b.x - R < 0) { b.x = R; bounce(b, 1, 0, e, false); }
+    if (b.x + R > laneW) { b.x = laneW - R; bounce(b, -1, 0, e, false); }
+  }
+
+  function step(b, i, dt) {
+    if (b.lost || held === i) return;
+    var e = b.slider.value;
+    b.vy += GRAVITY * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (rule.value === 'flip') flipOnly(b, e);
+    else pushOut(b, e);
+
+    if (b.y - R > floorY + 4 || b.x < -3 * R || b.x > laneW + 3 * R) {
+      b.lost = true;
+      return;
+    }
+
+    // Peak tracking: a peak is where the ball stops rising.
+    var h = heightOf(b);
+    if (b.vy < 0) {
+      b.rising = true;
+      if (h > b.peak) b.peak = h;
+    } else if (b.rising) {
+      b.rising = false;
+      if (b.peak > 0.5) {
+        // Ratios of tiny peaks are mostly step-sampling noise, so only show big ones.
+        if (b.prevPeak !== null && b.peak >= 10) b.ratio = b.peak / b.prevPeak;
+        b.peaks.push(b.peak);
+        if (b.peaks.length > 6) b.peaks.shift();
+        b.prevPeak = b.peak;
+      }
+      b.peak = 0;
+    }
+  }
+
+  // ---- Pointer: drag a ball and throw it ----
+  function laneOf(x) { return x < laneW ? 0 : 1; }
+
+  function onDown(p) {
+    var i = laneOf(p.x);
+    var b = balls[i];
+    var lx = p.x - i * laneW;
+    if (b.lost || Math.hypot(lx - b.x, p.y - b.y) <= R + 18) {
+      held = i;
+      b.lost = false;
+      drag.x = p.x; drag.y = p.y; drag.t = performance.now();
+      drag.vx = 0; drag.vy = 0;
+      moveHeld(p);
+    }
+  }
+
+  function moveHeld(p) {
+    if (held < 0) return;
+    var b = balls[held];
+    b.x = DemoKit.clamp(p.x - held * laneW, R, laneW - R);
+    b.y = DemoKit.clamp(p.y, R, floorY - R);
+    b.vx = 0; b.vy = 0;
+  }
+
+  function onMove(p) {
+    if (held < 0) return;
+    var now = performance.now();
+    var dts = (now - drag.t) / 1000;
+    if (dts > 0.004) {
+      drag.vx = DemoKit.lerp(drag.vx, (p.x - drag.x) / dts, 0.5);
+      drag.vy = DemoKit.lerp(drag.vy, (p.y - drag.y) / dts, 0.5);
+      drag.x = p.x; drag.y = p.y; drag.t = now;
+    }
+    moveHeld(p);
+  }
+
+  function onUp() {
+    if (held < 0) return;
+    var b = balls[held];
+    var stale = (performance.now() - drag.t) > 80;
+    var vx = stale ? 0 : drag.vx;
+    var vy = stale ? 0 : drag.vy;
+    var speed = Math.hypot(vx, vy);
+    if (speed > MAX_THROW) { vx *= MAX_THROW / speed; vy *= MAX_THROW / speed; }
+    b.vx = vx; b.vy = vy;
+    b.rising = false;
+    b.peak = 0;
+    b.peaks = [];
+    b.prevPeak = vy >= 0 ? heightOf(b) : null;
+    b.predicted = null;
+    b.ratio = null;
+    held = -1;
+  }
+
+  // ---- Drawing ----
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.hypot(dx, dy);
+    if (len < 4) return;
+    line(ctx, x1, y1, x2, y2);
+    var ux = dx / len, uy = dy / len;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 8 - uy * 4, y2 - uy * 8 + ux * 4);
+    ctx.lineTo(x2 - ux * 8 + uy * 4, y2 - uy * 8 - ux * 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawLane(ctx, c, b, ox) {
+    var e = b.slider.value;
+    var right = ox + laneW;
+
+    // Drop height.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    line(ctx, ox + 8, floorY - DROP, right - 8, floorY - DROP);
+    ctx.setLineDash([]);
+
+    if (debug.value && !b.lost) {
+      // Predicted next peak (e squared times the previous one).
+      if (b.predicted !== null && b.predicted > 0.5) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        line(ctx, right - 46, floorY - b.predicted, right - 8, floorY - b.predicted);
+        ctx.setLineDash([]);
+      }
+      // Measured peaks.
+      ctx.strokeStyle = c.good;
+      ctx.lineWidth = 2;
+      for (var k = 0; k < b.peaks.length; k++) {
+        var py = floorY - b.peaks[k];
+        line(ctx, right - 38, py, right - 16, py);
+      }
+    }
+
+    // Ball.
+    if (!b.lost) {
+      var bx = ox + b.x;
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(bx, b.y, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.surface;
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.name, bx, b.y + 4);
+      if (b.flash > 0) {
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(bx, b.y, R + 4 + (0.15 - b.flash) * 60, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (debug.value) {
+        ctx.strokeStyle = c.ink;
+        ctx.fillStyle = c.ink;
+        ctx.lineWidth = 2;
+        var sp = Math.hypot(b.vx, b.vy);
+        if (sp > 1) {   // start at the rim so the letter stays readable
+          var sx = bx + b.vx / sp * R, sy = b.y + b.vy / sp * R;
+          arrow(ctx, sx, sy, sx + b.vx * 0.06, sy + b.vy * 0.06);
+        }
+      }
+    }
+
+    // Floor, drawn over the ball so a sinking ball looks buried.
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(ox, floorY, laneW, FLOOR_GAP);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    line(ctx, ox, floorY, right, floorY);
+
+    // Readouts.
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink;
+    var tx = ox + 10;
+    ctx.fillText('Ball ' + b.name + ': e ' + e.toFixed(2) + ', e² ' + (e * e).toFixed(2), tx, 20);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    if (b.lost) {
+      ctx.fillStyle = c.bad;
+      ctx.fillText('fell through the floor', tx, 38);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('press Drop again', tx, 54);
+      return;
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('speed out / in ' + (b.speedRatio === null ? '-' : b.speedRatio.toFixed(2)), tx, 38);
+    ctx.fillText('height ratio ' + (b.ratio === null ? '-' : b.ratio.toFixed(2)), tx, 54);
+    ctx.fillStyle = b.bounces > 40 ? c.bad : c.ink2;
+    ctx.fillText('bounce events ' + b.bounces, tx, 70);
+  }
+
+  DemoKit.canvas('#restitution', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'Two balls dropped side by side, each with its own restitution. Debug drawing shows velocity arrows, measured and predicted bounce heights, and a bounce event counter.',
+    onResize: function (s) {
+      laneW = s.width / 2;   // the lanes changed size: start the drop again
+      reset();
+    },
+    onDown: function (p) { onDown(p); },
+    onMove: function (p) { onMove(p); },
+    onUp: function () { onUp(); },
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'r')) reset();
+    },
+    update: function (dt) {
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 30) {
+        for (var i = 0; i < balls.length; i++) step(balls[i], i, STEP);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+      balls.forEach(function (b) { b.flash = Math.max(0, b.flash - dt); });
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      drawLane(ctx, c, balls[0], 0);
+      drawLane(ctx, c, balls[1], laneW);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, Math.round(laneW) + 0.5, 0, Math.round(laneW) + 0.5, s.height);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mipmaps: why distant textures shimmer · Game Dev Daily</title>
+<meta name="description" content="A pixel that covers many texels can only sample a few. Mipmaps store pre-shrunk copies so each pixel reads the level that matches its size.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Mipmaps: why distant textures shimmer</h1>
+  <p class="lede">A pixel that covers many texels can only sample a few. Mipmaps store pre-shrunk copies so each pixel reads the level that matches its size.</p>
+</header>
+
+<section data-section="hook">
+  <p>Walk across a tiled floor in a 3D game with mipmaps switched off and the distant tiles crawl: curved bands sweep across them and single pixels flicker between light and dark every frame. Zoom a 2D camera out over a detailed tilemap and the same sparkle appears. Nothing is wrong with the texture. Each pixel now covers far more texels than it reads.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One pixel, many texels</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. When it samples a texture it gets the colour at one point. The last lesson covered <dfn>magnification</dfn>, where one texel covers many pixels. This one covers the opposite, <dfn>minification</dfn>: the texture is drawn smaller than it is, so one pixel covers many texels.</p>
+  <p>The patch of texture that one pixel covers is its <dfn>footprint</dfn>. On a floor seen at an angle, footprints near the camera are a fraction of a texel. Near the horizon a single footprint can cover the whole texture.</p>
+  <p>Linear filtering still reads only the four texels around the sample point. If a footprint covers 10 by 10 texels, 96 of them are ignored, and which four get read depends on exactly where the point lands. Move the camera slightly and it lands elsewhere: light one frame, dark the next. That is <dfn>aliasing</dfn>: detail finer than the pixel grid turning into false patterns and flicker.</p>
+
+  <h3>Shrink the texture ahead of time</h3>
+  <p>The right colour for that pixel is the average of every texel in its footprint. Averaging 100 texels for every pixel, every frame, is far too slow. A <dfn>mipmap</dfn> does the averaging once, when the texture is loaded, and keeps the results.</p>
+  <p>The original texture is <dfn>level 0</dfn>. Level 1 is half as wide and half as tall, and each of its texels is the average of a 2 by 2 block of level 0. Level 2 halves level 1, and so on down to a single texel holding the average colour of the whole texture. The whole set is the <dfn>mip chain</dfn>. The name comes from the Latin <em>multum in parvo</em>, "much in a small space", and from Lance Williams's 1983 paper that introduced the idea.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="The mip chain of a 32 by 32 texture drawn as six squares getting smaller from left to right: level 0 at 32 by 32 texels, level 1 at 16 by 16, level 2 at 8 by 8, level 3 at 4 by 4, level 4 at 2 by 2 and level 5 at 1 by 1. An arrow between level 0 and level 1 notes that each texel of a level is the average of a 2 by 2 block of the level before it.">
+      <rect class="d-box" x="20" y="40" width="128" height="128"/>
+      <path class="d-thin" d="M52 40 V168 M84 40 V168 M116 40 V168 M20 72 H148 M20 104 H148 M20 136 H148"/>
+      <rect class="d-accent-soft" x="20" y="136" width="32" height="32"/>
+      <rect class="d-box" x="200" y="104" width="64" height="64"/>
+      <path class="d-thin" d="M216 104 V168 M232 104 V168 M248 104 V168 M200 120 H264 M200 136 H264 M200 152 H264"/>
+      <rect class="d-accent-soft" x="200" y="152" width="16" height="16"/>
+      <path class="d-accent" d="M54 160 C120 200 170 200 205 166"/>
+      <rect class="d-box" x="316" y="136" width="32" height="32"/>
+      <rect class="d-box" x="400" y="152" width="16" height="16"/>
+      <rect class="d-box" x="468" y="160" width="8" height="8"/>
+      <rect class="d-box" x="528" y="164" width="4" height="4"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="84" y="26">level 0</text>
+        <text class="d-muted" x="84" y="194">32 × 32</text>
+        <text class="d-text" x="232" y="90">level 1</text>
+        <text class="d-muted" x="232" y="194">16 × 16</text>
+        <text class="d-text" x="332" y="122">2</text>
+        <text class="d-muted" x="332" y="194">8 × 8</text>
+        <text class="d-text" x="408" y="138">3</text>
+        <text class="d-muted" x="408" y="194">4 × 4</text>
+        <text class="d-text" x="472" y="146">4</text>
+        <text class="d-muted" x="472" y="194">2 × 2</text>
+        <text class="d-text" x="530" y="150">5</text>
+        <text class="d-muted" x="530" y="194">1 × 1</text>
+        <text class="d-label" x="320" y="222">each texel = the average of 2 × 2 texels of the level before</text>
+      </g>
+      <text class="d-muted" x="560" y="40">extra memory:</text>
+      <text class="d-mono" x="560" y="58">¼ + ¹⁄₁₆ + …</text>
+      <text class="d-mono" x="560" y="76">≈ ⅓</text>
+    </svg>
+    <figcaption>The mip chain of the demo's 32 by 32 texture (grid lines drawn every 8 texels). The highlighted 8 by 8 block of level 0 is 4 by 4 texels in level 1, and a single texel in level 3: each level halves the width. All the smaller levels together add a third to the memory of level 0.</figcaption>
+  </figure>
+
+  <h3>Which level a pixel reads</h3>
+  <p>The GPU measures how far the texture coordinate moves from one pixel to the next. It works in texel units, <code>t = uv * size</code>. GPUs shade pixels in 2 by 2 blocks, so the neighbour to the right and the neighbour above are always at hand; the shader functions <code>dFdx</code> and <code>dFdy</code> expose those differences. The longer of the two steps is called ρ (rho): roughly, texels per pixel.</p>
+  <p>The level to read is the one where a texel is about one pixel wide again. Each level doubles the texel width, so that level is <code>λ = log2(ρ)</code> (lambda). At ρ = 4, λ = 2, and level 2 texels are 4 level-0 texels wide. When ρ is 1 or less the texture is magnified, and level 0 is used with the magnification filter.</p>
+<pre><code>local function mipLevel(dxu, dxv, dyu, dyv, size, bias)   -- uv change per pixel
+  local rho = math.max(math.sqrt(dxu^2 + dxv^2), math.sqrt(dyu^2 + dyv^2)) * size
+  local lambda = math.log(rho) / math.log(2) + bias
+  return math.min(math.max(lambda, 0), math.log(size) / math.log(2))
+end</code></pre>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="On the left, an 8 by 8 patch of level 0 texels with one pixel's footprint drawn over a 4 by 4 block of them, labelled rho equals 4 texels per pixel. An arrow leads to the right, where the same patch of level 2 is only 2 by 2 texels and the footprint fits exactly one texel, labelled lambda equals log2 of 4 equals 2.">
+      <rect class="d-box" x="40" y="30" width="160" height="160"/>
+      <path class="d-thin" d="M60 30 V190 M80 30 V190 M100 30 V190 M120 30 V190 M140 30 V190 M160 30 V190 M180 30 V190 M40 50 H200 M40 70 H200 M40 90 H200 M40 110 H200 M40 130 H200 M40 150 H200 M40 170 H200"/>
+      <rect class="d-accent-soft" x="80" y="70" width="80" height="80"/>
+      <rect class="d-accent" x="80" y="70" width="80" height="80" fill="none"/>
+      <text class="d-text" x="120" y="20" text-anchor="middle">level 0</text>
+      <text class="d-label" x="230" y="96">one pixel's</text>
+      <text class="d-label" x="230" y="114">footprint:</text>
+      <text class="d-mono" x="230" y="132">ρ = 4</text>
+      <path class="d-stroke" d="M330 110 H400 M390 102 L400 110 L390 118"/>
+      <rect class="d-box" x="430" y="30" width="160" height="160"/>
+      <path class="d-thin" d="M510 30 V190 M430 110 H590"/>
+      <rect class="d-accent-soft" x="430" y="110" width="80" height="80"/>
+      <rect class="d-accent" x="430" y="110" width="80" height="80" fill="none"/>
+      <text class="d-text" x="510" y="20" text-anchor="middle">level 2</text>
+      <text class="d-mono" x="510" y="212" text-anchor="middle">λ = log2(4) = 2: one texel</text>
+    </svg>
+    <figcaption>A pixel whose footprint spans 4 by 4 texels of level 0 spans exactly one texel of level 2, which already holds the average of those 16 texels.</figcaption>
+  </figure>
+
+  <h3>Between two levels</h3>
+  <p>λ is rarely a whole number. Rounding it and reading one level is cheap, but the floor shows a visible seam wherever the level jumps. <dfn>Trilinear</dfn> filtering reads the two levels on either side with linear filtering, eight texels in all, and blends them by the fraction of λ. OpenGL calls the two options <code>LINEAR_MIPMAP_NEAREST</code> and <code>LINEAR_MIPMAP_LINEAR</code>.</p>
+  <p>A <dfn>bias</dfn> is a number added to λ before the level is chosen. A positive bias reads smaller levels sooner and looks blurrier; a negative bias reads bigger levels and lets the shimmer back in.</p>
+
+  <div class="callout">
+    <p class="callout-title">Up, down and colour</p>
+    <p>The demo puts (0, 0) at the bottom-left with y up, like WebGL's <code>gl_FragCoord</code>. LÖVE's <code>screen_coords</code> start at the top-left with y down, and so do Godot's UVs. The level does not care: it uses the <em>lengths</em> of the steps, which are the same either way. The demo averages the stored numbers directly; for sRGB textures a good mip generator converts to linear light first, or mixed light and dark areas come out too dark.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The floor texture is a 32 by 32 checker with a faint one-texel grain, generated in the shader. Every mip level is worked out exactly, as the average of the level-0 texels it covers. Start with <em>Filter</em> on <em>Linear, no mipmaps</em> and watch the far half of the floor: bands and flicker. Turn on <em>Big pixels</em> to see each sample on its own.</p>
+  <p>Then walk the <em>Stage</em> menu. Stage 2 shows λ: black is magnified, the cyan line is exactly one texel per pixel, white is 32 texels per pixel. Stage 3 colours each pixel by the level it reads. Switch between <em>nearest level</em> and <em>blend two levels</em> and compare the hard and soft borders. Drag on the floor, or use the arrow keys, to move the probe. Last, drag <em>Bias</em> both ways.</p>
+
+  <figure class="demo wide" data-demo="mipmaps">
+    <canvas id="mip-floor"></canvas>
+    <figcaption>With mipmaps the distant floor settles into flat grey, the true average of light and dark tiles. That loss of detail is correct: those pixels are too big to show the checker.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE you ask for mipmaps when you create the image, <code>love.graphics.newImage(data, { mipmaps = true })</code>, and the GPU builds and picks the levels itself. This program draws the same floor, with the same texture and numbers as the demo, using a shader with LÖVE's <code>effect</code> entry point. <kbd>M</kbd> toggles mipmaps, <kbd>up</kbd> and <kbd>down</kbd> change the bias.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SIZE = 32          <span class="c">-- the texture is 32 by 32 texels</span>
+local REPEAT = 2         <span class="c">-- texture repeats per metre, as in the shader</span>
+local SPEED = 0.5        <span class="c">-- camera speed, metres per second</span>
+local bias, useMips, offset = 0, true, 0
+local imgPlain, imgMips, shader
+
+local pixelcode = [[
+uniform vec2 u_size;      // window size in pixels
+uniform float u_offset;   // how far the camera has moved, in texture repeats
+const float REPEAT = 2.0;
+const float HEIGHT = 0.5; // camera height above the floor
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  // LÖVE puts (0, 0) at the top-left, so y grows downwards
+  float horizon = 0.2 * u_size.y;
+  float focal = 0.9 * u_size.y;
+  float below = max(screen_coords.y - horizon, 0.5);
+  float z = HEIGHT * focal / below;
+  float x = (screen_coords.x - 0.5 * u_size.x) * z / focal;
+  vec2 uv = vec2(x, z) * REPEAT + vec2(0.0, u_offset);
+  vec4 floorColour = Texel(tex, uv);       // the GPU picks the mip level
+  vec4 sky = vec4(0.6, 0.74, 0.9, 1.0);
+  return mix(floorColour, sky, step(screen_coords.y, horizon)) * color;
+}
+]]
+
+local function mix(a, b, t) return a + (b - a) * t end
+
+<span class="c">-- Big 8-texel checker plus a faint 1-texel grain, 0 to 1.</span>
+local function texel(i, j)
+  local big = (math.floor(i / 8) + math.floor(j / 8)) % 2 == 0 and 1 or -1
+  local grain = (i + j) % 2 == 0 and 1 or -1
+  return 0.5 + 0.35 * big + 0.15 * grain
+end
+
+function love.load()
+  local data = love.image.newImageData(SIZE, SIZE)
+  for j = 0, SIZE - 1 do
+    for i = 0, SIZE - 1 do
+      local v = texel(i, j)
+      data:setPixel(i, j, mix(0.16, 0.88, v), mix(0.18, 0.82, v), mix(0.28, 0.7, v), 1)
+    end
+  end
+  imgPlain = love.graphics.newImage(data)                       <span class="c">-- level 0 only</span>
+<span class="k">  imgMips = love.graphics.newImage(data, { mipmaps = true })    -- levels 0 to 5
+  imgMips:setMipmapFilter("linear")                             -- blend two levels</span>
+  for _, img in ipairs({ imgPlain, imgMips }) do
+    img:setFilter("linear", "linear")
+    img:setWrap("repeat", "repeat")
+  end
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "m" then useMips = not useMips end
+  if key == "up" then bias = bias + 0.5 end
+  if key == "down" then bias = bias - 0.5 end
+  <span class="c">-- LÖVE calls it sharpness: positive means more detail, so it is minus the bias</span>
+  imgMips:setMipmapFilter("linear", -bias)
+end
+
+function love.update(dt)
+  offset = (offset + SPEED * REPEAT * dt) % 1
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  shader:send("u_size", { love.graphics.getPixelDimensions() })
+  shader:send("u_offset", offset)
+  love.graphics.setShader(shader)
+  love.graphics.draw(useMips and imgMips or imgPlain, 0, 0, 0, w / SIZE, h / SIZE)
+  love.graphics.setShader()
+  love.graphics.print("mipmaps: " .. tostring(useMips) .. "   bias: " .. bias, 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_offset;   // how far the camera has moved, in texture repeats
+uniform float u_mode;     // 0 no mipmaps, 1 nearest level, 2 blend two levels
+uniform float u_bias;     // added to the level
+uniform float u_stage;    // 0 floor uv ... 3 final colour
+uniform float u_pix;      // size of one shown pixel, in device pixels
+uniform vec2 u_probe;     // probe position in device pixels, origin bottom-left
+
+const float SIZE = 32.0;      // the texture is 32 by 32 texels
+const float MAX_LEVEL = 5.0;  // levels are 32, 16, 8, 4, 2 and 1 texels wide
+const float REPEAT = 2.0;     // texture repeats per metre of floor
+const float HEIGHT = 0.5;     // camera height above the floor, metres
+
+// The floor uv seen through the pixel at px. Origin bottom-left, y up.
+vec2 floorUV(vec2 px) {
+  float horizon = 0.8 * u_resolution.y;
+  float focal = 0.9 * u_resolution.y;
+  float below = max(horizon - px.y, 0.5);             // pixels below the horizon
+  float z = HEIGHT * focal / below;                   // distance along the floor
+  float x = (px.x - 0.5 * u_resolution.x) * z / focal;
+  return vec2(x, z) * REPEAT + vec2(0.0, u_offset);
+}
+
+// A checker of +1 and -1 with squares s texels wide, averaged over blocks b texels wide.
+// A block wider than a square holds as much +1 as -1, so its average is 0.
+float checker(vec2 k, float b, float s) {
+  vec2 c = 1.0 - 2.0 * mod(floor(k * b / s), 2.0);
+  return c.x * c.y * step(b, s);
+}
+
+// Texel k of the level whose texels are b level-0 texels wide: the average of that block.
+float mipTexel(vec2 k, float b) {
+  k = mod(k, SIZE / b);                                // repeat wrap
+  return 0.5 + 0.35 * checker(k, b, 8.0) + 0.15 * checker(k, b, 1.0);
+}
+
+// Linear (bilinear) sample of one level, as in the filtering lesson.
+float sampleLevel(vec2 uv, float level) {
+  float b = floor(exp2(level) + 0.5);                 // 1, 2, 4, 8, 16 or 32
+  vec2 p = fract(uv) * SIZE / b - 0.5;                // texel space of this level
+  vec2 i0 = floor(p);
+  vec2 f = p - i0;
+  float v0 = mix(mipTexel(i0, b), mipTexel(i0 + vec2(1.0, 0.0), b), f.x);
+  float v1 = mix(mipTexel(i0 + vec2(0.0, 1.0), b), mipTexel(i0 + vec2(1.0, 1.0), b), f.x);
+  return mix(v0, v1, f.y);
+}
+
+vec3 levelColour(float level) {
+  vec3 c = vec3(0.25, 0.45, 1.0);                         // 0 blue
+  c = mix(c, vec3(0.2, 0.8, 0.35), step(0.5, level));     // 1 green
+  c = mix(c, vec3(0.95, 0.85, 0.2), step(1.5, level));    // 2 yellow
+  c = mix(c, vec3(1.0, 0.5, 0.15), step(2.5, level));     // 3 orange
+  c = mix(c, vec3(0.9, 0.2, 0.25), step(3.5, level));     // 4 red
+  c = mix(c, vec3(0.65, 0.3, 0.9), step(4.5, level));     // 5 purple
+  return c;
+}
+
+void main() {
+  vec2 px = (floor(gl_FragCoord.xy / u_pix) + 0.5) * u_pix;   // centre of the shown pixel
+  vec2 uv = floorUV(px);
+  vec2 dx = floorUV(px + vec2(u_pix, 0.0)) - uv;      // uv step to the next pixel across
+  vec2 dy = uv - floorUV(px - vec2(0.0, u_pix));      // uv step to the next pixel up
+
+  float rho = max(length(dx), length(dy)) * SIZE;     // texels per pixel
+  float lambda = log2(rho);                           // the level where that is one texel
+  float lod = clamp(lambda + u_bias, 0.0, MAX_LEVEL);
+  float level0 = floor(lod);
+  float level1 = min(level0 + 1.0, MAX_LEVEL);
+  float t = lod - level0;                             // how far towards the next level
+  if (u_mode &lt; 1.5) { level0 = floor(lod + 0.5); level1 = level0; t = 0.0; }  // nearest level
+  if (u_mode &lt; 0.5) { level0 = 0.0; level1 = 0.0; t = 0.0; }                  // no mipmaps
+
+  float v = mix(sampleLevel(uv, level0), sampleLevel(uv, level1), t);
+  vec3 col = mix(vec3(0.16, 0.18, 0.28), vec3(0.88, 0.82, 0.7), v);
+
+  if (u_stage &lt; 2.5) col = mix(mix(levelColour(level0), levelColour(level1), t), col, 0.3);
+  if (u_stage &lt; 1.5) {
+    col = vec3(clamp(lambda / MAX_LEVEL, 0.0, 1.0));  // black: magnified, white: 32 texels
+    col = mix(col, vec3(0.3, 0.9, 1.0), 1.0 - smoothstep(0.02, 0.05, abs(lambda)));
+  }
+  if (u_stage &lt; 0.5) col = vec3(fract(uv), 0.0);
+
+  float horizon = 0.8 * u_resolution.y;
+  float h = clamp((px.y - horizon) / (u_resolution.y - horizon), 0.0, 1.0);
+  vec3 sky = mix(vec3(0.6, 0.74, 0.9), vec3(0.3, 0.45, 0.75), h);
+  col = mix(col, sky, step(horizon, px.y));
+
+  float lw = max(1.0, u_resolution.y / 300.0);         // line width, device pixels
+  float d = abs(length(gl_FragCoord.xy - u_probe) - 7.0 * lw);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));
+  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.3 * lw, lw, d));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a large PlaneMesh. In the Import dock,
+// turn on Mipmaps &gt; Generate for the texture and reimport it.
+shader_type spatial;
+render_mode unshaded;
+
+uniform sampler2D floor_tex : source_color, filter_linear_mipmap, repeat_enable;
+uniform float tiles = 20.0;        // texture repeats across the plane
+uniform float bias = 0.0;          // added to the level
+uniform bool show_level = false;   // show lambda as grey, like stage 2
+
+void fragment() {
+    vec2 uv = UV * tiles;            // UV (0, 0) is the top-left in Godot
+    vec2 t = uv * vec2(textureSize(floor_tex, 0));     // texel units
+    float rho = max(length(dFdx(t)), length(dFdy(t))); // texels per pixel
+    float lambda = log2(rho) + bias;
+<span class="k">    vec3 col = texture(floor_tex, uv, bias).rgb;       // the third argument is the bias</span>
+    if (show_level) {
+        col = vec3(clamp(lambda / 5.0, 0.0, 1.0));
+    }
+    ALBEDO = col;
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit, on a large plane. In the texture's
+// import settings keep Generate Mip Maps on and set Filter Mode to Trilinear.
+Shader "GameDevDaily/MipFloor"
+{
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+        _Tiles ("Repeats", Float) = 20
+        _Bias ("Mip bias", Float) = 0
+        _ShowLevel ("Show level (0 or 1)", Range(0, 1)) = 0
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_TexelSize;   // (1 / width, 1 / height, width, height)
+            float _Tiles, _Bias, _ShowLevel;
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+                float2 uv = i.uv * _Tiles;              // (0, 0) is the bottom-left
+                float2 t = uv * _MainTex_TexelSize.zw;  // texel units
+                float rho = max(length(ddx(t)), length(ddy(t)));
+                float lambda = log2(rho) + _Bias;
+<span class="k">                fixed4 col = tex2Dbias(_MainTex, float4(uv, 0, _Bias));   // bias in w</span>
+                if (_ShowLevel &gt; 0.5)
+                {
+                    float g = saturate(lambda / 5.0);
+                    col = fixed4(g, g, g, 1);
+                }
+                return col;
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In URP or Shader Graph the same import settings apply. The <em>Sample Texture 2D LOD</em> node reads one chosen level, which is useful for testing. Without the bias, a plain <code>texture</code> or <code>tex2D</code> call already does everything the demo does by hand.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A blurry floor in the distance.</strong> ρ takes the <em>longer</em> of the two steps. On a floor seen at a low angle, the step up the screen is much longer than the step across, so the level suits the long direction and the short one gets blurred. <dfn>Anisotropic filtering</dfn> takes several samples along the long direction instead. It is a texture setting in every engine.</li>
+    <li><strong>Sprites bleeding into each other in an atlas.</strong> At level 3, each texel averages an 8 by 8 block, which can straddle two sprites. Leave padding between sprites of at least 2 to the power of the deepest level you expect, or limit the number of levels.</li>
+    <li><strong>Leaves and fences that vanish in the distance.</strong> Cut-out textures use an alpha test. Averaging shrinks thin opaque parts into half-transparent texels, which then fail the test. Engines offer fixes, such as Unity's <em>Mip Maps Preserve Coverage</em> import option.</li>
+    <li><strong>Sampling inside an <code>if</code>.</strong> The level comes from neighbouring pixels in the 2 by 2 block. If those neighbours took a different branch, the difference is meaningless. Compute the UV and sample outside the branch, as the LÖVE shader does for the sky.</li>
+    <li><strong>WebGL 1 and odd sizes.</strong> WebGL 1 can only build mipmaps for textures whose width and height are powers of two.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The mip chain adds a third to the memory of each texture. Reading is usually <em>faster</em> with mipmaps, not slower: neighbouring pixels read neighbouring texels of a small level, which stay in the texture cache, while without mipmaps they jump all over a big texture. Trilinear reads two levels, and on many GPUs, phones especially, it can take longer than bilinear; nearest level is the cheap option on weak hardware. Anisotropic filtering costs the most, so on phones keep it low and use it on floors and roads, where it shows.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Nearly every 3D game mipmaps its surface textures. Minecraft exposes a <em>Mipmap Levels</em> slider in its video settings, so players can see the trade-off between distant blocks that shimmer and distant blocks that blur.</p>
+  <p>Engines also use the chain to save memory: Unity's mipmap streaming and Unreal's texture streaming keep only the levels the camera currently needs. Temporal upscalers, which render at a lower resolution and rebuild a sharper image, generally recommend a negative mip bias so textures keep their detail at the final resolution.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Use the LÖVE program to see the levels it picks.</p>
+  <ol>
+    <li>Run it and press <kbd>M</kbd> a few times while the floor moves. Find the distance where the shimmer starts.</li>
+    <li>Copy the floor maths from the shader into a Lua function <code>floorUV(x, y)</code> that returns u and v for a screen pixel. Call it for the pixel under the mouse, one pixel to the right and one pixel down, and pass the differences to <code>mipLevel</code> from the explanation above. Print the result.</li>
+    <li>Move the mouse from the bottom of the window to the horizon and note where λ passes 1, 2 and 3. Then press <kbd>up</kbd> and <kbd>down</kbd> and see how the bias shifts those places.</li>
+  </ol>
+  <p>You are done when you can predict, before pressing the key, whether a bias of +1 moves the point where level 2 starts closer to the camera or further away.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>When a texture is drawn small, one pixel covers many texels but reads only a few, so it shimmers.</li>
+    <li>A mipmap stores copies at half, quarter and smaller sizes, each texel the average of 2 by 2 from the level above. Cost: a third more memory.</li>
+    <li>The level is <code>λ = log2(ρ)</code>, where ρ is the texels covered by one pixel step, measured from neighbouring pixels.</li>
+    <li>Trilinear filtering blends the two nearest levels so there is no seam; bias shifts the choice towards sharp or smooth.</li>
+    <li>Distant blur at grazing angles is the job of anisotropic filtering, not of a negative bias.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>That closes the texture track; the next lesson starts on lighting, using the surface normal and a dot product to shade a sphere drawn entirely in the shader.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Lance Williams, <cite>Pyramidal Parametrics</cite>, SIGGRAPH 1983. The paper that introduced mipmaps.</li>
+    <li>The Khronos Group, <cite>OpenGL ES 2.0 specification</cite>, the section on mipmapping (the scale factor ρ, λ = log2 ρ, and the mipmap filter modes).</li>
+    <li>The Khronos Group, <cite>WebGL 1.0 specification</cite>, on non-power-of-two textures.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newImage</cite> and <cite>Texture:setMipmapFilter</cite>.</li>
+    <li>Godot Engine documentation, <cite>Shading language</cite> (sampler hints, texture with bias) and <cite>Importing images</cite> (Mipmaps &gt; Generate).</li>
+    <li>Unity documentation, <cite>Texture Import Settings</cite> (Generate Mip Maps, Filter Mode, Mip Maps Preserve Coverage) and <cite>Mipmap streaming</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_offset;   // how far the camera has moved, in texture repeats",
+    "uniform float u_mode;     // 0 no mipmaps, 1 nearest level, 2 blend two levels",
+    "uniform float u_bias;     // added to the level",
+    "uniform float u_stage;    // 0 floor uv ... 3 final colour",
+    "uniform float u_pix;      // size of one shown pixel, in device pixels",
+    "uniform vec2 u_probe;     // probe position in device pixels, origin bottom-left",
+    "",
+    "const float SIZE = 32.0;      // the texture is 32 by 32 texels",
+    "const float MAX_LEVEL = 5.0;  // levels are 32, 16, 8, 4, 2 and 1 texels wide",
+    "const float REPEAT = 2.0;     // texture repeats per metre of floor",
+    "const float HEIGHT = 0.5;     // camera height above the floor, metres",
+    "",
+    "// The floor uv seen through the pixel at px. Origin bottom-left, y up.",
+    "vec2 floorUV(vec2 px) {",
+    "  float horizon = 0.8 * u_resolution.y;",
+    "  float focal = 0.9 * u_resolution.y;",
+    "  float below = max(horizon - px.y, 0.5);             // pixels below the horizon",
+    "  float z = HEIGHT * focal / below;                   // distance along the floor",
+    "  float x = (px.x - 0.5 * u_resolution.x) * z / focal;",
+    "  return vec2(x, z) * REPEAT + vec2(0.0, u_offset);",
+    "}",
+    "",
+    "// A checker of +1 and -1 with squares s texels wide, averaged over blocks b texels wide.",
+    "// A block wider than a square holds as much +1 as -1, so its average is 0.",
+    "float checker(vec2 k, float b, float s) {",
+    "  vec2 c = 1.0 - 2.0 * mod(floor(k * b / s), 2.0);",
+    "  return c.x * c.y * step(b, s);",
+    "}",
+    "",
+    "// Texel k of the level whose texels are b level-0 texels wide: the average of that block.",
+    "float mipTexel(vec2 k, float b) {",
+    "  k = mod(k, SIZE / b);                                // repeat wrap",
+    "  return 0.5 + 0.35 * checker(k, b, 8.0) + 0.15 * checker(k, b, 1.0);",
+    "}",
+    "",
+    "// Linear (bilinear) sample of one level, as in the filtering lesson.",
+    "float sampleLevel(vec2 uv, float level) {",
+    "  float b = floor(exp2(level) + 0.5);                 // 1, 2, 4, 8, 16 or 32",
+    "  vec2 p = fract(uv) * SIZE / b - 0.5;                // texel space of this level",
+    "  vec2 i0 = floor(p);",
+    "  vec2 f = p - i0;",
+    "  float v0 = mix(mipTexel(i0, b), mipTexel(i0 + vec2(1.0, 0.0), b), f.x);",
+    "  float v1 = mix(mipTexel(i0 + vec2(0.0, 1.0), b), mipTexel(i0 + vec2(1.0, 1.0), b), f.x);",
+    "  return mix(v0, v1, f.y);",
+    "}",
+    "",
+    "vec3 levelColour(float level) {",
+    "  vec3 c = vec3(0.25, 0.45, 1.0);                         // 0 blue",
+    "  c = mix(c, vec3(0.2, 0.8, 0.35), step(0.5, level));     // 1 green",
+    "  c = mix(c, vec3(0.95, 0.85, 0.2), step(1.5, level));    // 2 yellow",
+    "  c = mix(c, vec3(1.0, 0.5, 0.15), step(2.5, level));     // 3 orange",
+    "  c = mix(c, vec3(0.9, 0.2, 0.25), step(3.5, level));     // 4 red",
+    "  c = mix(c, vec3(0.65, 0.3, 0.9), step(4.5, level));     // 5 purple",
+    "  return c;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 px = (floor(gl_FragCoord.xy / u_pix) + 0.5) * u_pix;   // centre of the shown pixel",
+    "  vec2 uv = floorUV(px);",
+    "  vec2 dx = floorUV(px + vec2(u_pix, 0.0)) - uv;      // uv step to the next pixel across",
+    "  vec2 dy = uv - floorUV(px - vec2(0.0, u_pix));      // uv step to the next pixel up",
+    "",
+    "  float rho = max(length(dx), length(dy)) * SIZE;     // texels per pixel",
+    "  float lambda = log2(rho);                           // the level where that is one texel",
+    "  float lod = clamp(lambda + u_bias, 0.0, MAX_LEVEL);",
+    "  float level0 = floor(lod);",
+    "  float level1 = min(level0 + 1.0, MAX_LEVEL);",
+    "  float t = lod - level0;                             // how far towards the next level",
+    "  if (u_mode < 1.5) { level0 = floor(lod + 0.5); level1 = level0; t = 0.0; }  // nearest level",
+    "  if (u_mode < 0.5) { level0 = 0.0; level1 = 0.0; t = 0.0; }                  // no mipmaps",
+    "",
+    "  float v = mix(sampleLevel(uv, level0), sampleLevel(uv, level1), t);",
+    "  vec3 col = mix(vec3(0.16, 0.18, 0.28), vec3(0.88, 0.82, 0.7), v);",
+    "",
+    "  if (u_stage < 2.5) col = mix(mix(levelColour(level0), levelColour(level1), t), col, 0.3);",
+    "  if (u_stage < 1.5) {",
+    "    col = vec3(clamp(lambda / MAX_LEVEL, 0.0, 1.0));  // black: magnified, white: 32 texels",
+    "    col = mix(col, vec3(0.3, 0.9, 1.0), 1.0 - smoothstep(0.02, 0.05, abs(lambda)));",
+    "  }",
+    "  if (u_stage < 0.5) col = vec3(fract(uv), 0.0);",
+    "",
+    "  float horizon = 0.8 * u_resolution.y;",
+    "  float h = clamp((px.y - horizon) / (u_resolution.y - horizon), 0.0, 1.0);",
+    "  vec3 sky = mix(vec3(0.6, 0.74, 0.9), vec3(0.3, 0.45, 0.75), h);",
+    "  col = mix(col, sky, step(horizon, px.y));",
+    "",
+    "  float lw = max(1.0, u_resolution.y / 300.0);         // line width, device pixels",
+    "  float d = abs(length(gl_FragCoord.xy - u_probe) - 7.0 * lw);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, d));",
+    "  col = mix(col, vec3(1.0), 1.0 - smoothstep(0.3 * lw, lw, d));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  // The same constants as the shader, for the probe readout.
+  var SIZE = 32, MAX_LEVEL = 5, REPEAT = 2, HEIGHT = 0.5;
+  var offset = 0;                 // camera travel, in texture repeats, kept in 0..1
+  var probe = { fx: 0.5, fy: 0.3 }; // probe as a fraction of the canvas, y from the top
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="mipmaps"]');
+  var mode = ui.select({
+    label: 'Filter',
+    options: [
+      { value: '0', label: 'Linear, no mipmaps' },
+      { value: '1', label: 'Mipmaps, nearest level' },
+      { value: '2', label: 'Mipmaps, blend two levels (trilinear)' }
+    ],
+    value: '0',
+    onChange: redraw
+  });
+  var bias = ui.slider({ label: 'Bias', min: -3, max: 3, step: 0.25, value: 0, onInput: redraw });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Floor uv, fract, as red and green' },
+      { value: '1', label: '2. λ = log2(texels per pixel), as grey' },
+      { value: '2', label: '3. Level read, as colour' },
+      { value: '3', label: '4. Final colour' }
+    ],
+    value: '3',
+    onChange: redraw
+  });
+  var speed = ui.slider({ label: 'Camera speed', min: 0, max: 2, step: 0.1, value: 0.5, unit: ' m/s' });
+  var big = ui.toggle({ label: 'Big pixels (4×)', value: false, onChange: redraw });
+  var readout = ui.readout({ label: 'Probe' });
+
+  function pixSize(s) { return big.value ? 4 * s.dpr : 1; }
+
+  // floorUV from the shader, without the offset (it does not change the level).
+  function floorUV(x, y, W, H) {
+    var horizon = 0.8 * H, focal = 0.9 * H;
+    var below = Math.max(horizon - y, 0.5);
+    var z = HEIGHT * focal / below;
+    return [(x - 0.5 * W) * z / focal * REPEAT, z * REPEAT];
+  }
+
+  function probeDevice(s) {
+    return [probe.fx * s.width * s.dpr, (1 - probe.fy) * s.height * s.dpr];
+  }
+
+  function updateReadout() {
+    if (!handle) return;
+    var s = handle.state;
+    if (!s.width || !s.height) return;
+    var W = s.width * s.dpr, H = s.height * s.dpr;
+    var pix = pixSize(s);
+    var p = probeDevice(s);
+    var x = (Math.floor(p[0] / pix) + 0.5) * pix, y = (Math.floor(p[1] / pix) + 0.5) * pix;
+    if (y >= 0.8 * H) { readout.set('the probe is on the sky; move it onto the floor'); return; }
+    var uv = floorUV(x, y, W, H);
+    var ax = floorUV(x + pix, y, W, H), by = floorUV(x, y - pix, W, H);
+    var lx = Math.hypot(ax[0] - uv[0], ax[1] - uv[1]);
+    var ly = Math.hypot(uv[0] - by[0], uv[1] - by[1]);
+    var rho = Math.max(lx, ly) * SIZE;
+    var lambda = Math.log2(rho);
+    var text = 'ρ = ' + rho.toFixed(2) + ' texels per pixel (across ' + (lx * SIZE).toFixed(2) +
+      ', up ' + (ly * SIZE).toFixed(2) + ') · λ = log2(ρ) = ' + lambda.toFixed(2);
+    var m = mode.value;
+    var lod = DemoKit.clamp(lambda + bias.value, 0, MAX_LEVEL);
+    function name(l) { var w = SIZE / Math.pow(2, l); return 'level ' + l + ' (' + w + '×' + w + ')'; }
+    if (m === '0') {
+      var area = lx * ly * SIZE * SIZE;   // footprint area in texels
+      text += ' · no mipmaps: level 0 only, 4 texels read' +
+        (area > 4 ? ' from a footprint of about ' + Math.round(area) : '');
+    } else if (lambda + bias.value <= 0) {
+      text += ' · with bias ' + (lambda + bias.value).toFixed(2) + ': magnified, level 0';
+    } else if (m === '1') {
+      text += ' · with bias ' + lod.toFixed(2) + ' → rounds to ' + name(Math.floor(lod + 0.5));
+    } else {
+      var l0 = Math.floor(lod), l1 = Math.min(l0 + 1, MAX_LEVEL), t = lod - l0;
+      text += ' · with bias ' + lod.toFixed(2) + ' → ' + name(l0) + ' ' + Math.round((1 - t) * 100) + '%';
+      if (l1 !== l0) text += ' + ' + name(l1) + ' ' + Math.round(t * 100) + '%';
+    }
+    readout.set(text);
+  }
+
+  function moveProbe(p, s) {
+    if (!s.width || !s.height) return;
+    probe.fx = DemoKit.clamp(p.x / s.width, 0, 1);
+    probe.fy = DemoKit.clamp(p.y / s.height, 0, 1);
+    redraw();
+  }
+
+  handle = DemoKit.shader('#mip-floor', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 420,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader showing a checkered floor stretching to the horizon under a blue sky, with the camera gliding forward. A ring marks the probe pixel. Use the Filter menu to turn mipmaps on, the Stage menu to see the floor uv, the level value and the level read, and drag or use the arrow keys to move the probe.',
+    uniforms: {
+      u_offset: function () { return offset; },
+      u_mode: function () { return Number(mode.value); },
+      u_bias: function () { return bias.value; },
+      u_stage: function () { return Number(stage.value); },
+      u_pix: function (s) { return pixSize(s); },
+      u_probe: function (s) { return probeDevice(s); }
+    },
+    update: function (dt) {
+      offset = (offset + speed.value * REPEAT * dt) % 1;
+    },
+    onDown: moveProbe,
+    onMove: function (p, s) { if (p.down) moveProbe(p, s); },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var step = 0.02;
+      if (key === 'arrowleft') probe.fx = Math.max(0, probe.fx - step);
+      else if (key === 'arrowright') probe.fx = Math.min(1, probe.fx + step);
+      else if (key === 'arrowup') probe.fy = Math.max(0, probe.fy - step);
+      else if (key === 'arrowdown') probe.fy = Math.min(1, probe.fy + step);
+      else return;
+      redraw();
+    },
+    onResize: function () { updateReadout(); }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

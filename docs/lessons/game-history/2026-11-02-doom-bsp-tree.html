@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doom: walls in the right order from a tree built in advance · Game Dev Daily</title>
+<meta name="description" content="How Doom drew walls at any angle nearest first without sorting: a binary space partitioning tree, built before the game ships, walked once per frame.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Doom: walls in the right order from a tree built in advance</h1>
+  <p class="lede">How Doom drew walls at any angle nearest first without sorting: a binary space partitioning tree, built before the game ships, walked once per frame.</p>
+</header>
+
+<section data-section="hook">
+  <p>Wolfenstein 3D could only build mazes from square blocks. A year later, in 1993, id Software's Doom had walls at any angle, rooms of different shapes and floors at different heights, on the same kind of PC with no 3D hardware. Every frame the game has to know which walls are in front of which. Doom does not work that out while you play. The answer is stored in the map file.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: what hides what?</h2>
+  <p>Seen from above, a Doom level is flat: a set of lines on a 2D plan, each line a wall, with floor and ceiling heights attached to the areas between them. The renderer turns these lines into columns on the screen, much as Wolfenstein 3D did. But with walls at any angle there is no grid to step through, so the renderer needs another way to decide which wall covers which.</p>
+  <p>The obvious answer is to sort the walls by distance every frame. That costs time for every wall in the level, every frame, and it can still be wrong: a long wall can have its middle further away than a short wall that it hides. A depth value stored for every pixel would solve it, but that means extra memory and an extra test on every pixel the processor writes. Doom avoids both.</p>
+
+  <h2>The trick: split the map once, ahead of time</h2>
+  <p>Take any wall and extend its line across the whole map. This is a <dfn>partition line</dfn>. Every other wall is now on one side of it or the other. A wall that crosses the line is cut into two pieces; Doom calls each piece of wall a <dfn>seg</dfn> (short for segment).</p>
+  <p>Now repeat on each side separately, with a new partition line, and keep going until every group of segs encloses a <dfn>convex</dfn> area: one with no dents, where no wall can block your view of another wall in the same area. Doom calls such an area a <dfn>subsector</dfn>.</p>
+  <p>The splits form a <dfn>binary space partitioning tree</dfn>, or BSP tree. Each inner node holds one partition line and two children, the front side and the back side. Each leaf is a subsector with its list of segs.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: a room seen from above. Wall P is on a vertical line that is extended across the room, splitting it into area A on the left and a right half. Wall Q is on a horizontal line extended across the right half, splitting it into B on top and C below. The player stands in C. Right: the tree. The root node P has the leaf A and the node Q as children. Q has leaves B and C. The player's side is visited first at each node, giving the order C, B, A.">
+      <rect class="d-fill" x="20" y="20" width="280" height="200"/>
+      <rect class="d-accent-soft" x="140" y="120" width="160" height="100" style="stroke:none"/>
+      <path class="d-dash" d="M140 100 V220"/>
+      <path class="d-dash" d="M140 120 H200"/>
+      <path class="d-stroke" d="M20 20 H300 V220 H20 Z" style="stroke-width:3"/>
+      <path class="d-stroke" d="M140 20 V100" style="stroke-width:3"/>
+      <path class="d-stroke" d="M200 120 H300" style="stroke-width:3"/>
+      <text class="d-label" x="150" y="64">P</text>
+      <text class="d-label" x="246" y="110">Q</text>
+      <text class="d-text" x="80" y="126" text-anchor="middle">A</text>
+      <text class="d-muted" x="80" y="146" text-anchor="middle">3rd</text>
+      <text class="d-text" x="230" y="62" text-anchor="middle">B</text>
+      <text class="d-muted" x="230" y="82" text-anchor="middle">2nd</text>
+      <text class="d-text" x="270" y="158" text-anchor="middle">C</text>
+      <text class="d-muted" x="270" y="178" text-anchor="middle">1st</text>
+      <circle class="d-accent-fill" cx="190" cy="180" r="6"/>
+      <text class="d-muted" x="190" y="206" text-anchor="middle">player</text>
+      <text class="d-muted" x="20" y="250">dashed: a wall's line extended</text>
+      <text class="d-muted" x="20" y="270">across the map as a partition line</text>
+
+      <path class="d-thin" d="M460 52 L390 128"/>
+      <path class="d-accent" d="M460 52 L530 128"/>
+      <path class="d-thin" d="M530 128 L480 206"/>
+      <path class="d-accent" d="M530 128 L580 206"/>
+      <circle class="d-box" cx="460" cy="44" r="18"/>
+      <text class="d-text" x="460" y="49" text-anchor="middle">P</text>
+      <rect class="d-box" x="372" y="128" width="36" height="32" rx="4"/>
+      <text class="d-text" x="390" y="149" text-anchor="middle">A</text>
+      <text class="d-muted" x="390" y="180" text-anchor="middle">3rd</text>
+      <circle class="d-box" cx="530" cy="128" r="18"/>
+      <text class="d-text" x="530" y="133" text-anchor="middle">Q</text>
+      <rect class="d-box" x="462" y="206" width="36" height="32" rx="4"/>
+      <text class="d-text" x="480" y="227" text-anchor="middle">B</text>
+      <text class="d-muted" x="480" y="258" text-anchor="middle">2nd</text>
+      <rect class="d-accent-soft" x="562" y="206" width="36" height="32" rx="4"/>
+      <text class="d-text" x="580" y="227" text-anchor="middle">C</text>
+      <text class="d-muted" x="580" y="258" text-anchor="middle">1st</text>
+      <text class="d-label" x="508" y="84">near side</text>
+      <text class="d-muted" x="372" y="16">inner nodes: lines</text>
+      <text class="d-muted" x="372" y="276">leaves: convex areas</text>
+    </svg>
+    <figcaption>Two partition lines cut the room into three convex areas. At each node the walk takes the player's side first (thick branch), which visits C, then B, then A: nearest to furthest.</figcaption>
+  </figure>
+
+  <h3>Why the tree gives the drawing order</h3>
+  <p>One fact makes it work: a wall on your side of a line can never be hidden by a wall on the far side of that line. So at every node the renderer asks one question, "which side of this line is the player on?", walks that side's branch first and the other branch second. Done from the root down, this visits every subsector from nearest to furthest. Inside a subsector the order does not matter, because the walls of a convex area that face you never overlap on screen.</p>
+  <p>The released source shows exactly this. The function <code>R_RenderBSPNode</code> calls <code>R_PointOnSide</code> to find the player's side of a node's line, recurses into that child, then into the other one. No list of walls is ever sorted.</p>
+
+  <h3>Stopping early</h3>
+  <p>Front to back has a bonus. Doom keeps a short list, <code>solidsegs</code>, of the screen column ranges that solid walls have already covered. A new wall only draws in the columns still open, so each wall pixel is written once. Each node also stores a bounding box for each child. Before entering the far branch, <code>R_CheckBBox</code> checks whether that box would land in any open column; if it is out of view or fully covered, the whole branch is skipped. In a room with solid walls on all sides, most of the level is never visited.</p>
+  <p>Floors and ceilings are filled in after the walls, and sprites last. Things that can be seen through, like monsters, still need sorting; the tree only orders the fixed walls.</p>
+
+  <h3>Built before shipping</h3>
+  <p>The tree is made by a separate tool called a <dfn>node builder</dfn>, run when a map is finished. id's own builder, DoomBSP, was written for the NeXTSTEP computers the team developed on, and its source survives. It tries seg lines as partitions (on a large group, a sample of about 40 of them) and scores each one: the size of the larger side, plus 8 for every seg it would cut. Lowest score wins. A balanced tree stays shallow, and every cut adds a seg the game must store and process, so cuts are punished hard. A line with nothing behind it is not a candidate, and a group in which every line is like that is convex: a leaf.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">The price</p>
+    <p>The tree describes walls that never move sideways. Doom's doors and lifts move up and down by changing a floor or ceiling height, which leaves the 2D plan, and so the tree, unchanged. Change a wall's position and the nodes must be rebuilt.</p>
+  </div>
+
+  <p>The method was not invented for Doom. Henry Fuchs, Zvi Kedem and Bruce Naylor described BSP trees for finding visible surfaces in a 1980 paper. Doom put it to work in a game that ran on a home PC. In his 1997 notes for the source release, John Carmack wrote: "I used the BSP tree for rendering things".</p>
+
+  <h3>The lesson for today</h3>
+  <p>Anything that never changes can have its hard questions answered before the game ships. Modern engines still bake static geometry into spatial trees for visibility, collision and ray queries, and still pay the same price: what moves has to be handled another way.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The map uses Doom's rule: each wall's front is on its right as you walk from its first point to its second, marked by small ticks. First set <strong>Splits made</strong> to 0 and press <strong>Next split</strong> to watch the node builder cut the map into convex areas. Then press <strong>Next step</strong> to walk the finished tree from where the player stands, and watch the screen strip fill nearest wall first. Drag the player around, or drag across the floor to draw a new two-sided wall.</p>
+
+  <figure class="demo wide" data-demo="bsp">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="bsp-map"></canvas><span class="demo-label">The map, from above</span></div>
+      <div class="demo-stage"><canvas id="bsp-tree"></canvas><span class="demo-label">The tree</span></div>
+    </div>
+    <figcaption>When the screen strip is full, branches behind the drawn walls are skipped. Draw a wall across several areas and watch the cut count rise. With the map focused, the arrow keys turn and move the player.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The builder and the walk in plain Lua, using the demo's walls, its tolerance <code>EPS</code> and DoomBSP's score of 8 per cut, so it builds the same tree. A two-sided wall is two segs facing opposite ways. <code>love.draw</code> numbers the walls that face the player in the order they come out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local EPS = 1e-4
+local function seg(name, x1, y1, x2, y2) return { name = name, x1 = x1, y1 = y1, x2 = x2, y2 = y2 } end
+local walls = {
+  seg("A", 1, 1, 15, 1), seg("B", 15, 1, 15, 11), seg("C", 15, 11, 1, 11), seg("D", 1, 11, 1, 1),
+  seg("E", 10, 3, 10, 5), seg("F", 10, 5, 12, 5), seg("G", 12, 5, 12, 3), seg("H", 12, 3, 10, 3),
+  seg("I", 3, 8, 7, 5), seg("I", 7, 5, 3, 8), seg("J", 8, 9, 12, 8), seg("J", 12, 8, 8, 9),
+}
+local player = { x = 8, y = 3 }
+
+<span class="c">-- Signed distance from the line of s. Positive = front (right-hand side, y down).</span>
+local function side(s, px, py)
+  local dx, dy = s.x2 - s.x1, s.y2 - s.y1
+  return (dx * (py - s.y1) - dy * (px - s.x1)) / math.sqrt(dx * dx + dy * dy)
+end
+
+local function classify(div, s)
+  local a, b = side(div, s.x1, s.y1), side(div, s.x2, s.y2)
+  if math.abs(a) &lt; EPS and math.abs(b) &lt; EPS then        <span class="c">-- on the line itself</span>
+    local same = (div.x2 - div.x1) * (s.x2 - s.x1) + (div.y2 - div.y1) * (s.y2 - s.y1) &gt; 0
+    if same then return "front" else return "back" end
+  end
+  if a &gt; -EPS and b &gt; -EPS then return "front" end
+  if a &lt; EPS and b &lt; EPS then return "back" end
+  return "split", a, b
+end
+
+local function cut(s, a, b)                 <span class="c">-- returns the front piece, then the back piece</span>
+  local t = a / (a - b)
+  local mx, my = s.x1 + (s.x2 - s.x1) * t, s.y1 + (s.y2 - s.y1) * t
+  local p1, p2 = seg(s.name, s.x1, s.y1, mx, my), seg(s.name, mx, my, s.x2, s.y2)
+  if a &gt; 0 then return p1, p2 else return p2, p1 end
+end
+
+local function grade(div, segs)             <span class="c">-- DoomBSP's score: lower is better</span>
+  local f, b, cuts = 0, 0, 0
+  for _, s in ipairs(segs) do
+    local c = "front"
+    if s ~= div then c = classify(div, s) end
+    if c == "front" then f = f + 1
+    elseif c == "back" then b = b + 1
+    else f, b, cuts = f + 1, b + 1, cuts + 1 end
+  end
+  if b == 0 then return nil end             <span class="c">-- nothing behind it: not a useful split</span>
+<span class="k">  return math.max(f, b) + 8 * cuts</span>
+end
+
+local function buildBSP(segs)
+  local best, bestGrade = nil, math.huge
+  for _, s in ipairs(segs) do
+    local g = grade(s, segs)
+    if g and g &lt; bestGrade then best, bestGrade = s, g end
+  end
+  if not best then return { leaf = true, segs = segs } end   <span class="c">-- convex: a subsector</span>
+  local front, back = {}, {}
+  for _, s in ipairs(segs) do
+    local c, a, b = "front", 0, 0
+    if s ~= best then c, a, b = classify(best, s) end
+    if c == "front" then table.insert(front, s)
+    elseif c == "back" then table.insert(back, s)
+    else
+      local f, k = cut(s, a, b)
+      table.insert(front, f)
+      table.insert(back, k)
+    end
+  end
+  return { div = best, front = buildBSP(front), back = buildBSP(back) }
+end
+
+local function walk(node, px, py, visit)    <span class="c">-- nearest leaf first</span>
+  if node.leaf then visit(node) return end
+  local near, far = node.front, node.back
+<span class="k">  if side(node.div, px, py) &lt; 0 then near, far = node.back, node.front end</span>
+  walk(near, px, py, visit)
+  walk(far, px, py, visit)                  <span class="c">-- Doom checks far's bounding box first</span>
+end
+
+local tree = buildBSP(walls)
+
+function love.draw()
+  local S, order = 40, 0
+  walk(tree, player.x, player.y, function(leaf)
+    order = order + 1
+    for _, s in ipairs(leaf.segs) do
+      if side(s, player.x, player.y) &gt; EPS then   <span class="c">-- faces the player</span>
+        love.graphics.line(s.x1 * S, s.y1 * S, s.x2 * S, s.y2 * S)
+        love.graphics.print(tostring(order), (s.x1 + s.x2) / 2 * S, (s.y1 + s.y2) / 2 * S)
+      end
+    end
+  end)
+end</code></pre>
+  </div>
+  <p>Building is slow, since every seg is tried against every other at every level, which is why it runs once, offline. The walk is fast: one side test per node.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Choosing partitions badly.</strong> Lines that cut many walls multiply the segs, and lopsided splits make deep trees. Score candidates, as DoomBSP did, rather than taking the first wall.</li>
+    <li><strong>No tolerance for "on the line".</strong> After a cut, the new end points sit almost exactly on the partition line, and rounding can put them a hair on the wrong side. Treat values within a small <code>EPS</code> as on the line.</li>
+    <li><strong>Moving walls.</strong> The tree is only valid for the walls it was built from. Keep moving objects out of it and handle them separately.</li>
+    <li><strong>Forgetting the far branch check.</strong> The order alone saves sorting, but the real speed comes from skipping branches that are out of view or already covered.</li>
+    <li><strong>Treating see-through things as solid.</strong> Only solid walls may mark columns as covered. Windows, fences and sprites have to be drawn without blocking what is behind them.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every game on the Doom engine, including Doom II, Heretic and Hexen, ships its maps with prebuilt nodes, and fan-made node builders are still used to build them. Quake, also from id Software, moved the idea into full 3D: its map compiler splits levels with planes instead of lines. Valve's Source engine still names its map compiler VBSP. The pattern of building a spatial tree offline for static geometry remains standard in engines today.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In the Lua code, change the cut penalty in <code>grade</code> from 8 to 0, then to 30. For each, count the leaves and the total number of segs in the finished tree (write a small function that walks the tree and adds them up). You are done when you can say which setting gives the fewest segs and which gives the shallowest tree, and why they are not the same.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Doom's maps are cut, before the game ships, into convex areas by a tree of partition lines.</li>
+    <li>At each node, visiting the player's side first gives a nearest-to-furthest order with no sorting.</li>
+    <li>Front to back lets Doom fill each screen column once and skip whole branches once they are hidden.</li>
+    <li>The node builder balances the tree and avoids cutting walls; DoomBSP added 8 to a split's score for every cut.</li>
+    <li>The tree only works for walls that never move sideways, which is why Doom's doors move vertically.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at how Doom filled the floors and ceilings between those walls, using regions called visplanes that had a fixed limit some maps could overflow.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The renderer details were checked in this session against the released Doom source, and the partition score against the surviving DoomBSP source. Other sites could not be reached from this session, so the release year and the 1980 paper are given without live verification.</p>
+  <ul>
+    <li>id Software, <a href="https://github.com/id-Software/DOOM">Doom source code</a>, released with John Carmack's notes dated December 1997. See <code>linuxdoom-1.10/r_bsp.c</code> for <code>R_RenderBSPNode</code>, <code>R_CheckBBox</code> and <code>solidsegs</code>, and <a href="https://github.com/id-Software/DOOM/blob/master/linuxdoom-1.10/r_main.c">r_main.c</a> for <code>R_PointOnSide</code> and the order of drawing.</li>
+    <li>id Software, DoomBSP, ported to modern systems by Thomas Foster as <a href="https://github.com/teefoss/doombsp">teefoss/doombsp</a>. See <code>buildbsp.cpp</code> for the scoring of partition lines.</li>
+    <li>Henry Fuchs, Zvi M. Kedem and Bruce F. Naylor, <cite>On Visible Surface Generation by A Priori Tree Structures</cite>, SIGGRAPH 1980.</li>
+    <li>Fabien Sanglard, <cite>Game Engine Black Book: DOOM</cite>, a book-length study of the engine and its hardware.</li>
+    <li>David Kushner, <cite>Masters of Doom</cite>, a history of id Software.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same walls, tolerance and score as the Lua code.
+  var EPS = 1e-4;
+  var CUT_COST = 8;
+  var COLS = 64;
+  var NEAR = 0.05;
+  var PRESET = [
+    ['A', 1, 1, 15, 1, false], ['B', 15, 1, 15, 11, false], ['C', 15, 11, 1, 11, false], ['D', 1, 11, 1, 1, false],
+    ['E', 10, 3, 10, 5, false], ['F', 10, 5, 12, 5, false], ['G', 12, 5, 12, 3, false], ['H', 12, 3, 10, 3, false],
+    ['I', 3, 8, 7, 5, true], ['J', 8, 9, 12, 8, true]
+  ];
+  var EXTRA = [[5, 2, 7, 3.5], [13, 6.5, 14, 9.5], [2, 5.5, 4.5, 5.5], [6, 9.8, 6, 7.5], [8.5, 6.5, 11, 7], [13, 2, 14, 3.5]];
+  var MAX_EXTRA = 6;
+  var START = { x: 8, y: 3, deg: 180 };
+  var ROOM = [{ x: 1, y: 1 }, { x: 15, y: 1 }, { x: 15, y: 11 }, { x: 1, y: 11 }];
+  var HUES = [210, 30, 140, 280, 0, 180, 55, 320, 95, 250, 15, 160];
+
+  var walls = [];
+  var extraCount = 0;
+  var player = { x: START.x, y: START.y, deg: START.deg };
+
+  function resetWalls() {
+    walls = PRESET.map(function (w) { return { name: w[0], x1: w[1], y1: w[2], x2: w[3], y2: w[4], two: w[5] }; });
+    extraCount = 0;
+  }
+  resetWalls();
+
+  // ---- BSP building (mirrors the Lua) ----
+  function side(s, px, py) {
+    var dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+    return (dx * (py - s.y1) - dy * (px - s.x1)) / Math.sqrt(dx * dx + dy * dy);
+  }
+  function classify(div, s) {
+    var a = side(div, s.x1, s.y1), b = side(div, s.x2, s.y2);
+    if (Math.abs(a) < EPS && Math.abs(b) < EPS) {
+      var same = (div.x2 - div.x1) * (s.x2 - s.x1) + (div.y2 - div.y1) * (s.y2 - s.y1) > 0;
+      return { c: same ? 'front' : 'back' };
+    }
+    if (a > -EPS && b > -EPS) return { c: 'front' };
+    if (a < EPS && b < EPS) return { c: 'back' };
+    return { c: 'split', a: a, b: b };
+  }
+  function makeSeg(name, x1, y1, x2, y2) { return { name: name, x1: x1, y1: y1, x2: x2, y2: y2 }; }
+  function cut(s, a, b) {
+    var t = a / (a - b);
+    var mx = s.x1 + (s.x2 - s.x1) * t, my = s.y1 + (s.y2 - s.y1) * t;
+    var p1 = makeSeg(s.name, s.x1, s.y1, mx, my), p2 = makeSeg(s.name, mx, my, s.x2, s.y2);
+    return a > 0 ? [p1, p2] : [p2, p1];
+  }
+  function grade(div, segs) {
+    var f = 0, b = 0, cuts = 0;
+    for (var i = 0; i < segs.length; i += 1) {
+      var s = segs[i];
+      var c = s === div ? 'front' : classify(div, s).c;
+      if (c === 'front') f += 1;
+      else if (c === 'back') b += 1;
+      else { f += 1; b += 1; cuts += 1; }
+    }
+    if (b === 0) return null;
+    return { g: Math.max(f, b) + CUT_COST * cuts, f: f, b: b, cuts: cuts };
+  }
+  function clipPoly(poly, div, sign) {
+    var out = [];
+    for (var i = 0; i < poly.length; i += 1) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      var sp = sign * side(div, p.x, p.y), sq = sign * side(div, q.x, q.y);
+      if (sp >= 0) out.push(p);
+      if ((sp >= 0) !== (sq >= 0)) {
+        var t = sp / (sp - sq);
+        out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+      }
+    }
+    return out;
+  }
+  function bboxOf(segs) {
+    var b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    segs.forEach(function (s) {
+      b.x0 = Math.min(b.x0, s.x1, s.x2); b.x1 = Math.max(b.x1, s.x1, s.x2);
+      b.y0 = Math.min(b.y0, s.y1, s.y2); b.y1 = Math.max(b.y1, s.y1, s.y2);
+    });
+    return b;
+  }
+
+  var root = null, nodes = [], leaves = [], totalCuts = 0;
+  function build(segs, region, depth) {
+    var best = null, bestG = Infinity, info = null;
+    for (var i = 0; i < segs.length; i += 1) {
+      var r = grade(segs[i], segs);
+      if (r && r.g < bestG) { best = segs[i]; bestG = r.g; info = r; }
+    }
+    var base = { input: segs, region: region, bbox: bboxOf(segs), depth: depth };
+    if (!best) {
+      base.leaf = true; base.segs = segs; base.index = leaves.length;
+      leaves.push(base);
+      return base;
+    }
+    base.leaf = false; base.div = best; base.name = best.name; base.id = nodes.length;
+    base.n = segs.length; base.f = info.f; base.b = info.b; base.cuts = info.cuts; base.g = info.g;
+    nodes.push(base);
+    totalCuts += info.cuts;
+    var front = [], back = [];
+    segs.forEach(function (s) {
+      var r2 = s === best ? { c: 'front' } : classify(best, s);
+      if (r2.c === 'front') front.push(s);
+      else if (r2.c === 'back') back.push(s);
+      else { var p = cut(s, r2.a, r2.b); front.push(p[0]); back.push(p[1]); }
+    });
+    base.front = build(front, clipPoly(region, best, 1), depth + 1);
+    base.back = build(back, clipPoly(region, best, -1), depth + 1);
+    return base;
+  }
+  function rebuild() {
+    var segs = [];
+    walls.forEach(function (w) {
+      segs.push(makeSeg(w.name, w.x1, w.y1, w.x2, w.y2));
+      if (w.two) segs.push(makeSeg(w.name, w.x2, w.y2, w.x1, w.y1));
+    });
+    nodes = []; leaves = []; totalCuts = 0;
+    root = build(segs, ROOM.slice(), 0);
+  }
+
+  // ---- Traversal ----
+  function camera() {
+    var a = player.deg * Math.PI / 180;
+    return { fx: Math.cos(a), fy: Math.sin(a), rx: -Math.sin(a), ry: Math.cos(a) };
+  }
+  function toCam(cam, x, y) {
+    var dx = x - player.x, dy = y - player.y;
+    return { d: dx * cam.fx + dy * cam.fy, l: dx * cam.rx + dy * cam.ry };
+  }
+  function segColumns(cam, s) {
+    var a = toCam(cam, s.x1, s.y1), b = toCam(cam, s.x2, s.y2);
+    if (a.d < NEAR && b.d < NEAR) return null;
+    if (a.d < NEAR) { var t = (NEAR - a.d) / (b.d - a.d); a = { d: NEAR, l: a.l + (b.l - a.l) * t }; }
+    else if (b.d < NEAR) { var t2 = (NEAR - b.d) / (a.d - b.d); b = { d: NEAR, l: b.l + (a.l - b.l) * t2 }; }
+    var xa = (a.l / a.d + 1) / 2 * COLS, xb = (b.l / b.d + 1) / 2 * COLS;
+    var c0 = Math.max(0, Math.ceil(Math.min(xa, xb) - 0.5));
+    var c1 = Math.min(COLS - 1, Math.ceil(Math.max(xa, xb) - 0.5) - 1);
+    return c0 > c1 ? null : [c0, c1];
+  }
+  function wrap(a) {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a <= -Math.PI) a += 2 * Math.PI;
+    return a;
+  }
+  // Like Doom's R_CheckBBox: is any open column inside the box's span?
+  function boxCheck(cam, box, covered) {
+    if (player.x >= box.x0 && player.x <= box.x1 && player.y >= box.y0 && player.y <= box.y1) return { ok: true };
+    var corners = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]];
+    var cc = toCam(cam, (box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2);
+    var mid = Math.atan2(cc.l, cc.d);
+    var lo = Infinity, hi = -Infinity;
+    corners.forEach(function (p) {
+      var q = toCam(cam, p[0], p[1]);
+      var off = wrap(Math.atan2(q.l, q.d) - mid);
+      lo = Math.min(lo, off); hi = Math.max(hi, off);
+    });
+    lo += mid; hi += mid;
+    var span = null;
+    for (var k = -1; k <= 1 && !span; k += 1) {
+      var A = Math.max(lo, -Math.PI / 4 + 2 * Math.PI * k), B = Math.min(hi, Math.PI / 4 + 2 * Math.PI * k);
+      if (A < B) span = [A - 2 * Math.PI * k, B - 2 * Math.PI * k];
+    }
+    if (!span) return { ok: false, reason: 'outside the view' };
+    var c0 = Math.max(0, Math.ceil((Math.tan(span[0]) + 1) / 2 * COLS - 0.5));
+    var c1 = Math.min(COLS - 1, Math.ceil((Math.tan(span[1]) + 1) / 2 * COLS - 0.5) - 1);
+    if (c0 > c1) return { ok: true };
+    for (var c = c0; c <= c1; c += 1) if (covered[c] < 0) return { ok: true };
+    return { ok: false, reason: 'hidden behind walls already drawn' };
+  }
+
+  var trav = null;   // { events, covered, leafCount, skipCount }
+  function allNodes(n, fn) { fn(n); if (!n.leaf) { allNodes(n.front, fn); allNodes(n.back, fn); } }
+  function traverse() {
+    var cam = camera();
+    var covered = [];
+    for (var i = 0; i < COLS; i += 1) covered.push(-1);
+    var events = [], leafOrder = 0, skips = 0;
+    allNodes(root, function (n) { n.ev = -1; n.skipEv = -1; n.firstEv = Infinity; n.nearFront = true; });
+    function filled() { var k = 0; for (var c = 0; c < COLS; c += 1) if (covered[c] >= 0) k += 1; return k; }
+    function walk(n) {
+      if (n.leaf) {
+        var idx = events.length, drawn = [], hidden = [], away = 0;
+        n.segs.forEach(function (s) {
+          s.status = 'away'; s.ev = idx;
+          if (side(s, player.x, player.y) <= EPS) { away += 1; return; }
+          var r = segColumns(cam, s);
+          var cols = [];
+          if (r) for (var c = r[0]; c <= r[1]; c += 1) if (covered[c] < 0) { covered[c] = idx; cols.push(c); }
+          if (cols.length) { s.status = 'drawn'; drawn.push(s); }
+          else { s.status = 'hidden'; hidden.push(s); }
+        });
+        leafOrder += 1;
+        n.ev = idx; n.firstEv = idx; n.order = leafOrder;
+        events.push({ type: 'leaf', node: n, order: leafOrder, drawn: drawn, hidden: hidden, away: away });
+        events[idx].filled = filled();
+        return;
+      }
+      var front = side(n.div, player.x, player.y) >= 0;
+      n.nearFront = front;
+      var near = front ? n.front : n.back, far = front ? n.back : n.front;
+      var first = events.length;
+      walk(near);
+      var chk = boxCheck(cam, far.bbox, covered);
+      if (chk.ok) walk(far);
+      else {
+        var sidx = events.length, count = 0;
+        allNodes(far, function (m) {
+          m.skipEv = sidx;
+          if (m.leaf) { count += 1; m.segs.forEach(function (s) { s.status = 'skipped'; s.ev = sidx; }); }
+        });
+        skips += 1;
+        events.push({ type: 'skip', node: far, reason: chk.reason, leaves: count, filled: filled() });
+      }
+      n.firstEv = first;
+    }
+    walk(root);
+    // Leaves inside skipped branches keep firstEv = Infinity; give them the skip index.
+    allNodes(root, function (n) { if (n.skipEv >= 0) n.firstEv = n.skipEv; });
+    trav = { events: events, covered: covered, leafCount: leafOrder, skipCount: skips };
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="bsp"]');
+  var buildSlider = ui.slider({ label: 'Splits made', min: 0, max: 1, step: 1, value: 1, onInput: function () { refresh(false); } });
+  ui.button({ label: 'Next split', onClick: function () {
+    buildSlider.set(Math.min(Number(buildSlider.el.max), buildSlider.value + 1)); refresh(false);
+  } });
+  var stepSlider = ui.slider({ label: 'Walk step', min: 0, max: 1, step: 1, value: 1, onInput: function () {
+    buildSlider.set(buildSlider.el.max); refresh(false);
+  } });
+  ui.button({ label: 'Next step', onClick: function () {
+    if (buildSlider.value < Number(buildSlider.el.max)) { buildSlider.set(buildSlider.el.max); stepSlider.set(0); }
+    else stepSlider.set(Math.min(Number(stepSlider.el.max), stepSlider.value + 1));
+    refresh(false);
+  } });
+  ui.button({ label: 'Whole frame', onClick: function () {
+    buildSlider.set(buildSlider.el.max); stepSlider.set(stepSlider.el.max); refresh(false);
+  } });
+  var facing = ui.slider({ label: 'Facing (0 = right on the map, 90 = down)', min: 0, max: 355, step: 5, value: START.deg, unit: '°',
+    onInput: function (v) { player.deg = v; refresh(false); } });
+  ui.button({ label: 'Add a wall', onClick: function () {
+    if (extraCount >= MAX_EXTRA) return;
+    var e = EXTRA[extraCount % EXTRA.length];
+    addWall(e[0], e[1], e[2], e[3]);
+  } });
+  ui.button({ label: 'Reset map', onClick: function () {
+    resetWalls(); player.x = START.x; player.y = START.y; player.deg = START.deg; facing.set(START.deg);
+    refresh(true);
+  } });
+  var treeOut = ui.readout({ label: 'Tree' });
+  var stepOut = ui.readout({ label: 'This step' });
+  var frameOut = ui.readout({ label: 'Whole frame' });
+
+  function addWall(x1, y1, x2, y2) {
+    if (extraCount >= MAX_EXTRA) return;
+    var name = String.fromCharCode(75 + extraCount);   // K, L, M, ...
+    walls.push({ name: name, x1: x1, y1: y1, x2: x2, y2: y2, two: true });
+    extraCount += 1;
+    refresh(true);
+  }
+
+  var mapHandle = null, treeHandle = null;
+  function refresh(rebuilt) {
+    var atEnd = stepSlider.value >= Number(stepSlider.el.max);
+    if (rebuilt || !root) {
+      rebuild();
+      buildSlider.el.max = nodes.length;
+      buildSlider.set(nodes.length);
+      atEnd = true;
+    }
+    traverse();
+    stepSlider.el.max = trav.events.length;
+    stepSlider.set(atEnd ? trav.events.length : Math.min(stepSlider.value, trav.events.length));
+    updateReadouts();
+    if (mapHandle) mapHandle.redraw();
+    if (treeHandle) treeHandle.redraw();
+  }
+  function names(list) {
+    var seen = [];
+    list.forEach(function (s) { if (seen.indexOf(s.name) < 0) seen.push(s.name); });
+    return seen.join(', ');
+  }
+  function buildMode() { return buildSlider.value < nodes.length; }
+  function updateReadouts() {
+    var segCount = 0;
+    leaves.forEach(function (l) { segCount += l.segs.length; });
+    treeOut.set(nodes.length + ' splits, ' + leaves.length + ' leaves, ' + totalCuts + ' cuts, ' + segCount + ' segs');
+    var k = buildSlider.value;
+    if (buildMode()) {
+      if (k === 0) stepOut.set('Nothing split yet: all ' + root.n + ' segs are one group.');
+      else {
+        var n = nodes[k - 1];
+        stepOut.set('Split ' + k + ': the line of wall ' + n.name + ' sends ' + n.f + ' segs in front and ' + n.b +
+          ' behind, cutting ' + n.cuts + '. Score ' + Math.max(n.f, n.b) + ' + 8 × ' + n.cuts + ' = ' + n.g + '.');
+      }
+    } else {
+      var t = stepSlider.value;
+      if (t === 0) stepOut.set('Ready. The walk starts at the root and takes the player\'s side first.');
+      else {
+        var e = trav.events[t - 1];
+        if (e.type === 'leaf') {
+          var text = 'Leaf ' + e.order + ': ';
+          text += e.drawn.length ? 'drew ' + names(e.drawn) : 'nothing new to draw';
+          if (e.hidden.length) text += '; ' + names(e.hidden) + ' hidden';
+          stepOut.set(text + '. ' + e.filled + ' of ' + COLS + ' columns filled.');
+        } else {
+          stepOut.set('Skipped a branch of ' + e.leaves + (e.leaves === 1 ? ' leaf' : ' leaves') + ': ' + e.reason + '.');
+        }
+      }
+    }
+    var full = trav.events.length ? trav.events[trav.events.length - 1].filled : 0;
+    frameOut.set('visited ' + trav.leafCount + ' of ' + leaves.length + ' leaves, skipped ' + trav.skipCount +
+      (trav.skipCount === 1 ? ' branch' : ' branches') + ', ' + full + ' of ' + COLS + ' columns filled');
+  }
+
+  function hue(i, a) { return 'hsla(' + HUES[i % HUES.length] + ', 65%, 50%, ' + a + ')'; }
+
+  // Frontier of the build at k splits: leaves and not-yet-split groups.
+  function frontier(k) {
+    var out = [];
+    (function go(n) {
+      if (n.leaf || n.id >= k) { out.push(n); return; }
+      go(n.front); go(n.back);
+    })(root);
+    return out;
+  }
+  function chord(region, div) {
+    var pts = clipPoly(region, div, 1).filter(function (p) { return Math.abs(side(div, p.x, p.y)) < 1e-3; });
+    if (pts.length < 2) return null;
+    var dx = div.x2 - div.x1, dy = div.y2 - div.y1;
+    var lo = pts[0], hi = pts[0];
+    pts.forEach(function (p) {
+      var t = p.x * dx + p.y * dy;
+      if (t < lo.x * dx + lo.y * dy) lo = p;
+      if (t > hi.x * dx + hi.y * dy) hi = p;
+    });
+    return [lo, hi];
+  }
+  function centroid(poly) {
+    var x = 0, y = 0;
+    poly.forEach(function (p) { x += p.x; y += p.y; });
+    return { x: x / poly.length, y: y / poly.length };
+  }
+
+  // ---- Map panel ----
+  var TOP = 30, BOTTOM = 58;
+  function layout(s) {
+    var cs = Math.min((s.width - 16) / 15, (s.height - TOP - BOTTOM) / 11);
+    var ox = (s.width - 15 * cs) / 2 - 0.5 * cs;
+    var oy = TOP + (s.height - TOP - BOTTOM - 11 * cs) / 2 - 0.5 * cs;
+    return { cs: cs, ox: ox, oy: oy };
+  }
+  function toWorld(p, s) {
+    var L = layout(s);
+    return { x: (p.x - L.ox) / L.cs, y: (p.y - L.oy) / L.cs };
+  }
+  function clampRoom(v, lo, hi) { return DemoKit.clamp(v, lo, hi); }
+  function inPillar(x, y) { return x > 9.8 && x < 12.2 && y > 2.8 && y < 5.2; }
+  function placePlayer(x, y) {
+    x = clampRoom(x, 1.2, 14.8); y = clampRoom(y, 1.2, 10.8);
+    if (inPillar(x, y)) return;
+    player.x = x; player.y = y;
+  }
+  var drag = null;   // { kind: 'player' } or { kind: 'wall', x0, y0, x1, y1 }
+
+  function turn(d) {
+    player.deg = ((player.deg + d) % 360 + 360) % 360;
+    facing.set(player.deg);
+    refresh(false);
+  }
+  function move(amount) {
+    var a = player.deg * Math.PI / 180;
+    placePlayer(player.x + Math.cos(a) * amount, player.y + Math.sin(a) * amount);
+    refresh(false);
+  }
+
+  function drawPoly(ctx, poly, X, Y) {
+    if (poly.length < 3) return false;
+    ctx.beginPath();
+    ctx.moveTo(X(poly[0].x), Y(poly[0].y));
+    for (var i = 1; i < poly.length; i += 1) ctx.lineTo(X(poly[i].x), Y(poly[i].y));
+    ctx.closePath();
+    return true;
+  }
+
+  mapHandle = DemoKit.canvas('#bsp-map', {
+    aspect: 1.05, maxHeight: 440, minHeight: 320, animate: false, drag: true, keys: true,
+    label: 'Top-down map of walls with the player. Drag the player to move, drag across the floor to draw a wall, or use the arrow keys to turn and move.',
+    onDown: function (p, s) {
+      var w = toWorld(p, s);
+      var dx = w.x - player.x, dy = w.y - player.y;
+      if (dx * dx + dy * dy < 0.7 * 0.7) { drag = { kind: 'player' }; return; }
+      if (w.x < 1 || w.x > 15 || w.y < 1 || w.y > 11) { drag = null; return; }
+      var x0 = clampRoom(w.x, 1.3, 14.7), y0 = clampRoom(w.y, 1.3, 10.7);
+      drag = { kind: 'wall', x0: x0, y0: y0, x1: x0, y1: y0 };
+    },
+    onMove: function (p, s) {
+      if (!p.down || !drag) return;
+      var w = toWorld(p, s);
+      if (drag.kind === 'player') { placePlayer(w.x, w.y); refresh(false); }
+      else { drag.x1 = clampRoom(w.x, 1.3, 14.7); drag.y1 = clampRoom(w.y, 1.3, 10.7); }
+    },
+    onUp: function () {
+      var d = drag;
+      drag = null;
+      if (d && d.kind === 'wall') {
+        var len = Math.sqrt((d.x1 - d.x0) * (d.x1 - d.x0) + (d.y1 - d.y0) * (d.y1 - d.y0));
+        if (len >= 0.8 && extraCount < MAX_EXTRA) addWall(d.x0, d.y0, d.x1, d.y1);
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft' || key === 'a') turn(-15);
+      else if (key === 'arrowright' || key === 'd') turn(15);
+      else if (key === 'arrowup' || key === 'w') move(0.3);
+      else if (key === 'arrowdown' || key === 's') move(-0.3);
+    },
+    draw: function (ctx, s) {
+      if (!root) return;
+      var c = s.colors;
+      var L = layout(s), cs = L.cs;
+      function X(v) { return L.ox + v * cs; }
+      function Y(v) { return L.oy + v * cs; }
+      var building = buildMode();
+      var k = buildSlider.value;
+      var t = stepSlider.value;
+      var cur = !building && t > 0 ? trav.events[t - 1] : null;
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(X(1), Y(1), 14 * cs, 10 * cs);
+
+      // Areas
+      if (building) {
+        frontier(k).forEach(function (n, i) {
+          if (drawPoly(ctx, n.region, X, Y)) { ctx.fillStyle = hue(i, 0.16); ctx.fill(); }
+        });
+      } else {
+        leaves.forEach(function (l) {
+          if (!drawPoly(ctx, l.region, X, Y)) return;
+          if (l.ev >= 0 && l.ev < t) { ctx.fillStyle = c.topic; ctx.globalAlpha = cur && cur.node === l ? 0.32 : 0.12; ctx.fill(); }
+          else if (l.skipEv >= 0 && l.skipEv < t) {
+            ctx.fillStyle = c.ink3; ctx.globalAlpha = cur && cur.type === 'skip' && l.skipEv === t - 1 ? 0.35 : 0.18; ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        });
+      }
+
+      // Partition lines
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      nodes.forEach(function (n) {
+        if (building && n.id >= k) return;
+        var ch = chord(n.region, n.div);
+        if (!ch) return;
+        ctx.strokeStyle = building && n.id === k - 1 ? c.topic : c.ink3;
+        ctx.lineWidth = building && n.id === k - 1 ? 2.5 : 1.25;
+        ctx.beginPath(); ctx.moveTo(X(ch[0].x), Y(ch[0].y)); ctx.lineTo(X(ch[1].x), Y(ch[1].y)); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Segs
+      function segStyle(sg, groupIndex) {
+        if (building) return { color: hue(groupIndex, 1), width: 3, dash: null };
+        if (sg.ev >= t) return { color: c.ink2, width: 2, dash: null };
+        if (sg.status === 'drawn') return { color: cur && sg.ev === t - 1 ? c.bad : c.ink, width: 4, dash: null };
+        if (sg.status === 'hidden') return { color: c.ink3, width: 2, dash: [3, 3] };
+        if (sg.status === 'skipped') return { color: c.ink3, width: 2, dash: [2, 4] };
+        return { color: c.ink3, width: 1.5, dash: null };
+      }
+      function drawSeg(sg, st) {
+        ctx.strokeStyle = st.color; ctx.lineWidth = st.width; ctx.setLineDash(st.dash || []);
+        ctx.beginPath(); ctx.moveTo(X(sg.x1), Y(sg.y1)); ctx.lineTo(X(sg.x2), Y(sg.y2)); ctx.stroke();
+        ctx.setLineDash([]);
+        // front ticks
+        var dx = sg.x2 - sg.x1, dy = sg.y2 - sg.y1, len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return;
+        var nx = -dy / len, ny = dx / len;
+        var ticks = Math.max(1, Math.round(len / 2));
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        for (var i = 0; i < ticks; i += 1) {
+          var f = (i + 0.5) / ticks;
+          var px = sg.x1 + dx * f, py = sg.y1 + dy * f;
+          ctx.moveTo(X(px), Y(py)); ctx.lineTo(X(px + nx * 0.28), Y(py + ny * 0.28));
+        }
+        ctx.stroke();
+      }
+      if (building) {
+        frontier(k).forEach(function (n, i) { n.input.forEach(function (sg) { drawSeg(sg, segStyle(sg, i)); }); });
+      } else {
+        leaves.forEach(function (l) { l.segs.forEach(function (sg) { drawSeg(sg, segStyle(sg, 0)); }); });
+      }
+
+      // Wall names
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      walls.forEach(function (w) {
+        var dx = w.x2 - w.x1, dy = w.y2 - w.y1, len = Math.sqrt(dx * dx + dy * dy);
+        var off = w.two ? 0.45 : 0.55;
+        var mx = (w.x1 + w.x2) / 2 + (-dy / len) * off, my = (w.y1 + w.y2) / 2 + (dx / len) * off;
+        ctx.fillStyle = c.ink2;
+        ctx.fillText(w.name, X(mx), Y(my));
+      });
+
+      // Leaf order numbers
+      if (!building) {
+        leaves.forEach(function (l) {
+          if (!(l.ev >= 0 && l.ev < t) || l.region.length < 3) return;
+          var m = centroid(l.region);
+          ctx.fillStyle = c.surface;
+          ctx.strokeStyle = c.topic;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(X(m.x), Y(m.y), 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = c.ink;
+          ctx.fillText(String(l.order), X(m.x), Y(m.y) + 0.5);
+        });
+      }
+
+      // Wall being drawn
+      if (drag && drag.kind === 'wall') {
+        ctx.strokeStyle = c.topic; ctx.lineWidth = 3; ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(X(drag.x0), Y(drag.y0)); ctx.lineTo(X(drag.x1), Y(drag.y1)); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Player and view cone
+      var a = player.deg * Math.PI / 180;
+      ctx.strokeStyle = c.bad; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(X(player.x + Math.cos(a - Math.PI / 4) * 2.5), Y(player.y + Math.sin(a - Math.PI / 4) * 2.5));
+      ctx.lineTo(X(player.x), Y(player.y));
+      ctx.lineTo(X(player.x + Math.cos(a + Math.PI / 4) * 2.5), Y(player.y + Math.sin(a + Math.PI / 4) * 2.5));
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = c.bad;
+      ctx.beginPath(); ctx.arc(X(player.x), Y(player.y), Math.max(5, cs * 0.22), 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = c.bad; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(X(player.x), Y(player.y));
+      ctx.lineTo(X(player.x + Math.cos(a) * 0.8), Y(player.y + Math.sin(a) * 0.8)); ctx.stroke();
+
+      // Screen strip
+      var sx = 12, sw = s.width - 24, sy = s.height - 30, sh = 20;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(building ? 'Screen: finish the splits to walk the tree' : 'Screen, 64 columns, filled nearest wall first', sx, sy - 8);
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(sx, sy, sw, sh);
+      var colW = sw / COLS;
+      if (!building) {
+        for (var col = 0; col < COLS; col += 1) {
+          var e = trav.covered[col];
+          if (e < 0 || e >= t) continue;
+          ctx.fillStyle = e === t - 1 ? c.bad : c.ink3;
+          ctx.globalAlpha = e === t - 1 ? 0.85 : 0.55;
+          ctx.fillRect(sx + col * colW, sy, colW + 0.5, sh);
+        }
+        ctx.globalAlpha = 1;
+        // Leaf number over each run
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        var start = 0;
+        for (var c2 = 1; c2 <= COLS; c2 += 1) {
+          var prev = trav.covered[c2 - 1];
+          if (c2 === COLS || trav.covered[c2] !== prev) {
+            var runW = (c2 - start) * colW;
+            if (prev >= 0 && prev < t && runW >= 14) {
+              ctx.fillStyle = c.surface;
+              ctx.fillText(String(trav.events[prev].order), sx + (start + (c2 - start) / 2) * colW, sy + sh / 2 + 0.5);
+            }
+            start = c2;
+          }
+        }
+      }
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.strokeRect(sx, sy, sw, sh);
+    }
+  });
+
+  // ---- Tree panel ----
+  treeHandle = DemoKit.canvas('#bsp-tree', {
+    aspect: 1.05, maxHeight: 440, minHeight: 320, animate: false,
+    label: 'The BSP tree. Circles are partition lines named after their wall, squares are convex leaves. During the walk the thick branch is the player\'s side, visited first.',
+    draw: function (ctx, s) {
+      if (!root) return;
+      var c = s.colors;
+      var building = buildMode();
+      var k = building ? buildSlider.value : nodes.length;
+      var t = stepSlider.value;
+      var items = [], slot = 0, maxD = 0;
+      var groupIndex = 0;
+      function lay(n, d) {
+        maxD = Math.max(maxD, d);
+        if (n.leaf || n.id >= k) {
+          var it = { n: n, d: d, x: slot, kind: n.leaf ? 'leaf' : 'set', group: groupIndex };
+          slot += 1; groupIndex += 1;
+          items.push(it);
+          return it;
+        }
+        var a = lay(n.front, d + 1), b = lay(n.back, d + 1);
+        var node = { n: n, d: d, x: (a.x + b.x) / 2, kind: 'split', kids: [a, b] };
+        items.push(node);
+        return node;
+      }
+      lay(root, 0);
+      var top = 52, bottom = 40;
+      var slotW = (s.width - 16) / slot;
+      var levelH = maxD > 0 ? Math.min(64, (s.height - top - bottom) / maxD) : 0;
+      var r = DemoKit.clamp(slotW * 0.4, 8, 15);
+      function PX(it) { return 8 + (it.x + 0.5) * slotW; }
+      function PY(it) { return top + it.d * levelH; }
+      function faded(it) { return !building && it.n.skipEv >= 0 && it.n.skipEv < t; }
+
+      // Edges
+      items.forEach(function (it) {
+        if (it.kind !== 'split') return;
+        it.kids.forEach(function (kid, i) {
+          var near = !building && it.n.skipEv < 0 && it.n.firstEv < t && (i === 0) === it.n.nearFront;
+          ctx.strokeStyle = near ? c.topic : c.ink3;
+          ctx.lineWidth = near ? 3 : 1.25;
+          ctx.globalAlpha = faded(kid) ? 0.35 : 1;
+          ctx.beginPath(); ctx.moveTo(PX(it), PY(it)); ctx.lineTo(PX(kid), PY(kid)); ctx.stroke();
+          ctx.globalAlpha = 1;
+        });
+      });
+
+      // Nodes
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = Math.max(11, Math.round(r * 0.95)) + 'px system-ui, sans-serif';
+      items.forEach(function (it) {
+        var x = PX(it), y = PY(it);
+        ctx.globalAlpha = faded(it) ? 0.35 : 1;
+        if (it.kind === 'split') {
+          var latest = building && it.n.id === k - 1;
+          ctx.fillStyle = c.surface;
+          ctx.strokeStyle = latest ? c.topic : c.ink2;
+          ctx.lineWidth = latest ? 3 : 1.5;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = c.ink;
+          ctx.fillText(it.n.name, x, y + 0.5);
+        } else {
+          var h = r * 1.7, w = r * 1.7;
+          var label = '';
+          if (building) {
+            ctx.fillStyle = hue(it.group, it.kind === 'leaf' ? 0.35 : 0.18);
+            ctx.strokeStyle = hue(it.group, 1);
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash(it.kind === 'set' ? [3, 3] : []);
+            label = it.kind === 'set' ? String(it.n.input.length) : '';
+          } else {
+            var visited = it.n.ev >= 0 && it.n.ev < t;
+            ctx.fillStyle = visited ? c.topic : c.surface;
+            ctx.strokeStyle = visited ? c.topic : c.ink3;
+            ctx.lineWidth = 1.5;
+            label = visited ? String(it.n.order) : '';
+          }
+          var boxFill = ctx.fillStyle;
+          ctx.fillStyle = c.surface;            // opaque base so edges do not show through
+          ctx.fillRect(x - w / 2, y - h / 2, w, h);
+          ctx.fillStyle = boxFill;
+          ctx.fillRect(x - w / 2, y - h / 2, w, h);
+          ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+          ctx.setLineDash([]);
+          var isCurrent = !building && t > 0 && (it.n.ev === t - 1 || (it.n.skipEv === t - 1 && trav.events[t - 1].node === it.n));
+          if (isCurrent) {
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = c.bad; ctx.lineWidth = 3;
+            ctx.strokeRect(x - w / 2 - 3, y - h / 2 - 3, w + 6, h + 6);
+          }
+          if (label) {
+            ctx.fillStyle = building ? c.ink : c.surface;
+            ctx.fillText(label, x, y + 0.5);
+          }
+        }
+        ctx.globalAlpha = 1;
+      });
+      // Mark a skipped branch's top
+      if (!building && t > 0 && trav.events[t - 1].type === 'skip') {
+        var sk = trav.events[t - 1].node;
+        items.forEach(function (it) {
+          if (it.n !== sk || it.kind !== 'split') return;
+          ctx.strokeStyle = c.bad; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(PX(it), PY(it), r + 4, 0, Math.PI * 2); ctx.stroke();
+        });
+      }
+
+      // Legend
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Left branch: front side. Right: back side.', 10, s.height - 22);
+      ctx.fillText(building ? 'Dashed box: a group not split yet (seg count)' : 'Thick branch: player\'s side, visited first',
+        10, s.height - 6);
+    }
+  });
+
+  refresh(true);
+})();
+</script>
+</body>
+</html>

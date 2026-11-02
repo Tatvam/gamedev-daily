@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shadow Stencil: paint a wall with the dark you cast · Game Dev Daily</title>
+<meta name="description" content="A calm puzzle game where you move one lamp until the shadows of fixed blocks match a pattern on the wall, with a playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Shadow Stencil: paint a wall with the dark you cast</h1>
+  <p class="lede">A calm puzzle game where you move one lamp until the shadows of fixed blocks match a pattern on the wall, with a playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a sign painter who has lost every brush, and all you have left is a lamp. The blocks in the room never move, so the only way to paint the wall is to find the one spot where their shadows fall in exactly the right places.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: move, compare, nudge</h2>
+  <p>Shadow Stencil is a top-down puzzle. A room holds a few fixed blocks and one lamp. Along the far wall runs a row of cells, and each cell is either lit or in shadow. Above the wall hangs a <dfn>target strip</dfn>: the pattern of lit and dark cells the client ordered. You may only move the lamp. When the wall matches the strip, the stencil is done.</p>
+  <p>Every ten seconds the player sweeps the lamp, watches the shadows slide, and compares the wall with the strip. Every minute they finish a wall. Every session they meet new rooms with more blocks, tall and short shapes, and later a second lamp.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: move the lamp to sweep the shadows, compare the wall with the target strip, then nudge the lamp to fix the wrong cells, which leads back to moving. Beside it, two longer loops: every minute a finished wall, and every session new rooms.">
+      <defs>
+        <marker id="ss-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Move</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">sweep the lamp</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Compare</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">wall against strip</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Nudge</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">fix the wrong cells</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ss-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ss-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ss-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one wall matched,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">a new room opens</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">more blocks, odd</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">shapes, two lamps</text>
+    </svg>
+    <figcaption>The short loop is a search. Big sweeps find the right area of the room, and small nudges fix the last one or two cells.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>The lamp.</strong> It moves freely inside a lamp area at the near side of the room. It cannot pass the blocks or touch the wall.</li>
+    <li><strong>The cells.</strong> The wall is split into 16 cells. A cell is dark when the straight line from the lamp to the middle of that cell passes through any block. Otherwise it is lit.</li>
+    <li><strong>The goal.</strong> Make every cell match the target strip. Each target is made by a real lamp position, so every wall can be solved.</li>
+    <li><strong>The score.</strong> The time taken over three walls.</li>
+  </ul>
+
+  <p>The whole puzzle comes from two facts about shadows, shown below. Move the lamp toward a block and its shadow grows. Move the lamp sideways and the shadow slides the other way. Every block obeys both facts at once, but by different amounts: a block near the wall barely changes, and a block near the lamp swings wildly.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Three small rooms with a wall at the top, one block and one lamp. With the lamp far from the block, the shadow on the wall is narrow. With the lamp close, the shadow is about twice as wide. With the lamp moved to the right, the shadow moves to the left.">
+      <g>
+        <path class="d-stroke" d="M10 40 H190"/>
+        <path class="d-dash" d="M100 230 L75 40 M100 230 L125 40"/>
+        <rect class="d-box" x="85" y="100" width="30" height="15"/>
+        <path class="d-stroke" d="M75 36 H125" stroke-width="8"/>
+        <circle class="d-accent-fill" cx="100" cy="230" r="7"/>
+        <text class="d-label" x="100" y="22" text-anchor="middle">far lamp</text>
+        <text class="d-muted" x="100" y="268" text-anchor="middle">narrow shadow</text>
+      </g>
+      <g transform="translate(220 0)">
+        <path class="d-stroke" d="M10 40 H190"/>
+        <path class="d-dash" d="M100 150 L53 40 M100 150 L147 40"/>
+        <rect class="d-box" x="85" y="100" width="30" height="15"/>
+        <path class="d-stroke" d="M53 36 H147" stroke-width="8"/>
+        <circle class="d-accent-fill" cx="100" cy="150" r="7"/>
+        <text class="d-label" x="100" y="22" text-anchor="middle">near lamp</text>
+        <text class="d-muted" x="100" y="268" text-anchor="middle">wide shadow</text>
+      </g>
+      <g transform="translate(440 0)">
+        <path class="d-stroke" d="M10 40 H190"/>
+        <path class="d-dash" d="M150 230 L43 40 M150 230 L99 40"/>
+        <rect class="d-box" x="85" y="100" width="30" height="15"/>
+        <path class="d-stroke" d="M43 36 H99" stroke-width="8"/>
+        <circle class="d-accent-fill" cx="150" cy="230" r="7"/>
+        <text class="d-label" x="100" y="22" text-anchor="middle">lamp to the right</text>
+        <text class="d-muted" x="100" y="268" text-anchor="middle">shadow slides left</text>
+      </g>
+    </svg>
+    <figcaption>The thick bar on each wall is the shadow of the block. The dashed lines are the two rays that just touch the block's corners; everything between them is dark.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the craftsperson who works with light instead of paint. The constraint is that one small object, the lamp, controls every shadow at once, so fixing one cell often breaks another. The mood is quiet and slow: there is no fail state, no clock pressure in the core game, and every move is undoable by moving back.</p>
+  <p>The answer is not a list of moves but a small patch of floor. Players find it by feel at first, then by reasoning once they notice which shadow moves fastest.</p>
+  <p>The hardest part to build is the level design, not the code. A target picked by hand may have no lamp position that makes it, or a patch so tiny that finding it is luck. The safe method, used in the prototype, is to choose a lamp position first, record the pattern it makes, and then measure how big the matching patch of floor is. In the demo the patches are about 1040, 850 and 480 square pixels, so each wall is harder than the last.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Sweep the lamp from side to side first, and watch which shadow moves fastest. Then move it toward and away from the blocks and watch the shadows grow and shrink. The red outlines mark the wall cells that are wrong. Try a wall with the outlines turned off: it becomes a real puzzle.</p>
+
+  <figure class="demo wide" data-demo="shadow-stencil">
+    <canvas id="shadow-stencil"></canvas>
+    <figcaption>Controls: drag anywhere in the room (mouse or touch) to move the lamp; it follows your drag, so your finger never hides it. Keyboard: click the canvas, then use the arrow keys or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, and hold <kbd>Shift</kbd> for fine moves. <kbd>R</kbd> or the Restart button starts again. The top strip is the target; the strip under it is the wall.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE, with the demo's numbers for the first wall. <code>blocked</code> asks whether the line from the lamp to a point on the wall passes through a box. It clips the line against the box's left and right sides, then its top and bottom, and keeps the part inside all four; if nothing is left, the line misses. This is the Liang–Barsky method, and it needs no square roots.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local WALL_X, WALL_Y, CELL, CELLS = 40, 44, 35, 16
+local blocks = { {x = 130, y = 140, w = 50, h = 30},
+                 {x = 290, y = 160, w = 40, h = 40},
+                 {x = 440, y = 130, w = 60, h = 24} }
+local target = "1110000011100011"     <span class="c">-- "1" means this cell must be dark</span>
+local lamp, solved = {x = 480, y = 270}, false
+
+local function blocked(ax, ay, bx, by, b)   <span class="c">-- does line a-b cross box b?</span>
+  local t0, t1 = 0, 1
+  local p = {ax - bx, bx - ax, ay - by, by - ay}
+  local q = {ax - b.x, b.x + b.w - ax, ay - b.y, b.y + b.h - ay}
+  for i = 1, 4 do
+    if p[i] == 0 then
+      if q[i] &lt; 0 then return false end       <span class="c">-- parallel and outside</span>
+    elseif p[i] &lt; 0 then t0 = math.max(t0, q[i] / p[i])   <span class="c">-- enters here</span>
+    else t1 = math.min(t1, q[i] / p[i]) end                <span class="c">-- leaves here</span>
+  end
+  return t0 &lt;= t1                             <span class="c">-- some part is inside</span>
+end
+
+local function countMatches()
+  local n = 0
+  for i = 1, CELLS do
+<span class="k">    local cx = WALL_X + (i - 0.5) * CELL       -- middle of cell i</span>
+    local dark = false
+    for _, b in ipairs(blocks) do
+<span class="k">      dark = dark or blocked(lamp.x, lamp.y, cx, WALL_Y, b)</span>
+    end
+    if dark == (target:sub(i, i) == "1") then n = n + 1 end
+  end
+  return n
+end
+function love.update(dt)
+  local key = love.keyboard.isDown
+  local speed = key("lshift") and 30 or 120
+  local dx = (key("right") and 1 or 0) - (key("left") and 1 or 0)
+  local dy = (key("down") and 1 or 0) - (key("up") and 1 or 0)
+  lamp.x = math.max(40, math.min(600, lamp.x + dx * speed * dt))   <span class="c">-- lamp area</span>
+  lamp.y = math.max(240, math.min(340, lamp.y + dy * speed * dt))
+  solved = countMatches() == CELLS
+end</code></pre>
+  </div>
+  <p>The two highlighted lines are the whole rule: one ray per cell, from the lamp to the cell's middle, and the cell is dark if any block stops it. The demo uses the same numbers, and the lamp starts at (480, 270), where 8 of the 16 cells are wrong.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Hot and cold with no thinking.</strong> With wrong cells marked, players may just wiggle the lamp until the red goes away. Test: hide the marks and the match count and see if testers still solve the first wall. If they cannot, the shadows are not readable enough; draw them on the floor more strongly.</li>
+    <li><strong>Patches too small to find.</strong> A wall whose answer is a 5 pixel patch is a test of patience. Measure every level's patch with a script, as in the hardest-part note above, and never ship one under about 20 by 20 pixels at your lamp speed.</li>
+    <li><strong>Cells flicker at shadow edges.</strong> When a shadow edge sits on a cell's middle, the cell flips back and forth with tiny moves. Draw the true shadow edge on the wall too, so the player sees why.</li>
+    <li><strong>One kind of thought.</strong> After three walls, "sweep, then nudge" may be all there is. When testers stop looking at the blocks, the next mechanic is due: a second lamp, a block pushed once, or a mirror.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Shadows as the answer to a puzzle are well explored. In <cite>Shadowmatic</cite> the player rotates an abstract object in front of a light until its shadow forms a recognisable shape. In <cite>Contrast</cite> the main character can step into shadows on a wall, and moving light sources changes the shapes she can walk on.</p>
+  <p>Shadow Stencil moves the light rather than the object, keeps the objects fixed, and reduces the result to a row of cells you can compare at a glance. I have not seen that exact combination as the centre of a game, but I cannot be sure no one has made it, so take it as a direction, not a promise of a gap.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above. Draw the blocks with <code>love.graphics.rectangle("fill", ...)</code>, the lamp with <code>love.graphics.circle</code>, and two rows of 16 small rectangles for the target strip and the wall. Skip the floor shadows, the timer and the second and third walls.</p>
+  <p>Hand it to a friend and say only "make the bottom row match the top row". Do not mark wrong cells. The one question: <strong>can they explain which way to move the lamp before they move it?</strong> If after two minutes they say something like "closer makes it wider", the rule reads. If they only wiggle, add the floor shadows and test again.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one lamp, twelve walls made by the "pick a lamp spot first" method, the floor shadows, and a best time per wall.</li>
+    <li><strong>One-month version:</strong> a second lamp (a cell is dark only if no lamp reaches it), round pillars, blocks you may push once, a level editor that measures each patch, and a gallery of finished signs.</li>
+    <li><strong>Cut first:</strong> soft shadows and real lighting. They look lovely, but blurred edges make a cell's state ambiguous, and that breaks the puzzle.</li>
+    <li>The idea is one control that moves every answer at once. New features should add new ways for shadows to interact, not more things to control.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: give the wall two target strips, one for a red lamp and one for a blue lamp, so the player must place both lamps and every cell has four possible colours.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>You-Dong Liang and Brian A. Barsky, <cite>A New Concept and Method for Line Clipping</cite> (ACM Transactions on Graphics, 1984). The clipping method behind <code>blocked</code>.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Its chapter on intersection tests covers segments against boxes with the slab method.</li>
+    <li>Amit Patel, <cite>2D Visibility</cite> (Red Blob Games). An interactive article on working out what a light can see in a 2D room, the natural next step for floor shadows.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The lenses on puzzles and on feedback help when deciding how much to mark wrong cells.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 640, H = 360, HUD = 58;
+  var WALL_X = 40, WALL_Y = 44, CELL = 35, CELLS = 16;
+  var ZONE = { x0: 40, x1: 600, y0: 240, y1: 340 };
+  var SPEED = 120, SLOW = 30;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LEVELS = [
+    { blocks: [{ x: 130, y: 140, w: 50, h: 30 }, { x: 290, y: 160, w: 40, h: 40 }, { x: 440, y: 130, w: 60, h: 24 }],
+      target: '1110000011100011', start: { x: 480, y: 270 } },
+    { blocks: [{ x: 110, y: 110, w: 30, h: 60 }, { x: 260, y: 150, w: 90, h: 24 }, { x: 470, y: 170, w: 36, h: 36 }],
+      target: '1001111100000011', start: { x: 140, y: 260 } },
+    { blocks: [{ x: 180, y: 100, w: 24, h: 24 }, { x: 300, y: 180, w: 60, h: 30 }, { x: 420, y: 120, w: 30, h: 50 }],
+      target: '0011001111001100', start: { x: 560, y: 280 } }
+  ];
+
+  var level, lamp, dark, matches, started, time, levelStart, mode, wait, message, msgColor, drag, flash;
+  var best = null;
+  var view = { ox: 0, oy: HUD, sc: 1 };
+  var handle = null;
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+  function blocked(ax, ay, bx, by, b) {
+    var t0 = 0, t1 = 1;
+    var p = [ax - bx, bx - ax, ay - by, by - ay];
+    var q = [ax - b.x, b.x + b.w - ax, ay - b.y, b.y + b.h - ay];
+    for (var i = 0; i < 4; i++) {
+      if (p[i] === 0) {
+        if (q[i] < 0) return false;
+      } else if (p[i] < 0) t0 = Math.max(t0, q[i] / p[i]);
+      else t1 = Math.min(t1, q[i] / p[i]);
+    }
+    return t0 <= t1;
+  }
+
+  function isDark(hex) {
+    var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || '');
+    if (!m) return false;
+    return parseInt(m[1], 16) + parseInt(m[2], 16) + parseInt(m[3], 16) < 384;
+  }
+
+  function refresh() {
+    var L = LEVELS[level];
+    dark = []; matches = 0;
+    for (var i = 0; i < CELLS; i++) {
+      var cx = WALL_X + (i + 0.5) * CELL, d = false;
+      for (var j = 0; j < L.blocks.length; j++) {
+        if (blocked(lamp.x, lamp.y, cx, WALL_Y, L.blocks[j])) d = true;
+      }
+      dark.push(d);
+      if (d === (L.target.charAt(i) === '1')) matches += 1;
+    }
+    if (mode === 'play' && matches === CELLS) {
+      mode = 'solved'; wait = 1.6; flash = 1; drag = null;
+      message = 'Wall ' + (level + 1) + ' matched in ' + (time - levelStart).toFixed(1) + ' s';
+      msgColor = 'good';
+    }
+  }
+
+  function loadLevel(i) {
+    level = i;
+    lamp = { x: LEVELS[i].start.x, y: LEVELS[i].start.y };
+    levelStart = time; mode = 'play'; drag = null;
+    refresh();
+  }
+
+  function reset() {
+    time = 0; started = false; flash = 0;
+    loadLevel(0);
+    message = 'Drag in the room or use the arrow keys to move the lamp'; msgColor = 'ink2';
+  }
+
+  function moveLamp(x, y) {
+    if (mode !== 'play') return;
+    x = clamp(x, ZONE.x0, ZONE.x1); y = clamp(y, ZONE.y0, ZONE.y1);
+    if (x === lamp.x && y === lamp.y) return;
+    lamp.x = x; lamp.y = y; started = true;
+    refresh();
+  }
+
+  function update(dt, s) {
+    if (flash > 0) flash = Math.max(0, flash - dt);
+    if (mode === 'solved') {
+      wait -= dt;
+      if (wait <= 0) {
+        if (level + 1 < LEVELS.length) {
+          loadLevel(level + 1);
+          message = 'Wall ' + (level + 1) + ': new blocks, new target'; msgColor = 'ink2';
+        } else {
+          mode = 'done';
+          if (best === null || time < best) best = time;
+          message = 'All three walls matched in ' + time.toFixed(1) + ' s. Restart to play again';
+          msgColor = 'good';
+        }
+      }
+      return;
+    }
+    if (mode !== 'play') return;
+    var k = s.keys;
+    var sp = k.has('shift') ? SLOW : SPEED;
+    var nx = lamp.x, ny = lamp.y;
+    if (k.has('arrowleft') || k.has('a')) nx -= sp * dt;
+    if (k.has('arrowright') || k.has('d')) nx += sp * dt;
+    if (k.has('arrowup') || k.has('w')) ny -= sp * dt;
+    if (k.has('arrowdown') || k.has('s')) ny += sp * dt;
+    moveLamp(nx, ny);
+    if (started && mode === 'play') time += dt;
+  }
+
+  function toWorld(p) { return { x: (p.x - view.ox) / view.sc, y: (p.y - view.oy) / view.sc }; }
+
+  function onDown(p) {
+    wake();
+    if (mode !== 'play') return;
+    var w = toWorld(p);
+    drag = { px: w.x, py: w.y, lx: lamp.x, ly: lamp.y };
+  }
+
+  function onMove(p) {
+    if (!drag || !p.down) return;
+    var w = toWorld(p);
+    moveLamp(drag.lx + (w.x - drag.px), drag.ly + (w.y - drag.py));
+  }
+
+  function text(ctx, str, x, y, color, font, align) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(str, x, y);
+  }
+
+  function shadowPoly(b) {
+    var base = Math.atan2(b.y + b.h / 2 - lamp.y, b.x + b.w / 2 - lamp.x);
+    var pts = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+    var lo = null, hi = null, loA = Infinity, hiA = -Infinity;
+    for (var i = 0; i < 4; i++) {
+      var a = Math.atan2(pts[i][1] - lamp.y, pts[i][0] - lamp.x) - base;
+      while (a > Math.PI) a -= 2 * Math.PI;
+      while (a < -Math.PI) a += 2 * Math.PI;
+      if (a < loA) { loA = a; lo = pts[i]; }
+      if (a > hiA) { hiA = a; hi = pts[i]; }
+    }
+    function far(pt) {
+      var dx = pt[0] - lamp.x, dy = pt[1] - lamp.y, len = Math.sqrt(dx * dx + dy * dy) || 1;
+      return [pt[0] + dx / len * 1500, pt[1] + dy / len * 1500];
+    }
+    return [lo, far(lo), far(hi), hi];
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var sc = Math.min((s.width - 8) / W, (s.height - HUD - 4) / H);
+    var ox = (s.width - W * sc) / 2, oy = HUD;
+    view.ox = ox; view.oy = oy; view.sc = sc;
+    function X(x) { return ox + x * sc; }
+    function Y(y) { return oy + y * sc; }
+    var L = LEVELS[level], i, j;
+    var night = isDark(c.surface);
+    var SHADE = night ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.2)';
+    var DARK_CELL = night ? 'rgba(0,0,0,0.75)' : 'rgba(25,22,18,0.85)';
+
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.fillStyle = c.surface; ctx.fillRect(X(0), Y(WALL_Y), W * sc, (H - WALL_Y) * sc);
+
+    // Lamp area and the lamp's glow.
+    ctx.setLineDash([5, 5]); ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+    ctx.strokeRect(X(ZONE.x0), Y(ZONE.y0), (ZONE.x1 - ZONE.x0) * sc, (ZONE.y1 - ZONE.y0) * sc);
+    ctx.setLineDash([]);
+    text(ctx, 'lamp area', X(ZONE.x0) + 4, Y(ZONE.y0) + 13, c.ink3, '11px');
+    var g = ctx.createRadialGradient(X(lamp.x), Y(lamp.y), 0, X(lamp.x), Y(lamp.y), 220 * sc);
+    g.addColorStop(0, c.warn); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = night ? 0.3 : 0.22; ctx.fillStyle = g;
+    ctx.fillRect(X(0), Y(WALL_Y), W * sc, (H - WALL_Y) * sc); ctx.globalAlpha = 1;
+
+    // Floor shadows, clipped to the room.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(X(0), Y(WALL_Y), W * sc, (H - WALL_Y) * sc); ctx.clip();
+    ctx.fillStyle = SHADE;
+    for (j = 0; j < L.blocks.length; j++) {
+      var poly = shadowPoly(L.blocks[j]);
+      ctx.beginPath(); ctx.moveTo(X(poly[0][0]), Y(poly[0][1]));
+      for (i = 1; i < 4; i++) ctx.lineTo(X(poly[i][0]), Y(poly[i][1]));
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+
+    // Blocks.
+    for (j = 0; j < L.blocks.length; j++) {
+      var b = L.blocks[j];
+      ctx.fillStyle = c.ink2; ctx.fillRect(X(b.x), Y(b.y), b.w * sc, b.h * sc);
+    }
+
+    // Target strip (top) and wall (below it).
+    var showWrong = marks.value;
+    for (i = 0; i < CELLS; i++) {
+      var x = X(WALL_X + i * CELL), w = CELL * sc;
+      var want = L.target.charAt(i) === '1';
+      ctx.fillStyle = c.surface; ctx.fillRect(x, Y(2), w, 18 * sc); ctx.fillRect(x, Y(24), w, 20 * sc);
+      ctx.fillStyle = want ? DARK_CELL : c.warn; ctx.globalAlpha = want ? 1 : 0.45;
+      ctx.fillRect(x, Y(2), w, 18 * sc);
+      ctx.fillStyle = dark[i] ? DARK_CELL : c.warn; ctx.globalAlpha = dark[i] ? 1 : 0.45;
+      ctx.fillRect(x, Y(24), w, 20 * sc);
+      ctx.globalAlpha = 1; ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.strokeRect(x, Y(2), w, 18 * sc); ctx.strokeRect(x, Y(24), w, 20 * sc);
+    }
+    if (showWrong && mode === 'play') {
+      ctx.strokeStyle = c.bad; ctx.lineWidth = 2;
+      for (i = 0; i < CELLS; i++) {
+        if (dark[i] !== (L.target.charAt(i) === '1')) ctx.strokeRect(X(WALL_X + i * CELL) + 2, Y(24) + 2, CELL * sc - 4, 20 * sc - 4);
+      }
+    }
+    if (mode !== 'play') {
+      ctx.strokeStyle = c.good; ctx.lineWidth = 3;
+      ctx.strokeRect(X(WALL_X) - 2, Y(2) - 2, CELLS * CELL * sc + 4, 42 * sc + 4);
+    }
+
+    // Lamp.
+    var lr = Math.max(6, 10 * sc);
+    if (flash > 0) {
+      ctx.globalAlpha = flash; ctx.strokeStyle = c.good; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(X(lamp.x), Y(lamp.y), lr + (1 - flash) * 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = c.warn; ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(lamp.x), Y(lamp.y), lr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    // HUD.
+    text(ctx, 'Wall ' + (level + 1) + ' of ' + LEVELS.length + '   ' + matches + ' of ' + CELLS + ' cells match', 8, 16, c.ink, '600 13px');
+    text(ctx, time.toFixed(1) + ' s', s.width - 8, 16, c.ink2, '12px', 'right');
+    text(ctx, message, 8, 34, c[msgColor] || c.ink, '12px');
+    var info = mode === 'done' && best !== null ? 'Best: ' + best.toFixed(1) + ' s' : 'Top strip: target.  Strip below: the wall now.';
+    text(ctx, info, 8, 51, c.ink3, '11px');
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  var ui = DemoKit.controls('[data-demo="shadow-stencil"]');
+  ui.button({ label: 'Restart', onClick: function () { reset(); wake(); } });
+  var marks = ui.toggle({ label: 'Mark wrong cells', value: true, onChange: function () { wake(); } });
+
+  reset();
+
+  handle = DemoKit.canvas('#shadow-stencil', {
+    aspect: 640 / 420,
+    minHeight: 270,
+    maxHeight: 480,
+    keys: true,
+    drag: true,
+    label: 'Shadow Stencil prototype. A top-down room with three dark blocks, a lamp in the lamp area at the bottom, and a wall of 16 cells at the top under a target strip. Drag or use the arrow keys to move the lamp until the wall matches the target.',
+    update: update,
+    draw: draw,
+    onDown: onDown,
+    onMove: onMove,
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'r') reset();
+    }
+  });
+})();
+</script>
+</body>
+</html>

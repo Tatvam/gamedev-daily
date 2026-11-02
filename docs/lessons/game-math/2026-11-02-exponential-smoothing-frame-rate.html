@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exponential smoothing: why does my camera lag more at 30 fps? · Game Dev Daily</title>
+<meta name="description" content="Why x = lerp(x, target, 0.1) every frame chases slower on slow machines, and how one power of dt makes the chase the same at any frame rate.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-02">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  article { --es-ref: #2f5fe8; --es-fol: #b35f00; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) article { --es-ref: #7397ff; --es-fol: #ffa31a; }
+  }
+  html[data-theme="dark"] article { --es-ref: #7397ff; --es-fol: #ffa31a; }
+  .v-ref { color: var(--es-ref); font-weight: 650; }
+  .v-fol { color: var(--es-fol); font-weight: 650; }
+  .v-t { color: var(--topic); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Exponential smoothing: why does my camera lag more at 30 fps?</h1>
+  <p class="lede">Why x = lerp(x, target, 0.1) every frame chases slower on slow machines, and how one power of dt makes the chase the same at any frame rate.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your camera follows the player with one friendly line: every frame, move a tenth of the way to the player. On your 60 fps monitor it feels tight. A tester on a laptop running at 30 fps says the camera drags far behind, and a friend with a 144 Hz screen says it feels glued on. Same code, three different cameras.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Closing a share of the gap</h2>
+  <p>Easing, from the last lesson, needs a start, an end and a duration. A camera has none of those: the player keeps moving. So instead we take a step from wherever we are now towards wherever the target is now:</p>
+<pre><code>x = lerp(x, target, k)       -- every frame</code></pre>
+  <p>Here x is the follower's position, target is where it wants to be, and <strong>k</strong> is the <dfn>blend</dfn>: the share of the remaining distance closed in one frame. Call the distance still to go the <dfn>gap</dfn>.</p>
+  <p>Worked example with k = 0.1 and a gap of 100 pixels. Frame 1 closes 10 and leaves 90. Frame 2 closes 10 percent of 90, which is 9, and leaves 81. Then 72.9, then 65.6. Each frame the gap is multiplied by the same number, 1 − k = 0.9. We will call that number <dfn>keep</dfn>, the share of the gap that survives a frame. A quantity that is multiplied by the same factor again and again shrinks <dfn>exponentially</dfn>, which gives this technique its name: <dfn>exponential smoothing</dfn>. It starts fast and slows as it gets close: a soft arrival.</p>
+
+  <h3>The hidden assumption: every frame is the same length</h3>
+  <p>The line says "per frame", but a frame lasts 1/60 of a second on one machine and 1/30 on another. At 30 fps the follower gets half as many multiplications by 0.9 in the same time. Here is the gap left half a second after the target jumps 100 pixels, with k = 0.1:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Frame rate</th><th class="num">Frames in 0.5 s</th><th class="num">Gap left (naive)</th><th class="num">Gap left (corrected)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>20 fps</td><td class="num">10</td><td class="num">34.9</td><td class="num">4.2</td></tr>
+      <tr><td>30 fps</td><td class="num">15</td><td class="num">20.6</td><td class="num">4.2</td></tr>
+      <tr><td>60 fps</td><td class="num">30</td><td class="num">4.2</td><td class="num">4.2</td></tr>
+      <tr><td>144 fps</td><td class="num">72</td><td class="num">0.05</td><td class="num">4.2</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The naive column is 0.9 multiplied by itself once per frame: 0.9<sup>15</sup> × 100 ≈ 20.6 at 30 fps. The 30 fps camera is five times further behind than the 60 fps one. The right-hand column is what we want: the same answer on every machine.</p>
+
+  <h2>The fix: count in sixtieths of a second</h2>
+  <p>You tuned k = 0.1 while playing at 60 fps, so what you really meant is "keep 0.9 of the gap every sixtieth of a second". A frame that lasts <strong>dt</strong> seconds (delta time, the length of the frame) contains dt × 60 sixtieths. Keeping 0.9 once for each of them means multiplying 0.9 by itself dt × 60 times, which is a power:</p>
+<pre><code>keep  = (1 - k) ^ (dt * 60)
+blend = 1 - keep
+x = lerp(x, target, blend)</code></pre>
+  <p>Worked example at 30 fps, so dt = 1/30 and dt × 60 = 2. keep = 0.9<sup>2</sup> = 0.81, so blend = 0.19. A gap of 100 becomes 81 in one frame: exactly what two frames at 60 fps gave above (100, then 90, then 81). At 60 fps, dt × 60 = 1 and keep = 0.9, so nothing changes for you. The power does not have to be a whole number: at 144 fps it is 0.4167, and keep = 0.9<sup>0.4167</sup> ≈ 0.957.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Three rows show a follower chasing a target 100 pixels away for one thirtieth of a second. At 60 fps it takes two frames, to 90 then to 81, leaving 81. At 30 fps with the naive formula it takes one frame of k equals 0.1 and is left 90 behind. At 30 fps with the corrected formula one frame keeps 0.9 times 0.9 and is left 81 behind, the same as 60 fps.">
+      <text class="d-muted" x="230" y="24" text-anchor="middle">start</text>
+      <text class="d-muted" x="630" y="24" text-anchor="end">target</text>
+      <path class="d-dash" d="M230 32 V232 M630 32 V232"/>
+
+      <text class="d-text" x="20" y="72">60 fps: two frames</text>
+      <text class="d-muted" x="20" y="90">keep 0.9, then 0.9 again</text>
+      <rect x="306" y="68" width="324" height="18" rx="3" style="fill: var(--es-ref); opacity: 0.25"/>
+      <circle cx="230" cy="77" r="5" style="fill: none; stroke: var(--es-ref); stroke-width: 1.5"/>
+      <circle cx="270" cy="77" r="5" style="fill: none; stroke: var(--es-ref); stroke-width: 1.5"/>
+      <circle cx="306" cy="77" r="6" style="fill: var(--es-ref)"/>
+      <text class="d-muted" x="270" y="104" text-anchor="middle">90</text>
+      <text class="d-text" x="468" y="60" text-anchor="middle">81 left</text>
+
+      <text class="d-text" x="20" y="142">30 fps, naive</text>
+      <text class="d-muted" x="20" y="160">one frame, keep 0.9</text>
+      <rect x="270" y="138" width="360" height="18" rx="3" style="fill: var(--es-fol); opacity: 0.25"/>
+      <circle cx="270" cy="147" r="6" style="fill: var(--es-fol)"/>
+      <text class="d-text" x="450" y="130" text-anchor="middle">90 left: too far behind</text>
+
+      <text class="d-text" x="20" y="212">30 fps, corrected</text>
+      <text class="d-muted" x="20" y="230">one frame, keep 0.9 × 0.9</text>
+      <rect x="306" y="208" width="324" height="18" rx="3" style="fill: var(--es-fol); opacity: 0.25"/>
+      <circle cx="306" cy="217" r="6" style="fill: var(--es-fol)"/>
+      <text class="d-text" x="468" y="200" text-anchor="middle">81 left: same as 60 fps</text>
+    </svg>
+    <figcaption>One thirtieth of a second of chasing, starting 100 pixels away. Blue is the 60 fps reference, orange is a 30 fps game. The shaded bar is the gap still to close. The corrected formula lets one long frame do the work of two short ones.</figcaption>
+  </figure>
+
+  <h3>The same formula in other clothes</h3>
+  <p>You will meet this formula written two other ways. Both give the same keep; they just tune it with a different knob.</p>
+  <ul>
+    <li><strong>A rate per second:</strong> keep = e<sup>−rate × dt</sup>, written <code>math.exp(-rate * dt)</code>. The number e is about 2.718. k = 0.1 at 60 fps matches rate = −60 × ln(0.9) ≈ 6.32 per second.</li>
+    <li><strong>A half-life:</strong> keep = 2<sup>−dt / halfLife</sup>, where halfLife is the time it takes to close half of the gap. Worked example: halfLife = 0.25 s and dt = 0.5 s gives keep = 2<sup>−2</sup> = 0.25, two halvings. k = 0.1 at 60 fps matches a half-life of about 0.11 s.</li>
+  </ul>
+
+  <div class="callout warn">
+    <p class="callout-title">Multiplying k by dt is not the fix</p>
+    <p>A common half-fix is <code>lerp(x, target, speed * dt)</code>. It is close at high frame rates, but not equal, and it breaks on a long frame. With speed = 6 and a 0.25 second hitch while a level loads, the blend is 1.5: the follower jumps past the target by half the gap. Above 2 it flies off further every frame. The power form never does this: keep stays between 0 and 1 for any dt, so the worst a long frame can do is arrive.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The <span class="v-t">crosshair</span> is the target. Move the mouse over the grid, drag with a finger, or focus the canvas and use the arrow keys. Until you do, the target hops between four spots by itself. The <span class="v-fol">orange disc</span> follows with your settings, updating only as often as the <strong>Simulated frame rate</strong> allows. The <span class="v-ref">blue ring</span> is how the same k looks at 60 fps.</p>
+  <p>Start with <strong>Correct for frame time</strong> off and drag the frame rate down to 20: the orange disc trails well behind the blue ring. Raise it to 144 and orange snaps ahead. Switch the correction on and sweep again: orange now arrives with blue at every frame rate, only more or less choppy. The graph shows the same in numbers.</p>
+  <figure class="demo" data-demo="smoothing">
+    <canvas id="smoothing"></canvas>
+    <figcaption>The top panel uses screen coordinates: x grows to the right and y grows downwards, as in LÖVE. The graph uses maths axes: time grows to the right and the gap left after a 100 pixel jump grows upwards. Small orange dots show the follower's last few frames.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>One function that does the chase, with the same k and the same numbers as the demo, and a LÖVE program where a disc follows the mouse.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Move current towards target, closing share k of the gap</span>
+<span class="c">-- per sixtieth of a second, at any frame rate.</span>
+local function smooth(current, target, k, dt)
+  k = math.max(0, math.min(1, k))      <span class="c">-- keep 1 - k from going negative</span>
+<span class="k">  local keep = (1 - k) ^ (dt * 60)     -- share of the gap left after dt</span>
+  return target + (current - target) * keep
+end
+
+print(smooth(0, 100, 0.1, 1 / 60))    <span class="c">-- 10   (one 60 fps frame)</span>
+print(smooth(0, 100, 0.1, 1 / 30))    <span class="c">-- 19   (same as two 60 fps frames)</span>
+
+<span class="c">-- Screen coordinates: x grows right, y grows down, as in LÖVE.</span>
+local K = 0.1
+local follower = { x = 100, y = 100 }
+
+function love.update(dt)
+  local mx, my = love.mouse.getPosition()
+  follower.x = smooth(follower.x, mx, K, dt)
+  follower.y = smooth(follower.y, my, K, dt)
+end
+
+function love.draw()
+  love.graphics.circle("fill", follower.x, follower.y, 12)
+end</code></pre>
+  </div>
+  <p><code>target + (current - target) * keep</code> is the same as <code>lerp(current, target, 1 - keep)</code>, written so that you can see the gap being multiplied by keep. Neither Godot nor Unity has this exact function built in, but both have the pieces: <code>lerp</code> and <code>pow</code> in Godot, <code>Mathf.Lerp</code> and <code>Mathf.Pow</code> in Unity.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the frame count as the clock.</strong> Any "per frame" constant makes the game feel different on every machine. Switching to <code>smooth</code> keeps your old k: at 60 fps nothing changes.</li>
+    <li><strong>k outside 0 to 1.</strong> With k = 1.2, 1 − k is −0.2, and a negative number raised to a fractional power has no real answer: Lua returns <code>nan</code>, and your object vanishes. The clamp in <code>smooth</code> prevents this. k = 0 never moves; k = 1 snaps straight to the target.</li>
+    <li><strong>It never quite arrives.</strong> Multiplying by 0.9 never reaches zero. If game logic needs "arrived", test whether the gap is below a small distance, such as half a pixel, and then set the position to the target.</li>
+    <li><strong>A dt of zero, or a huge one.</strong> dt = 0, for example while paused, gives keep = 1 and no movement, which is right. A very long frame gives keep close to 0, so the follower lands on the target without overshooting. Compare that with <code>speed * dt</code> in the warning above.</li>
+    <li><strong>Smoothing an angle.</strong> Smoothing a rotation from 350 degrees towards 10 goes the long way round, through 180. Wrap the difference first, as in the angle wrapping lesson, and smooth that.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Exponential smoothing is one of the most common tricks in game code: cameras that follow a player, a pet that trails the hero, a health bar whose "damage trail" drains after the real value, a volume that fades towards a new level. Anywhere a value should drift towards a target that keeps changing, try this first.</p>
+  <p>Unity also offers <code>Vector3.SmoothDamp</code>, a different method that follows with a spring-like motion and keeps a velocity, so it starts gently too.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a follow in your own project: a camera, a pet, a smoothed bar. If it uses a fixed share per frame, replace it with <code>smooth</code> and keep the same k. Then test it at another frame rate. In LÖVE, turn vsync off in <code>conf.lua</code> with <code>t.window.vsync = 0</code> and add <code>love.timer.sleep(1 / 30)</code> at the end of <code>love.update</code> to fake a slow machine.</p>
+  <p>You are done when the follow feels the same with and without the sleep. For a bonus, add a key that freezes the game for half a second and check that the follower lands on the target after the freeze instead of shooting past it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><code>x = lerp(x, target, k)</code> each frame multiplies the gap by keep = 1 − k each frame: exponential smoothing.</li>
+    <li>"Each frame" depends on the machine, so the naive line is slower at 30 fps and faster at 144 fps.</li>
+    <li>Raise keep to the power dt × 60: <code>keep = (1 - k) ^ (dt * 60)</code>. At 30 fps that is 0.9 × 0.9 = 0.81 per frame.</li>
+    <li>The rate form <code>math.exp(-rate * dt)</code> and the half-life form <code>2 ^ (-dt / halfLife)</code> are the same idea with different knobs.</li>
+    <li>Clamp k to 0 to 1, snap when the gap is tiny, and never use <code>k * dt</code> as a blend.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Track 3 begins with quadratic Bezier curves, where three points and lerps inside lerps draw a smooth curve.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Rory Driscoll, <cite>Frame Rate Independent Damping using Lerp</cite> (blog post, 2016), the power form of this lesson derived step by step.</li>
+    <li>Freya Holmér, <cite>Lerp smoothing is broken</cite> (video talk), on the same problem and the exponential decay fix with a half-life.</li>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite>, on why anything tied to the frame rate behaves differently on every machine.</li>
+    <li>Unity Scripting API, <cite>Vector3.SmoothDamp</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FIELD_H = 240;                 // top panel: the chase, screen coordinates (y down)
+  var G_TOP = FIELD_H + 44;          // graph of the gap after a 100 pixel jump (y up)
+  var HEIGHT = 470;
+  var G_BOT = HEIGHT - 58;           // keep the Pause button corner free
+  var GRAPH_TIME = 1;                // seconds shown on the graph
+  var TRAIL = 12;
+
+  var target = { x: 0, y: 0 };
+  var fol = { x: 0, y: 0 };
+  var ref = { x: 0, y: 0 };
+  var acc = 0;
+  var trail = [];
+  var hopIndex = 0;
+  var hopTimer = 0;
+  var placed = false;
+  var lastW = 0;
+  var cache = {};
+  var HOPS = [[0.22, 0.3], [0.8, 0.72], [0.76, 0.26], [0.26, 0.74]];
+
+  function num(n, d) {
+    var str = n.toFixed(d);
+    if (Number(str) === 0) str = (0).toFixed(d);
+    return str.charAt(0) === '-' ? '−' + str.slice(1) : str;
+  }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.getElementById('smoothing')).getPropertyValue(name).trim() || fallback;
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="smoothing"]');
+  var kSlider = ui.slider({ label: 'Blend per frame at 60 fps, k', min: 0.02, max: 0.5, step: 0.01, value: 0.1,
+    format: function (v) { return num(v, 2); }, onInput: redraw });
+  var fpsSlider = ui.slider({ label: 'Simulated frame rate', min: 10, max: 144, step: 2, value: 20, unit: ' fps', onInput: redraw });
+  var fix = ui.toggle({ label: 'Correct for frame time', value: false, onChange: redraw });
+  var auto = ui.toggle({ label: 'Target hops by itself', value: true });
+  var outBlend = ui.readout({ label: 'Blend this frame' });
+  var outGap = ui.readout({ label: 'Gap left 0.5 s after a 100 px jump' });
+
+  function setOut(out, key, text) {
+    if (cache[key] !== text) { cache[key] = text; out.set(text); }
+  }
+
+  // The same rule as the Lua smooth(): share of the gap kept after a frame of length dt.
+  function keepFor(dt, corrected) {
+    var k = DemoKit.clamp(kSlider.value, 0, 1);
+    return corrected ? Math.pow(1 - k, dt * 60) : 1 - k;
+  }
+  function chase(p, keep) {
+    p.x = target.x + (p.x - target.x) * keep;
+    p.y = target.y + (p.y - target.y) * keep;
+  }
+
+  function hopTo(i, s) {
+    target.x = HOPS[i][0] * s.width;
+    target.y = HOPS[i][1] * FIELD_H;
+  }
+  function takeOver() { if (auto.value) auto.set(false); }
+  function setTarget(x, y, s) {
+    target.x = DemoKit.clamp(x, 8, s.width - 8);
+    target.y = DemoKit.clamp(y, 8, FIELD_H - 8);
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  function disc(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  handle = DemoKit.canvas('#smoothing', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A follower chases a crosshair target on a grid. An orange disc uses the chosen blend, frame rate and formula; a blue ring shows the same blend at 60 frames per second. Below, a graph shows how much of a 100 pixel gap is left over one second. Move the mouse, drag, or use the arrow keys to move the target.',
+    onResize: function (s) {
+      if (!placed || lastW === 0) return;
+      var f = s.width / lastW;
+      [target, fol, ref].forEach(function (p) { p.x = p.x * f; });
+      trail = [];
+      lastW = s.width;
+    },
+    onDown: function (p, s) {
+      if (p.y < FIELD_H) { takeOver(); setTarget(p.x, p.y, s); }
+    },
+    onMove: function (p, s) {
+      if (p.inside && p.y < FIELD_H) { takeOver(); setTarget(p.x, p.y, s); }
+    },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var dx = 0, dy = 0;
+      if (key === 'arrowleft') dx = -20;
+      else if (key === 'arrowright') dx = 20;
+      else if (key === 'arrowup') dy = -20;
+      else if (key === 'arrowdown') dy = 20;
+      else return;
+      takeOver();
+      setTarget(target.x + dx, target.y + dy, s);
+    },
+    update: function (dt, s) {
+      if (!placed) return;
+      if (auto.value) {
+        hopTimer += dt;
+        if (hopTimer >= 1.6) {
+          hopTimer = 0;
+          hopIndex = (hopIndex + 1) % HOPS.length;
+          hopTo(hopIndex, s);
+        }
+      }
+      // Reference: the correct formula with the real frame time looks like 60 fps.
+      chase(ref, keepFor(dt, true));
+      // Follower: steps only at the simulated frame rate (at most 15 steps per real frame).
+      var h = 1 / fpsSlider.value;
+      acc += dt;
+      while (acc >= h) {
+        acc -= h;
+        chase(fol, keepFor(h, fix.value));
+        trail.push({ x: fol.x, y: fol.y });
+        if (trail.length > TRAIL) trail.shift();
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var colR = cssVar('--es-ref', '#2f5fe8');
+      var colF = cssVar('--es-fol', '#b35f00');
+      var W = s.width;
+
+      if (!placed) {
+        placed = true;
+        lastW = W;
+        hopTo(0, s);
+        fol.x = ref.x = HOPS[1][0] * W;
+        fol.y = ref.y = HOPS[1][1] * FIELD_H;
+      }
+
+      // Field: grid every 40 px, origin at the top-left, y down.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, W, FIELD_H);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (var gx = 40; gx < W; gx += 40) line(ctx, gx + 0.5, 0, gx + 0.5, FIELD_H);
+      for (var gy = 40; gy < FIELD_H; gy += 40) line(ctx, 0, gy + 0.5, W, gy + 0.5);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      line(ctx, 1, 1, W, 1);
+      line(ctx, 1, 1, 1, FIELD_H);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('x →', 8, 16);
+      ctx.fillText('y ↓', 8, 34);
+
+      // Gap from the follower to the target.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      line(ctx, fol.x, fol.y, target.x, target.y);
+      ctx.setLineDash([]);
+
+      // Trail of the follower's last frames.
+      ctx.fillStyle = colF;
+      ctx.globalAlpha = 0.45;
+      for (var i = 0; i < trail.length; i++) disc(ctx, trail[i].x, trail[i].y, 2.5);
+      ctx.globalAlpha = 1;
+
+      // Reference ring and follower disc.
+      ctx.strokeStyle = colR;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(ref.x, ref.y, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = colF;
+      disc(ctx, fol.x, fol.y, 9);
+
+      // Target crosshair.
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(target.x, target.y, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      line(ctx, target.x - 13, target.y, target.x - 4, target.y);
+      line(ctx, target.x + 4, target.y, target.x + 13, target.y);
+      line(ctx, target.x, target.y - 13, target.x, target.y - 4);
+      line(ctx, target.x, target.y + 4, target.x, target.y + 13);
+
+      var gapPx = Math.sqrt((target.x - fol.x) * (target.x - fol.x) + (target.y - fol.y) * (target.y - fol.y));
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'right';
+      ctx.fillText('gap ' + Math.round(gapPx) + ' px', W - 8, FIELD_H - 10);
+
+      // Graph: gap left after a 100 px jump, over one second.
+      var X0 = 40, X1 = W - 20;
+      function px(t) { return X0 + t / GRAPH_TIME * (X1 - X0); }
+      function py(g) { return G_BOT - g / 100 * (G_BOT - G_TOP); }
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      line(ctx, X0, py(50), X1, py(50));
+      line(ctx, px(0.5), G_TOP, px(0.5), G_BOT);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, X0, G_BOT, X1, G_BOT);
+      line(ctx, X0, G_TOP - 4, X0, G_BOT);
+
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('100', X0 - 5, py(100) + 4);
+      ctx.fillText('50', X0 - 5, py(50) + 4);
+      ctx.fillText('0', X0 - 5, py(0) + 4);
+      ctx.textAlign = 'center';
+      ctx.fillText('0.5 s', px(0.5), G_BOT + 15);
+      ctx.fillText('1 s', X1 - 8, G_BOT + 15);
+      ctx.textAlign = 'left';
+      ctx.fillText('gap left (y up)', X0, G_TOP - 14);
+
+      // Blue: 60 fps reference, a smooth curve 100 × (1 − k)^(60 t).
+      var k = DemoKit.clamp(kSlider.value, 0, 1);
+      ctx.strokeStyle = colR;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var j = 0; j <= 120; j++) {
+        var tt = j / 120 * GRAPH_TIME;
+        var yy = py(100 * Math.pow(1 - k, 60 * tt));
+        if (j === 0) ctx.moveTo(px(tt), yy); else ctx.lineTo(px(tt), yy);
+      }
+      ctx.stroke();
+
+      // Orange: one step per simulated frame with the chosen formula.
+      var fps = fpsSlider.value;
+      var keep = keepFor(1 / fps, fix.value);
+      var gap = 100;
+      var frames = Math.round(GRAPH_TIME * fps);
+      ctx.strokeStyle = colF;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px(0), py(gap));
+      for (var n = 1; n <= frames; n++) {
+        var tn = n / fps;
+        ctx.lineTo(px(tn), py(gap));
+        gap = gap * keep;
+        ctx.lineTo(px(tn), py(gap));
+      }
+      ctx.stroke();
+
+      // Legend.
+      ctx.font = SMALL;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = colR;
+      ctx.fillText('blue: 60 fps', X1, G_TOP - 14);
+      ctx.fillStyle = colF;
+      ctx.fillText('orange: ' + fps + ' fps, ' + (fix.value ? 'corrected' : 'naive'), X1, G_TOP + 2);
+
+      // Readouts.
+      var half = fps / 2;                          // fps is even, so this is a whole frame count
+      var gapHalf = 100 * Math.pow(keep, half);
+      var refHalf = 100 * Math.pow(1 - k, 30);
+      if (fix.value) {
+        setOut(outBlend, 'b', '1 − ' + num(1 - k, 2) + '^(60 / ' + fps + ') = ' + num(1 - keep, 3));
+      } else {
+        setOut(outBlend, 'b', 'k = ' + num(k, 3) + ' every frame, whatever its length');
+      }
+      setOut(outGap, 'g', num(gapHalf, 2) + ' px at ' + fps + ' fps (60 fps: ' + num(refHalf, 2) + ' px)');
+    }
+  });
+})();
+</script>
+</body>
+</html>

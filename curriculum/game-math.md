@@ -27,7 +27,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Inverse lerp and remap** — How to turn a value in one range into a fraction and then into another range. Demo: drag a health value and see it remapped to a bar width and a colour, with a clamp toggle. (published 2026-10-30, inverse-lerp-remap)
 - [x] **Smoothstep** — How an S-shaped curve eases both ends of a transition. Demo: an A/B view moves two boxes with lerp and with smoothstep beside the two graphs. (published 2026-10-31, smoothstep-ease-in-out)
 - [x] **Easing functions** — How ease-in, ease-out, back and bounce curves give movement character. Demo: pick an easing function from a list to see its graph and a box animated with it. (published 2026-11-01, easing-functions)
-- [ ] **Exponential smoothing** — How to chase a target smoothly in a way that gives the same result at any frame rate. Demo: a follower chases the mouse with a smoothing slider, a frame-rate slider and a toggle between the naive and corrected formulas.
+- [x] **Exponential smoothing** — How to chase a target smoothly in a way that gives the same result at any frame rate. Demo: a follower chases the mouse with a smoothing slider, a frame-rate slider and a toggle between the naive and corrected formulas. (published 2026-11-02, exponential-smoothing-frame-rate)
 
 ## Track 3: Curves and transforms
 
