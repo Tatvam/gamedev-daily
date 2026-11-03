@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doom's visplanes: floors saved for later, in a table of 128 · Game Dev Daily</title>
+<meta name="description" content="How Doom drew floors and ceilings: it saved them per column as visplanes, drew them later in rows, and quit when its table of 128 was full.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-03">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Doom's visplanes: floors saved for later, in a table of 128</h1>
+  <p class="lede">How Doom drew floors and ceilings: it saved them per column as visplanes, drew them later in rows, and quit when its table of 128 was full.</p>
+</header>
+
+<section data-section="hook">
+  <p>Doom level designers in the 1990s knew a crash that came with no warning. Build a detailed room, test it, walk to one particular spot, and the game stops with the message <code>R_FindPlane: no more visplanes</code>. The room was not too big. It had too many different-looking pieces of floor in view at once.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: walls go down, floors go across</h2>
+  <p>Yesterday's lesson showed Doom walking its BSP tree and drawing walls nearest first, one screen column at a time. Columns suit walls: every pixel in one column of a wall is at the same distance, so the texture is stepped through at one fixed rate.</p>
+  <p>Floors are the opposite. Down a column of floor, every pixel is at a different distance. Along a screen row, a flat floor stays at the same distance all the way across. So floors are cheap to draw in rows and expensive in columns. But the wall pass discovers floor one column at a time. Doom's answer is to write the floor down during the walk and draw it afterwards.</p>
+
+  <h2>The trick: a visplane per floor surface</h2>
+  <p>A <dfn>visplane</dfn> (visible plane) is Doom's record of one floor or ceiling surface that is on screen this frame. It has three things that decide how it looks: a height, a <dfn>flat</dfn> (Doom's name for a floor or ceiling texture) and a light level. For each of the 320 screen columns it stores two bytes: the top row and the bottom row the surface covers in that column. That is all. One column can hold only one run of rows.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 258" role="img" aria-label="Left: a screen grid of 8 columns and 6 rows. One visplane covers part of columns 1 to 6, and under each column its top row and bottom row are written, for example column 1 has top 3 and bottom 5. Column 0 and column 7 are unused. Right: the same shape cut into horizontal spans, one per row: row 1 covers columns 4 to 5, row 2 covers 2 to 6, rows 3 and 4 cover 1 to 6, and row 5 covers 1 to 4.">
+      <text class="d-label" x="20" y="18">Stored during the walk: per column</text>
+      <g transform="translate(20,28)">
+        <rect class="d-fill" x="0" y="0" width="240" height="180"/>
+        <rect class="d-accent-soft" x="30" y="90" width="30" height="90"/>
+        <rect class="d-accent-soft" x="60" y="60" width="30" height="120"/>
+        <rect class="d-accent-soft" x="90" y="60" width="30" height="120"/>
+        <rect class="d-accent-soft" x="120" y="30" width="30" height="150"/>
+        <rect class="d-accent-soft" x="150" y="30" width="30" height="120"/>
+        <rect class="d-accent-soft" x="180" y="60" width="30" height="90"/>
+        <path class="d-thin" d="M30 0 V180 M60 0 V180 M90 0 V180 M120 0 V180 M150 0 V180 M180 0 V180 M210 0 V180 M0 30 H240 M0 60 H240 M0 90 H240 M0 120 H240 M0 150 H240"/>
+        <text class="d-mono" x="15" y="200" text-anchor="middle">-</text>
+        <text class="d-mono" x="45" y="200" text-anchor="middle">3</text>
+        <text class="d-mono" x="75" y="200" text-anchor="middle">2</text>
+        <text class="d-mono" x="105" y="200" text-anchor="middle">2</text>
+        <text class="d-mono" x="135" y="200" text-anchor="middle">1</text>
+        <text class="d-mono" x="165" y="200" text-anchor="middle">1</text>
+        <text class="d-mono" x="195" y="200" text-anchor="middle">2</text>
+        <text class="d-mono" x="225" y="200" text-anchor="middle">-</text>
+        <text class="d-mono" x="15" y="218" text-anchor="middle">-</text>
+        <text class="d-mono" x="45" y="218" text-anchor="middle">5</text>
+        <text class="d-mono" x="75" y="218" text-anchor="middle">5</text>
+        <text class="d-mono" x="105" y="218" text-anchor="middle">5</text>
+        <text class="d-mono" x="135" y="218" text-anchor="middle">5</text>
+        <text class="d-mono" x="165" y="218" text-anchor="middle">4</text>
+        <text class="d-mono" x="195" y="218" text-anchor="middle">4</text>
+        <text class="d-mono" x="225" y="218" text-anchor="middle">-</text>
+      </g>
+      <text class="d-muted" x="266" y="232">top</text>
+      <text class="d-muted" x="266" y="250">bottom</text>
+
+      <path class="d-accent" d="M300 118 H346"/>
+      <path class="d-accent" d="M338 110 L348 118 L338 126"/>
+
+      <text class="d-label" x="370" y="18">Drawn after the walk: per row</text>
+      <g transform="translate(370,28)">
+        <rect class="d-fill" x="0" y="0" width="240" height="180"/>
+        <path class="d-thin" d="M0 30 H240 M0 60 H240 M0 90 H240 M0 120 H240 M0 150 H240"/>
+        <rect class="d-accent-soft" x="122" y="34" width="56" height="22" rx="4"/>
+        <rect class="d-accent-soft" x="62" y="64" width="146" height="22" rx="4"/>
+        <rect class="d-accent-soft" x="32" y="94" width="176" height="22" rx="4"/>
+        <rect class="d-accent-soft" x="32" y="124" width="176" height="22" rx="4"/>
+        <rect class="d-accent-soft" x="32" y="154" width="116" height="22" rx="4"/>
+        <text class="d-mono" x="150" y="49" text-anchor="middle">4-5</text>
+        <text class="d-mono" x="135" y="79" text-anchor="middle">2-6</text>
+        <text class="d-mono" x="120" y="109" text-anchor="middle">1-6</text>
+        <text class="d-mono" x="120" y="139" text-anchor="middle">1-6</text>
+        <text class="d-mono" x="90" y="169" text-anchor="middle">1-4</text>
+      </g>
+      <text class="d-muted" x="370" y="228">each span: one row, one distance,</text>
+      <text class="d-muted" x="370" y="246">one fixed texture step</text>
+    </svg>
+    <figcaption>One visplane. While the walls are drawn it is filled in column by column (left). At the end of the frame it is read back out as horizontal spans (right), each at a single distance from the player.</figcaption>
+  </figure>
+
+  <h3>Filling the table</h3>
+  <p>When the walk draws a wall, it also knows which rows below it show the floor in front of it. To record them it uses two functions from the released source file <code>r_plane.c</code>:</p>
+  <ul>
+    <li><code>R_FindPlane</code>, called once for each area the walk enters, returns the first entry in the table with the same height, flat and light, or adds a new one.</li>
+    <li><code>R_CheckPlane</code>, called for each wall piece, checks whether that wall's columns are already used in the entry. If they are free, the entry grows to include them. If even one is taken, a new visplane with the same three values is added.</li>
+  </ul>
+  <p>Neighbouring areas that look exactly alike cost nothing extra: when both sides of a line match, the wall code skips marking the floor there, so the two areas become one run in each column. All sky shares a single key; the source comment reads "all skys map together".</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Left: a side view. The player's eye looks along a floor made of stone near, then a strip of grate, then stone again, ending at a wall. Dashed sight lines run from the eye to each edge. Right: one screen column. From top to bottom it shows sky, the wall, the far stone as visplane 3, the grate as visplane 2 and the near stone as visplane 1. The far stone cannot join visplane 1 because that column already has a run in it.">
+      <circle class="d-accent-fill" cx="30" cy="50" r="6"/>
+      <text class="d-muted" x="22" y="32">eye</text>
+      <path class="d-dash" d="M30 50 L170 170 M30 50 L230 170 M30 50 L350 170"/>
+      <path class="d-stroke" d="M40 170 H170" style="stroke-width:5"/>
+      <path class="d-accent" d="M170 170 H230" style="stroke-width:5"/>
+      <path class="d-stroke" d="M230 170 H350" style="stroke-width:5"/>
+      <rect class="d-box" x="350" y="40" width="16" height="130"/>
+      <text class="d-text" x="105" y="194" text-anchor="middle">stone</text>
+      <text class="d-label" x="200" y="194" text-anchor="middle">grate</text>
+      <text class="d-text" x="290" y="194" text-anchor="middle">stone</text>
+      <text class="d-muted" x="350" y="30">wall</text>
+
+      <rect class="d-fill" x="420" y="20" width="30" height="57"/>
+      <rect class="d-box" x="420" y="77" width="30" height="40"/>
+      <rect class="d-accent-soft" x="420" y="117" width="30" height="23"/>
+      <rect class="d-box" x="420" y="140" width="30" height="26" style="stroke-dasharray:3 3"/>
+      <rect class="d-accent-soft" x="420" y="166" width="30" height="34"/>
+      <text class="d-muted" x="404" y="14">one screen column</text>
+      <text class="d-muted" x="462" y="52">sky</text>
+      <text class="d-muted" x="462" y="101">wall</text>
+      <text class="d-label" x="462" y="133">visplane 3: stone again</text>
+      <text class="d-text" x="462" y="157">visplane 2: grate</text>
+      <text class="d-text" x="462" y="187">visplane 1: stone</text>
+    </svg>
+    <figcaption>The far stone has the same height, flat and light as the near stone, but visplane 1 already holds a run in this column, so the far stone needs a visplane of its own.</figcaption>
+  </figure>
+
+  <h3>Drawing the table</h3>
+  <p>Once every wall is done, <code>R_DrawPlanes</code> goes through the table. For each visplane, <code>R_MakeSpans</code> compares neighbouring columns to find where each row starts and ends, and <code>R_MapPlane</code> draws each row as one <dfn>span</dfn>, a horizontal strip of pixels, caching the distance for that row. Sprites come last.</p>
+
+  <h3>The limit</h3>
+  <p>The table is a fixed array. In <code>r_plane.c</code> it is declared with <code>#define MAXVISPLANES 128</code>, under a comment that sums up how the programmers felt: "Here comes the obnoxious "visplane"." Each entry carries 20 bytes of fields plus 644 bytes of per-column rows and padding, so the whole table is about 85,000 bytes, set aside for the life of the game.</p>
+  <p>When <code>R_FindPlane</code> needs a new entry and all 128 are taken, it stops the game with the error from the hook. In the released source, <code>R_CheckPlane</code>, the other place that adds entries, has no such check at all.</p>
+  <p>What fills the table is variety in view, not size. A huge plain courtyard is one visplane. A small floor of alternating flats is many, because each return to stone after a break needs another entry. Light changes and small steps count exactly as much as texture changes.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Why designers had to care</p>
+    <p>The count depends on where the player stands and looks. A map can be fine everywhere except one spot, and only playing it from that spot reveals the crash. Later source ports removed the limit; PrBoom-plus, for example, keeps visplanes in a hash table of linked lists, and its comment notes that <code>MAXVISPLANES</code> there is "no longer a limit on the number of visplanes".</p>
+  </div>
+
+  <h3>The lesson for today</h3>
+  <p>A visplane is a batch: surfaces that share drawing state are merged and drawn together. Modern renderers batch draw calls by material in the same spirit, and many small material changes cost more than one big plain surface for the same reason. Fixed-size pools are still everywhere too, from particle buffers to packet queues. Decide what happens when one is full, and test the worst view, not the average.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is the floor from above, nine cells wide, with the player at the bottom. Pick a height, flat and light under <strong>Brush</strong> and tap or drag across cells to paint them (or focus the map, move the dashed cursor with the arrow keys and press Space). The right panel is the player's view, with each visplane in its own colour. Press <strong>Checkerboard</strong> and watch the count jump, then <strong>Plain floor</strong> and watch it fall to two. Tap a colour in the view, or use <strong>Highlight visplane</strong>, to see which cells feed it and the rows it is drawn in.</p>
+
+  <figure class="demo wide" data-demo="visplanes">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="vp-map"></canvas><span class="demo-label">The floor, from above</span></div>
+      <div class="demo-stage"><canvas id="vp-view"></canvas><span class="demo-label">The player's view</span></div>
+    </div>
+    <figcaption>Each connected patch of matching cells counts as one area. The view is only 128 columns wide, so the table starts at 32 entries; Doom's held 128 for 320 columns. Entries past the end are striped red: the frame where Doom would have quit.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The bookkeeping in plain Lua, with the same names as the demo. <code>love.draw</code> marks three floors in the order the walk would meet them, near stone, a strip of grate and stone again, and ends up with three visplanes. Rows and columns start at 1.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local MAX_VISPLANES, SCREEN_W, SCREEN_H = 128, 320, 200
+local visplanes = {}
+
+local function newPlane(height, flat, light)
+  if #visplanes == MAX_VISPLANES then error("no more visplanes") end
+  local pl = { height = height, flat = flat, light = light,
+               minx = SCREEN_W + 1, maxx = 0, top = {}, bottom = {} }
+  table.insert(visplanes, pl)
+  return pl
+end
+
+local function findPlane(height, flat, light)   <span class="c">-- first entry that looks the same</span>
+  for _, pl in ipairs(visplanes) do
+    if pl.height == height and pl.flat == flat and pl.light == light then return pl end
+  end
+  return newPlane(height, flat, light)
+end
+
+local function checkPlane(pl, start, stop)      <span class="c">-- a wall will mark columns start..stop</span>
+  for x = math.max(start, pl.minx), math.min(stop, pl.maxx) do
+<span class="k">    if pl.top[x] then return checkPlane(newPlane(pl.height, pl.flat, pl.light), start, stop) end</span>
+  end
+  pl.minx, pl.maxx = math.min(pl.minx, start), math.max(pl.maxx, stop)
+  return pl
+end
+
+local function markRows(pl, x1, x2, top, bottom)
+  for x = x1, x2 do pl.top[x], pl.bottom[x] = top, bottom end
+end
+
+local function drawPlanes(drawSpan)             <span class="c">-- read each visplane back out as rows</span>
+  for _, pl in ipairs(visplanes) do
+    for y = 1, SCREEN_H do
+      local start = nil
+      for x = pl.minx, pl.maxx + 1 do
+        local inside = pl.top[x] ~= nil and pl.top[x] &lt;= y and y &lt;= pl.bottom[x]
+        if inside and not start then start = x end
+        if not inside and start then drawSpan(pl, y, start, x - 1); start = nil end
+      end
+    end
+  end
+end
+
+function love.draw()
+  visplanes = {}                                <span class="c">-- the table is emptied every frame</span>
+  markRows(checkPlane(findPlane(0, "stone", 192), 1, SCREEN_W), 1, SCREEN_W, 151, 200)
+  markRows(checkPlane(findPlane(0, "grate", 192), 1, SCREEN_W), 1, SCREEN_W, 131, 150)
+  markRows(checkPlane(findPlane(0, "stone", 192), 1, SCREEN_W), 1, SCREEN_W, 111, 130)
+  drawPlanes(function(pl, y, x1, x2)            <span class="c">-- one row: one distance, one texture step</span>
+    local v = pl.light / 255
+    if pl.flat == "grate" then v = v * 0.5 end
+    love.graphics.setColor(v, v, v)
+    love.graphics.rectangle("fill", x1 - 1, y - 1, x2 - x1 + 1, 1)
+  end)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print("visplanes: " .. #visplanes, 8, 8)
+end</code></pre>
+  </div>
+  <p>The third call finds the first stone entry, sees that its columns are taken and makes a new one. A newly made entry starts with no columns, so the second <code>checkPlane</code> call always accepts it. Doom's own span builder is smarter than the triple loop in <code>drawPlanes</code>: it compares each column only with its neighbour, but it produces the same rows.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Judging by size.</strong> A big plain area is one visplane. A small detailed floor with stripes, lights or little steps can be dozens. Count the breaks a single column of the view passes through.</li>
+    <li><strong>Forgetting light is part of the key.</strong> A patch of dim floor with the same texture and height is a different visplane, exactly like a texture change.</li>
+    <li><strong>Testing from one spot.</strong> The count changes with position and angle. In the demo, turn the view with <strong>Look</strong> and watch the same floor need a different number.</li>
+    <li><strong>A pool with no plan for full.</strong> Doom's answer was to quit. If you keep a fixed pool, decide on a fallback, such as merging, skipping or drawing a cheaper version, and log how close you came.</li>
+    <li><strong>Assuming merging is optimal.</strong> <code>R_FindPlane</code> only offers the first matching entry. If that one is busy a new one is made, even when a later entry with the same key has room.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every game on the original Doom engine inherited this design. Chocolate Doom, a source port that aims to behave like the original executables, keeps <code>MAXVISPLANES</code> at 128. Ports aimed at mappers, such as Boom and its descendant PrBoom-plus, replaced the array with a structure that can grow, which is one reason large community maps name the port they need. Deferring surfaces and drawing them grouped by state lives on in modern renderers that batch by material.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Extend the Lua code so that, instead of calling <code>error</code> when the table is full, <code>newPlane</code> returns the last entry and counts a miss. Then mark ten floors in a column in the order stone, grate, stone, grate and so on, with <code>MAX_VISPLANES</code> set to 4, and print how many misses happened. You are done when you can explain which rows would be drawn with the wrong texture, and why this is worse than it looks when the misses land on the floor right in front of the player.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Walls are cheap to draw in columns and floors in rows, so Doom recorded floors during the wall pass and drew them afterwards.</li>
+    <li>A visplane is one surface's height, flat and light level, plus one top and bottom row for each screen column.</li>
+    <li>Same-looking floors merge, unless they need the same column; then a new visplane is made.</li>
+    <li>Doom's table held 128, and running out stopped the game with "R_FindPlane: no more visplanes".</li>
+    <li>Variety in view, not size, uses up the table, which is the same reason modern renderers batch by material.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we move to the original PlayStation, whose textures warp and whose models wobble, and see the two hardware shortcuts behind both.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The mechanism, the limit, the error message and the quoted comments were checked in this session against the released Doom source and two source ports. The Doom Wiki could not be reached from this session, so it is named without a link.</p>
+  <ul>
+    <li>id Software, <a href="https://github.com/id-Software/DOOM">Doom source code</a>, released in 1997. See <a href="https://github.com/id-Software/DOOM/blob/master/linuxdoom-1.10/r_plane.c">r_plane.c</a> for <code>MAXVISPLANES</code>, <code>R_FindPlane</code>, <code>R_CheckPlane</code>, <code>R_MakeSpans</code> and <code>R_DrawPlanes</code>, <code>r_defs.h</code> for the <code>visplane_t</code> layout, <code>r_segs.c</code> for when floors are marked, and <code>r_main.c</code> for the order of a frame.</li>
+    <li>Chocolate Doom, <a href="https://github.com/chocolate-doom/chocolate-doom/blob/master/src/doom/r_plane.c">src/doom/r_plane.c</a>, which keeps the limit of 128.</li>
+    <li>PrBoom-plus, <a href="https://github.com/coelckers/prboom-plus/blob/master/prboom2/src/r_plane.c">prboom2/src/r_plane.c</a>, with Lee Killough's note on replacing the fixed table with hashed lists.</li>
+    <li>Doom Wiki, <cite>Visplane overflow</cite>, a community article on the error and how mappers avoided it.</li>
+    <li>Fabien Sanglard, <cite>Game Engine Black Book: DOOM</cite>, a book-length study of the engine.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Core model (mirrors the Lua bookkeeping) ----
+  var GW = 9, GD = 10;                       // grid of floor cells, one cell = 64 map units
+  var COLS = 128, ROWS = 80;                 // low-resolution "screen"
+  var F = 64, HOR = 28, EYE = 0.9, WALL_TOP = 1.7;
+  var HEIGHTS = [0, 16, 32];
+  var LIGHTS = [192, 128];
+  var FLATS = ['stone', 'grate'];
+  var PLAYER = { x: 4.5, y: 9.5 };
+
+  var cells = [];
+  function mk(h, flat, light) { return { h: h, flat: flat, light: light }; }
+  function fillCells(fn) {
+    cells = [];
+    for (var y = 0; y < GD; y += 1) {
+      var row = [];
+      for (var x = 0; x < GW; x += 1) row.push(fn(x, y));
+      cells.push(row);
+    }
+  }
+  function keyOf(c) { return c.h + '/' + c.flat + '/' + c.light; }
+  function hOf(c) { return HEIGHTS[c.h] / 64; }
+
+  var PRESETS = {
+    start: function (x, y) {
+      if (x >= 3 && x <= 5 && y >= 2 && y <= 4) return mk(1, 1, 0);
+      if (y === 6) return mk(0, 0, 1);
+      return mk(0, 0, 0);
+    },
+    plain: function () { return mk(0, 0, 0); },
+    steps: function (x, y) { return mk(y <= 2 ? 2 : (y <= 5 ? 1 : 0), 0, 0); },
+    checker: function (x, y) { return mk(0, (x + y) % 2, 0); }
+  };
+  function patchwork() {
+    var rnd = DemoKit.rng(7);
+    fillCells(PRESETS.plain);
+    for (var i = 0; i < 7; i += 1) {
+      var w = 1 + Math.floor(rnd() * 4), h = 1 + Math.floor(rnd() * 3);
+      var x0 = Math.floor(rnd() * (GW - w + 1)), y0 = Math.floor(rnd() * (GD - h + 1));
+      var c = mk(Math.floor(rnd() * 3), Math.floor(rnd() * 2), rnd() < 0.3 ? 1 : 0);
+      for (var y = y0; y < y0 + h; y += 1) for (var x = x0; x < x0 + w; x += 1) cells[y][x] = mk(c.h, c.flat, c.light);
+    }
+  }
+  fillCells(PRESETS.start);
+
+  var N = COLS * ROWS;
+  var kind = new Int8Array(N);      // 0 sky, 1 wall, 2 riser, 3 floor
+  var owner = new Int16Array(N);    // visplane index for sky and floor pixels
+  var dist = new Float32Array(N);   // distance, for shading walls and risers
+  var rays = [];
+  var events = [];
+  var visplanes = [];
+  var limit = 32;
+  var lookDeg = 0;
+
+  function newPlane(key) {
+    var parts = key.split('/');
+    var pl = {
+      index: visplanes.length, key: key, sky: key === 'sky',
+      h: Number(parts[0]), flat: Number(parts[1]), light: Number(parts[2]),
+      minx: COLS, maxx: -1, top: new Int16Array(COLS), bottom: new Int16Array(COLS),
+      over: visplanes.length >= limit, cells: {}
+    };
+    pl.top.fill(-1); pl.bottom.fill(-1);
+    visplanes.push(pl);
+    return pl;
+  }
+  function findPlane(key) {
+    for (var i = 0; i < visplanes.length; i += 1) if (visplanes[i].key === key) return visplanes[i];
+    return newPlane(key);
+  }
+  function checkPlane(pl, start, stop) {
+    var lo = Math.max(start, pl.minx), hi = Math.min(stop, pl.maxx);
+    for (var x = lo; x <= hi; x += 1) {
+      if (pl.top[x] >= 0) return checkPlane(newPlane(pl.key), start, stop);
+    }
+    pl.minx = Math.min(pl.minx, start);
+    pl.maxx = Math.max(pl.maxx, stop);
+    return pl;
+  }
+  function markColumn(pl, x, top, bottom) {
+    if (top <= bottom) { pl.top[x] = top; pl.bottom[x] = bottom; }
+  }
+
+  function addEvent(c, edge, key, top, bottom, d, runCells) {
+    top = Math.max(top, 0);
+    if (top > bottom) return;
+    events.push({ c: c, edge: edge, key: key, top: top, bottom: bottom, d: d, cells: runCells.slice() });
+  }
+
+  // Cast one ray per column through the grid, nearest first, like Doom's wall pass.
+  function castAll() {
+    var a = lookDeg * Math.PI / 180;
+    var fx = Math.sin(a), fy = -Math.cos(a), rx = Math.cos(a), ry = Math.sin(a);
+    events = [];
+    for (var i = 0; i < N; i += 1) { kind[i] = 3; owner[i] = -1; dist[i] = 0; }
+    for (var c = 0; c < COLS; c += 1) {
+      var cam = (c + 0.5) / COLS * 2 - 1;
+      var dx = fx + rx * cam, dy = fy + ry * cam;   // forward component is 1, so t is the depth
+      rays[c] = { dx: dx, dy: dy };
+      var mx = Math.floor(PLAYER.x), my = Math.floor(PLAYER.y);
+      var ddx = dx === 0 ? 1e30 : Math.abs(1 / dx), ddy = dy === 0 ? 1e30 : Math.abs(1 / dy);
+      var sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
+      var sdx = dx < 0 ? (PLAYER.x - mx) * ddx : (mx + 1 - PLAYER.x) * ddx;
+      var sdy = dy < 0 ? (PLAYER.y - my) * ddy : (my + 1 - PLAYER.y) * ddy;
+      var floorclip = ROWS;
+      var cur = cells[my][mx];
+      var runKey = keyOf(cur), runH = hOf(cur), runCells = [my * GW + mx];
+      for (var guard = 0; guard < 64; guard += 1) {
+        var fromX = mx, fromY = my, d;
+        if (sdx < sdy) { d = sdx; sdx += ddx; mx += sx; } else { d = sdy; sdy += ddy; my += sy; }
+        var outside = mx < 0 || mx >= GW || my < 0 || my >= GD;
+        var edge = (fromY * GW + fromX) + '>' + (outside ? 'w' + mx + ',' + my : String(my * GW + mx));
+        var top = Math.ceil(HOR + (EYE - runH) * F / d);
+        var r;
+        if (outside) {
+          addEvent(c, edge, runKey, top, floorclip - 1, d, runCells);
+          var wt = Math.max(0, Math.ceil(HOR + (EYE - WALL_TOP) * F / d));
+          var wb = Math.min(top, floorclip);
+          for (r = 0; r < wb && r < ROWS; r += 1) {
+            var p = r * COLS + c;
+            if (r < wt) { kind[p] = 0; owner[p] = 0; }
+            else { kind[p] = 1; dist[p] = d; }
+          }
+          break;
+        }
+        var next = cells[my][mx], nk = keyOf(next);
+        if (nk === runKey) { runCells.push(my * GW + mx); continue; }
+        addEvent(c, edge, runKey, top, floorclip - 1, d, runCells);
+        floorclip = Math.min(floorclip, top);
+        var nh = hOf(next);
+        if (nh > runH) {
+          var rt = Math.max(0, Math.ceil(HOR + (EYE - nh) * F / d));
+          for (r = rt; r < floorclip; r += 1) { kind[r * COLS + c] = 2; dist[r * COLS + c] = d; }
+          floorclip = Math.min(floorclip, rt);
+        }
+        runKey = nk; runH = nh; runCells = [my * GW + mx];
+      }
+    }
+  }
+
+  // A connected patch of matching cells plays the part of one Doom area (subsector).
+  var area = new Int16Array(GW * GD);
+  function findAreas() {
+    area.fill(-1);
+    var n = 0;
+    for (var start = 0; start < GW * GD; start += 1) {
+      if (area[start] >= 0) continue;
+      var key = keyOf(cells[Math.floor(start / GW)][start % GW]);
+      var stack = [start];
+      area[start] = n;
+      while (stack.length) {
+        var id = stack.pop(), x = id % GW, y = Math.floor(id / GW);
+        [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].forEach(function (q) {
+          if (q[0] < 0 || q[0] >= GW || q[1] < 0 || q[1] >= GD) return;
+          var j = q[1] * GW + q[0];
+          if (area[j] < 0 && keyOf(cells[q[1]][q[0]]) === key) { area[j] = n; stack.push(j); }
+        });
+      }
+      n += 1;
+    }
+  }
+
+  // Hand each wall's floor rows to the table. Like Doom: one findPlane per area,
+  // then checkPlane for each wall piece in it. Areas go nearest first.
+  function assign() {
+    findAreas();
+    var groups = {}, order = [];
+    events.forEach(function (e) {
+      var g = groups[e.edge];
+      if (!g) { g = groups[e.edge] = []; order.push(g); }
+      g.push(e);
+    });
+    var areas = {}, areaList = [];
+    order.forEach(function (g) {
+      g.sort(function (a, b) { return a.c - b.c; });
+      var run = null;
+      g.forEach(function (e) {
+        if (!run || e.c !== run.stop + 1) {
+          run = { key: e.key, start: e.c, stop: e.c, d: e.d, list: [] };
+          var aid = area[e.cells[0]];
+          var A = areas[aid];
+          if (!A) { A = areas[aid] = { key: e.key, d: e.d, runs: [] }; areaList.push(A); }
+          A.runs.push(run);
+        }
+        run.stop = e.c; run.d = Math.min(run.d, e.d); run.list.push(e);
+      });
+    });
+    areaList.forEach(function (A) {
+      A.runs.forEach(function (run) { A.d = Math.min(A.d, run.d); });
+      A.runs.sort(function (a, b) { return a.d - b.d || a.start - b.start; });
+    });
+    areaList.sort(function (a, b) { return a.d - b.d; });
+    visplanes = [];
+    var sky = newPlane('sky');
+    sky.minx = 0; sky.maxx = COLS - 1;
+    areaList.forEach(function (A) {
+      var pl = findPlane(A.key);
+      A.runs.forEach(function (run) {
+        pl = checkPlane(pl, run.start, run.stop);
+        run.list.forEach(function (e) {
+          markColumn(pl, e.c, e.top, e.bottom);
+          for (var r = e.top; r <= e.bottom; r += 1) owner[r * COLS + e.c] = pl.index;
+          e.cells.forEach(function (id) { pl.cells[id] = true; });
+        });
+      });
+    });
+  }
+
+  function spansOf(pl) {
+    var n = 0;
+    for (var y = 0; y < ROWS; y += 1) {
+      var inside = false;
+      for (var x = 0; x <= COLS; x += 1) {
+        var on = x < COLS && (pl.sky ? (kind[y * COLS + x] === 0) : (pl.top[x] >= 0 && pl.top[x] <= y && y <= pl.bottom[x]));
+        if (on && !inside) n += 1;
+        inside = on;
+      }
+    }
+    return n;
+  }
+
+  // ---- Controls ----
+  var brush = { h: 1, flat: 1, light: 0 };
+  var ui = DemoKit.controls('[data-demo="visplanes"]');
+  ui.select({ label: 'Brush height', options: [{ value: '0', label: '0' }, { value: '1', label: '16' }, { value: '2', label: '32' }],
+    value: '1', onChange: function (v) { brush.h = Number(v); } });
+  ui.select({ label: 'Brush flat', options: [{ value: '0', label: 'stone' }, { value: '1', label: 'grate' }],
+    value: '1', onChange: function (v) { brush.flat = Number(v); } });
+  ui.select({ label: 'Brush light', options: [{ value: '0', label: 'bright (192)' }, { value: '1', label: 'dim (128)' }],
+    value: '0', onChange: function (v) { brush.light = Number(v); } });
+  ui.button({ label: 'Plain floor', onClick: function () { fillCells(PRESETS.plain); refresh(); } });
+  ui.button({ label: 'Steps', onClick: function () { fillCells(PRESETS.steps); refresh(); } });
+  ui.button({ label: 'Checkerboard', onClick: function () { fillCells(PRESETS.checker); refresh(); } });
+  ui.button({ label: 'Patchwork', onClick: function () { patchwork(); refresh(); } });
+  ui.button({ label: 'Reset', onClick: function () { fillCells(PRESETS.start); refresh(); } });
+  var viewMode = ui.select({ label: 'View', options: [{ value: 'planes', label: 'Colour by visplane' }, { value: 'tex', label: 'Textured' }],
+    value: 'planes', onChange: function () { redraw(); } });
+  var look = ui.slider({ label: 'Look', min: -40, max: 40, step: 5, value: 0, unit: '°',
+    onInput: function (v) { lookDeg = v; refresh(); } });
+  var table = ui.slider({ label: 'Visplane table size (Doom: 128)', min: 8, max: 128, step: 4, value: 32,
+    onInput: function (v) { limit = v; refresh(); } });
+  var hl = ui.slider({ label: 'Highlight visplane (0 = none)', min: 0, max: 1, step: 1, value: 0,
+    onInput: function () { updateReadouts(); redraw(); } });
+  var countOut = ui.readout({ label: 'Visplanes' });
+  var hlOut = ui.readout({ label: 'Highlighted' });
+
+  var mapHandle = null, viewHandle = null;
+  function redraw() {
+    if (mapHandle) mapHandle.redraw();
+    if (viewHandle) viewHandle.redraw();
+  }
+  function refresh() {
+    castAll();
+    assign();
+    hl.el.max = visplanes.length;
+    if (hl.value > visplanes.length) hl.set(0);
+    updateReadouts();
+    redraw();
+  }
+  function describe(pl) {
+    if (pl.sky) return 'all sky shares one key';
+    return 'height ' + HEIGHTS[pl.h] + ', ' + FLATS[pl.flat] + ', light ' + LIGHTS[pl.light];
+  }
+  function updateReadouts() {
+    var total = visplanes.length;
+    if (total > limit) {
+      countOut.set(total + ' needed, the table holds ' + limit + '. Doom would quit: R_FindPlane: no more visplanes');
+    } else {
+      countOut.set(total + ' of ' + limit + ' used (' + (total - 1) + ' floor, 1 sky)');
+    }
+    var k = hl.value;
+    if (k === 0 || k > total) { hlOut.set('none. Tap the view or use the slider.'); return; }
+    var pl = visplanes[k - 1];
+    var same = 0;
+    visplanes.forEach(function (q) { if (q.key === pl.key) same += 1; });
+    var text = 'visplane ' + k + ': ' + describe(pl) + '; columns ' + pl.minx + ' to ' + pl.maxx + ', drawn as ' + spansOf(pl) + ' row spans';
+    if (!pl.sky && same > 1) text += '; ' + same + ' visplanes share this key';
+    if (pl.over) text += '. Past the end of the table.';
+    hlOut.set(text);
+  }
+
+  // ---- Colours ----
+  function hsl(hh, s, l) {
+    hh = ((hh % 360) + 360) % 360 / 360;
+    function f(n) {
+      var k = (n + hh * 12) % 12, a = s * Math.min(l, 1 - l);
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    }
+    return [f(0), f(8), f(4)];
+  }
+  var planeRGB = [];
+  function planeColour(i) {
+    if (!planeRGB[i]) planeRGB[i] = hsl(200 + i * 137.508, 0.62, 0.56);
+    return planeRGB[i];
+  }
+  var FLAT_RGB = [[150, 140, 124], [72, 124, 128]];
+  function cellRGB(c) {
+    var b = FLAT_RGB[c.flat], m = c.light === 1 ? 0.6 : 1;
+    return [b[0] * m, b[1] * m, b[2] * m];
+  }
+
+  // ---- View panel ----
+  var buf = document.createElement('canvas');
+  buf.width = COLS; buf.height = ROWS;
+  var bctx = buf.getContext('2d');
+  var img = bctx.createImageData(COLS, ROWS);
+
+  function paintBuffer() {
+    var tex = viewMode.value === 'tex';
+    var sel = hl.value - 1;
+    var data = img.data;
+    for (var y = 0; y < ROWS; y += 1) {
+      for (var x = 0; x < COLS; x += 1) {
+        var p = y * COLS + x, k = kind[p], rgb, fade = 1;
+        var pi = owner[p];
+        if (k === 1 || k === 2) {
+          fade = Math.max(0.45, 1 - dist[p] / 16);
+          rgb = k === 1 ? (tex ? [128, 120, 110] : [110, 110, 110]) : (tex ? [160, 126, 92] : [150, 150, 150]);
+          if (sel >= 0) fade *= 0.55;
+        } else if (k === 0) {
+          rgb = tex ? [Math.round(90 + y), Math.round(126 + y), 186] : planeColour(0);
+        } else if (pi >= 0) {
+          var pl = visplanes[pi];
+          if (tex) {
+            var hgt = HEIGHTS[pl.h] / 64;
+            var d = (EYE - hgt) * F / (y + 0.5 - HOR);
+            var wx = PLAYER.x + rays[x].dx * d, wy = PLAYER.y + rays[x].dy * d;
+            rgb = FLAT_RGB[pl.flat].slice();
+            var m = 1;
+            if (pl.flat === 0) {
+              var tx = Math.floor(wx * 2), ty = Math.floor(wy * 2);
+              if ((tx + ty) % 2 === 0) m *= 0.86;
+              if (wx * 2 - tx < 0.08 || wy * 2 - ty < 0.08) m *= 0.65;
+            } else if (wx * 5 - Math.floor(wx * 5) < 0.35) m *= 0.5;
+            if (pl.light === 1) m *= 0.55;
+            fade = m * Math.max(0.4, 1 - d / 16);
+          } else {
+            rgb = planeColour(pi);
+          }
+          if (pl.over) rgb = ((x + y) % 4 < 2) ? [210, 50, 40] : [120, 25, 20];
+          if (sel >= 0) {
+            if (pi !== sel) { rgb = [rgb[0] * 0.3 + 90, rgb[1] * 0.3 + 90, rgb[2] * 0.3 + 90]; }
+            else if (y % 2 === 1) fade *= 0.78;   // alternate rows: the spans it is drawn in
+          }
+        } else {
+          rgb = [0, 0, 0];
+        }
+        if (k === 0 && sel >= 0) {
+          if (sel !== 0) rgb = [rgb[0] * 0.3 + 90, rgb[1] * 0.3 + 90, rgb[2] * 0.3 + 90];
+          else if (y % 2 === 1) fade *= 0.78;
+        }
+        data[p * 4] = Math.round(rgb[0] * fade);
+        data[p * 4 + 1] = Math.round(rgb[1] * fade);
+        data[p * 4 + 2] = Math.round(rgb[2] * fade);
+        data[p * 4 + 3] = 255;
+      }
+    }
+    bctx.putImageData(img, 0, 0);
+  }
+
+  viewHandle = DemoKit.canvas('#vp-view', {
+    aspect: COLS / ROWS, minHeight: 180, maxHeight: 400, animate: false,
+    label: 'The player\'s view, drawn at 128 by 80 pixels. Each visplane has its own colour. Tap a colour to highlight that visplane.',
+    onDown: function (p, s) {
+      var x = Math.floor(p.x / s.width * COLS), y = Math.floor(p.y / s.height * ROWS);
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+      var o = owner[y * COLS + x];
+      hl.set(o >= 0 ? o + 1 : 0);
+      updateReadouts();
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      paintBuffer();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(buf, 0, 0, s.width, s.height);
+      if (visplanes.length > limit) {
+        var msg = 'R_FindPlane: no more visplanes';
+        ctx.font = '13px ui-monospace, monospace';
+        var w = Math.min(s.width - 16, ctx.measureText(msg).width + 16);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+        ctx.fillRect(8, 8, w, 26);
+        ctx.fillStyle = '#ff8a7a';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(msg, 16, 21, w - 16);
+      }
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, s.width - 1, s.height - 1);
+    }
+  });
+
+  // ---- Map panel ----
+  var cursor = { x: 4, y: 5 };
+  var LEGEND = 40;
+  function layout(s) {
+    var cs = Math.min((s.width - 16) / GW, (s.height - LEGEND - 12) / GD);
+    return { cs: cs, ox: (s.width - GW * cs) / 2, oy: 8 + (s.height - LEGEND - 8 - GD * cs) / 2 };
+  }
+  function cellAt(p, s) {
+    var L = layout(s);
+    var x = Math.floor((p.x - L.ox) / L.cs), y = Math.floor((p.y - L.oy) / L.cs);
+    if (x < 0 || x >= GW || y < 0 || y >= GD) return null;
+    return { x: x, y: y };
+  }
+  var lastPainted = '';
+  function paint(x, y) {
+    var c = cells[y][x];
+    if (c.h === brush.h && c.flat === brush.flat && c.light === brush.light) return;
+    cells[y][x] = mk(brush.h, brush.flat, brush.light);
+    refresh();
+  }
+
+  mapHandle = DemoKit.canvas('#vp-map', {
+    aspect: 0.95, minHeight: 300, maxHeight: 440, animate: false, drag: true, keys: true,
+    label: 'Top-down grid of floor cells. Tap or drag to paint with the brush. With the map focused, arrow keys move the cursor and Space paints.',
+    onDown: function (p, s) {
+      var cl = cellAt(p, s);
+      if (!cl) return;
+      cursor = cl; lastPainted = cl.x + ',' + cl.y;
+      paint(cl.x, cl.y);
+      redraw();
+    },
+    onMove: function (p, s) {
+      if (!p.down) return;
+      var cl = cellAt(p, s);
+      if (!cl) return;
+      var id = cl.x + ',' + cl.y;
+      if (id === lastPainted) return;
+      lastPainted = id; cursor = cl;
+      paint(cl.x, cl.y);
+      redraw();
+    },
+    onUp: function () { lastPainted = ''; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') cursor.x = Math.max(0, cursor.x - 1);
+      else if (key === 'arrowright') cursor.x = Math.min(GW - 1, cursor.x + 1);
+      else if (key === 'arrowup') cursor.y = Math.max(0, cursor.y - 1);
+      else if (key === 'arrowdown') cursor.y = Math.min(GD - 1, cursor.y + 1);
+      else if (key === ' ' || key === 'space' || key === 'enter') paint(cursor.x, cursor.y);
+      else return;
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var L = layout(s), cs = L.cs;
+      var sel = hl.value - 1;
+      var selPlane = sel >= 1 && sel < visplanes.length ? visplanes[sel] : null;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = Math.max(12, Math.round(cs * 0.36)) + 'px system-ui, sans-serif';
+      for (var y = 0; y < GD; y += 1) {
+        for (var x = 0; x < GW; x += 1) {
+          var cell = cells[y][x], rgb = cellRGB(cell);
+          var px = L.ox + x * cs, py = L.oy + y * cs;
+          ctx.fillStyle = 'rgb(' + Math.round(rgb[0]) + ',' + Math.round(rgb[1]) + ',' + Math.round(rgb[2]) + ')';
+          if (selPlane && !selPlane.cells[y * GW + x]) ctx.globalAlpha = 0.35;
+          ctx.fillRect(px, py, cs, cs);
+          ctx.globalAlpha = 1;
+          var lum = 0.3 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2];
+          ctx.fillStyle = lum > 110 ? '#151515' : '#f4f4f4';
+          if (selPlane && !selPlane.cells[y * GW + x]) ctx.fillStyle = c.ink3;
+          ctx.fillText(String(HEIGHTS[cell.h]), px + cs / 2, py + cs / 2 + 0.5);
+        }
+      }
+      // grid lines
+      ctx.strokeStyle = c.bg; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var gx = 0; gx <= GW; gx += 1) { ctx.moveTo(L.ox + gx * cs, L.oy); ctx.lineTo(L.ox + gx * cs, L.oy + GD * cs); }
+      for (var gy = 0; gy <= GD; gy += 1) { ctx.moveTo(L.ox, L.oy + gy * cs); ctx.lineTo(L.ox + GW * cs, L.oy + gy * cs); }
+      ctx.stroke();
+      // cells feeding the highlighted visplane
+      if (selPlane) {
+        ctx.strokeStyle = c.topic; ctx.lineWidth = 3;
+        Object.keys(selPlane.cells).forEach(function (id) {
+          var n = Number(id), cx = n % GW, cy = Math.floor(n / GW);
+          ctx.strokeRect(L.ox + cx * cs + 2.5, L.oy + cy * cs + 2.5, cs - 5, cs - 5);
+        });
+      }
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      ctx.strokeRect(L.ox, L.oy, GW * cs, GD * cs);
+      // cursor
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      ctx.strokeRect(L.ox + cursor.x * cs + 1, L.oy + cursor.y * cs + 1, cs - 2, cs - 2);
+      ctx.setLineDash([]);
+      // player and view cone
+      var a = lookDeg * Math.PI / 180;
+      var X = L.ox + PLAYER.x * cs, Y = L.oy + PLAYER.y * cs;
+      ctx.strokeStyle = c.bad; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(X + Math.sin(a - Math.PI / 4) * cs * 3, Y - Math.cos(a - Math.PI / 4) * cs * 3);
+      ctx.lineTo(X, Y);
+      ctx.lineTo(X + Math.sin(a + Math.PI / 4) * cs * 3, Y - Math.cos(a + Math.PI / 4) * cs * 3);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = c.bad;
+      ctx.beginPath(); ctx.arc(X, Y, Math.max(5, cs * 0.16), 0, Math.PI * 2); ctx.fill();
+      // legend
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Number: floor height. Teal: grate. Darker: dim.', 8, s.height - 24);
+      ctx.fillText(selPlane ? 'Outlined: cells feeding the highlighted visplane' : 'Red dot: the player, looking up the map', 8, s.height - 8);
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

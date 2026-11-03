@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Normals and Lambert diffuse: shading a sphere with one dot product · Game Dev Daily</title>
+<meta name="description" content="Each pixel of a lit surface needs its normal and the direction to the light. Their dot product, clamped at zero, is how bright that pixel is.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-03">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Normals and Lambert diffuse: shading a sphere with one dot product</h1>
+  <p class="lede">Each pixel of a lit surface needs its normal and the direction to the light. Their dot product, clamped at zero, is how bright that pixel is.</p>
+</header>
+
+<section data-section="hook">
+  <p>Draw a planet as a flat orange circle and it reads as a coin. Darken the side turned away from the sun and it becomes a ball. Move the sun and the dark side has to follow. That shading is one dot product per pixel, and every lit surface in a 3D game starts from it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Which way does this pixel face?</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Lighting needs one more input than before: which way the surface under the pixel faces.</p>
+  <p>That direction is the <dfn>surface normal</dfn>, written N: a vector of length 1 that points straight out of the surface. A floor's normal points up. On a ball, each point's normal points away from the centre.</p>
+  <p>The light needs a direction too. L is a unit vector from the surface <em>towards</em> the light. This lesson uses a <dfn>directional light</dfn>, like the sun, which has the same L for every pixel. (Point lights, where L changes across the surface, come next lesson.)</p>
+
+  <h3>Lambert's cosine law</h3>
+  <p>A beam hitting a surface straight on lights a small patch. Tilt the surface and the same beam spreads over a bigger patch, so each bit gets less. Brightness drops off with the cosine of the angle θ between N and L. That rule is <dfn>Lambert's cosine law</dfn>, from Johann Heinrich Lambert's <cite>Photometria</cite> of 1760.</p>
+  <p>The cosine costs nothing to get. For two unit vectors, the dot product <code>N·L = Nx·Lx + Ny·Ly + Nz·Lz</code> <em>is</em> cos θ. It is 1 when the surface faces the light, 0 when the light skims along it, and negative when the surface faces away. A surface facing away gets no light, not negative light, so we clamp it:</p>
+<pre><code>local diffuse = math.max(nx * lx + ny * ly + nz * lz, 0)</code></pre>
+  <p>That number is the <dfn>diffuse</dfn> term: light that a matte surface scatters equally in all directions, so it looks the same from any viewing angle. Multiply it by the surface colour, the <dfn>albedo</dfn>, and you have a lit pixel.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A slice through a sphere seen from above, with light arriving from the right. Normals are drawn at four points. The point facing the light has N dot L equal to 1. A point 60 degrees round has N dot L equal to 0.5, with the angle theta marked between its normal and the direction to the light. The top point, where the light skims past, has 0. The point on the far side has minus 1, clamped to 0. The left half of the circle is shaded as the dark half. A table on the right lists these angles and values.">
+      <defs>
+        <marker id="lam-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-accent-fill" d="M0 0 L8 4 L0 8 Z"/></marker>
+        <marker id="lam-ak" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-text" d="M0 0 L8 4 L0 8 Z"/></marker>
+      </defs>
+      <circle class="d-box" cx="200" cy="130" r="80"/>
+      <path class="d-fill" d="M200 50 A80 80 0 0 0 200 210 Z"/>
+      <circle class="d-stroke" cx="200" cy="130" r="80"/>
+      <text class="d-muted" x="163" y="165" text-anchor="middle">dark half</text>
+      <text class="d-muted" x="240" y="165" text-anchor="middle">lit half</text>
+
+      <path class="d-accent" d="M280 130 H323" marker-end="url(#lam-ah)"/>
+      <text class="d-label" x="305" y="152" text-anchor="middle">N·L = 1</text>
+
+      <path class="d-accent" d="M240 60.7 L261.5 23.4" marker-end="url(#lam-ah)"/>
+      <path class="d-stroke" d="M240 60.7 H286" marker-end="url(#lam-ak)"/>
+      <path class="d-thin" d="M262 60.7 A22 22 0 0 0 251 41.65"/>
+      <text class="d-text" x="267" y="50">θ</text>
+      <text class="d-label" x="300" y="65">N·L = 0.5</text>
+
+      <path class="d-accent" d="M200 50 V10" marker-end="url(#lam-ah)"/>
+      <text class="d-label" x="190" y="24" text-anchor="end">N·L = 0</text>
+
+      <path class="d-accent" d="M120 130 H77" marker-end="url(#lam-ah)"/>
+      <text class="d-label" x="68" y="126" text-anchor="end">N·L = −1</text>
+      <text class="d-muted" x="68" y="144" text-anchor="end">so 0</text>
+
+      <path class="d-stroke" d="M440 90 H392" marker-end="url(#lam-ak)"/>
+      <path class="d-stroke" d="M440 130 H392" marker-end="url(#lam-ak)"/>
+      <path class="d-stroke" d="M440 170 H392" marker-end="url(#lam-ak)"/>
+      <text class="d-text" x="416" y="74" text-anchor="middle">light</text>
+
+      <text class="d-muted" x="480" y="70">θ</text>
+      <text class="d-muted" x="528" y="70">N·L</text>
+      <text class="d-muted" x="580" y="70">diffuse</text>
+      <path class="d-thin" d="M476 78 H632"/>
+      <text class="d-mono" x="480" y="98">0°</text><text class="d-mono" x="528" y="98">1</text><text class="d-mono" x="580" y="98">1</text>
+      <text class="d-mono" x="480" y="120">60°</text><text class="d-mono" x="528" y="120">0.5</text><text class="d-mono" x="580" y="120">0.5</text>
+      <text class="d-mono" x="480" y="142">90°</text><text class="d-mono" x="528" y="142">0</text><text class="d-mono" x="580" y="142">0</text>
+      <text class="d-mono" x="480" y="164">180°</text><text class="d-mono" x="528" y="164">−1</text><text class="d-mono" x="580" y="164">0</text>
+    </svg>
+    <figcaption>A slice through a ball, seen from above, lit from the right. The blue arrows are normals. The black arrow at the 60° point is L, which points back towards the light. N·L falls from 1 to 0 across the lit half, and everything past 90° is clamped to 0.</figcaption>
+  </figure>
+
+  <h3>A sphere without any triangles</h3>
+  <p>In a 3D engine each vertex of the mesh stores a normal, and the rasteriser blends them across each triangle. To hide nothing, the demo draws a sphere straight in the fragment shader, where the normal is easy to work out.</p>
+  <p>Take <code>p</code>, the pixel's position measured from the centre of the disc, with the disc's edge at length 1. A point on a sphere of radius 1 obeys x² + y² + z² = 1, so the height of the surface towards the viewer is <code>z = sqrt(1 − x² − y²)</code>. On a sphere the normal is just the point itself, <code>N = (p.x, p.y, z)</code>. It already has length 1, so it needs no normalising.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 200" role="img" aria-label="Side view of half a unit sphere. A point on its surface sits at x equals 0.6 across and z equals 0.8 up towards the viewer. The normal at that point is the line from the centre through the point, continued outwards, and equals 0.6, 0, 0.8.">
+      <defs>
+        <marker id="lam-ah2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-accent-fill" d="M0 0 L8 4 L0 8 Z"/></marker>
+        <marker id="lam-ak2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-text" d="M0 0 L8 4 L0 8 Z"/></marker>
+      </defs>
+      <path class="d-thin" d="M50 170 H320"/>
+      <path class="d-stroke" d="M60 170 A110 110 0 0 1 280 170"/>
+      <path class="d-dash" d="M170 170 L236 82"/>
+      <path class="d-dash" d="M236 170 V82"/>
+      <path class="d-accent" d="M236 82 L258 52.6" marker-end="url(#lam-ah2)"/>
+      <circle class="d-accent-fill" cx="236" cy="82" r="3.5"/>
+      <path class="d-stroke" d="M30 100 V50" marker-end="url(#lam-ak2)"/>
+      <text class="d-text" x="40" y="56">+z, towards you</text>
+      <text class="d-label" x="250" y="36" text-anchor="end">N = (0.6, 0, 0.8)</text>
+      <text class="d-text" x="231" y="163" text-anchor="end">z = 0.8</text>
+      <text class="d-mono" x="203" y="188" text-anchor="middle">x = 0.6</text>
+    </svg>
+    <figcaption>The slice through y = 0. For x = 0.6, z = sqrt(1 − 0.36) = 0.8, and the normal points from the centre through that point.</figcaption>
+  </figure>
+
+  <p>Six lines build the whole effect, and the demo's Stage menu shows each one:</p>
+<pre><code>p       = centred position / RADIUS      -- 1. where am I on the disc?
+mask    = 1 inside length(p) &lt; 1         -- 2. am I on the sphere at all?
+N       = (p.x, p.y, sqrt(1 - p·p))      -- 3. which way does the surface face?
+ndotl   = N·L                            -- 4. how much does it face the light?
+diffuse = max(ndotl, 0)                  -- 5. no negative light
+colour  = albedo * (diffuse + ambient)   -- 6. tint, and lift the shadow a little</code></pre>
+  <p>The <dfn>ambient</dfn> term in line 6 is a small constant added so the dark half is not pure black. It is a cheap stand-in for light bounced off everything else.</p>
+
+  <div class="callout">
+    <p class="callout-title">Axes and colour space</p>
+    <p>The demo uses x right, y up, and z out of the screen towards you, with (0, 0) of <code>gl_FragCoord</code> at the bottom-left. LÖVE's <code>screen_coords</code> and Godot's <code>UV</code> start at the top-left with y down, so the code tabs flip y. Get this wrong and the light comes from below when you point above. The maths assumes linear light, but this page sends the numbers to the screen unconverted; a gamma-correct pipeline shows a softer falloff. A later lesson on gamma explains why.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag anywhere on the canvas, or use the arrow keys, to move the sun marker. The light shines from above that point, at the height set by <em>Light height</em>. Then step through the Stage menu from 1. Stage 3 shows N as colour, each axis mapped from −1…1 to 0…1: red is x, green is y, blue is z. Stage 4 shows N·L <em>before</em> the clamp; red marks the negative values that stage 5 throws away.</p>
+  <p>Drag <em>Light height</em> below zero to put the light behind the ball (the marker turns hollow): only a crescent stays lit.</p>
+
+  <figure class="demo wide" data-demo="lambert">
+    <canvas id="lambert-sphere"></canvas>
+    <figcaption>The brightest pixel is always where N equals L, and the edge of the light, called the <dfn>terminator</dfn>, is where N·L crosses 0, a quarter turn away from it.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE, the shader goes in a string with the <code>effect</code> entry point and is drawn over a full-window rectangle. Lua works out L from the mouse, normalises it and sends it each frame. The numbers match the demo. Hold <kbd>up</kbd> or <kbd>down</kbd> to raise or lower the light.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local RADIUS = 0.38                  <span class="c">-- sphere radius, as a fraction of the window height</span>
+local albedo = { 0.9, 0.45, 0.25 }   <span class="c">-- surface colour</span>
+local ambient = 0.1                  <span class="c">-- lifts the dark half above black</span>
+local height = 1.0                   <span class="c">-- light height above the screen, in sphere radii</span>
+local lightX, lightY = 0.6, 0.6      <span class="c">-- light position over the screen, in sphere radii, y up</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;   // window size in pixels
+uniform vec3 u_light;        // unit vector towards the light
+uniform vec3 u_albedo;
+uniform float u_ambient;
+const float RADIUS = 0.38;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 p = (screen_coords - 0.5 * u_resolution) / u_resolution.y / RADIUS;
+  p.y = -p.y;                                  // LÖVE's y grows downwards: make it grow up
+  float aa = 1.5 / (u_resolution.y * RADIUS);  // 1.5 pixels, in sphere units
+  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+  float ndotl = dot(n, u_light);
+  float diffuse = max(ndotl, 0.0);
+  vec3 col = u_albedo * (diffuse + u_ambient);
+  vec3 bg = vec3(0.1, 0.11, 0.14);
+  return vec4(mix(bg, col, mask), 1.0) * color;
+}
+]]
+
+local function normalize(x, y, z)
+  local len = math.sqrt(x * x + y * y + z * z)
+  if len &lt; 1e-6 then return 0, 0, 1 end      <span class="c">-- no direction: light from the front</span>
+  return x / len, y / len, z / len
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  local w, h = love.graphics.getDimensions()
+  local mx, my = love.mouse.getPosition()
+  lightX = (mx - 0.5 * w) / h / RADIUS
+  lightY = -(my - 0.5 * h) / h / RADIUS       <span class="c">-- flip: screen y goes down</span>
+  if love.keyboard.isDown("up") then height = height + dt end
+  if love.keyboard.isDown("down") then height = height - dt end
+end
+
+function love.draw()
+<span class="k">  local lx, ly, lz = normalize(lightX, lightY, height)
+  shader:send("u_light", { lx, ly, lz })</span>
+  shader:send("u_resolution", { love.graphics.getPixelDimensions() })
+  shader:send("u_albedo", albedo)
+  shader:send("u_ambient", ambient)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
+  love.graphics.setShader()
+  love.graphics.print(string.format("L = (%.2f, %.2f, %.2f)", lx, ly, lz), 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform vec3 u_light;      // unit vector from the surface towards the light
+uniform vec2 u_lightPos;   // where the sun marker is drawn, device pixels, origin bottom-left
+uniform vec3 u_albedo;     // surface colour
+uniform float u_ambient;   // lifts the dark half above black
+uniform float u_stage;     // 0 centred position ... 5 final colour
+
+const float RADIUS = 0.38; // sphere radius, as a fraction of the canvas height
+
+void main() {
+  // 1. position from the centre in sphere units: 1 at the edge, y up
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y / RADIUS;
+  // 2. 1 inside the disc, 0 outside, with a 1.5 pixel soft edge
+  float aa = 1.5 / (u_resolution.y * RADIUS);
+  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+  // 3. the normal: on a unit sphere it is the surface point itself
+  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+  // 4. cosine of the angle between the normal and the light
+  float ndotl = dot(n, u_light);
+  // 5. Lambert: surfaces facing away get no light
+  float diffuse = max(ndotl, 0.0);
+  // 6. tint by the albedo and add a little ambient
+  vec3 col = u_albedo * (diffuse + u_ambient);
+
+  vec3 bg = vec3(0.1, 0.11, 0.14);
+  if (u_stage &lt; 4.5) col = vec3(diffuse);
+  if (u_stage &lt; 3.5) col = vec3(max(ndotl, 0.0)) + vec3(0.9, 0.2, 0.15) * max(-ndotl, 0.0);
+  if (u_stage &lt; 2.5) col = n * 0.5 + 0.5;
+  col = mix(bg, col, mask);
+  if (u_stage &lt; 1.5) col = vec3(mask);
+  if (u_stage &lt; 0.5) {
+    col = vec3(clamp(p * 0.5 + 0.5, 0.0, 1.0), 0.0);
+    col = mix(col, vec3(1.0), 0.6 * (1.0 - smoothstep(0.0, 2.0 * aa, abs(length(p) - 1.0))));
+  }
+
+  // the sun marker: filled when the light is in front, hollow when it is behind
+  float lw = max(1.0, u_resolution.y / 300.0);
+  float d = length(gl_FragCoord.xy - u_lightPos);
+  float front = step(0.0, u_light.z);
+  vec3 sun = vec3(1.0, 0.82, 0.25);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));
+  col = mix(col, sun, 1.0 - smoothstep(0.7 * lw, 1.5 * lw, abs(d - 6.5 * lw)));
+  col = mix(col, sun, front * (1.0 - smoothstep(4.5 * lw, 5.5 * lw, d)));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a square ColorRect. The sphere fills the rect.
+shader_type canvas_item;
+
+uniform vec3 albedo : source_color = vec3(0.9, 0.45, 0.25);
+uniform vec3 light_dir = vec3(0.6, 0.6, 1.0);   // towards the light, x right, y up, z out
+uniform float ambient : hint_range(0.0, 0.5) = 0.1;
+
+void fragment() {
+    vec2 p = UV * 2.0 - 1.0;
+    p.y = -p.y;                     // Godot's UV (0, 0) is the top-left, y grows down
+    float aa = fwidth(length(p));
+    float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+    vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+<span class="k">    float diffuse = max(dot(n, normalize(light_dir)), 0.0);</span>
+    vec3 col = albedo * (diffuse + ambient);
+    COLOR = vec4(col, mask);        // transparent outside the disc
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit, on a Quad facing the camera. The sphere fills the quad.
+// The light direction is in the quad's own 2D convention (x right, y up, z out of the
+// quad towards the viewer), not in Unity's world space.
+Shader "GameDevDaily/LambertSphere"
+{
+    Properties
+    {
+        _Albedo ("Albedo", Color) = (0.9, 0.45, 0.25, 1)
+        _LightDir ("Direction to light", Vector) = (0.6, 0.6, 1, 0)
+        _Ambient ("Ambient", Range(0, 0.5)) = 0.1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            fixed4 _Albedo;
+            float4 _LightDir;
+            float _Ambient;
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+                float2 p = i.uv * 2.0 - 1.0;    // uv (0, 0) is the bottom-left: y is already up
+                float aa = fwidth(length(p));
+                float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+                float3 n = float3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+<span class="k">                float diffuse = max(dot(n, normalize(_LightDir.xyz)), 0.0);</span>
+                float3 col = _Albedo.rgb * (diffuse + _Ambient);
+                float3 bg = float3(0.1, 0.11, 0.14);
+                return fixed4(lerp(bg, col, mask), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In the engine tabs the sphere fills its rectangle, and <code>fwidth</code> gives the soft edge. On real meshes you rarely write this yourself: in Unity's Built-in pipeline, <code>#pragma surface surf Lambert</code> asks for exactly this model, and in Godot a spatial shader's custom <code>light()</code> function receives <code>NORMAL</code> and <code>LIGHT</code> and adds to <code>DIFFUSE_LIGHT</code>. In a Unity project set to Linear colour space, the output is converted for the screen, so the shadowed side looks brighter than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>L pointing the wrong way.</strong> The formula wants the direction <em>towards</em> the light. A sun object usually stores the direction its light <em>travels</em>. Used as it is, light and dark swap. Negate it.</li>
+    <li><strong>Forgetting to normalise.</strong> N·L is cos θ only when both vectors have length 1. Unnormalised, (0.6, 0.6, 1.0) has length 1.31 and the front of the ball clips to flat colour. Normals blended across a triangle come out shorter than 1, so normalise them again in the fragment shader.</li>
+    <li><strong>Mixing spaces.</strong> N and L must both be in world space, or both in view space. An object-space normal with a world-space light gives lighting that turns with the model.</li>
+    <li><strong>Non-uniform scale.</strong> Transform normals like positions on a stretched mesh and they stop standing straight out of the surface. Engines use a separate normal matrix (the inverse transpose); use the engine's normal rather than your own.</li>
+    <li><strong>Pitch black shadows.</strong> Lambert gives exactly 0 past the terminator. Ambient, a fill light or a "wrap" variant keeps the shadow side readable.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One dot product and one <code>max</code> is about the cheapest maths a shader can do, fine on any phone; the demo's <code>sqrt</code> is a little dearer. What adds up is the number of lights, each one another N·L per pixel. Early 3D hardware lit only at vertices and blended the colours (Gouraud shading) to save work. Per-pixel lighting is standard now, but on low-end phones keep few lights per object.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The fixed-function lighting of OpenGL and Direct3D, used before programmable shaders, computed diffuse as max(N·L, 0) per vertex. Unity's built-in surface shaders offer <code>Lambert</code> as a named lighting model, and its legacy <em>Diffuse</em> shader uses it. Godot's StandardMaterial3D has a <em>Diffuse Mode</em> setting where Lambert sits beside Lambert Wrap, Burley and Toon. Physically based shaders still multiply their diffuse and specular parts by the same clamped N·L.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Add a second light: a blue rim light from behind and to the left, L₂ = normalise(−1, 0.3, −0.5). Send it as <code>u_light2</code> and add <code>max(dot(n, u_light2), 0.0) * vec3(0.2, 0.3, 0.8)</code> to the colour.</li>
+    <li>Turn on the normals view: return <code>vec4(n * 0.5 + 0.5, 1.0)</code> instead of the lit colour, and check that the top of the ball is green and the right side red. If the top is dark green, your y flip is missing.</li>
+    <li>Print N·L for the pixel under the mouse by doing the same maths in Lua: work out p from the mouse, then z, then the dot product.</li>
+  </ol>
+  <p>You are done when the printed number reads 0 exactly where the shading turns black, and about 1 at the brightest point.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The surface normal N says which way a pixel's surface faces. L is the unit direction from the surface towards the light.</li>
+    <li>For unit vectors, N·L is the cosine of the angle between them, which is Lambert's cosine law for diffuse brightness.</li>
+    <li>Clamp with <code>max(N·L, 0)</code>: a surface facing away gets no light, not negative light.</li>
+    <li>On a unit sphere drawn in a shader, N = (p.x, p.y, sqrt(1 − p·p)). On meshes the normal comes from the vertices and must be normalised again.</li>
+    <li>Diffuse lighting is cheap. The cost grows with the number of lights, not with the maths of one.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes the point light, where L changes for every pixel and the brightness falls off with distance.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Johann Heinrich Lambert, <cite>Photometria</cite>, 1760. The origin of the cosine law.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, on <code>dot</code>, <code>max</code> and <code>normalize</code>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot Engine documentation, <cite>CanvasItem shaders</cite> and <cite>Spatial shaders</cite> (the <code>light()</code> function).</li>
+    <li>Unity documentation, <cite>Surface Shader lighting models</cite> and <cite>Built-in shader variables</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec3 u_light;      // unit vector from the surface towards the light",
+    "uniform vec2 u_lightPos;   // where the sun marker is drawn, device pixels, origin bottom-left",
+    "uniform vec3 u_albedo;     // surface colour",
+    "uniform float u_ambient;   // lifts the dark half above black",
+    "uniform float u_stage;     // 0 centred position ... 5 final colour",
+    "",
+    "const float RADIUS = 0.38; // sphere radius, as a fraction of the canvas height",
+    "",
+    "void main() {",
+    "  // 1. position from the centre in sphere units: 1 at the edge, y up",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y / RADIUS;",
+    "  // 2. 1 inside the disc, 0 outside, with a 1.5 pixel soft edge",
+    "  float aa = 1.5 / (u_resolution.y * RADIUS);",
+    "  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));",
+    "  // 3. the normal: on a unit sphere it is the surface point itself",
+    "  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));",
+    "  // 4. cosine of the angle between the normal and the light",
+    "  float ndotl = dot(n, u_light);",
+    "  // 5. Lambert: surfaces facing away get no light",
+    "  float diffuse = max(ndotl, 0.0);",
+    "  // 6. tint by the albedo and add a little ambient",
+    "  vec3 col = u_albedo * (diffuse + u_ambient);",
+    "",
+    "  vec3 bg = vec3(0.1, 0.11, 0.14);",
+    "  if (u_stage < 4.5) col = vec3(diffuse);",
+    "  if (u_stage < 3.5) col = vec3(max(ndotl, 0.0)) + vec3(0.9, 0.2, 0.15) * max(-ndotl, 0.0);",
+    "  if (u_stage < 2.5) col = n * 0.5 + 0.5;",
+    "  col = mix(bg, col, mask);",
+    "  if (u_stage < 1.5) col = vec3(mask);",
+    "  if (u_stage < 0.5) {",
+    "    col = vec3(clamp(p * 0.5 + 0.5, 0.0, 1.0), 0.0);",
+    "    col = mix(col, vec3(1.0), 0.6 * (1.0 - smoothstep(0.0, 2.0 * aa, abs(length(p) - 1.0))));",
+    "  }",
+    "",
+    "  // the sun marker: filled when the light is in front, hollow when it is behind",
+    "  float lw = max(1.0, u_resolution.y / 300.0);",
+    "  float d = length(gl_FragCoord.xy - u_lightPos);",
+    "  float front = step(0.0, u_light.z);",
+    "  vec3 sun = vec3(1.0, 0.82, 0.25);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));",
+    "  col = mix(col, sun, 1.0 - smoothstep(0.7 * lw, 1.5 * lw, abs(d - 6.5 * lw)));",
+    "  col = mix(col, sun, front * (1.0 - smoothstep(4.5 * lw, 5.5 * lw, d)));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var RADIUS = 0.38;                  // the same as in the shader
+  var ALBEDO = [0.9, 0.45, 0.25];
+  var light = { x: 0.6, y: 0.6 };     // light position over the screen, in sphere radii, y up
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="lambert"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Position p from the centre, as red and green' },
+      { value: '1', label: '2. Sphere mask: length(p) < 1' },
+      { value: '2', label: '3. Normal N as colour (N × 0.5 + 0.5)' },
+      { value: '3', label: '4. N·L before the clamp (red is negative)' },
+      { value: '4', label: '5. Lambert diffuse: max(N·L, 0)' },
+      { value: '5', label: '6. Final colour: albedo × (diffuse + ambient)' }
+    ],
+    value: '5',
+    onChange: redraw
+  });
+  var height = ui.slider({ label: 'Light height', min: -1, max: 3, step: 0.05, value: 1, onInput: redraw });
+  var ambient = ui.slider({ label: 'Ambient', min: 0, max: 0.5, step: 0.01, value: 0.1, onInput: redraw });
+  var readout = ui.readout({ label: 'Light' });
+
+  // L = normalise(light.x, light.y, height), with a fallback when it has no length.
+  function lightDir() {
+    var x = light.x, y = light.y, z = height.value;
+    var len = Math.sqrt(x * x + y * y + z * z);
+    if (len < 1e-6) return [0, 0, 1];
+    return [x / len, y / len, z / len];
+  }
+
+  // Where the light sits over the screen, in device pixels with the origin at the bottom-left.
+  function lightPos(s) {
+    var W = s.width * s.dpr, H = s.height * s.dpr;
+    return [0.5 * W + light.x * RADIUS * H, 0.5 * H + light.y * RADIUS * H];
+  }
+
+  function updateReadout() {
+    var L = lightDir();
+    var deg = Math.acos(DemoKit.clamp(L[2], -1, 1)) * 180 / Math.PI;
+    readout.set('L = (' + L[0].toFixed(2) + ', ' + L[1].toFixed(2) + ', ' + L[2].toFixed(2) + ') · ' +
+      'at the centre of the disc N = (0, 0, 1), so N·L = ' + L[2].toFixed(2) +
+      ' (' + Math.round(deg) + '° from facing you)' +
+      (L[2] < 0 ? ' · the light is behind the ball' : ''));
+  }
+
+  // Limits that keep the marker on the canvas, in sphere radii.
+  function limits(s) {
+    var aspect = s.height > 0 ? s.width / s.height : 1;
+    return { x: 0.5 * aspect / RADIUS, y: 0.5 / RADIUS };
+  }
+
+  function moveLight(p, s) {
+    if (!s.width || !s.height) return;
+    var lim = limits(s);
+    light.x = DemoKit.clamp((p.x - 0.5 * s.width) / s.height / RADIUS, -lim.x, lim.x);
+    light.y = DemoKit.clamp((0.5 * s.height - p.y) / s.height / RADIUS, -lim.y, lim.y);
+    redraw();
+  }
+
+  handle = DemoKit.shader('#lambert-sphere', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader drawing an orange ball lit by a sun marker. Drag on the canvas or use the arrow keys to move the light; the Light height slider raises it or puts it behind the ball, and the Stage menu shows the position, the mask, the normals, the raw dot product and the clamped diffuse light.',
+    uniforms: {
+      u_light: function () { return lightDir(); },
+      u_lightPos: function (s) { return lightPos(s); },
+      u_albedo: ALBEDO,
+      u_ambient: function () { return ambient.value; },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onDown: moveLight,
+    onMove: function (p, s) { if (p.down) moveLight(p, s); },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var lim = limits(s), step = 0.1;
+      if (key === 'arrowleft') light.x = Math.max(-lim.x, light.x - step);
+      else if (key === 'arrowright') light.x = Math.min(lim.x, light.x + step);
+      else if (key === 'arrowup') light.y = Math.min(lim.y, light.y + step);
+      else if (key === 'arrowdown') light.y = Math.max(-lim.y, light.y - step);
+      else return;
+      redraw();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

@@ -31,7 +31,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 3: Light, shading, and materials
 
 - [x] **Choosing a light source** — Why picking one light direction and keeping it consistent makes every sprite in a game belong together. Demo: drag a light around a pixel sphere and watch the highlight and shadow bands follow it. (published 2026-11-02, choosing-light-source)
-- [ ] **Shading basic forms** — How spheres, cubes and cylinders each catch light differently and how complex sprites are built from them. Demo: switch between the three forms and change the number of shades from 2 to 5.
+- [x] **Shading basic forms** — How spheres, cubes and cylinders each catch light differently and how complex sprites are built from them. Demo: switch between the three forms and change the number of shades from 2 to 5. (published 2026-11-03, shading-basic-forms)
 - [ ] **Avoiding pillow shading** — Why shading inwards from the outline flattens a form and how directional light fixes it. Demo: an A/B toggle shows the same sprite pillow shaded and correctly lit, with a slider that blends between the two.
 - [ ] **Avoiding banding** — How shade bands that hug each other in parallel reveal the pixel grid and how to stagger them. Demo: click to move the edge of each shade band and see a detector mark the banded rows.
 - [ ] **Dithering patterns** — How checker and ordered patterns fake extra shades with only two colours. Demo: pick a dither pattern and drag a slider to control how far it spreads across a gradient.

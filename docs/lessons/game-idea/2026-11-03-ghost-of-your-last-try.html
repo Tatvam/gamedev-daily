@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghost of Your Last Try: a heist crew made of your past runs · Game Dev Daily</title>
+<meta name="description" content="A puzzle platformer where every rewind leaves a ghost that repeats your last run, so you team up with yourself. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-03">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Ghost of Your Last Try: a heist crew made of your past runs</h1>
+  <p class="lede">A puzzle platformer where every rewind leaves a ghost that repeats your last run, so you team up with yourself. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a burglar who works alone, but every door in the vault needs two people on two switches. So you rewind ten seconds, and the run you just made keeps going beside you as a ghost: your first failure holds a switch, your second becomes a step to climb, and your third try walks out the door.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: run, rewind, plan</h2>
+  <p>Ghost of Your Last Try is a side-view puzzle platformer. Each room has pressure plates, a door that opens only while every plate is pressed, and an exit behind the door. A <dfn>loop</dfn> is one attempt of at most ten seconds. When you rewind, or the ten seconds run out, the run you just made becomes a <dfn>ghost</dfn>: a see-through copy that repeats exactly what you did, in time with every new loop.</p>
+  <p>Every ten seconds the player makes one run with a single job in mind. Every minute they have built a small crew of ghosts and escape a room. Every session brings rooms with more plates, doors that need to be held at different moments, and fewer ghost slots.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: run, trying one job inside ten seconds; rewind, which turns the run into a ghost; and plan, watching the ghosts and choosing the next job, which leads back to run. Beside it, two longer loops: every minute a room escaped, and every session harder rooms with fewer ghosts.">
+      <defs>
+        <marker id="gh-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Run</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">one job, ten seconds</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Rewind</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">the run becomes a ghost</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Plan</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">pick the next job</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#gh-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#gh-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#gh-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a crew of ghosts,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">one room escaped</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">more plates, timed</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">doors, fewer ghosts</text>
+    </svg>
+    <figcaption>The short loop is planning by doing. Each run is a single job, and the plan is the stack of ghosts you have built so far.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Loops.</strong> A loop lasts up to ten seconds. The clock starts when you first move, and every ghost starts its replay at that same moment.</li>
+    <li><strong>Ghosts.</strong> A ghost replays your recorded positions, frame by frame. When its recording runs out, because you rewound early, it holds its last pose until the loop ends. That is how a ghost "stays" on a plate.</li>
+    <li><strong>Ghosts are solid on top.</strong> You can stand on a ghost's head and ride it, but you walk through it from the side. Ghosts never react to you: the past cannot be pushed.</li>
+    <li><strong>Three slots.</strong> At most three ghosts exist. A fourth rewind makes the oldest one fade.</li>
+    <li><strong>The goal.</strong> Reach the exit. The score is how many ghosts you made; each room has a par.</li>
+  </ul>
+
+  <p>The puzzle is a timetable. The diagram shows the plain solution to the demo's room, one job per ghost. The door is open only where the plate bars overlap, and your live run must reach the door inside that window.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="A timeline from 0 to 10 seconds with four rows. Ghost 1 walks for one second, then holds plate A. Ghost 2 walks for one second, then stands still as a step. Ghost 3 climbs ghost 2 and holds plate B from about 2.5 seconds. You walk to the door and pass it at about 3 seconds. The door is open from 2.5 seconds to the end.">
+      <text class="d-label" x="8" y="48">Ghost 1</text>
+      <text class="d-label" x="8" y="88">Ghost 2</text>
+      <text class="d-label" x="8" y="128">Ghost 3</text>
+      <text class="d-label" x="8" y="168">You</text>
+      <text class="d-label" x="8" y="214">Door</text>
+
+      <path class="d-thin d-dash" d="M100 44 H140"/>
+      <rect class="d-accent-fill" x="140" y="34" width="480" height="16" rx="4"/>
+      <text class="d-text" x="380" y="27" text-anchor="middle">holds plate A</text>
+
+      <path class="d-thin d-dash" d="M100 84 H148"/>
+      <rect class="d-box" x="148" y="74" width="472" height="16" rx="4"/>
+      <text class="d-text" x="384" y="67" text-anchor="middle">stands still as a step</text>
+
+      <path class="d-thin d-dash" d="M100 124 H220"/>
+      <text class="d-muted" x="160" y="112" text-anchor="middle">climbs</text>
+      <rect class="d-accent-fill" x="220" y="114" width="400" height="16" rx="4"/>
+      <text class="d-text" x="420" y="107" text-anchor="middle">holds plate B</text>
+
+      <path class="d-stroke" d="M100 164 H244"/>
+      <circle class="d-accent-fill" cx="244" cy="164" r="6"/>
+      <text class="d-muted" x="256" y="169">through the door</text>
+
+      <rect class="d-accent-soft" x="220" y="200" width="400" height="20" rx="4"/>
+      <text class="d-text" x="420" y="215" text-anchor="middle">open: A and B both pressed</text>
+      <path class="d-thin d-dash" d="M220 34 V222"/>
+
+      <path class="d-stroke" d="M100 240 H620"/>
+      <path class="d-stroke" d="M100 236 V244 M220 236 V244 M340 236 V244 M460 236 V244 M580 236 V244"/>
+      <text class="d-muted" x="100" y="262" text-anchor="middle">0 s</text>
+      <text class="d-muted" x="220" y="262" text-anchor="middle">2.5</text>
+      <text class="d-muted" x="340" y="262" text-anchor="middle">5</text>
+      <text class="d-muted" x="460" y="262" text-anchor="middle">7.5</text>
+      <text class="d-muted" x="580" y="262" text-anchor="middle">10 s</text>
+    </svg>
+    <figcaption>The plain plan uses all three ghosts. The room's par is two: one ghost can do two jobs if it does them at different times.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the lone thief who is secretly a whole crew. The constraint is that every crew member is a run you already made and can never edit. You cannot fix ghost 1; you can only rewind and build around it. That turns mistakes into material, and it makes the par score interesting: the best solutions give one ghost two jobs at two different moments.</p>
+  <p>The mood is busy but forgiving. Nothing can kill you, and a bad run costs ten seconds at most.</p>
+  <p>The hardest part to build is keeping replays exact. A ghost must be in the same place at the same tick in every loop, or plans fall apart. The prototype records positions on a fixed timestep (60 steps per second, never tied to the frame rate), so frame drops cannot change a replay.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>First solve the room the plain way with three ghosts, using the timetable above. Then go for par: can one ghost be a step early in the loop and stand on a plate later? Turn on ghost paths to see every route you recorded.</p>
+
+  <figure class="demo wide" data-demo="ghost-last-try">
+    <canvas id="ghost-last-try"></canvas>
+    <figcaption>Controls: click the canvas, then use <kbd>Left</kbd> / <kbd>Right</kbd> or <kbd>A</kbd> / <kbd>D</kbd> to run and <kbd>Up</kbd>, <kbd>W</kbd> or <kbd>Space</kbd> to jump. <kbd>R</kbd> or the Rewind button ends the run early and turns it into a ghost. On touch, hold the Left, Right and Jump buttons. Restart erases every ghost. The ledge is too high to jump to from the floor; plate B is on it. The door opens only while plates A and B are both pressed.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: record one pose per fixed step, and play each ghost back by the same tick number. Movement here is floor only, to keep the focus on recording; the demo adds the ledge, the plates, the door and standing on ghosts.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, LOOP_TICKS, MAX_GHOSTS = 1 / 60, 600, 3   <span class="c">-- 600 steps = 10 s</span>
+local SPEED, GRAVITY, JUMP, GROUND_Y = 180, 1500, 520, 292   <span class="c">-- 292 = floor 320 - height 28</span>
+local player = {x = 40, y = GROUND_Y, vy = 0}
+local recording, ghosts, tick, acc = {}, {}, 0, 0
+
+local function ghostAt(g, t)    <span class="c">-- a ghost that ran out holds its last pose</span>
+<span class="k">  return g[math.max(1, math.min(t, #g))]</span>
+end
+
+local function rewind()         <span class="c">-- this run becomes a ghost</span>
+  if #recording == 0 then return end
+  ghosts[#ghosts + 1] = recording
+  if #ghosts &gt; MAX_GHOSTS then table.remove(ghosts, 1) end   <span class="c">-- oldest fades</span>
+  recording, tick, acc = {}, 0, 0
+  player.x, player.y, player.vy = 40, GROUND_Y, 0
+end
+
+local function movePlayer(s)
+  local key = love.keyboard.isDown
+  local dir = (key("right") and 1 or 0) - (key("left") and 1 or 0)
+  if key("space") and player.y == GROUND_Y then player.vy = -JUMP end
+  player.vy = player.vy + GRAVITY * s
+  player.x = player.x + dir * SPEED * s
+  player.y = math.min(GROUND_Y, player.y + player.vy * s)
+  if player.y == GROUND_Y then player.vy = 0 end
+end
+
+function love.update(dt)
+  acc = acc + dt
+  while acc &gt;= STEP do          <span class="c">-- fixed steps keep every replay identical</span>
+    acc = acc - STEP
+    tick = tick + 1
+    movePlayer(STEP)
+<span class="k">    recording[tick] = {x = player.x, y = player.y}</span>
+    if tick &gt;= LOOP_TICKS then rewind() end
+  end
+end
+
+function love.keypressed(k) if k == "r" then rewind() end end
+
+function love.draw()
+  for _, g in ipairs(ghosts) do
+    local p = ghostAt(g, tick)    <span class="c">-- every ghost reads the same tick</span>
+    love.graphics.rectangle("line", p.x, p.y, 20, 28)
+  end
+  love.graphics.rectangle("fill", player.x, player.y, 20, 28)
+end</code></pre>
+  </div>
+  <p>The two highlighted lines are the whole trick: write the pose under the tick number, and read it back under the same tick number in every later loop. The demo uses the same numbers, but waits for your first key before starting the clock.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Recording inputs instead of positions.</strong> Replaying key presses looks cheaper, but a ghost then lives in a world that has changed: a door that was open in its run may be shut now, and the ghost walks into it and drifts off its plan. Positions never drift. Record inputs only if you want that drift as a feature, and then test what happens when a ghost is blocked.</li>
+    <li><strong>Planning without seeing.</strong> If players cannot tell where a ghost will be at second six, planning becomes trial and error. Test: ask a tester to predict when the door will open. If they cannot, add tick marks to the ghost paths or a door-open bar on the loop clock.</li>
+    <li><strong>One solution, then nothing.</strong> If every room is "one ghost per plate", the idea is used up in three rooms. The fun is in the par: rooms where a ghost can do two jobs, or where order matters. Check each room for a solution that beats the plain one.</li>
+    <li><strong>Ghosts frozen in mid-air.</strong> Rewind during a jump and the ghost holds its last pose in the air, which makes a floating step. The prototype allows it. Decide early whether that is a bug or a trick, because players will find it and build plans on it.</li>
+    <li><strong>Fiddly timing.</strong> A plan that fails because you jumped four frames late is not a puzzle. Keep windows wide (the demo's door stays open for seconds) and let a ghost that ran out keep holding its pose.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Recorded past selves are a known idea. In <cite>Cursor*10</cite>, a browser game by Nekogames, you play the same short climb several times and each earlier cursor replays its moves, so they can hold buttons for you. <cite>Braid</cite> has a world where a shadow of the player repeats actions that were rewound. <cite>Super Time Force</cite> turns rewinds into extra shooters fighting alongside you.</p>
+  <p>Ghost of Your Last Try leans on two less common choices: ghosts are platforms you can ride, and you only get three, with the oldest one fading. That makes the score about economy, doing a room with fewer selves, rather than about reflexes. Other games may well have done this combination; I have not checked them all.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above and add one plate on the floor and one door rectangle that is solid unless a ghost stands on the plate. Skip the ledge, riding ghosts and the slot limit.</p>
+  <p>Give it to a friend and say only "get through the door". The one question: <strong>do they work out that they need their own past run, without being told?</strong> If they rewind on purpose to leave a ghost on the plate within two minutes, the core idea reads. If not, make the ghost's replay more visible, for example with a flash when the loop restarts.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the demo's rules in ten small rooms, each with a par, plus ghost paths. One plate type and one door type.</li>
+    <li><strong>One-month version:</strong> doors that must be held at different moments, moving platforms that ghosts ride too, a timeline scrubber to preview your ghosts, and a level editor that tests rooms by replaying stored solutions.</li>
+    <li><strong>Cut first:</strong> enemies and combat. They make replays fragile and pull the game toward reflexes, which fights the planning.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let ghosts be solid from the sides too, so the live run can be blocked by its own past, and a careless early run becomes a wall you have to plan around.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Fix Your Timestep!</cite> (Gaffer On Games). Why a fixed step makes a simulation repeatable, which exact ghost replays depend on.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite> (Genever Benning, 2014), the Command chapter. Recording actions as data, the root of undo and replays.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The lenses on puzzles and on visible progress help when deciding how much of the ghost timeline to show.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 640, H = 360, HUD = 54, FOOT = 40;
+  var STEP = 1 / 60, LOOP_TICKS = 600, MAX_GHOSTS = 3, PAR = 2;
+  var PW = 20, PH = 28, SPEED = 180, GRAVITY = 1500, JUMP = 520, MAX_FALL = 900;
+  var FLOOR = 320, TOP = 30, RIGHT = 620, START_X = 40, EXIT_X = 540;
+  var LEDGE = { x: 260, y: 215, w: 80, h: 12 };
+  var DOOR = { x: 500, y: TOP, w: 14, h: FLOOR - TOP };
+  var PLATES = [{ x: 120, y: FLOOR, w: 46, name: 'A' }, { x: 292, y: LEDGE.y, w: 40, name: 'B' }];
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var player, recording, ghosts, tick, acc, started, mode, loops, message, msgColor;
+  var doorOpen, platesOn, standing, grounded, facing, flash;
+  var btn = { left: false, right: false, jump: false };
+  var keys = null, handle = null;
+
+  function ghostAt(g, t) { return g[Math.max(1, Math.min(t, g.length)) - 1]; }
+
+  function overlaps(b, r) {
+    return b.x < r.x + r.w && b.x + PW > r.x && b.y < r.y + r.h && b.y + PH > r.y;
+  }
+
+  function onPlate(b, p) {
+    return b.x + PW > p.x && b.x < p.x + p.w && Math.abs(b.y + PH - p.y) < 3;
+  }
+
+  function bodies(t) {
+    var list = [player];
+    for (var i = 0; i < ghosts.length; i++) list.push(ghostAt(ghosts[i], t));
+    return list;
+  }
+
+  function computeDoor(t) {
+    var list = bodies(t), i, j;
+    platesOn = [];
+    for (i = 0; i < PLATES.length; i++) {
+      var on = false;
+      for (j = 0; j < list.length; j++) if (onPlate(list[j], PLATES[i])) on = true;
+      platesOn.push(on);
+    }
+    var open = platesOn[0] && platesOn[1];
+    if (!open) for (j = 0; j < list.length; j++) if (overlaps(list[j], DOOR)) open = true;  // never shut on someone
+    doorOpen = open;
+  }
+
+  function solids() {
+    var list = [
+      { x: -50, y: 0, w: 50, h: H }, { x: RIGHT, y: 0, w: 70, h: H },
+      { x: 0, y: FLOOR, w: W, h: H - FLOOR }, { x: 0, y: -50, w: W, h: TOP + 50 }, LEDGE
+    ];
+    if (!doorOpen) list.push(DOOR);
+    return list;
+  }
+
+  function clear(x, y) {   // can the player stand here without entering a wall?
+    var list = solids(), b = { x: x, y: y };
+    for (var i = 0; i < list.length; i++) if (overlaps(b, list[i])) return false;
+    return true;
+  }
+
+  function moveAxis(axis, d) {
+    if (d === 0) return false;
+    if (axis === 'x') player.x += d; else player.y += d;
+    var list = solids(), hit = false;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!overlaps(player, r)) continue;
+      if (axis === 'y' && d < 0) {   // corner correction: slip past a ledge corner by up to 8 px
+        if (player.x + PW - r.x <= 8 && clear(r.x - PW, player.y)) { player.x = r.x - PW; continue; }
+        if (r.x + r.w - player.x <= 8 && clear(r.x + r.w, player.y)) { player.x = r.x + r.w; continue; }
+      }
+      hit = true;
+      if (axis === 'x') player.x = d > 0 ? r.x - PW : r.x + r.w;
+      else player.y = d > 0 ? r.y - PH : r.y + r.h;
+    }
+    return hit;
+  }
+
+  function input() {
+    var k = keys || { has: function () { return false; } };
+    return {
+      left: btn.left || k.has('arrowleft') || k.has('a'),
+      right: btn.right || k.has('arrowright') || k.has('d'),
+      jump: btn.jump || k.has('arrowup') || k.has('w') || k.has('space')
+    };
+  }
+
+  function resetRun() {
+    player = { x: START_X, y: FLOOR - PH, vx: 0, vy: 0 };
+    recording = []; tick = 0; acc = 0; started = false;
+    grounded = true; standing = -1; facing = 1;
+    computeDoor(0);
+  }
+
+  function reset() {
+    ghosts = []; loops = 0; mode = 'play'; flash = 0;
+    resetRun();
+    message = 'Move to start the clock. Door needs A + B.';
+    msgColor = 'ink2';
+  }
+
+  function rewind(auto) {
+    if (mode === 'won') { reset(); return; }
+    if (tick === 0) { message = 'Move first: an empty run makes no ghost.'; msgColor = 'warn'; return; }
+    ghosts.push(recording); loops += 1;
+    var faded = ghosts.length > MAX_GHOSTS;
+    if (faded) ghosts.shift();
+    resetRun();
+    message = (auto ? 'Time is up. ' : '') + 'Run ' + loops + ' is a ghost.' +
+      (faded ? ' Oldest one faded.' : ' Move to go again.');
+    msgColor = faded ? 'warn' : 'ink2';
+    flash = 1;
+  }
+
+  function stepSim() {
+    tick += 1;
+    var t = tick, inp = input(), cdx = 0, cdy = 0;
+    if (standing >= 0 && standing < ghosts.length) {   // ride the ghost you stand on
+      var gn = ghostAt(ghosts[standing], t), gp = ghostAt(ghosts[standing], t - 1);
+      cdx = gn.x - gp.x; cdy = gn.y - PH - player.y;
+    }
+    player.vx = ((inp.right ? 1 : 0) - (inp.left ? 1 : 0)) * SPEED;
+    if (player.vx !== 0) facing = player.vx > 0 ? 1 : -1;
+    if (inp.jump && grounded) { player.vy = -JUMP; cdy = 0; standing = -1; }
+    player.vy = Math.min(MAX_FALL, player.vy + GRAVITY * STEP);
+    moveAxis('x', player.vx * STEP + cdx);
+    var prevBottom = player.y + PH, dy = player.vy * STEP + cdy;
+    var hit = moveAxis('y', dy);
+    grounded = false;
+    if (hit) { if (dy > 0) grounded = true; player.vy = 0; }
+    standing = -1;
+    if (!grounded && player.vy >= 0) {
+      for (var i = ghosts.length - 1; i >= 0; i--) {
+        var g = ghostAt(ghosts[i], t);
+        if (player.x + PW > g.x + 2 && player.x < g.x + PW - 2 &&
+            player.y + PH >= g.y && prevBottom <= g.y + 10 && clear(player.x, g.y - PH)) {
+          player.y = g.y - PH; player.vy = 0; grounded = true; standing = i; break;
+        }
+      }
+    }
+    recording.push({ x: player.x, y: player.y });
+    computeDoor(t);
+    if (player.x > EXIT_X) {
+      mode = 'won';
+      message = loops <= PAR ? 'Escaped with ' + loops + ' ghosts: par!' :
+        'Escaped. Par is ' + PAR + ': can a ghost do two jobs?';
+      msgColor = 'good';
+      return;
+    }
+    if (tick >= LOOP_TICKS) rewind(true);
+  }
+
+  function update(dt, s) {
+    keys = s.keys;
+    if (flash > 0) flash = Math.max(0, flash - dt * 1.5);
+    if (mode !== 'play') return;
+    if (!started) {
+      var inp = input();
+      if (!(inp.left || inp.right || inp.jump)) return;
+      started = true; acc = STEP;
+    }
+    acc += dt;
+    while (acc >= STEP && started && mode === 'play') { acc -= STEP; stepSim(); }
+  }
+
+  function text(ctx, str, x, y, color, font, align, maxW) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left';
+    if (maxW) ctx.fillText(str, x, y, maxW); else ctx.fillText(str, x, y);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, i, j;
+    var sc = Math.min((s.width - 8) / W, (s.height - HUD - FOOT) / H);
+    var ox = (s.width - W * sc) / 2, oy = HUD;
+    function X(x) { return ox + x * sc; }
+    function Y(y) { return oy + y * sc; }
+    function R(r) { ctx.fillRect(X(r.x), Y(r.y), r.w * sc, r.h * sc); }
+
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+    ctx.fillStyle = c.surface; ctx.fillRect(X(0), Y(TOP), RIGHT * sc, (FLOOR - TOP) * sc);
+    ctx.fillStyle = c.ink3;
+    R({ x: 0, y: FLOOR, w: W, h: H - FLOOR }); R({ x: RIGHT, y: TOP, w: W - RIGHT, h: FLOOR - TOP });
+    R({ x: 0, y: TOP - 6, w: W, h: 6 });
+    ctx.fillStyle = c.ink2; R(LEDGE);
+
+    // Ghost paths.
+    if (paths.value) {
+      ctx.setLineDash([3, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = c.topic; ctx.globalAlpha = 0.5;
+      for (i = 0; i < ghosts.length; i++) {
+        var g = ghosts[i];
+        ctx.beginPath();
+        for (j = 0; j < g.length; j += 3) {
+          var px = X(g[j].x + PW / 2), py = Y(g[j].y + PH);
+          if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+
+    // Plates, door and exit.
+    for (i = 0; i < PLATES.length; i++) {
+      var p = PLATES[i];
+      ctx.fillStyle = platesOn[i] ? c.good : c.warn;
+      ctx.fillRect(X(p.x), Y(p.y) - Math.max(3, 5 * sc), p.w * sc, Math.max(3, 5 * sc));
+      text(ctx, p.name, X(p.x + p.w / 2), Y(p.y) - 8 * sc - 4, platesOn[i] ? c.good : c.ink2, '600 12px', 'center');
+    }
+    if (doorOpen) {
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = c.good; ctx.lineWidth = 1.5;
+      ctx.strokeRect(X(DOOR.x), Y(DOOR.y), DOOR.w * sc, DOOR.h * sc); ctx.setLineDash([]);
+    } else {
+      ctx.fillStyle = c.ink; R(DOOR);
+    }
+    text(ctx, doorOpen ? 'door open' : 'door', X(DOOR.x) - 4, Y(TOP) + 14, doorOpen ? c.good : c.ink2, '11px', 'right');
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(575), Y(FLOOR)); ctx.lineTo(X(575), Y(FLOOR - 60)); ctx.stroke();
+    ctx.fillStyle = c.good;
+    ctx.beginPath(); ctx.moveTo(X(575), Y(FLOOR - 60)); ctx.lineTo(X(603), Y(FLOOR - 50));
+    ctx.lineTo(X(575), Y(FLOOR - 40)); ctx.closePath(); ctx.fill();
+    text(ctx, 'exit', X(575), Y(FLOOR - 66), c.ink2, '11px', 'center');
+
+    // Ghosts, oldest first.
+    var t = Math.max(tick, 1);
+    for (i = 0; i < ghosts.length; i++) {
+      var q = ghostAt(ghosts[i], t);
+      ctx.globalAlpha = 0.35 + 0.4 * flash; ctx.fillStyle = c.topic; R({ x: q.x, y: q.y, w: PW, h: PH });
+      ctx.globalAlpha = 1; ctx.strokeStyle = c.topic; ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 2]); ctx.strokeRect(X(q.x), Y(q.y), PW * sc, PH * sc); ctx.setLineDash([]);
+      text(ctx, String(loops - ghosts.length + i + 1), X(q.x + PW / 2), Y(q.y + PH / 2) + 4, c.ink, '600 11px', 'center');
+    }
+
+    // Player.
+    ctx.fillStyle = c.topic; R(player);
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2; ctx.strokeRect(X(player.x), Y(player.y), PW * sc, PH * sc);
+    ctx.fillStyle = c.surface;
+    var ex = player.x + (facing > 0 ? 11 : 3);
+    ctx.fillRect(X(ex), Y(player.y + 7), 3 * sc + 1, 4 * sc + 1);
+    ctx.fillRect(X(ex + 4), Y(player.y + 7), 3 * sc + 1, 4 * sc + 1);
+
+    // HUD: run, ghosts, loop clock.
+    text(ctx, 'Run ' + (loops + 1) + '   Ghosts ' + ghosts.length + '/' + MAX_GHOSTS + '   Par ' + PAR, 8, 16, c.ink, '600 13px');
+    text(ctx, ((LOOP_TICKS - tick) / 60).toFixed(1) + ' s left', s.width - 8, 16, c.ink2, '12px', 'right');
+    var bw = s.width - 16;
+    ctx.fillStyle = c.line; ctx.fillRect(8, 23, bw, 5);
+    ctx.fillStyle = started ? c.topic : c.ink3; ctx.fillRect(8, 23, bw * tick / LOOP_TICKS, 5);
+    text(ctx, message, 8, 44, c[msgColor] || c.ink, '12px', 'left', s.width - 16);
+    text(ctx, 'R: rewind', 8, s.height - 14, c.ink3, '11px');
+
+    if (mode === 'won') {
+      var boxW = Math.min(300, s.width - 20), boxX = s.width / 2 - boxW / 2, boxY = oy + (FLOOR - TOP) * sc * 0.3;
+      ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(boxX, boxY, boxW, 54); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.good; ctx.lineWidth = 2; ctx.strokeRect(boxX, boxY, boxW, 54);
+      text(ctx, 'Out with ' + loops + ' ghost' + (loops === 1 ? '' : 's') + (loops <= PAR ? ': par!' : ''), s.width / 2, boxY + 23, c.good, '600 14px', 'center');
+      text(ctx, 'Press R or Restart to play again', s.width / 2, boxY + 42, c.ink2, '12px', 'center');
+    }
+  }
+
+  function wake() { if (handle) { handle.play(); handle.redraw(); } }
+
+  var ui = DemoKit.controls('[data-demo="ghost-last-try"]');
+  function holdButton(label, name) {
+    var el = ui.button({ label: label, onClick: function () {} }).el;
+    el.style.touchAction = 'none'; el.style.userSelect = 'none'; el.style.webkitUserSelect = 'none';
+    function up() { btn[name] = false; }
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); wake(); btn[name] = true;
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); wake(); btn[name] = true; }
+    });
+    el.addEventListener('keyup', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); up(); }
+    });
+    el.addEventListener('blur', up);
+  }
+  holdButton('Left (hold)', 'left');
+  holdButton('Jump (hold)', 'jump');
+  holdButton('Right (hold)', 'right');
+  ui.button({ label: 'Rewind (R)', onClick: function () { rewind(false); wake(); } });
+  ui.button({ label: 'Restart', onClick: function () { btn.left = btn.right = btn.jump = false; reset(); wake(); } });
+  var paths = ui.toggle({ label: 'Show ghost paths', value: true, onChange: function () { wake(); } });
+
+  reset();
+
+  handle = DemoKit.canvas('#ghost-last-try', {
+    aspect: 640 / 460,
+    minHeight: 280,
+    maxHeight: 520,
+    keys: true,
+    label: 'Ghost of Your Last Try prototype. A side view of a room with a runner at the left, plate A on the floor, a high ledge with plate B, a door and an exit flag at the right. Each rewind turns your last run into a ghost that replays it, and the door opens while both plates are pressed.',
+    update: update,
+    draw: draw,
+    onDown: function () { wake(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      wake();
+      if (key === 'r') rewind(false);
+    }
+  });
+})();
+</script>
+</body>
+</html>

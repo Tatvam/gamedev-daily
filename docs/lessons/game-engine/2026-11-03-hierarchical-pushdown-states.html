@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hierarchical and pushdown state machines · Game Dev Daily</title>
+<meta name="description" content="How superstates share transitions between similar states, and how a stack of states lets pause menus and dialogue interrupt play and hand control back.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-03">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Hierarchical and pushdown state machines</h1>
+  <p class="lede">How superstates share transitions between similar states, and how a stack of states lets pause menus and dialogue interrupt play and hand control back.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are halfway through a conversation with a shopkeeper, you press Escape to check the time, then close the pause menu. The conversation is gone and your character is back on the street. The pause menu did what it was told: "on close, go to Play". Nobody told it where it came from.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two limits of a flat machine</h2>
+  <p>Yesterday's player controller was a flat finite state machine: one current state, explicit transitions. Two problems appear as it grows.</p>
+  <ul>
+    <li><strong>Duplicated transitions.</strong> Idle and Run both needed a "jump" arrow and a "down" arrow. Add Walk and Sprint and you write them four times, and one day you forget one.</li>
+    <li><strong>No memory.</strong> A flat machine knows only where it is, never where it was. A pause menu that can open from anywhere cannot know where to return.</li>
+  </ul>
+
+  <h2>Hierarchical state machines: states inside states</h2>
+  <p>In a <dfn>hierarchical state machine</dfn>, a state can contain other states. The outer one is a <dfn>superstate</dfn> and the inner ones are its <dfn>substates</dfn>. The current state is still one leaf, such as Run, but Run is also inside Grounded.</p>
+  <p>The rule: input and updates go to the innermost state first. If it does not handle them, they go up to its superstate, and so on. So "jump" and "down" are written once, on Grounded, and every grounded substate inherits them.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Hierarchical state diagram. A Grounded superstate contains Idle and Run, connected by move and stop, with an initial dot pointing at Idle. An Airborne superstate contains Jump and Fall, connected by apex. A single jump arrow goes from the Grounded border to Jump. A down arrow goes from Grounded to Crouch and a release arrow returns. A land arrow goes from Fall back to the Grounded border.">
+      <defs>
+        <marker id="hsm-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-fill" x="20" y="30" width="300" height="110" rx="12"/>
+      <rect class="d-fill" x="380" y="30" width="240" height="110" rx="12"/>
+      <text class="d-label" x="34" y="52">Grounded</text>
+      <text class="d-label" x="394" y="52">Airborne</text>
+      <rect class="d-accent-soft" x="56" y="70" width="94" height="40" rx="8"/>
+      <rect class="d-box" x="200" y="70" width="100" height="40" rx="8"/>
+      <rect class="d-box" x="400" y="70" width="90" height="40" rx="8"/>
+      <rect class="d-box" x="520" y="70" width="90" height="40" rx="8"/>
+      <rect class="d-box" x="40" y="190" width="100" height="40" rx="8"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="103" y="95">Idle</text>
+        <text class="d-text" x="250" y="95">Run</text>
+        <text class="d-text" x="445" y="95">Jump</text>
+        <text class="d-text" x="565" y="95">Fall</text>
+        <text class="d-text" x="90" y="215">Crouch</text>
+      </g>
+      <circle class="d-accent-fill" cx="34" cy="90" r="5"/>
+      <g marker-end="url(#hsm-ink)">
+        <path class="d-stroke" d="M39 90 H53"/>
+        <path class="d-stroke" d="M153 82 H197"/>
+        <path class="d-stroke" d="M197 98 H153"/>
+        <path class="d-stroke" d="M490 90 H517"/>
+        <path class="d-stroke" d="M320 90 H397"/>
+        <path class="d-stroke" d="M70 140 V187"/>
+        <path class="d-stroke" d="M115 190 V143"/>
+        <path class="d-stroke" d="M565 110 V164 H260 V143"/>
+      </g>
+      <g>
+        <text class="d-muted" x="175" y="74" text-anchor="middle">move</text>
+        <text class="d-muted" x="175" y="124" text-anchor="middle">stop</text>
+        <text class="d-muted" x="504" y="64" text-anchor="middle">apex</text>
+        <text class="d-label" x="350" y="80" text-anchor="middle">jump</text>
+        <text class="d-label" x="64" y="170" text-anchor="end">down</text>
+        <text class="d-muted" x="123" y="170">release</text>
+        <text class="d-muted" x="420" y="182" text-anchor="middle">land</text>
+      </g>
+      <text class="d-muted" x="320" y="250" text-anchor="middle">"jump" and "down" are written once, on Grounded, and apply to Idle and Run.</text>
+    </svg>
+    <figcaption>Yesterday's controller, nested. An arrow leaving a superstate's border applies to every substate inside. An arrow ending on a border enters the starting substate, marked with a dot.</figcaption>
+  </figure>
+
+  <p>In code, each state gets an optional <code>parent</code>, and the machine walks up the chain until some state returns a transition:</p>
+<pre><code><span class="c">-- Grounded holds the transitions that Idle and Run share.</span>
+local grounded = {}
+function grounded.update(dt)
+  if input.jump then return "jump" end
+  if input.down then return "crouch" end
+end
+
+states.run = { parent = grounded }
+function states.run.update(dt)
+  player.x = player.x + input.move * SPEED * dt
+  if input.move == 0 then return "idle" end
+end
+
+local function updateState(state, dt)
+  while state do                        <span class="c">-- innermost first</span>
+    local nextState = state.update(dt)
+    if nextState then return nextState end
+    state = state.parent                <span class="c">-- not handled: ask the superstate</span>
+  end
+end</code></pre>
+  <p>Enter and exit follow the nesting. Going from Idle to Run stays inside Grounded, so Grounded neither exits nor enters. Going from Run to Jump exits Run, then Grounded (inside out), then enters Airborne, then Jump (outside in).</p>
+
+  <h2>Pushdown automata: a stack of states</h2>
+  <p>The memory problem needs a different tool. A <dfn>stack</dfn> is a list where you only add or remove at one end, the <dfn>top</dfn>. To <dfn>push</dfn> is to add a state on top; to <dfn>pop</dfn> is to remove the top one, which uncovers whatever was below. A state machine that keeps its states on a stack is called a <dfn>pushdown automaton</dfn>.</p>
+  <p>The pause menu no longer says "go to Play". It says "pop", and whatever was underneath comes back exactly as it was left.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Five snapshots of a stack, left to right. Start: Play. Push Dialogue: Play with Dialogue on top. Push Pause: Play, Dialogue, Pause on top. Pop: Play with Dialogue on top again. Pop: Play alone. The top box in each snapshot is shaded.">
+      <defs>
+        <marker id="stk-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <g text-anchor="middle">
+        <text class="d-label" x="70" y="40">start</text>
+        <text class="d-label" x="195" y="40">push Dialogue</text>
+        <text class="d-label" x="320" y="40">push Pause</text>
+        <text class="d-label" x="445" y="40">pop</text>
+        <text class="d-label" x="570" y="40">pop</text>
+      </g>
+      <g marker-end="url(#stk-ink)">
+        <path class="d-thin" d="M122 120 H141"/>
+        <path class="d-thin" d="M247 120 H266"/>
+        <path class="d-thin" d="M372 120 H391"/>
+        <path class="d-thin" d="M497 120 H516"/>
+      </g>
+      <rect class="d-accent-soft" x="20" y="160" width="100" height="30" rx="5"/>
+      <rect class="d-box" x="145" y="160" width="100" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="145" y="126" width="100" height="30" rx="5"/>
+      <rect class="d-box" x="270" y="160" width="100" height="30" rx="5"/>
+      <rect class="d-box" x="270" y="126" width="100" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="270" y="92" width="100" height="30" rx="5"/>
+      <rect class="d-box" x="395" y="160" width="100" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="395" y="126" width="100" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="520" y="160" width="100" height="30" rx="5"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="70" y="180">Play</text>
+        <text class="d-text" x="195" y="180">Play</text>
+        <text class="d-text" x="195" y="146">Dialogue</text>
+        <text class="d-text" x="320" y="180">Play</text>
+        <text class="d-text" x="320" y="146">Dialogue</text>
+        <text class="d-text" x="320" y="112">Pause</text>
+        <text class="d-text" x="445" y="180">Play</text>
+        <text class="d-text" x="445" y="146">Dialogue</text>
+        <text class="d-text" x="570" y="180">Play</text>
+      </g>
+      <text class="d-muted" x="320" y="220" text-anchor="middle">Shaded box: the top of the stack, the only state that receives input.</text>
+    </svg>
+    <figcaption>Pause is pushed over Dialogue and popped again. Dialogue was never exited, so it resumes on the same line.</figcaption>
+  </figure>
+
+  <h2>What happens, in what order</h2>
+  <p>With several states alive at once, decide who gets each of the game loop's three jobs. A common set of rules, used by the demo:</p>
+  <ul>
+    <li><strong>Input goes to the top state only.</strong> When the pause menu is open, Left moves the menu cursor, not the player.</li>
+    <li><strong>Updates run from the top down</strong> until a state that pauses the states below it. Dialogue lets the world keep moving; Pause freezes everything under it.</li>
+    <li><strong>Drawing runs from the bottom up</strong>, starting at the highest <dfn>opaque</dfn> state, one that covers the whole screen. Pause is see-through, so Play and Dialogue are drawn first and Pause darkens them. A full-screen Inventory is opaque, so nothing below it is drawn at all.</li>
+  </ul>
+
+  <h2>Who owns the data</h2>
+  <p>The <strong>stack</strong> owns the order; only <code>push</code> and <code>pop</code> change it. Each <strong>state</strong> owns its data, such as Dialogue's current line. Covering a state does not exit it, so the data survives. <code>enter</code> runs on push, <code>exit</code> on pop, and a state that must refresh when uncovered gets a third hook, often called <code>resume</code>.</p>
+
+  <h2>How the engines express it</h2>
+  <p><strong>Godot 4</strong> gives you much of the stack through the scene tree. An overlay added as the last child is drawn after its siblings, so it appears on top. Input travels in reverse depth-first order, starting at the bottom of the tree, so the newest overlay hears input first and can stop it with <code>get_viewport().set_input_as_handled()</code>. For "pause below", set <code>get_tree().paused = true</code> and give the menu a <code>process_mode</code> of When Paused or Always. In animation, a state inside an <code>AnimationNodeStateMachine</code> can itself be a state machine: a hierarchy.</p>
+  <p><strong>Unity</strong> keeps the three jobs separate. UI draw order comes from the Canvas sort order. Input routing comes from which Input System action maps are enabled, for example with <code>PlayerInput.SwitchCurrentActionMap("UI")</code>. Pausing usually means <code>Time.timeScale = 0</code>, which stops <code>FixedUpdate</code> and zeroes <code>Time.deltaTime</code> while <code>Update</code> keeps running. The Animator Controller has sub-state machines, a hierarchy, and layers, machines running side by side.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Godot ties draw order and input order to one tree, so a pushed overlay gets both right automatically, but moving a node changes both at once. Unity makes you wire draw order, input and pausing separately: more setup, and more freedom to make them disagree on purpose.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the scene (or tab to it). Arrows walk, Enter talks or confirms, Backspace goes back; the buttons do the same. Press Enter to talk, Back to pause, Back to resume: the conversation is still on the same line. Watch which row has <em>input</em> lit; the clouds and typing freeze under Pause but not under Dialogue.</p>
+  <p>Then switch to <strong>Plain state machine</strong> and repeat. Closing the pause menu drops you on the street, and the paused screen is blank because only one state draws.</p>
+
+  <figure class="demo wide" data-demo="stack">
+    <canvas id="stack"></canvas>
+    <figcaption>Escape is kept for leaving the demo, so Backspace is Back. The model leaves out hierarchy, replacing the top state, and resume hooks. With reduced motion, press Play to see clouds and typing move.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the demo's four states, flags and numbers, in an 800 by 600 window.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Left/Right walk, Enter or Space confirms, Escape or Backspace goes back.</span>
+local LINES = { "Back again?", "The bridge is out past the mill.",
+                "Bring rope and I will fix it." }
+local ITEMS = { "rope", "lamp", "key", "bread" }
+local ACTIONS = { left = "left", right = "right", ["return"] = "confirm",
+                  space = "confirm", escape = "back", backspace = "back" }
+local player = { x = 80 }
+local playTime = 0
+local stack = {}
+local states = {}
+
+states.play = { opaque = true }
+function states.play:update(dt) playTime = playTime + dt end
+function states.play:input(a)
+  if a == "left" then player.x = player.x - 24 end
+  if a == "right" then player.x = player.x + 24 end
+  if a == "confirm" then return "push", "dialogue" end
+  if a == "back" then return "push", "pause" end
+end
+function states.play:draw()
+  love.graphics.rectangle("fill", player.x - 11, 466, 22, 34)
+  love.graphics.print("play time " .. string.format("%.1f", playTime), 10, 10)
+end
+
+states.dialogue = { line = 1, chars = 0 }
+function states.dialogue:enter() self.line, self.chars = 1, 0 end
+function states.dialogue:update(dt) self.chars = self.chars + 30 * dt end
+function states.dialogue:input(a)
+  if a == "back" then return "push", "pause" end
+  if a == "confirm" then
+    self.line, self.chars = self.line + 1, 0
+    if self.line &gt; #LINES then return "pop" end
+  end
+end
+function states.dialogue:draw()
+  local text = LINES[self.line]:sub(1, math.floor(self.chars))
+  love.graphics.rectangle("line", 20, 510, 760, 70)
+  love.graphics.print("Shopkeeper: " .. text, 36, 530)
+end
+
+states.pause = { pausesBelow = true }
+function states.pause:input(a)
+  if a == "back" then return "pop" end
+  if a == "confirm" then return "push", "inventory" end
+end
+function states.pause:draw()
+  love.graphics.setColor(0, 0, 0, 0.6)
+  love.graphics.rectangle("fill", 0, 0, 800, 600)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print("PAUSED", 375, 290)
+end
+
+states.inventory = { opaque = true, pausesBelow = true, slot = 1 }
+function states.inventory:input(a)
+  if a == "back" then return "pop" end
+  if a == "left" then self.slot = math.max(1, self.slot - 1) end
+  if a == "right" then self.slot = math.min(#ITEMS, self.slot + 1) end
+end
+function states.inventory:draw()
+  for i, item in ipairs(ITEMS) do
+    local mode = (i == self.slot) and "fill" or "line"
+    love.graphics.rectangle(mode, 100 + i * 120, 260, 100, 60)
+    love.graphics.print(item, 120 + i * 120, 330)
+  end
+end
+
+<span class="k">local function push(name)
+  local s = states[name]
+  stack[#stack + 1] = s
+  if s.enter then s:enter() end
+end
+
+local function pop()
+  local s = table.remove(stack)
+  if s.exit then s:exit() end
+end</span>
+
+function love.load() push("play") end
+
+function love.keypressed(key)
+  local a = ACTIONS[key]
+  if not a then return end
+<span class="k">  local verb, name = stack[#stack]:input(a)    <span class="c">-- only the top hears input</span></span>
+  if verb == "push" then push(name) elseif verb == "pop" then pop() end
+end
+
+function love.update(dt)
+<span class="k">  for i = #stack, 1, -1 do                     <span class="c">-- top down</span>
+    if stack[i].update then stack[i]:update(dt) end
+    if stack[i].pausesBelow then break end     <span class="c">-- states below freeze</span>
+  end</span>
+end
+
+function love.draw()
+<span class="k">  local first = #stack
+  while first &gt; 1 and not stack[first].opaque do first = first - 1 end
+  for i = first, #stack do stack[i]:draw() end <span class="c">-- bottom up</span></span>
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># game_states.gd. Godot 4. Attach to a Node in a new scene and run.</span>
+<span class="c"># Enter or Space is ui_accept, Escape is ui_cancel. Watch the Output panel.</span>
+extends Node
+
+const LINES := ["Back again?", "The bridge is out past the mill.", "Bring rope and I will fix it."]
+const PAUSES_BELOW := ["pause", "inventory"]
+
+var stack: Array[String] = []
+var line := 0
+
+func _ready() -&gt; void:
+<span class="k">    process_mode = Node.PROCESS_MODE_ALWAYS   <span class="c"># keep hearing input while the tree is paused</span></span>
+    push("play")
+
+func push(state: String) -&gt; void:
+    stack.push_back(state)
+    if state == "dialogue":
+        line = 0                              <span class="c"># enter Dialogue</span>
+        print("Shopkeeper: ", LINES[line])
+    _changed()
+
+func pop() -&gt; void:
+    stack.pop_back()
+    _changed()
+
+func _changed() -&gt; void:
+    <span class="c"># Freeze every pausable node while a pausing state is anywhere on the stack.</span>
+<span class="k">    get_tree().paused = stack.any(func(s): return s in PAUSES_BELOW)</span>
+    print("stack: ", stack)
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    var accept := event.is_action_pressed("ui_accept")
+    var cancel := event.is_action_pressed("ui_cancel")
+    if not accept and not cancel:
+        return
+    get_viewport().set_input_as_handled()
+<span class="k">    match stack.back():                       <span class="c"># only the top state hears input</span></span>
+        "play":
+            if accept:
+                push("dialogue")
+            else:
+                push("pause")
+        "dialogue":
+            if cancel:
+                push("pause")
+            else:
+                line += 1
+                if line &gt;= LINES.size():
+                    pop()
+                else:
+                    print("Shopkeeper: ", LINES[line])
+        "pause":
+            if cancel:
+                pop()
+            else:
+                push("inventory")
+        "inventory":
+            if cancel:
+                pop()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// GameStates.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Add to any GameObject and press Play. Enter confirms, Escape goes back. Watch the Console.</span>
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class GameStates : MonoBehaviour
+{
+    static readonly string[] Lines =
+        { "Back again?", "The bridge is out past the mill.", "Bring rope and I will fix it." };
+
+<span class="k">    readonly Stack&lt;string&gt; stack = new Stack&lt;string&gt;();</span>
+    int line;
+
+    void Start() { Push("play"); }
+
+    void Push(string state)
+    {
+        stack.Push(state);
+        if (state == "dialogue") { line = 0; Debug.Log("Shopkeeper: " + Lines[line]); }
+        Changed();
+    }
+
+    void Pop() { stack.Pop(); Changed(); }
+
+    void Changed()
+    {
+        <span class="c">// Freeze scaled time while a pausing state is anywhere on the stack.</span>
+<span class="k">        Time.timeScale = (stack.Contains("pause") || stack.Contains("inventory")) ? 0f : 1f;</span>
+        Debug.Log("stack, top first: " + string.Join(", ", stack));
+    }
+
+    void Update()   <span class="c">// still called when timeScale is 0</span>
+    {
+        var kb = Keyboard.current;
+        if (kb == null) return;
+        bool confirm = kb.enterKey.wasPressedThisFrame;
+        bool back = kb.escapeKey.wasPressedThisFrame;
+        if (!confirm &amp;&amp; !back) return;
+
+<span class="k">        switch (stack.Peek())   <span class="c">// only the top state hears input</span></span>
+        {
+            case "play":
+                if (confirm) Push("dialogue"); else Push("pause");
+                break;
+            case "dialogue":
+                if (back) Push("pause");
+                else if (++line &gt;= Lines.Length) Pop();
+                else Debug.Log("Shopkeeper: " + Lines[line]);
+                break;
+            case "pause":
+                if (back) Pop(); else Push("inventory");
+                break;
+            case "inventory":
+                if (back) Pop();
+                break;
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The GDScript and C# versions keep the stack and input routing, print instead of drawing, and use each engine's own pause switch for "pausesBelow".</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Moving a check into a parent changes its priority.</strong> Innermost first means Run's "stop" check now runs before Grounded's "jump"; yesterday Jump came first. A one-frame press can be lost on the frame the player stops. Decide the order on purpose.</li>
+    <li><strong>Pushing when you meant to replace.</strong> Play to Game Over should not leave Play underneath. Add an operation that pops and pushes in one step, often called switch or replace.</li>
+    <li><strong>A stack that only grows.</strong> If Pause pushes Options and Options pushes Pause, clicking back and forth builds a tall stack. Pop back instead of pushing the parent again.</li>
+    <li><strong>Paused menus.</strong> In Godot, a menu left at the default process mode freezes with the game and never hears the key to close it. In Unity, menu code that animates with <code>Time.deltaTime</code> stops at a time scale of zero; use <code>Time.unscaledDeltaTime</code>, and <code>WaitForSecondsRealtime</code> instead of <code>WaitForSeconds</code> in coroutines.</li>
+    <li><strong>Stale data on resume.</strong> A shop screen covered by the inventory may show old prices after a sale. A <code>resume</code> hook that refreshes it fixes this.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Menus that open over menus, a confirm box over options over the pause screen, are a stack whether or not the code calls it one. Both engines' animation tools nest state machines, as described above. Nested states themselves come from David Harel's statecharts, published in 1987 for describing complex reactive systems.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add an Options screen that opens from your pause menu, with both screens on a stack: Options pushes on top of Pause, and Back pops. You are done when play, pause, options, back, back returns you to play with nothing reset and no hard-coded return target. Bonus: pause during a dialogue and check that it survives.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A hierarchical machine nests substates in superstates. Input goes innermost first, then up, so shared transitions are written once.</li>
+    <li>A pushdown automaton keeps states on a stack. Push to interrupt; pop to return to the uncovered state, data intact.</li>
+    <li>Decide each job separately: input to the top, updates down to the first state that pauses the rest, drawing up from the highest opaque state.</li>
+    <li>Godot ties draw and input order to the scene tree; Unity wires them separately.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we leave state machines and build objects out of small reusable components, and see why that scales better than deep inheritance.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "State", sections on hierarchical state machines and pushdown automata.</li>
+    <li>David Harel, <cite>Statecharts: A visual formalism for complex systems</cite>, Science of Computer Programming, 1987.</li>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/master/tutorials/scripting/pausing_games.rst">Pausing games and process mode</a></cite>.</li>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/master/tutorials/inputs/inputevent.rst">Using InputEvent</a></cite>, for the order in which nodes receive input.</li>
+    <li>Unity Manual, <cite>Sub-State Machines</cite> and <cite>Time.timeScale</cite> in the Scripting Reference.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var LINES = ['Back again?', 'The bridge is out past the mill.', 'Bring rope and I will fix it.'];
+  var ITEMS = ['rope', 'lamp', 'key', 'bread'];
+  var NAMES = { play: 'Play', dialogue: 'Dialogue', pause: 'Pause', inventory: 'Inventory' };
+  var RETURN_TO = { dialogue: 'play', pause: 'play', inventory: 'pause' };   // plain machine only
+  var ACTION_LABEL = { left: 'Left', right: 'Right', confirm: 'Enter', back: 'Back' };
+  var STEP = 24, TYPE_SPEED = 30;
+  var GAME_H = 190, GROUND = 150;
+  var ROW_H = 30, ROW_GAP = 6, MAX_ROWS = 4;
+
+  var player, playTime, stack, handle;
+  var canvasEl = document.getElementById('stack');
+
+  var states = {
+    play: {
+      id: 'play', opaque: true, pausesBelow: false,
+      update: function (dt) { playTime += dt; },
+      input: function (a) {
+        if (a === 'left') player.x -= STEP;
+        if (a === 'right') player.x += STEP;
+        if (a === 'confirm') return ['push', 'dialogue'];
+        if (a === 'back') return ['push', 'pause'];
+        if (a === 'left' || a === 'right') return ['moved'];
+        return null;
+      },
+      draw: drawWorld
+    },
+    dialogue: {
+      id: 'dialogue', opaque: false, pausesBelow: false, line: 1, chars: 0,
+      enter: function () { this.line = 1; this.chars = 0; },
+      update: function (dt) { this.chars += TYPE_SPEED * dt; },
+      input: function (a) {
+        if (a === 'back') return ['push', 'pause'];
+        if (a === 'confirm') {
+          this.line += 1;
+          this.chars = 0;
+          if (this.line > LINES.length) return ['pop'];
+          return ['next'];
+        }
+        return null;
+      },
+      draw: drawDialogue
+    },
+    pause: {
+      id: 'pause', opaque: false, pausesBelow: true,
+      input: function (a) {
+        if (a === 'back') return ['pop'];
+        if (a === 'confirm') return ['push', 'inventory'];
+        return null;
+      },
+      draw: drawPause
+    },
+    inventory: {
+      id: 'inventory', opaque: true, pausesBelow: true, slot: 1,
+      input: function (a) {
+        if (a === 'back') return ['pop'];
+        if (a === 'left') { this.slot = Math.max(1, this.slot - 1); return ['moved']; }
+        if (a === 'right') { this.slot = Math.min(ITEMS.length, this.slot + 1); return ['moved']; }
+        return null;
+      },
+      draw: drawInventory
+    }
+  };
+
+  function plain() { return mode.value === 'plain'; }
+
+  function push(name) {
+    var s = states[name];
+    stack.push(s);
+    if (s.enter) s.enter();
+  }
+
+  function pop() {
+    var s = stack.pop();
+    if (s.exit) s.exit();
+  }
+
+  // A flat machine: one slot, and every "pop" must name a fixed target.
+  function change(name) {
+    var old = stack.pop();
+    if (old && old.exit) old.exit();
+    push(name);
+  }
+
+  function reset() {
+    var w = handle ? handle.state.width : 320;
+    player = { x: Math.min(80, w / 2) };
+    playTime = 0;
+    states.inventory.slot = 1;
+    states.dialogue.line = 1;
+    states.dialogue.chars = 0;
+    stack = [];
+    push('play');
+    logOut.set('none yet');
+    updateReadouts();
+  }
+
+  function act(a) {
+    var top = stack[stack.length - 1];
+    var r = top.input(a);
+    var who = NAMES[top.id];
+    var msg;
+    if (!r) {
+      msg = ACTION_LABEL[a] + ' went to ' + who + ': ignored';
+    } else if (r[0] === 'push') {
+      if (plain()) {
+        change(r[1]);
+        msg = ACTION_LABEL[a] + ' went to ' + who + ': change to ' + NAMES[r[1]];
+      } else {
+        push(r[1]);
+        msg = ACTION_LABEL[a] + ' went to ' + who + ': push ' + NAMES[r[1]];
+      }
+    } else if (r[0] === 'pop') {
+      if (plain()) {
+        var target = RETURN_TO[top.id];
+        change(target);
+        msg = ACTION_LABEL[a] + ' went to ' + who + ': change to ' + NAMES[target] + ' (fixed target)';
+      } else {
+        pop();
+        msg = ACTION_LABEL[a] + ' went to ' + who + ': pop, ' + NAMES[stack[stack.length - 1].id] + ' is on top again';
+      }
+    } else if (r[0] === 'next') {
+      msg = 'Enter went to Dialogue: next line';
+    } else {
+      msg = ACTION_LABEL[a] + ' went to ' + who + (top.id === 'play' ? ': player moved' : ': selection moved');
+    }
+    if (handle) player.x = DemoKit.clamp(player.x, 20, handle.state.width - 20);
+    logOut.set(msg);
+    updateReadouts();
+    if (handle) handle.redraw();
+  }
+
+  function updateReadouts() {
+    var names = [];
+    for (var i = 0; i < stack.length; i++) names.push(NAMES[stack[i].id]);
+    stackOut.set(plain() ? 'current: ' + names[0] : names.join(' › ') + ' (top)');
+  }
+
+  // Which states update and which draw, worked out from the top of the stack.
+  function flags() {
+    var n = stack.length;
+    var upd = [], drw = [];
+    var active = true;
+    for (var i = n - 1; i >= 0; i--) {
+      upd[i] = active;
+      if (stack[i].pausesBelow) active = false;
+    }
+    var first = n - 1;
+    while (first > 0 && !stack[first].opaque) first -= 1;
+    for (var j = 0; j < n; j++) drw[j] = j >= first;
+    return { upd: upd, drw: drw, first: first };
+  }
+
+  var ui = DemoKit.controls('[data-demo="stack"]');
+  var mode = ui.select({
+    label: 'Mode',
+    options: [{ value: 'stack', label: 'Pushdown stack' }, { value: 'plain', label: 'Plain state machine' }],
+    value: 'stack',
+    onChange: function () { reset(); if (handle) handle.redraw(); }
+  });
+  ui.button({ label: 'Left', onClick: function () { act('left'); } });
+  ui.button({ label: 'Right', onClick: function () { act('right'); } });
+  ui.button({ label: 'Enter (confirm)', onClick: function () { act('confirm'); } });
+  ui.button({ label: 'Back', onClick: function () { act('back'); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); if (handle) handle.redraw(); } });
+  var stackOut = ui.readout({ label: 'Stack' });
+  var logOut = ui.readout({ label: 'Last input' });
+
+  function wrap(ctx, text, x, y, maxW, lineH) {
+    var words = text.split(' ');
+    var line = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, x, y);
+        line = words[i];
+        y += lineH;
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, y);
+    return y + lineH;
+  }
+
+  function cloud(ctx, x, y, c) {
+    ctx.fillStyle = c.surface;
+    ctx.beginPath();
+    ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.arc(x + 14, y - 6, 14, 0, Math.PI * 2);
+    ctx.arc(x + 30, y, 11, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawWorld(ctx, s, c, updating) {
+    var w = s.width;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, w, GAME_H);
+    var span = w + 80;
+    cloud(ctx, ((40 + playTime * 18) % span) - 40, 46, c);
+    cloud(ctx, ((w * 0.6 + playTime * 12) % span) - 40, 74, c);
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, GROUND, w, GAME_H - GROUND);
+    // shop stall and shopkeeper
+    var sx = w * 0.76;
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(sx - 34, GROUND - 52, 68, 8);
+    ctx.fillRect(sx - 32, GROUND - 44, 4, 44);
+    ctx.fillRect(sx + 28, GROUND - 44, 4, 44);
+    ctx.fillRect(sx - 34, GROUND - 18, 68, 6);
+    ctx.fillStyle = c.ink2;
+    ctx.beginPath();
+    ctx.arc(sx, GROUND - 32, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(sx - 7, GROUND - 25, 14, 9);
+    // player
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(player.x - 11, GROUND - 34, 22, 34);
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(player.x + 2, GROUND - 28, 4, 4);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('play time ' + playTime.toFixed(1) + ' s' + (updating ? '' : ' (frozen)'), 8, 14);
+  }
+
+  function drawDialogue(ctx, s, c) {
+    var d = states.dialogue;
+    var w = s.width;
+    var top = GAME_H - 66;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(8, top, w - 16, 58);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(8.5, top + 0.5, w - 17, 57);
+    var full = LINES[Math.min(d.line, LINES.length) - 1];
+    var text = full.slice(0, Math.floor(d.chars));
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = c.ink;
+    wrap(ctx, 'Shopkeeper: ' + text, 18, top + 15, w - 36, 16);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('line ' + d.line + ' of ' + LINES.length + ', Enter for next', 18, top + 48);
+  }
+
+  function drawPause(ctx, s, c) {
+    var w = s.width;
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(0, 0, w, GAME_H);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = c.ink;
+    ctx.font = '700 18px system-ui, sans-serif';
+    ctx.fillText('PAUSED', w / 2, GAME_H / 2 - 12);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Back: resume.  Enter: inventory.', w / 2, GAME_H / 2 + 14);
+  }
+
+  function drawInventory(ctx, s, c) {
+    var inv = states.inventory;
+    var w = s.width;
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(0, 0, w, GAME_H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = c.ink;
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillText('Inventory (opaque)', w / 2, 26);
+    var size = Math.min(64, (w - 60) / 4);
+    var gap = 10;
+    var total = size * 4 + gap * 3;
+    var x0 = (w - total) / 2;
+    var y0 = 60;
+    for (var i = 0; i < ITEMS.length; i++) {
+      var x = x0 + i * (size + gap);
+      var on = i + 1 === inv.slot;
+      ctx.fillStyle = on ? c.topic : c.surface2;
+      ctx.fillRect(x, y0, size, size);
+      ctx.strokeStyle = on ? c.topic : c.ink3;
+      ctx.lineWidth = on ? 3 : 1;
+      ctx.strokeRect(x, y0, size, size);
+      ctx.fillStyle = on ? c.bg : c.ink;
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText(ITEMS[i], x + size / 2, y0 + size / 2);
+    }
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Left/Right: choose.  Back: close.', w / 2, y0 + size + 24);
+  }
+
+  function drawTag(ctx, x, y, w, text, on, c) {
+    ctx.fillStyle = on ? c.topic : c.surface;
+    ctx.fillRect(x, y, w, ROW_H);
+    ctx.strokeStyle = on ? c.topic : c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, ROW_H - 1);
+    ctx.fillStyle = on ? c.bg : c.ink3;
+    ctx.font = (on ? '600 ' : '') + '12px system-ui, sans-serif';
+    ctx.fillText(on ? text : 'no ' + text, x + w / 2, y + ROW_H / 2 + 1);
+  }
+
+  function drawPanel(ctx, s, c, f) {
+    var w = s.width;
+    var top = GAME_H + 12;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText(plain() ? 'Current state (no stack, nothing is remembered)' : 'Stack, top row on top', 10, top + 8);
+    var rowsBottom = top + 22 + MAX_ROWS * (ROW_H + ROW_GAP);
+    var nameW = Math.min(110, Math.max(78, w * 0.26));
+    var gap = 6;
+    var tagW = (w - 20 - nameW - gap * 3) / 3;
+    for (var i = 0; i < stack.length; i++) {
+      var y = rowsBottom - (i + 1) * (ROW_H + ROW_GAP);
+      var isTop = i === stack.length - 1;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(10, y, nameW, ROW_H);
+      ctx.strokeStyle = isTop ? c.topic : c.ink3;
+      ctx.lineWidth = isTop ? 2.5 : 1.25;
+      ctx.strokeRect(10, y, nameW, ROW_H);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink;
+      ctx.font = (isTop ? '700 ' : '') + '13px system-ui, sans-serif';
+      ctx.fillText(NAMES[stack[i].id], 10 + nameW / 2, y + ROW_H / 2 + 1);
+      var tx = 10 + nameW + gap;
+      drawTag(ctx, tx, y, tagW, 'input', isTop, c);
+      drawTag(ctx, tx + tagW + gap, y, tagW, 'update', f.upd[i], c);
+      drawTag(ctx, tx + (tagW + gap) * 2, y, tagW, 'draw', f.drw[i], c);
+    }
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    var hint;
+    if (plain()) hint = 'Back from Pause always goes to Play: a flat machine cannot know where it came from.';
+    else if (document.activeElement !== canvasEl) hint = 'Click the scene, then arrows, Enter and Backspace.';
+    else hint = 'Arrows, Enter and Backspace go to the top state.';
+    wrap(ctx, hint, 10, rowsBottom + 10, w - 100, 15);
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#stack', {
+    height: 420,
+    keys: true,
+    label: 'A small game scene above a stack of states. Enter talks or confirms, Backspace goes back, arrows walk. Each stack row shows whether that state receives input, updates and draws.',
+    update: function (dt) {
+      var f = flags();
+      for (var i = stack.length - 1; i >= 0; i--) {
+        if (f.upd[i] && stack[i].update) stack[i].update(dt);
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var f = flags();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, s.width, GAME_H);
+      ctx.clip();
+      for (var i = f.first; i < stack.length; i++) {
+        stack[i].draw(ctx, s, c, f.upd[i]);
+      }
+      ctx.restore();
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, s.width - 1, GAME_H - 1);
+      drawPanel(ctx, s, c, f);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft' || key === 'a') act('left');
+      else if (key === 'arrowright' || key === 'd') act('right');
+      else if (key === 'enter' || key === 'space') act('confirm');
+      else if (key === 'backspace') act('back');
+    }
+  });
+  reset();
+  handle.redraw();
+})();
+</script>
+</body>
+</html>

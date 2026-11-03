@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Negative feedback loops: catch-up and rubber banding · Game Dev Daily</title>
+<meta name="description" content="How catch-up mechanics keep a race close by helping whoever is behind, how to tune their strength, and what they cost the best player.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-11-03">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Negative feedback loops: catch-up and rubber banding</h1>
+  <p class="lede">How catch-up mechanics keep a race close by helping whoever is behind, how to tune their strength, and what they cost the best player.</p>
+</header>
+
+<section data-section="hook">
+  <p>You crash on the first corner of a racing game and the pack is gone. Nothing you do for three laps changes your place, so you quit. Or you drive a perfect race and the computer cars stay glued to your bumper anyway, and you suspect the game is cheating.</p>
+  <p>Both feelings come from the same design choice: how strongly the game pulls the racers back together.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A loop that pushes back</h2>
+  <p>In the last lesson, a <dfn>positive feedback loop</dfn> made success produce more success, so gaps grew. A <dfn>negative feedback loop</dfn>, also called a balancing loop, does the reverse: the further things drift from even, the harder the game pushes back. "Negative" does not mean bad, only that the loop opposes the current direction.</p>
+  <p>In games, these loops usually appear as <dfn>catch-up mechanics</dfn>: rules that help whoever is behind, or hinder whoever is ahead. When a racing game quietly speeds up cars that fall behind and slows cars that pull ahead, players call it <dfn>rubber banding</dfn>, because the racers act as if tied together with elastic.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="A loop of three boxes: fall behind, get a speed boost, close the gap, which shrinks the boost and leads back. A minus sign in the middle marks it as balancing. On the right, three kinds of catch-up: boost the back, brake the front, better luck at the back.">
+      <rect class="d-accent-soft" x="110" y="20" width="180" height="44" rx="8"/>
+      <text class="d-text" x="200" y="47" text-anchor="middle">fall behind</text>
+
+      <rect class="d-box" x="250" y="150" width="170" height="44" rx="8"/>
+      <text class="d-text" x="335" y="177" text-anchor="middle">bigger boost</text>
+
+      <rect class="d-box" x="10" y="150" width="190" height="44" rx="8"/>
+      <text class="d-text" x="105" y="177" text-anchor="middle">gap closes</text>
+
+      <path class="d-accent" d="M290 50 C340 60 350 100 338 144"/>
+      <path class="d-accent" d="M331 136 L338 145 L344 135"/>
+      <path class="d-accent" d="M250 178 H208"/>
+      <path class="d-accent" d="M216 172 L207 178 L216 184"/>
+      <path class="d-accent" d="M70 150 C60 100 75 60 104 46"/>
+      <path class="d-accent" d="M94 42 L105 45 L98 54"/>
+
+      <circle class="d-stroke" cx="205" cy="112" r="20"/>
+      <text class="d-text" x="205" y="119" text-anchor="middle" style="font-size:22px">&#8722;</text>
+      <text class="d-label" x="205" y="230" text-anchor="middle">a smaller gap means a smaller</text>
+      <text class="d-label" x="205" y="248" text-anchor="middle">boost, so the loop settles</text>
+
+      <path class="d-dash" d="M445 20 V250"/>
+      <text class="d-muted" x="470" y="40">kinds of catch-up</text>
+      <rect class="d-box" x="470" y="56" width="160" height="40" rx="8"/>
+      <text class="d-text" x="550" y="81" text-anchor="middle">boost the back</text>
+      <rect class="d-box" x="470" y="116" width="160" height="40" rx="8"/>
+      <text class="d-text" x="550" y="141" text-anchor="middle">brake the front</text>
+      <rect class="d-box" x="470" y="176" width="160" height="40" rx="8"/>
+      <text class="d-text" x="550" y="201" text-anchor="middle">better luck at back</text>
+    </svg>
+    <figcaption>The loop on the left corrects itself: as the gap shrinks, so does the help. The boxes on the right are three common ways to build it.</figcaption>
+  </figure>
+
+  <h3>The model in the demo</h3>
+  <p>Four runners race 200 metres. Their top speeds are 8.4, 8.0, 7.8 and 7.6 metres per second. Every half second each one gets a new random pace between 92 and 105 percent of top speed, and a 5 percent chance of a stumble that drops it to 20 percent for that half second.</p>
+  <p>The catch-up rule is one line. Each runner gets a speed bonus for every metre it is behind the leader, capped at 30 percent:</p>
+<pre><code>boost = math.min(gap * STRENGTH, MAX_BOOST)
+speed = top * pace * (1 + boost)</code></pre>
+  <p>With a strength of 2 percent per metre, a runner 5 metres back runs 10 percent faster, and the leader gets nothing. On its own the rule never carries anyone past the leader, because the boost fades to zero as the gap closes. It squeezes the pack together, and then luck decides more of the order.</p>
+
+  <h3>What it does to the results</h3>
+  <p>Here are 1000 simulated races at each strength. "Fastest wins" counts how often the 8.4 runner wins. "Rivals only" gives the boost to everyone except that runner, which is how rubber banding against a human player commonly works.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Strength per metre</th><th class="num">Spread at finish</th><th class="num">Lead changes</th><th class="num">Halfway leader wins</th><th class="num">Fastest wins</th><th class="num">Fastest wins, rivals only</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">off</td><td class="num">20.4 m</td><td class="num">2.7</td><td class="num">82%</td><td class="num">89%</td><td class="num">89%</td></tr>
+      <tr><td class="num">1%</td><td class="num">9.9 m</td><td class="num">3.4</td><td class="num">75%</td><td class="num">87%</td><td class="num">82%</td></tr>
+      <tr><td class="num">2%</td><td class="num">6.2 m</td><td class="num">4.0</td><td class="num">70%</td><td class="num">80%</td><td class="num">70%</td></tr>
+      <tr><td class="num">3%</td><td class="num">4.5 m</td><td class="num">4.8</td><td class="num">61%</td><td class="num">78%</td><td class="num">61%</td></tr>
+      <tr><td class="num">5%</td><td class="num">3.3 m</td><td class="num">5.4</td><td class="num">59%</td><td class="num">74%</td><td class="num">52%</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>"Spread" is the distance from first to last when the winner finishes. The first columns are what catch-up buys: a tight pack, more lead changes, a second half that matters. The last two are what it costs: the best runner wins less, and much less when only its opponents get help.</p>
+
+  <h3>What the player feels</h3>
+  <p>Without catch-up, one early mistake can end your race, and a good lead turns the rest into a lonely drive. Fair, but often dull. With mild catch-up, a crash costs places but not hope, and the leader always has someone close behind. With strong catch-up, the leader feels punished for driving well, and the first half stops mattering.</p>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>Express the boost as a share of speed per unit of gap, then cap it. In this model, 1 to 2 percent per metre with a 30 percent cap keeps the pack close without making the fastest runner a coin flip. Your units differ, so measure the spread and how often the best player wins instead of copying numbers. These are starting points, not rules.</p>
+  </div>
+
+  <h3>Visible or hidden</h3>
+  <p>Catch-up shown openly, such as better items for players at the back, is a rule players can learn and argue about. Hidden rubber banding is different: the player believes they won a close race by skill when the game manufactured the closeness. Many players accept that in a casual racer. Discovered in a game they took seriously, it tends to feel like cheating.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Run one race with catch-up off, holding the whole way: you win easily and the graph lines spread apart. Then switch catch-up on and run again. Then press Crash halfway through a race, once with catch-up off and once with it on. Finally, set "applies to" to rivals only and notice how it feels to lead.</p>
+
+  <figure class="demo wide" data-demo="catchup">
+    <canvas id="catchup"></canvas>
+    <figcaption>Controls: click the canvas, then hold Space or the Right arrow to run, press C to crash and N for a new race. On a phone, press and hold the canvas to run, or switch on auto-run, and use the buttons. The percentage beside each runner is its current boost. The graph shows each runner's distance behind the leader. The readouts summarise 1000 simulated races and match the table above.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's race in LÖVE, with the same numbers. Hold Space to run. The marked lines are the whole negative feedback loop. The demo also adds the crash button and a fixed step, which are left out here.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local LENGTH = 200        <span class="c">-- metres</span>
+local STRENGTH = 0.02     <span class="c">-- 2% extra speed per metre behind</span>
+local MAX_BOOST = 0.3     <span class="c">-- never more than 30% faster</span>
+local RIVALS_ONLY = false <span class="c">-- true: the player never gets help</span>
+
+local racers = {
+  { name = "You", top = 8.4, dist = 0, pace = 0, player = true },
+  { name = "Fox", top = 8.0, dist = 0, pace = 1 },
+  { name = "Owl", top = 7.8, dist = 0, pace = 1 },
+  { name = "Elk", top = 7.6, dist = 0, pace = 1 },
+}
+local paceTimer = 0
+
+local function leaderDistance()
+  local best = 0
+  for _, r in ipairs(racers) do
+    if r.dist &gt; best then best = r.dist end
+  end
+  return best
+end
+
+local function newPace()
+  if love.math.random() &lt; 0.05 then return 0.2 end <span class="c">-- a stumble</span>
+  return 0.92 + 0.13 * love.math.random()
+end
+
+function love.update(dt)
+  local lead = leaderDistance()
+  if lead &gt;= LENGTH then return end               <span class="c">-- race over</span>
+  paceTimer = paceTimer - dt
+  if paceTimer &lt;= 0 then                           <span class="c">-- new pace every 0.5 s</span>
+    paceTimer = paceTimer + 0.5
+    for _, r in ipairs(racers) do
+      if not r.player then r.pace = newPace() end
+    end
+  end
+  local you = racers[1]
+  local target = love.keyboard.isDown("space") and 1 or 0
+  you.pace = you.pace + (target - you.pace) * math.min(dt * 4, 1)
+  for _, r in ipairs(racers) do
+    local boost = 0
+    if not (RIVALS_ONLY and r.player) then
+<span class="k">      boost = math.min((lead - r.dist) * STRENGTH, MAX_BOOST)</span>
+    end
+<span class="k">    r.dist = r.dist + r.top * r.pace * (1 + boost) * dt</span>
+  end
+end
+
+function love.draw()
+  for i, r in ipairs(racers) do
+    local y = 40 * i
+    love.graphics.print(r.name, 10, y)
+    love.graphics.rectangle("fill", 60 + r.dist * 3, y, 12, 12)
+  end
+end</code></pre>
+  </div>
+  <p>To brake the front instead of boosting the back, multiply the leader's speed by a little less than 1, for example <code>0.95</code>. To build "better luck at the back", choose from a stronger list of random items the further back a player is.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Boosting past the leader's top speed by a lot.</strong> A trailing car that suddenly outruns the best car breaks the fiction. Cap the boost so it looks like a good run, not a jet engine.</li>
+    <li><strong>Help that only goes to the computer.</strong> Rivals-only rubber banding is the version players complain about most. Keep it weak, or help the player when they fall behind too.</li>
+    <li><strong>Making the lead worthless.</strong> If the halfway leader wins no more often than anyone else, early skill means nothing and players learn to coast.</li>
+    <li><strong>Steps instead of slopes.</strong> A rule like "+20% if more than 10 metres behind" makes racers bounce on the threshold. A boost that grows smoothly with the gap settles more gently.</li>
+    <li><strong>Hiding it to fake skill.</strong> Using secret catch-up so players feel more skilled than they are, or so a losing player keeps playing longer, is manipulation. You should be able to explain the rule to a player without embarrassment.</li>
+  </ul>
+  <p><strong>When not to use it.</strong> Time trials, speedruns, ranked competitive play and score chasing are about measuring skill, and catch-up blurs the measurement. It is also wrong where a big lead is the reward the player worked for, such as outrunning a boss.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Mario Kart is the best-known example of open catch-up: the items a racer can get from an item box depend on their position, and racers near the back receive stronger ones. The Spiny Shell, introduced in Mario Kart 64, chases down whoever is in first place.</p>
+  <p>Computer-controlled opponents in arcade racing games commonly use hidden rubber banding of the kind in this demo, which is why "rubber band AI" is a familiar complaint among players.</p>
+  <p>Outside video games, golf handicaps let players of different skill compete on a close score, and drafts in American professional sports leagues give the weakest teams early picks of new players.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one thing a trailing player lacks in your game: speed, resources, health or position. Add one catch-up rule that grows with the gap and has a cap. Log two numbers over ten matches with the rule off and ten with it on: the gap between first and last at the end, and how often the player who led at halfway won. You are done when you can say how much closer matches got and how much the lead lost in value.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A negative feedback loop pushes back toward even: the further behind, the more help.</li>
+    <li>Catch-up keeps contests close and makes comebacks possible, so the second half still matters.</li>
+    <li>It costs fairness: the best player wins less often, especially when only their opponents get help.</li>
+    <li>Make the help grow with the gap, cap it, and measure both the spread and how often the leader still wins.</li>
+    <li>Prefer catch-up players can see. Hidden rubber banding feels like cheating once found.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes pacing: how alternating tension and rest across a level keeps players engaged longer than constant action.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Marc LeBlanc, <cite>Formal Design Tools: Feedback Systems and the Dramatic Structure of Competition</cite>, a talk at the Game Developers Conference (1999), on positive and negative feedback in competitive games. Not opened in this session, so no link is given.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (2003), the chapter on games as cybernetic systems.</li>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (2012), on feedback structures and dynamic balance.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var LENGTH = 200;                 // metres
+  var TOP = [8.4, 8.0, 7.8, 7.6];   // top speeds: You, Fox, Owl, Elk
+  var NAMES = ['You', 'Fox', 'Owl', 'Elk'];
+  var DASHES = [[], [7, 4], [2, 3], [10, 3, 2, 3]];
+  var MAX_BOOST = 0.3;
+  var STEP = 1 / 60;                // fixed simulation step
+  var SAMPLE = 0.5;                 // seconds between new paces
+  var MISTAKE = 0.05, MISTAKE_PACE = 0.2;
+  var CRASH_TIME = 1.5;
+  var STATS_N = 1000;
+  var HIST_EVERY = 0.25;
+
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function pace(r) { return r() < MISTAKE ? MISTAKE_PACE : 0.92 + 0.13 * r(); }
+  function leaderOf(d) { var L = 0; for (var i = 1; i < d.length; i++) if (d[i] > d[L]) L = i; return L; }
+  function boostFor(gap, strength) { return Math.min(gap * strength, MAX_BOOST); }
+
+  // One whole race between four computer runners, used for the readouts and the table.
+  function simRace(r, strength, rivalsOnly) {
+    var d = [0, 0, 0, 0], f = [1, 1, 1, 1], t = 0, nextPace = 0, leader = 0, changes = 0, halfLeader = -1;
+    for (;;) {
+      var L = leaderOf(d);
+      if (d[L] >= LENGTH) break;
+      if (halfLeader < 0 && d[L] >= LENGTH / 2) halfLeader = L;
+      if (t >= nextPace - 1e-9) {
+        for (var i = 0; i < 4; i++) f[i] = pace(r);
+        nextPace += SAMPLE;
+        if (L !== leader) { changes++; leader = L; }
+      }
+      var lead = d[L];
+      for (var j = 0; j < 4; j++) {
+        var b = (rivalsOnly && j === 0) ? 0 : boostFor(lead - d[j], strength);
+        d[j] += TOP[j] * f[j] * (1 + b) * STEP;
+      }
+      t += STEP;
+    }
+    var s = d.slice().sort(function (x, y) { return y - x; });
+    var w = leaderOf(d);
+    return { winner: w, spread: s[0] - s[3], changes: changes, halfWins: halfLeader === w };
+  }
+
+  var ui = DemoKit.controls('[data-demo="catchup"]');
+  var on = ui.toggle({ label: 'Catch-up on', value: false, onChange: function () { refreshStats(); } });
+  var strength = ui.slider({ label: 'Catch-up strength', min: 0.5, max: 5, step: 0.5, value: 2,
+    unit: '% speed per metre behind', onInput: function () { refreshStats(); } });
+  var applies = ui.select({ label: 'Catch-up applies to', value: 'all',
+    options: [{ value: 'all', label: 'Everyone' }, { value: 'rivals', label: 'Rivals only' }],
+    onChange: function () { refreshStats(); } });
+  var autoRun = ui.toggle({ label: 'Auto-run (no need to hold)', value: false,
+    onChange: function () { if (reduced && handle) handle.play(); redraw(); } });
+  ui.button({ label: 'New race', onClick: function () { newRace(); } });
+  ui.button({ label: 'Crash (lose 1.5 s)', onClick: function () { crash(); } });
+  var outFast = ui.readout({ label: 'Fastest runner wins' });
+  var outHalf = ui.readout({ label: 'Leader at halfway wins' });
+  var outSpread = ui.readout({ label: 'Spread at finish, first to last' });
+  var outChanges = ui.readout({ label: 'Lead changes per race' });
+
+  function currentStrength() { return on.value ? strength.value / 100 : 0; }
+  function rivalsOnly() { return applies.value === 'rivals'; }
+
+  function refreshStats() {
+    var r = DemoKit.rng(2026), wins = 0, half = 0, spread = 0, changes = 0;
+    var st = currentStrength(), ro = rivalsOnly();
+    for (var n = 0; n < STATS_N; n++) {
+      var x = simRace(r, st, ro);
+      if (x.winner === 0) wins++;
+      if (x.halfWins) half++;
+      spread += x.spread;
+      changes += x.changes;
+    }
+    outFast.set(Math.round(100 * wins / STATS_N) + '%');
+    outHalf.set(Math.round(100 * half / STATS_N) + '%');
+    outSpread.set((spread / STATS_N).toFixed(1) + ' m');
+    outChanges.set((changes / STATS_N).toFixed(1));
+    redraw();
+  }
+
+  // ---- the live race ----
+  var raceNo = 0, raceRng, dist, paces, boosts, runFactor, crashTimer, t, nextPace, acc;
+  var leader, changes, phase, hist, histTimer, result;
+
+  function newRace() {
+    raceNo += 1;
+    raceRng = DemoKit.rng(500 + raceNo);
+    dist = [0, 0, 0, 0];
+    paces = [0, 1, 1, 1];
+    boosts = [0, 0, 0, 0];
+    runFactor = 0;
+    crashTimer = 0;
+    t = 0; nextPace = 0; acc = 0;
+    leader = 0; changes = 0;
+    phase = 'ready';
+    hist = [{ t: 0, gaps: [0, 0, 0, 0] }];
+    histTimer = 0;
+    result = '';
+    if (reduced && handle) handle.play();
+    redraw();
+  }
+
+  function crash() {
+    if (phase === 'done') return;
+    runFactor = 0;
+    crashTimer = CRASH_TIME;
+    if (phase === 'ready') phase = 'running';
+    redraw();
+  }
+
+  function holding(s) {
+    return autoRun.value || s.pointer.down || s.keys.has('space') || s.keys.has('arrowright') || s.keys.has('d');
+  }
+
+  function ordinal(n) { return n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'); }
+
+  function stepRace(s) {
+    var L = leaderOf(dist);
+    if (t >= nextPace - 1e-9) {
+      for (var i = 1; i < 4; i++) paces[i] = pace(raceRng);
+      nextPace += SAMPLE;
+      if (L !== leader) { changes++; leader = L; }
+    }
+    if (crashTimer > 0) crashTimer = Math.max(0, crashTimer - STEP);
+    var target = (holding(s) && crashTimer <= 0) ? 1 : 0;
+    runFactor += (target - runFactor) * Math.min(STEP * 4, 1);
+    paces[0] = runFactor;
+    var lead = dist[L], st = currentStrength(), ro = rivalsOnly();
+    for (var j = 0; j < 4; j++) {
+      boosts[j] = (ro && j === 0) ? 0 : boostFor(lead - dist[j], st);
+      dist[j] += TOP[j] * paces[j] * (1 + boosts[j]) * STEP;
+    }
+    t += STEP;
+    histTimer += STEP;
+    var L2 = leaderOf(dist);
+    if (histTimer >= HIST_EVERY) {
+      histTimer -= HIST_EVERY;
+      hist.push({ t: t, gaps: dist.map(function (v) { return dist[L2] - v; }) });
+    }
+    if (dist[L2] >= LENGTH) {
+      phase = 'done';
+      hist.push({ t: t, gaps: dist.map(function (v) { return dist[L2] - v; }) });
+      var order = [0, 1, 2, 3].sort(function (a, b) { return dist[b] - dist[a]; });
+      var place = order.indexOf(0) + 1;
+      if (place === 1) result = 'You win by ' + (dist[0] - dist[order[1]]).toFixed(1) + ' m.';
+      else result = NAMES[order[0]] + ' wins. You are ' + ordinal(place) + ', ' + (dist[L2] - dist[0]).toFixed(1) + ' m behind.';
+    }
+  }
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+
+  function colorOf(c, i) { return [c.topic, c.warn, c.good, c.ink2][i]; }
+
+  function draw(ctx, s) {
+    var c = s.colors, W = s.width, H = s.height, pad = 12;
+    var L = leaderOf(dist);
+    ctx.textBaseline = 'alphabetic';
+
+    // status line
+    font(ctx, 13, '600');
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Race ' + raceNo + '  ·  ' + t.toFixed(1) + ' s  ·  lead changes ' + changes, pad, 18);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = on.value ? c.topic : c.ink3;
+    if (W > 520) ctx.fillText(on.value ? 'catch-up ' + strength.value + '% per m' + (rivalsOnly() ? ', rivals only' : '') : 'catch-up off', W - pad, 18);
+
+    // lanes
+    var laneTop = 30, laneH = 34, colW = 112;
+    var tx0 = pad + colW, tw = W - tx0 - pad;
+    var WINDOW = 40;
+    var camRight = Math.max(WINDOW - 4, dist[L] + 6);
+    var camLeft = camRight - WINDOW;
+    function TX(d) { return tx0 + (d - camLeft) / WINDOW * tw; }
+
+    for (var i = 0; i < 4; i++) {
+      var y = laneTop + i * laneH;
+      ctx.fillStyle = i % 2 ? c.surface2 : c.surface;
+      ctx.fillRect(tx0, y, tw, laneH);
+    }
+    // distance ticks
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    for (var m = Math.ceil(camLeft / 10) * 10; m <= camRight; m += 10) {
+      if (m < 0) continue;
+      var mx = Math.round(TX(m)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(mx, laneTop); ctx.lineTo(mx, laneTop + 4 * laneH); ctx.stroke();
+      if (mx > tx0 + 16 && mx < W - pad - 16) ctx.fillText(m + ' m', mx, laneTop + 4 * laneH + 14);
+    }
+    // finish line
+    if (LENGTH >= camLeft && LENGTH <= camRight) {
+      var fx = TX(LENGTH);
+      for (var k = 0; k < 4 * laneH / 6; k++) {
+        ctx.fillStyle = k % 2 ? c.ink : c.surface;
+        ctx.fillRect(fx - 3, laneTop + k * 6, 6, 6);
+      }
+    }
+    ctx.strokeStyle = c.line;
+    ctx.strokeRect(tx0 + 0.5, laneTop + 0.5, tw - 1, 4 * laneH - 1);
+
+    for (var j = 0; j < 4; j++) {
+      var ly = laneTop + j * laneH, col = colorOf(c, j);
+      // label column: dash sample, name, gap and boost
+      ctx.strokeStyle = col;
+      ctx.lineWidth = j === 0 ? 3 : 2;
+      ctx.setLineDash(DASHES[j]);
+      ctx.beginPath(); ctx.moveTo(pad, ly + 10); ctx.lineTo(pad + 22, ly + 10); ctx.stroke();
+      ctx.setLineDash([]);
+      font(ctx, 13, '700');
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'left';
+      ctx.fillText(NAMES[j], pad + 28, ly + 15);
+      font(ctx, 12);
+      ctx.fillStyle = c.ink2;
+      var gap = dist[L] - dist[j];
+      ctx.fillText(j === L && phase !== 'ready' ? 'leader' : '-' + gap.toFixed(1) + ' m', pad, ly + 30);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = boosts[j] > 0.005 ? c.topic : c.ink3;
+      ctx.fillText('+' + Math.round(boosts[j] * 100) + '%', pad + colW - 8, ly + 30);
+
+      // runner
+      var rx = TX(dist[j]);
+      var cy = ly + laneH / 2;
+      if (rx < tx0 + 10) {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.moveTo(tx0 + 4, cy); ctx.lineTo(tx0 + 14, cy - 7); ctx.lineTo(tx0 + 14, cy + 7); ctx.closePath(); ctx.fill();
+      } else {
+        // boost streak
+        if (boosts[j] > 0.005) {
+          ctx.fillStyle = col;
+          ctx.globalAlpha = 0.3;
+          ctx.fillRect(rx - 10 - boosts[j] * 120, cy - 3, boosts[j] * 120, 6);
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(rx, cy, 10, 0, Math.PI * 2); ctx.fill();
+        if (j === 0 && crashTimer > 0) {
+          ctx.strokeStyle = c.bad;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(rx, cy, 13, 0, Math.PI * 2); ctx.stroke();
+        }
+        font(ctx, 12, '700');
+        ctx.fillStyle = c.surface;
+        ctx.textAlign = 'center';
+        ctx.fillText(NAMES[j].charAt(0), rx, cy + 4);
+      }
+    }
+
+    // whole-race progress bar
+    var py = laneTop + 4 * laneH + 26, px0 = tx0, pw = tw;
+    font(ctx, 12);
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'right';
+    ctx.fillText('whole race', tx0 - 8, py + 8);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(px0, py, pw, 8);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px0 + 0.5 + pw * Math.max(0, camLeft) / LENGTH, py - 2.5, pw * WINDOW / LENGTH, 13);
+    for (var q = 3; q >= 0; q--) {
+      ctx.fillStyle = colorOf(c, q);
+      ctx.beginPath(); ctx.arc(px0 + pw * Math.min(dist[q], LENGTH) / LENGTH, py + 4, 4, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // gap graph
+    var gx = 44, gy = py + 30, gw = W - gx - 16, gh = H - gy - 40;
+    var GMAX = 30, TMAX = Math.max(30, Math.ceil(t / 5) * 5);
+    function X(v) { return gx + gw * v / TMAX; }
+    function Y(v) { return gy + gh * Math.min(v, GMAX) / GMAX; }
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(gx, gy, gw, gh);
+    ctx.strokeStyle = c.line;
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    [0, 10, 20, 30].forEach(function (v) {
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(gx, yy); ctx.lineTo(gx + gw, yy); ctx.stroke();
+      ctx.fillText(String(v), gx - 6, yy + 4);
+    });
+    ctx.textAlign = 'center';
+    for (var ts = 0; ts <= TMAX; ts += 5) {
+      var xx = X(ts);
+      if (xx < W - 90) ctx.fillText(ts + ' s', xx, gy + gh + 15);
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('metres behind the leader', gx + 6, gy + gh - 8);
+
+    for (var r = 3; r >= 0; r--) {
+      ctx.strokeStyle = colorOf(c, r);
+      ctx.lineWidth = r === 0 ? 3 : 2;
+      ctx.setLineDash(DASHES[r]);
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (var h = 0; h < hist.length; h++) {
+        var hx = X(hist[h].t), hy = Y(hist[h].gaps[r]);
+        if (h === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // messages
+    var msg = '';
+    if (phase === 'ready') msg = 'Hold Space, or press and hold here, to run';
+    else if (phase === 'done') msg = result;
+    if (msg) {
+      font(ctx, 13, '600');
+      var mw = Math.min(ctx.measureText(msg).width + 24, gw - 8);
+      var mx0 = gx + gw / 2 - mw / 2, my0 = gy + gh / 2 - 16;
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(mx0, my0, mw, 32);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx0 + 0.5, my0 + 0.5, mw - 1, 31);
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'center';
+      ctx.fillText(msg, gx + gw / 2, my0 + 21, gw - 20);
+    }
+  }
+
+  newRace();
+  refreshStats();
+
+  handle = DemoKit.canvas('#catchup', {
+    height: 440,
+    keys: true,
+    label: 'A 200 metre race between you and three computer runners, with a lane view, a progress bar for the whole race and a graph of how far each runner is behind the leader over time.',
+    update: function (dt, s) {
+      if (phase === 'ready' && holding(s)) phase = 'running';
+      if (phase !== 'running') return;
+      acc += dt;
+      while (acc >= STEP && phase === 'running') {
+        acc -= STEP;
+        stepRace(s);
+      }
+    },
+    draw: draw,
+    drag: true,
+    onDown: function () { if (reduced && handle) handle.play(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (reduced && handle) handle.play();
+      if (key === 'c') crash();
+      else if (key === 'n') newRace();
+    }
+  });
+})();
+</script>
+</body>
+</html>
