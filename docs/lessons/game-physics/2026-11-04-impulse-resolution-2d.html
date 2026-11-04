@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impulse resolution in 2D · Game Dev Daily</title>
+<meta name="description" content="How to apply a collision impulse along the contact normal so circles bounce off each other at the right angle, not straight back along their path.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-04">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Impulse resolution in 2D</h1>
+  <p class="lede">How to apply a collision impulse along the contact normal so circles bounce off each other at the right angle, not straight back along their path.</p>
+</header>
+
+<section data-section="hook">
+  <p>You aim the cue ball at the edge of a ball on your pool table. The target should slide off to the side. Instead it rolls straight ahead, in the direction the cue ball was going, as if you had hit it dead centre. The cue ball stops dead. Every shot is a straight shot, and the game cannot be played.</p>
+  <p>Momentum and energy both add up. The bug is the direction of the push.</p>
+</section>
+
+<section data-section="concept">
+  <h2>From a line to a plane</h2>
+  <p>The previous lesson solved a collision on a line. Two carts closed at a speed <code>vn = vB - vA</code>. They swapped one impulse, <code>-j</code> for A and <code>+j</code> for B, with:</p>
+<pre><code>j = -(1 + e) * vn / (1 / mA + 1 / mB)</code></pre>
+  <p>In 2D, velocities are vectors. The obvious upgrade is to put the whole relative velocity vector in place of <code>vn</code>, so the balls leave at <code>-e</code> times the velocity they arrived with. That is the bug from the hook. Momentum is kept, because the impulses are still equal and opposite, and with <code>e = 1</code> so is energy. Only the direction is wrong.</p>
+
+  <h3>A smooth contact can only push along the normal</h3>
+  <p>When two smooth balls touch, each one can push the other only straight out from its surface. That direction is the <dfn>contact normal</dfn>, written <code>n</code>: a vector of length 1. For two circles it lies along the line between their centres, from A to B:</p>
+<pre><code>n = (centreB - centreA) / distance</code></pre>
+  <p>In words: point from A's centre to B's centre, then scale the arrow to length 1.</p>
+  <p>Split the relative velocity in two. The <dfn>normal part</dfn> runs along <code>n</code>: how fast the balls are closing. The <dfn>tangent part</dfn> runs along the surface, at right angles to <code>n</code>: how fast they slide past each other. A frictionless contact leaves the tangent part alone and reverses only the normal part.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Left: circle A touches circle B, which sits up and to the right. A dashed line through both centres is the contact normal n. An impulse arrow pushes B outward along n and an equal arrow pushes A the opposite way. Right: the relative velocity of B compared with A points left and is split into a normal part along n, which the impulse reverses, and a tangent part at right angles, which it keeps.">
+      <text class="d-label" x="30" y="26">At the moment of contact</text>
+      <path class="d-dash" d="M140 185 L370 52"/>
+      <circle class="d-box" cx="200" cy="150" r="50"/>
+      <circle class="d-accent-soft" cx="286.6" cy="100" r="50"/>
+      <text class="d-text" x="190" y="165" text-anchor="middle">A</text>
+      <text class="d-text" x="296" y="105" text-anchor="middle">B</text>
+      <circle class="d-fill" cx="243.3" cy="125" r="4"/>
+      <path class="d-thin" d="M222 92 L239 119"/>
+      <text class="d-muted" x="200" y="84" text-anchor="middle">contact</text>
+      <text class="d-label" x="378" y="50">n</text>
+      <path class="d-accent" d="M286.6 100 L333 73"/>
+      <path class="d-accent-fill" d="M343 67 L329 68 L335 79 Z"/>
+      <text class="d-label" x="342" y="94">+j n on B</text>
+      <path class="d-accent" d="M200 150 L154 177"/>
+      <path class="d-accent-fill" d="M144 183 L151 171 L158 182 Z"/>
+      <text class="d-label" x="96" y="212">−j n on A</text>
+
+      <text class="d-label" x="430" y="26">Split of vB − vA</text>
+      <path class="d-stroke" d="M620 140 L482 140"/>
+      <path class="d-fill" d="M470 140 L483 134 L483 146 Z"/>
+      <text class="d-text" x="548" y="128" text-anchor="middle">vB − vA</text>
+      <path class="d-accent" d="M620 140 L517 199"/>
+      <path class="d-accent-fill" d="M507.5 205 L516 193 L522 204 Z"/>
+      <text class="d-label" x="548" y="200">normal part</text>
+      <text class="d-muted" x="548" y="216">reversed</text>
+      <path class="d-dash" d="M507.5 205 L470 140"/>
+      <text class="d-label" x="482" y="186" text-anchor="end">tangent part</text>
+      <text class="d-muted" x="482" y="202" text-anchor="end">kept</text>
+    </svg>
+    <figcaption>The cut shot from the demo. A rolls right and B is still, so B moves left compared with A. Only the part of that relative velocity along the normal is reversed. The impulse acts along <code>n</code>, never along the original direction of travel.</figcaption>
+  </figure>
+
+  <h3>The 2D rule, one equation at a time</h3>
+<pre><code>vn = dot(vB - vA, n)</code></pre>
+  <p>In words: the closing speed is how much of the relative velocity points along the normal. Negative means closing, positive means separating. The <dfn>dot product</dfn> is <code>a.x * b.x + a.y * b.y</code>.</p>
+<pre><code>j = -(1 + e) * vn / (1 / mA + 1 / mB)</code></pre>
+  <p>In words: the same impulse size as on the line. The normal fixes its direction.</p>
+<pre><code>vA = vA - (j / mA) * n
+vB = vB + (j / mB) * n</code></pre>
+  <p>In words: push B along the normal, push A the other way, each by the impulse divided by its own mass. The tangent part of each velocity passes through unchanged.</p>
+
+  <h3>Check one step by hand</h3>
+  <p>Both balls have mass 1, <code>e = 1</code>, and y grows downwards, as on screen. A rolls right at <code>(400, 0)</code> pixels per second. B is still and sits 30 degrees up and to the right, so <code>n = (0.866, −0.5)</code>.</p>
+  <ul>
+    <li><code>vB − vA = (−400, 0)</code>, so <code>vn = −400 × 0.866 = −346.4</code>. They are closing at 346 pixels per second.</li>
+    <li><code>j = 2 × 346.4 ÷ (1 + 1) = 346.4</code>.</li>
+    <li><code>vB = 346.4 × (0.866, −0.5) = (300, −173.2)</code>: up and to the right, along the normal.</li>
+    <li><code>vA = (400, 0) − (300, −173.2) = (100, 173.2)</code>: down and to the right.</li>
+    <li>The dot product of the two new velocities is <code>100 × 300 − 173.2 × 173.2 = 0</code>, so they are at right angles. Energy check: <code>200² + 346.4² = 400²</code>.</li>
+  </ul>
+  <p>The buggy rule gives <code>vA = (0, 0)</code> and <code>vB = (400, 0)</code>. That is the right answer for a dead-centre hit, applied to a hit that was not dead centre.</p>
+
+  <div class="callout">
+    <p class="callout-title">The game answer</p>
+    <p>Equal masses and <code>e = 1</code> always split at 90 degrees, the pool rule for a hit without spin. Real balls spin and rub, so a real cue ball curves after the hit. The frictionless version is simpler and predictable, which is what lets a player aim.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the bug. Press <strong>Shoot</strong>: the cue ball clips the orange ball and stops dead, and the orange ball rolls straight on along the cue ball's line. Switch <strong>Collision rule</strong> to <strong>Impulse along the normal</strong> and shoot again. The trails split, and the readout says the paths leave at 90.0 degrees. Its closing speed is below the hand check's 346 because the cue ball slows as it rolls.</p>
+  <p>Then change the cue ball's mass or the restitution, or break the rack. Drag or tap on the table to aim.</p>
+
+  <figure class="demo wide" data-demo="pool">
+    <canvas id="pool"></canvas>
+    <figcaption>Debug drawing: the dashed line at each contact is the normal, the coloured arrows are the impulses on the two balls, and the black arrows are velocities. With the bug the impulse arrows point along the shot, not the normal. Shoot always starts from the same layout, so shots repeat exactly. Keyboard: Space shoots, left and right arrows aim, R resets.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's rule, set up as the cut shot. The cushions use the wall bounce from the restitution lesson and are left out here. Each step is split into 8 substeps so balls overlap by under a pixel when the normal is measured.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, SUBSTEPS = 1 / 60, 8
+local RESTITUTION    = 1
+local ROLL           = 60      <span class="c">-- rolling slowdown, px/s^2</span>
+local RADIUS         = 10
+local balls = {}
+
+local function newBall(x, y, m)
+  local b = { x = x, y = y, vx = 0, vy = 0, r = RADIUS, inv = 1 / m }
+  balls[#balls + 1] = b
+  return b
+end
+
+local cue = newBall(100, 150, 1)
+newBall(300, 150 - RADIUS, 1)  <span class="c">-- target, half a ball above the line</span>
+cue.vx = 400                   <span class="c">-- shoot right at 400 px/s</span>
+
+local function collide(a, b, e)
+  local dx, dy = b.x - a.x, b.y - a.y
+  local rs = a.r + b.r
+  local d2 = dx * dx + dy * dy
+  if d2 &gt;= rs * rs then return end          <span class="c">-- not touching</span>
+  local d = math.sqrt(d2)
+  local nx, ny = 1, 0                         <span class="c">-- any normal if centres coincide</span>
+  if d &gt; 0 then nx, ny = dx / d, dy / d end   <span class="c">-- normal from a to b</span>
+  local invSum = a.inv + b.inv
+  local push = (rs - d) / invSum              <span class="c">-- separate, split by inverse mass</span>
+  a.x, a.y = a.x - nx * push * a.inv, a.y - ny * push * a.inv
+  b.x, b.y = b.x + nx * push * b.inv, b.y + ny * push * b.inv
+<span class="k">  local vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
+  if vn &gt;= 0 then return end                  -- already separating
+  local j = -(1 + e) * vn / invSum
+  a.vx, a.vy = a.vx - j * nx * a.inv, a.vy - j * ny * a.inv
+  b.vx, b.vy = b.vx + j * nx * b.inv, b.vy + j * ny * b.inv</span>
+end
+
+local function move(b, dt)
+  b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
+  local speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
+  if speed &gt; 0 then
+    local k = math.max(0, speed - ROLL * dt) / speed
+    b.vx, b.vy = b.vx * k, b.vy * k
+  end
+end
+
+local accumulator = 0
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local h = STEP / SUBSTEPS
+    for _ = 1, SUBSTEPS do
+      for i = 1, #balls do move(balls[i], h) end
+      for i = 1, #balls - 1 do
+        for k = i + 1, #balls do collide(balls[i], balls[k], RESTITUTION) end
+      end
+    end
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, b in ipairs(balls) do love.graphics.circle("line", b.x, b.y, b.r) end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot's RigidBody2D does the normal impulse for you.</span>
+<span class="c"># You choose the mass, the bounce and the slowdown.</span>
+extends RigidBody2D
+
+func _ready() -&gt; void:
+    var material := PhysicsMaterial.new()
+<span class="k">    material.bounce = 1.0       <span class="c"># restitution</span></span>
+    material.friction = 0.0     <span class="c"># smooth contact: normal impulse only</span>
+    physics_material_override = material
+    mass = 1.0
+    gravity_scale = 0.0         <span class="c"># top-down table, no gravity</span>
+    linear_damp = 0.5           <span class="c"># stands in for rolling slowdown</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity's Rigidbody2D does the normal impulse for you.</span>
+<span class="c">// You choose the mass, the bounce and the collision mode.</span>
+void Start()
+{
+    var body = GetComponent&lt;Rigidbody2D&gt;();
+    var material = new PhysicsMaterial2D("Ball");
+<span class="k">    material.bounciness = 1f;   <span class="c">// restitution</span></span>
+    material.friction = 0f;     <span class="c">// smooth contact: normal impulse only</span>
+    body.sharedMaterial = material;
+    body.mass = 1f;
+    body.gravityScale = 0f;     <span class="c">// top-down table, no gravity</span>
+    body.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+}</code></pre>
+  </div>
+  <p>The engines also add rotation. A frictionless push on a circle points through its centre, so it cannot make it spin. Each engine combines the materials of two touching bodies in its own way, so check its documentation before relying on exact numbers.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reversing the whole relative velocity.</strong> It keeps momentum, so a momentum check will not catch it. Test a glancing hit: if the target leaves along the shooter's line, the impulse is not along the normal.</li>
+    <li><strong>Normal and relative velocity disagree.</strong> If <code>n</code> points from A to B, the relative velocity must be <code>vB - vA</code>. Swap only one of them and the impulse pulls the balls into each other.</li>
+    <li><strong>Centres in the same place.</strong> The distance is 0 and dividing by it gives NaN, which then spreads to every ball it touches. Pick any fixed normal in that case, as the code does.</li>
+    <li><strong>Measuring the normal too late.</strong> The normal comes from overlapping positions, a little after the true contact, when the line of centres has already turned. Fast balls leave at a slightly wrong angle. Substeps keep the error small.</li>
+    <li><strong>Packed racks depend on order.</strong> In a break one ball touches several at once, and resolving pairs in a different order gives slightly different results. Solver iterations, in a later lesson, reduce this.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the open source engine by Erin Catto that Unity's 2D physics is built on, applies contact impulses along the contact normal from the relative velocity and the inverse masses, as here. It also adds rotation and friction. Godot's <code>RigidBody2D</code> and Unity's <code>Rigidbody2D</code> both resolve contacts this way, and expose restitution as <code>PhysicsMaterial.bounce</code> and <code>PhysicsMaterial2D.bounciness</code>.</p>
+  <p>Pool games show it most clearly, because players read the angle of every hit.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Set up the cut shot with the Lua above or your own circle code: mass 1 each, <code>e = 1</code>, the target half a ball off the line. After the first hit, print the dot product of the two velocities. You are done when it is close to zero. Then predict whether a cue ball of mass 2 makes the angle between the paths smaller or larger than 90 degrees, and check.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A smooth contact can only push along the contact normal, the line between the circle centres.</li>
+    <li>Project the relative velocity onto the normal to get <code>vn</code>, and skip the impulse if <code>vn &gt;= 0</code>.</li>
+    <li>The impulse size is the same as on a line, <code>j = -(1 + e) * vn / (1/mA + 1/mB)</code>, and it is applied as <code>j * n</code>.</li>
+    <li>The tangent part of the velocity passes through unchanged. That is what makes glancing hits glance.</li>
+    <li>Momentum and energy checks cannot catch an impulse that points the wrong way. Look at a glancing hit.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes contact friction: a second impulse along the tangent, so that a box on a ramp holds still until the slope gets too steep.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Randy Gaul, <cite>How to Create a Custom 2D Physics Engine: The Basics and Impulse Resolution</cite> (Envato Tuts+, 2013). Derives the normal impulse for circles and boxes.</li>
+    <li>Erin Catto, <cite>Fast and Simple Physics using Sequential Impulses</cite>, talk at the Game Developers Conference, 2006. The impulse approach behind Box2D.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Covers contact normals, impulses and contact resolution in detail.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // fixed timestep in seconds
+  var SUBSTEPS = 8;         // collision substeps per step
+  var MAX_FRAME = 0.25;
+  var ROLL = 60;            // rolling slowdown, px/s^2
+  var HEIGHT = 340;
+  var ARROW = 0.12;         // pixels of arrow per px/s of velocity
+  var IMPULSE = 0.12;       // pixels of arrow per unit of impulse
+  var CONTACT_LIFE = 1.5;   // seconds of simulated time a contact stays drawn
+  var TRAIL_MAX = 400;
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var W = 320, H = HEIGHT;
+  var table, R, cueStart;
+  var balls, cue, contacts, firstHit, accumulator, phase, subCount;
+
+  var ui = DemoKit.controls('[data-demo="pool"]');
+  var rule = ui.select({ label: 'Collision rule', value: 'whole',
+    options: [
+      { value: 'whole', label: 'Reverse whole relative velocity (bug)' },
+      { value: 'normal', label: 'Impulse along the normal' }
+    ],
+    onChange: function () { reset(); } });
+  var setup = ui.select({ label: 'Setup', value: 'cut',
+    options: [
+      { value: 'cut', label: 'Cut shot, one ball' },
+      { value: 'rack', label: 'Rack of 10' }
+    ],
+    onChange: function () { reset(); } });
+  var aim = ui.slider({ label: 'Aim angle (0 = right, up is positive)', min: -180, max: 180, step: 0.5, value: 0, unit: '°' });
+  var speed = ui.slider({ label: 'Shot speed', min: 100, max: 900, step: 10, value: 400, unit: ' px/s' });
+  var cueMass = ui.slider({ label: 'Cue ball mass', min: 0.5, max: 4, step: 0.5, value: 1, unit: ' kg', onInput: function () { reset(); } });
+  var rest = ui.slider({ label: 'Restitution', min: 0, max: 1, step: 0.05, value: 1 });
+  var slow = ui.toggle({ label: 'Slow motion', value: false });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var out = ui.readout({ label: 'First hit of the shot' });
+  ui.button({ label: 'Shoot', onClick: function () { shoot(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  function layout() {
+    table = { l: 10, t: 30, r: W - 10, b: H - 48 };
+    R = DemoKit.clamp(W / 40, 7, 10);
+    var cy = (table.t + table.b) / 2;
+    cueStart = { x: table.l + 0.18 * (table.r - table.l), y: cy };
+  }
+
+  function ball(x, y, m, kind) {
+    return { x: x, y: y, vx: 0, vy: 0, m: m, inv: 1 / m, r: R, kind: kind, trail: [] };
+  }
+
+  function reset() {
+    layout();
+    var cy = cueStart.y;
+    var span = table.r - table.l;
+    cue = ball(cueStart.x, cy, cueMass.value, 'cue');
+    balls = [cue];
+    if (setup.value === 'cut') {
+      balls.push(ball(table.l + 0.55 * span, cy - R, 1, 'target'));
+    } else {
+      var gap = 2 * R + 0.6;
+      var dx = gap * 0.8660254;
+      var apex = table.l + 0.6 * span;
+      for (var row = 0; row < 4; row++) {
+        for (var i = 0; i <= row; i++) {
+          balls.push(ball(apex + row * dx, cy + (i - row / 2) * gap, 1, row === 0 ? 'target' : 'rack'));
+        }
+      }
+    }
+    contacts = [];
+    firstHit = null;
+    accumulator = 0;
+    subCount = 0;
+    phase = 'ready';
+    out.set('no shot yet');
+  }
+
+  function shoot() {
+    reset();
+    var a = aim.value * Math.PI / 180;
+    cue.vx = speed.value * Math.cos(a);
+    cue.vy = -speed.value * Math.sin(a);   // screen y grows downwards
+    phase = 'rolling';
+  }
+
+  function setAim(p) {
+    var dx = p.x - cueStart.x, dy = p.y - cueStart.y;
+    if (dx * dx + dy * dy < 4) return;
+    var deg = Math.atan2(-dy, dx) * 180 / Math.PI;
+    aim.set(Math.round(deg * 2) / 2);
+  }
+
+  function fmt(n) {
+    var r = Math.round(n);
+    return (r < 0 ? '−' : '') + Math.abs(r);
+  }
+
+  function collide(a, b, e) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var rs = a.r + b.r;
+    var d2 = dx * dx + dy * dy;
+    if (d2 >= rs * rs) return;
+    var d = Math.sqrt(d2);
+    var nx = 1, ny = 0;
+    if (d > 0) { nx = dx / d; ny = dy / d; }
+    var invSum = a.inv + b.inv;
+    var push = (rs - d) / invSum;
+    a.x -= nx * push * a.inv; a.y -= ny * push * a.inv;
+    b.x += nx * push * b.inv; b.y += ny * push * b.inv;
+    var rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+    var vn = rvx * nx + rvy * ny;
+    if (vn >= 0) return;
+    var jx, jy;
+    if (rule.value === 'normal') {
+      var j = -(1 + e) * vn / invSum;
+      jx = j * nx; jy = j * ny;
+    } else {
+      // The bug: reverse the whole relative velocity, not just its normal part.
+      jx = -(1 + e) * rvx / invSum;
+      jy = -(1 + e) * rvy / invSum;
+    }
+    a.vx -= jx * a.inv; a.vy -= jy * a.inv;
+    b.vx += jx * b.inv; b.vy += jy * b.inv;
+
+    var contact = { x: a.x + nx * a.r, y: a.y + ny * a.r, nx: nx, ny: ny, jx: jx, jy: jy, age: 0 };
+    contacts.push(contact);
+    if (contacts.length > 24) contacts.shift();
+
+    if (!firstHit && (a === cue || b === cue)) {
+      firstHit = contact;
+      var jm = Math.sqrt(jx * jx + jy * jy);
+      var text = 'closing ' + fmt(-vn) + ' px/s, j = ' + fmt(jm);
+      var sa = Math.sqrt(a.vx * a.vx + a.vy * a.vy), sb = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      if (sa > 1 && sb > 1) {
+        var cos = DemoKit.clamp((a.vx * b.vx + a.vy * b.vy) / (sa * sb), -1, 1);
+        text += ', paths leave at ' + (Math.acos(cos) * 180 / Math.PI).toFixed(1) + '°';
+      } else {
+        text += ', ' + (sa <= 1 ? (a === cue ? 'cue ball' : 'target') : (b === cue ? 'cue ball' : 'target')) + ' stopped';
+      }
+      out.set(text);
+    }
+  }
+
+  function walls(b, e) {
+    if (b.x - b.r < table.l) { b.x = table.l + b.r; if (b.vx < 0) b.vx = -e * b.vx; }
+    if (b.x + b.r > table.r) { b.x = table.r - b.r; if (b.vx > 0) b.vx = -e * b.vx; }
+    if (b.y - b.r < table.t) { b.y = table.t + b.r; if (b.vy < 0) b.vy = -e * b.vy; }
+    if (b.y + b.r > table.b) { b.y = table.b - b.r; if (b.vy > 0) b.vy = -e * b.vy; }
+  }
+
+  function move(b, dt) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (sp > 0) {
+      var k = Math.max(0, sp - ROLL * dt) / sp;
+      b.vx *= k; b.vy *= k;
+    }
+  }
+
+  function substep(dt) {
+    var e = rest.value;
+    var i, k;
+    for (i = 0; i < balls.length; i++) move(balls[i], dt);
+    for (i = 0; i < balls.length; i++) walls(balls[i], e);
+    for (i = 0; i < balls.length - 1; i++) {
+      for (k = i + 1; k < balls.length; k++) collide(balls[i], balls[k], e);
+    }
+    for (i = 0; i < contacts.length; i++) contacts[i].age += dt;
+    while (contacts.length && contacts[0].age > CONTACT_LIFE) contacts.shift();
+    subCount += 1;
+    if (subCount % 4 === 0) {
+      var moving = false;
+      for (i = 0; i < balls.length; i++) {
+        var b = balls[i];
+        if (b.vx !== 0 || b.vy !== 0) {
+          moving = true;
+          b.trail.push(b.x, b.y);
+          if (b.trail.length > TRAIL_MAX * 2) b.trail.splice(0, 2);
+        }
+      }
+      if (!moving && phase === 'rolling') phase = 'at rest';
+    }
+  }
+
+  // ---- Drawing ----
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, dx, dy) {
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 3) return;
+    var ux = dx / len, uy = dy / len;
+    var x2 = x1 + dx, y2 = y1 + dy;
+    line(ctx, x1, y1, x2 - ux * 6, y2 - uy * 6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 9 - uy * 4, y2 - uy * 9 + ux * 4);
+    ctx.lineTo(x2 - ux * 9 + uy * 4, y2 - uy * 9 - ux * 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function colourOf(c, b) {
+    return b.kind === 'cue' ? c.surface : b.kind === 'target' ? c.warn : c.topic;
+  }
+
+  function drawContact(ctx, c, k, fade) {
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    line(ctx, k.x - k.nx * 3 * R, k.y - k.ny * 3 * R, k.x + k.nx * 3 * R, k.y + k.ny * 3 * R);
+    ctx.setLineDash([]);
+    var jm = Math.sqrt(k.jx * k.jx + k.jy * k.jy);
+    if (jm > 0) {
+      var len = DemoKit.clamp(jm * IMPULSE, 8, 50);
+      var ux = k.jx / jm * len, uy = k.jy / jm * len;
+      var ic = rule.value === 'normal' ? c.good : c.bad;
+      ctx.strokeStyle = ic;
+      ctx.fillStyle = ic;
+      ctx.lineWidth = 2.5;
+      arrow(ctx, k.x, k.y, ux, uy);
+      arrow(ctx, k.x, k.y, -ux, -uy);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var i, b;
+
+    // Status.
+    ctx.font = BOLD;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    var status = phase === 'ready' ? 'ready: press Shoot' : phase === 'rolling' ? 'rolling' : 'at rest: press Shoot to repeat';
+    ctx.fillText(status, 10, 20);
+
+    // Table.
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(table.l, table.t, table.r - table.l, table.b - table.t);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(table.l, table.t, table.r - table.l, table.b - table.t);
+
+    // Aim line from the starting spot.
+    var a = aim.value * Math.PI / 180;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 5]);
+    line(ctx, cueStart.x, cueStart.y, cueStart.x + Math.cos(a) * W, cueStart.y - Math.sin(a) * W);
+    ctx.setLineDash([]);
+
+    if (debug.value) {
+      // Trails.
+      for (i = 0; i < balls.length; i++) {
+        b = balls[i];
+        if (b.trail.length < 4) continue;
+        ctx.strokeStyle = b.kind === 'cue' ? c.ink2 : colourOf(c, b);
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(b.trail[0], b.trail[1]);
+        for (var t = 2; t < b.trail.length; t += 2) ctx.lineTo(b.trail[t], b.trail[t + 1]);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Balls.
+    for (i = 0; i < balls.length; i++) {
+      b = balls[i];
+      ctx.fillStyle = colourOf(c, b);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    if (debug.value) {
+      // Contacts: the first hit stays, the rest fade.
+      for (i = 0; i < contacts.length; i++) {
+        if (contacts[i] !== firstHit) drawContact(ctx, c, contacts[i], 1 - contacts[i].age / CONTACT_LIFE);
+      }
+      if (firstHit) drawContact(ctx, c, firstHit, 1);
+
+      // Velocities.
+      ctx.strokeStyle = c.ink;
+      ctx.fillStyle = c.ink;
+      ctx.lineWidth = 2;
+      for (i = 0; i < balls.length; i++) {
+        b = balls[i];
+        var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        if (sp < 5) continue;
+        var len = Math.min(sp * ARROW, 80);
+        arrow(ctx, b.x, b.y, b.vx / sp * len, b.vy / sp * len);
+      }
+    }
+
+    // Help line, clear of the Pause button.
+    ctx.font = FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Drag or tap to aim. Space shoots.', 10, H - 18);
+  }
+
+  layout();
+  reset();
+
+  DemoKit.canvas('#pool', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A top-down pool table. A white cue ball is shot at an orange ball or a rack of balls. Trails, velocity arrows, contact normals and impulse arrows show how each collision is resolved.',
+    onResize: function (s) {
+      W = s.width;
+      H = s.height;
+      reset();
+    },
+    onDown: function (p) { setAim(p); },
+    onMove: function (p) { if (p.down) setAim(p); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === ' ') shoot();
+      else if (key === 'r') reset();
+      else if (key === 'arrowleft') aim.set(Math.min(180, aim.value + 0.5));
+      else if (key === 'arrowright') aim.set(Math.max(-180, aim.value - 0.5));
+    },
+    update: function (dt) {
+      if (phase !== 'rolling') return;
+      accumulator += Math.min(dt, MAX_FRAME) * (slow.value ? 0.25 : 1);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 30) {
+        for (var k = 0; k < SUBSTEPS; k++) substep(STEP / SUBSTEPS);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

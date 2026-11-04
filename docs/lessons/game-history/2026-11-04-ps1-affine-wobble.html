@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PlayStation: why the textures warp and the polygons wobble · Game Dev Daily</title>
+<meta name="description" content="The original PlayStation mapped textures without perspective and drew vertices at whole pixels. See both shortcuts, and how subdividing hid the warp.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-04">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>PlayStation: why the textures warp and the polygons wobble</h1>
+  <p class="lede">The original PlayStation mapped textures without perspective and drew vertices at whole pixels. See both shortcuts, and how subdividing hid the warp.</p>
+</header>
+
+<section data-section="hook">
+  <p>Watch the floor in almost any original PlayStation game as you walk. Straight lines in the texture bend as the camera turns, and a crease runs across big flat surfaces. Nudge the stick and the edges of walls twitch by a pixel at a time. Both effects come from two shortcuts in the console itself.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: 3D in 1994, with integer maths</h2>
+  <p>The PlayStation went on sale in Japan in December 1994. Its main processor, a MIPS R3000A running at about 33.9 MHz, had no floating-point unit. Next to it sat the <dfn>GTE</dfn> (Geometry Transformation Engine), a coprocessor that rotates and projects vertices using <dfn>fixed-point</dfn> numbers: whole numbers in which some bits stand for a fraction, so precision is limited.</p>
+  <p>The graphics chip, the GPU, is then given 2D screen positions. It fills textured, shaded triangles and four-sided polygons, but it never receives the depth of a vertex, and it has no depth buffer; games sort their polygons back to front themselves. That cheap design leads directly to both effects.</p>
+
+  <h2>Shortcut one: affine texture mapping</h2>
+  <p>Each vertex carries a texture coordinate, written u and v: the spot in the texture image it should show. For the pixels in between, the GPU blends those coordinates in a straight line across the screen. This is <dfn>affine</dfn> texture mapping.</p>
+  <p>But equal steps on screen are not equal steps in the world. A receding floor squeezes its far half into a few rows near the horizon, so its middle pixel on screen shows a point much nearer than the middle of the floor.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 252" role="img" aria-label="Side view. An eye at the top left looks through a vertical screen at a floor that runs from a near point to a far point. A ray through the middle pixel of the screen hits the floor about one fifth of the way along. A marker further along, at the true halfway point of the floor, shows the texel affine mapping uses for that pixel instead.">
+      <circle class="d-accent-fill" cx="40" cy="60" r="6"/>
+      <text class="d-muted" x="22" y="42">eye</text>
+      <path class="d-stroke" d="M120 34 V214"/>
+      <text class="d-label" x="120" y="24" text-anchor="middle">screen</text>
+      <path class="d-thin" d="M40 60 L160 200 M40 60 L600 200"/>
+      <path class="d-stroke" d="M160 200 H600" style="stroke-width:5"/>
+      <circle class="d-accent-fill" cx="160" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="600" cy="200" r="5"/>
+      <text class="d-text" x="160" y="226" text-anchor="middle">near</text>
+      <text class="d-text" x="600" y="226" text-anchor="middle">far</text>
+      <path class="d-accent" d="M40 60 L238 200"/>
+      <circle class="d-accent-fill" cx="120" cy="116.5" r="5"/>
+      <path class="d-thin" d="M104 180 L117 122"/>
+      <text class="d-label" x="104" y="198" text-anchor="end">middle pixel</text>
+      <path class="d-accent" d="M238 186 V214"/>
+      <text class="d-label" x="246" y="246" text-anchor="middle">what the pixel really shows</text>
+      <circle class="d-box" cx="380" cy="200" r="8"/>
+      <text class="d-text" x="390" y="226" text-anchor="middle">affine uses this texel: halfway</text>
+    </svg>
+    <figcaption>The ray through the middle pixel lands about a fifth of the way along the floor. Affine mapping gives that pixel the texel from halfway along instead.</figcaption>
+  </figure>
+
+  <p>The correct method, <dfn>perspective-correct</dfn> mapping, blends u divided by depth and 1 divided by depth across the screen, then divides one by the other at every pixel. For a floor edge from depth 2 to depth 8 with u running from 0 to 64, the pixel halfway along the edge on screen should show u = 12.8. Affine mapping shows u = 32. That one division per pixel is exactly the work the PlayStation GPU does not do.</p>
+  <p>Affine mapping is still exact at the three corners of a triangle. A four-sided polygon is drawn as two triangles, each bending the texture its own way, so straight lines break where they meet along the diagonal: the crease across PlayStation floors.</p>
+
+  <h2>Shortcut two: vertices at whole pixels</h2>
+  <p>The GPU takes vertex positions as whole pixel coordinates. There is no <dfn>sub-pixel precision</dfn>, no record that a vertex sits a third of the way between two pixels. Each projected vertex is snapped to a grid point before drawing.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 236" role="img" aria-label="A grid of pixels with a triangle. Each corner calculated at a fractional position is drawn as a hollow circle, and the nearest grid point, where it is drawn, as a filled circle. The snapped triangle has a slightly different shape from the calculated one.">
+      <path class="d-thin" d="M20 20 H340 M20 60 H340 M20 100 H340 M20 140 H340 M20 180 H340 M20 20 V180 M60 20 V180 M100 20 V180 M140 20 V180 M180 20 V180 M220 20 V180 M260 20 V180 M300 20 V180 M340 20 V180"/>
+      <path class="d-dash" d="M72 164 L284 128 L156 36 Z"/>
+      <path class="d-accent" d="M60 180 L300 140 L140 20 Z"/>
+      <circle class="d-box" cx="72" cy="164" r="5"/>
+      <circle class="d-box" cx="284" cy="128" r="5"/>
+      <circle class="d-box" cx="156" cy="36" r="5"/>
+      <circle class="d-accent-fill" cx="60" cy="180" r="5"/>
+      <circle class="d-accent-fill" cx="300" cy="140" r="5"/>
+      <circle class="d-accent-fill" cx="140" cy="20" r="5"/>
+      <circle class="d-box" cx="34" cy="214" r="5"/>
+      <text class="d-text" x="46" y="219">calculated</text>
+      <circle class="d-accent-fill" cx="190" cy="214" r="5"/>
+      <text class="d-text" x="202" y="219">drawn</text>
+    </svg>
+    <figcaption>Every corner jumps to the nearest pixel. When the camera moves by less than a pixel, some corners stay put and others jump, so the shape changes from frame to frame.</figcaption>
+  </figure>
+
+  <p>On a still image this costs little. In motion it is the wobble: as the camera glides, each vertex holds still and then jumps a whole pixel, and neighbours jump at different moments, so triangles stretch and the texture inside them shimmers. The GTE's limited fixed-point precision adds error before the snap.</p>
+  <p>The causes are separate: correcting perspective would not stop the wobble, and sub-pixel precision would not straighten the textures.</p>
+
+  <h2>The trick: more, smaller polygons</h2>
+  <p>Developers could not add the missing division, but they could shrink the error. It grows with a polygon's size on screen and with how much its depth changes across it, so cutting a large polygon into a grid of smaller ones adds vertices where the texture is exact. Every extra triangle cost GTE and GPU time, so the usual compromise was to subdivide only large polygons near the camera.</p>
+
+  <div class="callout">
+    <p class="callout-title">The lesson for today</p>
+    <p>Modern GPUs correct perspective for you; GLSL even has a <code>noperspective</code> keyword to switch it off, which retro-styled games use on purpose. The idea that survives is that precision is a budget. Large open worlds get the same wobble when 32-bit floats run short of fraction far from the origin, and the fix is the same thinking: keep numbers small where precision matters, and spend detail only where the error shows.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A tiny software renderer draws this floor at 160 by 120 pixels. With <strong>Mapping</strong> on affine, watch the ring and the stripe bend and break along the triangle diagonal. Switch to perspective-correct and they straighten. Back on affine, raise <strong>Subdivisions</strong> and watch the error readout fall. For the wobble, switch <strong>Drift</strong> off and step <strong>Camera x</strong> with the arrow keys: with snapping on, edges hold and then jump; with it off, they glide.</p>
+
+  <figure class="demo wide" data-demo="psx-floor">
+    <canvas id="psx-floor"></canvas>
+    <figcaption>The Difference view paints each pixel by how far, in texels, affine mapping strays from the correct texel. In the starting view, with Drift off, the worst pixel is off by about 26 texels with one quad and under 3 at four subdivisions per side. The texture is 64 texels across.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The two rules from the demo along one floor edge, in plain Lua with LÖVE printing the result. <code>project</code> snaps a vertex to whole pixels when <code>snap</code> is on. <code>affineU</code> is what the PlayStation does; <code>correctU</code> is the perspective-correct version. The last column adds one subdivision: a real vertex at depth 5, halfway along the floor.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SCREEN_W, SCREEN_H, FOCAL = 160, 120, 100
+local snap = true
+
+local function project(x, y, z, u)               <span class="c">-- camera space to screen</span>
+  local sx = SCREEN_W / 2 + x * FOCAL / z
+  local sy = SCREEN_H / 2 - y * FOCAL / z
+<span class="k">  if snap then sx, sy = math.floor(sx + 0.5), math.floor(sy + 0.5) end</span>
+  return { x = sx, y = sy, u = u, invz = 1 / z }
+end
+
+local function affineU(a, b, t)                  <span class="c">-- straight blend on screen</span>
+  return a.u + (b.u - a.u) * t
+end
+
+local function correctU(a, b, t)                 <span class="c">-- blend u/z and 1/z, then divide</span>
+  local uOverZ = a.u * a.invz + (b.u * b.invz - a.u * a.invz) * t
+  local invz = a.invz + (b.invz - a.invz) * t
+<span class="k">  return uOverZ / invz</span>
+end
+
+local near = project(-1, -1, 2, 0)
+local far  = project(-1, -1, 8, 64)
+local mid  = project(-1, -1, 5, 32)              <span class="c">-- one subdivision vertex</span>
+
+function love.draw()
+  local tm = (mid.y - near.y) / (far.y - near.y) <span class="c">-- where mid sits on screen</span>
+  for i = 0, 4 do
+    local t = i / 4                              <span class="c">-- fraction along the edge on screen</span>
+    local split
+    if t &lt;= tm then split = affineU(near, mid, t / tm)
+    else split = affineU(mid, far, (t - tm) / (1 - tm)) end
+    love.graphics.print(string.format("t %.2f  affine %5.1f  split %5.1f  correct %5.1f",
+      t, affineU(near, far, t), split, correctU(near, far, t)), 10, 10 + i * 20)
+  end
+end</code></pre>
+<pre data-lang="GLSL"><code>// Vertex shader: snap to a 320 by 240 grid and pass UVs without perspective.
+#version 330 core
+uniform mat4 mvp;
+uniform vec2 grid;                // for example vec2(320.0, 240.0)
+in vec3 position;
+in vec2 uv;
+noperspective out vec2 vUv;       // affine: blended in screen space
+void main() {
+  vec4 clip = mvp * vec4(position, 1.0);
+  vec2 pixel = (clip.xy / clip.w * 0.5 + 0.5) * grid;
+  pixel = floor(pixel + 0.5);     // whole pixels, like the PlayStation
+  clip.xy = (pixel / grid * 2.0 - 1.0) * clip.w;
+  vUv = uv;
+  gl_Position = clip;
+}
+
+// Fragment shader
+#version 330 core
+uniform sampler2D tex;
+noperspective in vec2 vUv;
+out vec4 color;
+void main() { color = texture(tex, vUv); }</code></pre>
+  </div>
+  <p>At <code>t</code> 0.5 the three columns read 32, about 20 and 12.8: one subdivision already removes more than half of the error. The exact middle figure moves a little with <code>snap</code>, because snapping shifts where <code>mid</code> lands on screen.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Blaming one cause for both effects.</strong> Bending comes from affine mapping, jitter from snapping and precision. Treat them separately.</li>
+    <li><strong>Subdividing everything.</strong> Small or distant polygons barely warp. Subdivide by size on screen and by depth change across the polygon.</li>
+    <li><strong>Snapping to the real screen resolution.</strong> At 1920 by 1080 a one-pixel snap is invisible. A retro look snaps to a coarse grid such as 320 by 240, as in the GLSL tab.</li>
+    <li><strong>Snapping each triangle separately.</strong> Snap shared vertices once. If two triangles round the same corner differently, cracks open between them.</li>
+    <li><strong>Forgetting the diagonal.</strong> Under affine mapping, which way a quad is split changes how the texture bends. Choose it on purpose.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every 3D game on the original PlayStation had to work within these rules, which is why the look is so recognisable. PC software renderers faced the same divide cost and chose differently: Michael Abrash has described how Quake did the exact divide only every 16 pixels and blended linearly in between. Some emulators, DuckStation among them, offer an option called PGXP that keeps the precision the hardware threw away, removing most of the wobble. Modern games with a deliberate PlayStation style recreate both effects in shaders like the GLSL tab.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In LÖVE, a mesh made with <code>love.graphics.newMesh</code> from 2D positions is blended in screen space, so it is affine by nature. Project the four corners of a floor quad with <code>project</code> from above, scaled to your window, and build a mesh of <code>{x, y, u, v}</code> vertices with a checkerboard texture. Find the crease. Then cut the quad into an n by n grid in world space, project each grid vertex once, and build the mesh in <code>"triangles"</code> mode. You are done when a key steps n from 1 to 8 and you can say at which n the crease disappears.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The PlayStation GPU received only 2D vertex positions, with no depth, so it blended texture coordinates in a straight line across the screen: affine mapping.</li>
+    <li>Affine mapping is exact at the corners and wrong in between, most of all on big polygons that recede from the camera.</li>
+    <li>Vertices were drawn at whole pixels, so smooth motion became one-pixel jumps: the wobble.</li>
+    <li>Subdividing large near polygons hid the warp, at the cost of more triangles.</li>
+    <li>Precision is a budget. Modern hardware moved the limits, but large worlds and retro shaders meet the same trade.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we move to Quake in 1996, and see how a long calculation done before the game ships lets it skip most of a level every frame.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>This page was written without live verification: the references below could not be reached from this session, so none are linked. It keeps to widely documented facts about the hardware and makes no claims about particular games. Check the details against these works.</p>
+  <ul>
+    <li>Martin Korth (nocash), <cite>PlayStation Specifications</cite> (psx-spx), the community hardware reference, now also maintained as a collaborative edition. See the GPU sections on polygon commands and vertex coordinates, and the GTE section.</li>
+    <li>Chris Hecker, <cite>Perspective Texture Mapping</cite>, a series in Game Developer magazine in the mid 1990s explaining why affine mapping warps and how to correct it.</li>
+    <li>Michael Abrash, <cite>Graphics Programming Black Book</cite>, the chapters on Quake's renderer, including its perspective divide every 16 pixels.</li>
+    <li>The DuckStation emulator's documentation of its PGXP options, for how precision lost by the hardware can be recovered.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Scene: one floor quad, seen by a camera that looks down a little ----
+  var W = 160, H = 120;                  // low-resolution "screen"
+  var FOC = 96, CAMY = 1.6, PITCH = 32 * Math.PI / 180;
+  var X0 = -1.4, X1 = 1.4, Z0 = 1.6, Z1 = 7.6;
+  var TEX = 64;                          // texture size in texels
+
+  // Original procedural texture: tiles with a ring and a diagonal stripe.
+  var texRGB = new Uint8Array(TEX * TEX * 3);
+  (function buildTexture() {
+    for (var v = 0; v < TEX; v += 1) {
+      for (var u = 0; u < TEX; u += 1) {
+        var rgb;
+        var d = Math.sqrt((u + 0.5 - 32) * (u + 0.5 - 32) + (v + 0.5 - 32) * (v + 0.5 - 32));
+        if (Math.abs(d - 22) < 1.6) rgb = [232, 138, 36];
+        else if (Math.abs(u + v - 63) <= 1) rgb = [34, 150, 140];   // crosses the split diagonal
+        else if (u % 8 === 0 || v % 8 === 0) rgb = [44, 50, 66];
+        else if (((u >> 3) + (v >> 3)) % 2 === 0) rgb = [228, 222, 206];
+        else rgb = [192, 184, 166];
+        var i = (v * TEX + u) * 3;
+        texRGB[i] = rgb[0]; texRGB[i + 1] = rgb[1]; texRGB[i + 2] = rgb[2];
+      }
+    }
+  })();
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="psx-floor"]');
+  var mode = ui.select({
+    label: 'Mapping',
+    options: [
+      { value: 'affine', label: 'Affine (PlayStation)' },
+      { value: 'correct', label: 'Perspective-correct' },
+      { value: 'diff', label: 'Difference: affine error' }
+    ],
+    value: 'affine', onChange: function () { redraw(); }
+  });
+  var subdiv = ui.slider({ label: 'Subdivisions per side', min: 1, max: 8, step: 1, value: 1,
+    onInput: function () { redraw(); } });
+  var snap = ui.toggle({ label: 'Snap vertices to whole pixels', value: true, onChange: function () { redraw(); } });
+  var edges = ui.toggle({ label: 'Show triangle edges', value: true, onChange: function () { redraw(); } });
+  var drift = ui.toggle({ label: 'Drift (slow camera sway)', value: true, onChange: function () { redraw(); } });
+  var camX = ui.slider({ label: 'Camera x', min: -0.3, max: 0.3, step: 0.005, value: 0,
+    onInput: function () { redraw(); } });
+  var turn = ui.slider({ label: 'Turn', min: -10, max: 10, step: 1, value: 0, unit: '°',
+    onInput: function () { redraw(); } });
+  var triOut = ui.readout({ label: 'Triangles' });
+  var errOut = ui.readout({ label: 'Affine error, worst pixel' });
+
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  // ---- Projection ----
+  function project(x, z, cx, yaw) {
+    var dx = x - cx, dy = -CAMY, dz = z;
+    var c = Math.cos(yaw), s = Math.sin(yaw);
+    var x1 = dx * c - dz * s, z1 = dx * s + dz * c;
+    var zc = -dy * Math.sin(PITCH) + z1 * Math.cos(PITCH);
+    var yc = dy * Math.cos(PITCH) + z1 * Math.sin(PITCH);
+    var sx = W / 2 + x1 * FOC / zc;
+    var sy = H / 2 - yc * FOC / zc;
+    if (snap.value) { sx = Math.round(sx); sy = Math.round(sy); }
+    return { x: sx, y: sy, iz: 1 / zc,
+             u: (x - X0) / (X1 - X0) * TEX, v: (z - Z0) / (Z1 - Z0) * TEX };
+  }
+
+  // ---- Software rasterizer into a 160 by 120 buffer ----
+  var buf = document.createElement('canvas');
+  buf.width = W; buf.height = H;
+  var bctx = buf.getContext('2d');
+  var img = bctx.createImageData(W, H);
+  var maxErr = 0;
+
+  function texel(u, v) {
+    var iu = ((Math.floor(u) % TEX) + TEX) % TEX;
+    var iv = ((Math.floor(v) % TEX) + TEX) % TEX;
+    return (iv * TEX + iu) * 3;
+  }
+
+  function drawTri(a, b, c, m) {
+    var area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (Math.abs(area) < 1e-9) return;
+    var minx = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x)));
+    var maxx = Math.min(W - 1, Math.ceil(Math.max(a.x, b.x, c.x)));
+    var miny = Math.max(0, Math.floor(Math.min(a.y, b.y, c.y)));
+    var maxy = Math.min(H - 1, Math.ceil(Math.max(a.y, b.y, c.y)));
+    var data = img.data;
+    for (var py = miny; py <= maxy; py += 1) {
+      var Y = py + 0.5;
+      for (var px = minx; px <= maxx; px += 1) {
+        var X = px + 0.5;
+        var w0 = ((b.x - X) * (c.y - Y) - (b.y - Y) * (c.x - X)) / area;
+        var w1 = ((c.x - X) * (a.y - Y) - (c.y - Y) * (a.x - X)) / area;
+        var w2 = 1 - w0 - w1;
+        if (w0 < -1e-7 || w1 < -1e-7 || w2 < -1e-7) continue;
+        // affine: blend u and v straight across the screen
+        var ua = w0 * a.u + w1 * b.u + w2 * c.u;
+        var va = w0 * a.v + w1 * b.v + w2 * c.v;
+        // perspective-correct: blend u/z, v/z and 1/z, then divide
+        var q = w0 * a.iz + w1 * b.iz + w2 * c.iz;
+        var uc = (w0 * a.u * a.iz + w1 * b.u * b.iz + w2 * c.u * c.iz) / q;
+        var vc = (w0 * a.v * a.iz + w1 * b.v * b.iz + w2 * c.v * c.iz) / q;
+        var err = Math.sqrt((ua - uc) * (ua - uc) + (va - vc) * (va - vc));
+        if (err > maxErr) maxErr = err;
+        var p = (py * W + px) * 4, t, k;
+        if (m === 'diff') {
+          t = texel(uc, vc);
+          var g = (texRGB[t] + texRGB[t + 1] + texRGB[t + 2]) / 3 * 0.55 + 40;
+          k = Math.min(1, err / 8);
+          data[p] = Math.round(g + (225 - g) * k);
+          data[p + 1] = Math.round(g + (40 - g) * k);
+          data[p + 2] = Math.round(g + (30 - g) * k);
+        } else {
+          t = m === 'affine' ? texel(ua, va) : texel(uc, vc);
+          data[p] = texRGB[t]; data[p + 1] = texRGB[t + 1]; data[p + 2] = texRGB[t + 2];
+        }
+        data[p + 3] = 255;
+      }
+    }
+  }
+
+  var verts = [], N = 1;
+  function render(time) {
+    var cx = camX.value, yawDeg = turn.value;
+    if (drift.value) {
+      cx += 0.12 * Math.sin(time * 0.45);
+      yawDeg += 3 * Math.sin(time * 0.31);
+    }
+    var yaw = yawDeg * Math.PI / 180;
+    N = subdiv.value;
+    verts = [];
+    for (var j = 0; j <= N; j += 1) {
+      var row = [];
+      for (var i = 0; i <= N; i += 1) {
+        row.push(project(X0 + (X1 - X0) * i / N, Z0 + (Z1 - Z0) * j / N, cx, yaw));
+      }
+      verts.push(row);
+    }
+    var data = img.data;
+    for (var n = 0; n < data.length; n += 1) data[n] = 0;
+    maxErr = 0;
+    var m = mode.value;
+    for (j = 0; j < N; j += 1) {
+      for (i = 0; i < N; i += 1) {
+        var a = verts[j][i], b = verts[j][i + 1], c = verts[j + 1][i + 1], d = verts[j + 1][i];
+        drawTri(a, b, c, m);   // every quad is split along the same diagonal, a to c
+        drawTri(a, c, d, m);
+      }
+    }
+    bctx.putImageData(img, 0, 0);
+    triOut.set(2 * N * N + ' (' + N + ' by ' + N + ' quads)');
+    errOut.set('up to ' + maxErr.toFixed(1) + ' texels' + (m === 'correct' ? ' (not shown: this view is correct)' : ''));
+  }
+
+  handle = DemoKit.canvas('#psx-floor', {
+    aspect: 4 / 3, minHeight: 240, maxHeight: 480,
+    label: 'A textured floor drawn at 160 by 120 pixels, with affine or perspective-correct texture mapping, optional vertex snapping and subdivision.',
+    draw: function (ctx, s) {
+      var col = s.colors;
+      render(s.time);
+      ctx.fillStyle = col.surface2;
+      ctx.fillRect(0, 0, s.width, s.height);
+      // keep the 4:3 picture whole inside the canvas
+      var scale = Math.min(s.width / W, s.height / H);
+      var ox = (s.width - W * scale) / 2, oy = (s.height - H * scale) / 2;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(buf, ox, oy, W * scale, H * scale);
+      if (edges.value) {
+        ctx.strokeStyle = col.topic;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (var j = 0; j < N; j += 1) {
+          for (var i = 0; i < N; i += 1) {
+            var a = verts[j][i], b = verts[j][i + 1], c = verts[j + 1][i + 1], d = verts[j + 1][i];
+            ctx.moveTo(ox + a.x * scale, oy + a.y * scale);
+            ctx.lineTo(ox + b.x * scale, oy + b.y * scale);
+            ctx.lineTo(ox + c.x * scale, oy + c.y * scale);
+            ctx.lineTo(ox + d.x * scale, oy + d.y * scale);
+            ctx.closePath();
+            ctx.moveTo(ox + a.x * scale, oy + a.y * scale);
+            ctx.lineTo(ox + c.x * scale, oy + c.y * scale);
+          }
+        }
+        ctx.stroke();
+        ctx.fillStyle = col.topic;
+        for (j = 0; j <= N; j += 1) {
+          for (i = 0; i <= N; i += 1) {
+            var v = verts[j][i];
+            ctx.fillRect(ox + v.x * scale - 2, oy + v.y * scale - 2, 4, 4);
+          }
+        }
+      }
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = col.ink2;
+      ctx.textBaseline = 'top';
+      var label = mode.value === 'affine' ? 'affine' : (mode.value === 'correct' ? 'perspective-correct' : 'red = affine error');
+      ctx.fillText(label + (snap.value ? ', snapped' : ', sub-pixel'), ox + 6, oy + 6);
+      ctx.strokeStyle = col.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ox + 0.5, oy + 0.5, W * scale - 1, H * scale - 1);
+    }
+  });
+})();
+</script>
+</body>
+</html>

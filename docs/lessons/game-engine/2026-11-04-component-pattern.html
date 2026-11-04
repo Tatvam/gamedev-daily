@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The component pattern: composition over inheritance · Game Dev Daily</title>
+<meta name="description" content="Why building game objects from small reusable components scales better than deep class trees, and how Godot and Unity let parts find each other.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-04">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The component pattern: composition over inheritance</h1>
+  <p class="lede">Why building game objects from small reusable components scales better than deep class trees, and how Godot and Unity let parts find each other.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your game has a <code>WalkingShooter</code> class and a <code>Flyer</code> class, both children of <code>Enemy</code>. The designer asks for a flying enemy that shoots. The shooting code lives in one branch of the tree and the flying code in the other, and there is no clean place to put the new enemy.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Where inheritance runs out</h2>
+  <p><dfn>Inheritance</dfn> means a class takes all the code of its parent class and adds to it. It answers one question well: what <em>is</em> this thing? A Flyer is an Enemy.</p>
+  <p>Games do not grow that way. Abilities get mixed, and a class in GDScript or C# has only one parent, so each new mix leaves three bad choices:</p>
+  <ul>
+    <li><strong>Copy</strong> the shooting code into the flying branch, and fix every bug twice from now on.</li>
+    <li><strong>Move it up</strong> into <code>Enemy</code>, so every enemy carries shooting code with a flag to turn it off. Soon the base class is a pile of switches.</li>
+    <li><strong>Add a class per mix.</strong> Four independent abilities give 2 &times; 2 &times; 2 &times; 2 = 16 combinations.</li>
+  </ul>
+
+  <h2>Composition: an object made of parts</h2>
+  <p>The <dfn>component pattern</dfn> turns this around. An <dfn>entity</dfn> is a nearly empty container: a name and a position. A <dfn>component</dfn> is a small object that owns one ability, its data and its code: Gravity owns a vertical speed, Health owns hit points. What the entity can do is decided by which components it holds. This is called <dfn>composition</dfn>: building an object out of other objects instead of out of parent classes.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left, inheritance: Walker and Flyer inherit from Enemy, Walking shooter inherits from Walker, and a dashed Flying shooter under Flyer has to copy shooting code from Walking shooter. Right, components: Walker holds Walk and Health, Flyer holds Fly and Health, Flying shooter holds Fly, Shoot and Health.">
+      <defs>
+        <marker id="cp-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="10" y="28">Inheritance</text>
+      <text class="d-label" x="340" y="28">Components</text>
+      <path class="d-dash" d="M318 16 V256"/>
+
+      <rect class="d-box" x="95" y="44" width="110" height="34" rx="6"/>
+      <rect class="d-box" x="10" y="110" width="115" height="34" rx="6"/>
+      <rect class="d-box" x="185" y="110" width="115" height="34" rx="6"/>
+      <rect class="d-box" x="10" y="180" width="115" height="34" rx="6"/>
+      <rect class="d-fill" x="185" y="180" width="115" height="34" rx="6"/>
+      <rect class="d-dash" x="185" y="180" width="115" height="34" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="150" y="66">Enemy</text>
+        <text class="d-text" x="67" y="132">Walker</text>
+        <text class="d-text" x="242" y="132">Flyer</text>
+        <text class="d-text" x="67" y="202">Walking shooter</text>
+        <text class="d-text" x="242" y="202">Flying shooter</text>
+      </g>
+      <g marker-end="url(#cp-ink)">
+        <path class="d-stroke" d="M67 110 L124 80"/>
+        <path class="d-stroke" d="M242 110 L178 80"/>
+        <path class="d-stroke" d="M67 180 V147"/>
+        <path class="d-dash" d="M242 180 V147"/>
+        <path class="d-bad" d="M184 197 H128"/>
+      </g>
+      <text class="d-label" x="155" y="188" text-anchor="middle">copy?</text>
+      <text class="d-muted" x="155" y="240" text-anchor="middle">Shooting lives in one branch: copy it,</text>
+      <text class="d-muted" x="155" y="256" text-anchor="middle">or move it up into Enemy for everyone.</text>
+
+      <text class="d-text" x="340" y="75">Walker</text>
+      <text class="d-text" x="340" y="125">Flyer</text>
+      <text class="d-text" x="340" y="175">Flying shooter</text>
+      <rect class="d-accent-soft" x="445" y="55" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="509" y="55" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="445" y="105" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="509" y="105" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="445" y="155" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="509" y="155" width="58" height="30" rx="5"/>
+      <rect class="d-accent-soft" x="573" y="155" width="58" height="30" rx="5"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="474" y="75">Walk</text>
+        <text class="d-text" x="538" y="75">Health</text>
+        <text class="d-text" x="474" y="125">Fly</text>
+        <text class="d-text" x="538" y="125">Health</text>
+        <text class="d-text" x="474" y="175">Fly</text>
+        <text class="d-text" x="538" y="175">Shoot</text>
+        <text class="d-text" x="602" y="175">Health</text>
+      </g>
+      <text class="d-muted" x="485" y="240" text-anchor="middle">Same parts, new combination, no new class.</text>
+      <text class="d-muted" x="485" y="256" text-anchor="middle">Each ability is written once.</text>
+    </svg>
+    <figcaption>The same three enemies two ways. In the tree, a new mix of abilities needs a new class in the right branch. With components, it is a new list of parts.</figcaption>
+  </figure>
+
+  <p>The lesson on <a href="2026-10-18-nodes-versus-components.html">nodes and components</a> showed the shape of each engine. Today is about why the shape works and the three rules that keep it working: order, ownership and how parts talk.</p>
+
+  <h2>What happens, in what order</h2>
+  <p>Each frame the entity asks every component it holds to update, then to draw. Order matters when one part writes what another reads. A part that reads the position before the parts that move it sees last frame's value, one frame late. So the parts that move the entity, Gravity and Movement, run first, and Glow, which only reads, runs last. Pick the order on purpose and keep it fixed. The demo and the code use one list:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 520 130" role="img" aria-label="One frame. The update pass runs Gravity, then Movement, then Health, then Glow. The draw pass draws Glow, then Health, then the body last, on top.">
+      <defs>
+        <marker id="cp-ord" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="6" y="44">update</text>
+      <text class="d-label" x="6" y="104">draw</text>
+      <rect class="d-box" x="70" y="22" width="96" height="34" rx="6"/>
+      <rect class="d-box" x="182" y="22" width="96" height="34" rx="6"/>
+      <rect class="d-box" x="294" y="22" width="96" height="34" rx="6"/>
+      <rect class="d-box" x="406" y="22" width="96" height="34" rx="6"/>
+      <rect class="d-box" x="70" y="82" width="96" height="34" rx="6"/>
+      <rect class="d-box" x="182" y="82" width="96" height="34" rx="6"/>
+      <rect class="d-accent-soft" x="294" y="82" width="96" height="34" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="118" y="44">1 Gravity</text>
+        <text class="d-text" x="230" y="44">2 Movement</text>
+        <text class="d-text" x="342" y="44">3 Health</text>
+        <text class="d-text" x="454" y="44">4 Glow</text>
+        <text class="d-text" x="118" y="104">Glow</text>
+        <text class="d-text" x="230" y="104">Health</text>
+        <text class="d-text" x="342" y="104">body</text>
+      </g>
+      <g marker-end="url(#cp-ord)">
+        <path class="d-thin" d="M166 39 H179"/>
+        <path class="d-thin" d="M278 39 H291"/>
+        <path class="d-thin" d="M390 39 H403"/>
+        <path class="d-thin" d="M166 99 H179"/>
+        <path class="d-thin" d="M278 99 H291"/>
+      </g>
+    </svg>
+    <figcaption>One frame of the demo entity. Missing components are skipped. Glow draws first so the halo sits behind the body.</figcaption>
+  </figure>
+
+  <h2>Who owns the data</h2>
+  <p>The <strong>entity</strong> owns its components and the shared data, here the position. Each <strong>component</strong> owns its own data. Remove Health and its hit points go with it; add it back and you get a fresh 3. No other part has to know Health exists.</p>
+
+  <h2>How parts talk</h2>
+  <p>Sometimes one part needs another. Glow pulses faster when hit points are low, so it asks the entity "do you have a Health?" and uses it only if the answer is yes. An <dfn>optional dependency</dfn> like this keeps Glow working on a lamp that has no health at all. The other direction is an announcement: Health says "I died" and whoever cares listens, as in the <a href="2026-10-27-signals-and-events.html">signals lesson</a>.</p>
+<pre><code><span class="c">-- Glow asks the entity, and copes when the answer is nil.</span>
+local h = e.parts.health
+local rate = 1
+if h then rate = 1 + (h.max - h.hp) end</code></pre>
+
+  <h2>How the engines express it</h2>
+  <p><strong>Unity</strong> is built on this pattern. Every script is a component, a class derived from <code>MonoBehaviour</code>. You add one with <code>AddComponent&lt;T&gt;()</code>, find a neighbour with <code>GetComponent&lt;T&gt;()</code> or <code>TryGetComponent(out T c)</code>, and remove one with <code>Destroy(component)</code>, which takes effect after the current frame's updates. <code>[RequireComponent(typeof(T))]</code> turns a needed neighbour into a rule the editor enforces. The order of <code>Update</code> across different scripts is not guaranteed unless you set it in the Script Execution Order settings.</p>
+  <p><strong>Godot 4</strong> has no separate component type. The usual way is a child node with its own script, such as a <code>Health</code> node under the enemy, found with <code>get_node_or_null("Health")</code>. A part that needs a position extends <code>Node2D</code> and follows its parent through the transform hierarchy. Order comes from the tree: a parent is processed before its children, children top to bottom, and a newly added child goes last. Godot's scene organisation guide notes that, strictly, a node tree is aggregation rather than composition, since children can move to another parent; here the effect is the same.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Inherit to say what a thing is, one level deep: your script extends <code>CharacterBody2D</code> or <code>MonoBehaviour</code>. Compose to say what it can do. Both engines use inheritance for their built-in types and composition for everything you attach.</p>
+  </div>
+  <p>The trade-off: Godot's child nodes show every part in the tree with a predictable order, at the cost of a node per part and lookups by path. Unity's components are lighter to add and found by type, but you must set their order when it matters.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The entity starts with only Movement, floating. Tick <strong>Gravity</strong> and it drops. Tick <strong>Health</strong>, then press <strong>Hit</strong> a few times, then tick <strong>Glow</strong> and hit again: the pulse speeds up because Glow found Health. Untick Health and the glow slows down, because nothing reports damage any more. Watch the readout name the single class inheritance would need for each mix.</p>
+
+  <figure class="demo wide" data-demo="components">
+    <canvas id="components"></canvas>
+    <figcaption>Each card is one component and the data it owns, in update order. Removing a component throws its data away. You can also tap the entity to hit it. The model leaves out collisions, signals and components that need a neighbour to work. With reduced motion, press Play to see it move.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the demo's four components and numbers: gravity 600 px/s², a patrol of 60 px/s up to 80 px each side of home, 3 hit points, a 1 second respawn and a lift of 120 px above the ground.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Keys 1-4 toggle Gravity, Movement, Health, Glow. H hits, L lifts.</span>
+local GROUND, GRAVITY = 300, 600
+local ORDER = { "gravity", "movement", "health", "glow" }  <span class="c">-- update order</span>
+local entity = { x = 200, y = GROUND - 120, homeX = 200, parts = {} }
+local make = {}
+
+function make.gravity()
+  return { vy = 0, update = function(self, e, dt)
+    self.vy = self.vy + GRAVITY * dt
+    e.y = e.y + self.vy * dt
+    if e.y &gt;= GROUND then e.y, self.vy = GROUND, 0 end
+  end }
+end
+
+function make.movement()
+  return { speed = 60, range = 80, dir = 1, update = function(self, e, dt)
+    e.x = e.x + self.speed * self.dir * dt
+    if e.x &gt; e.homeX + self.range then e.x, self.dir = e.homeX + self.range, -1 end
+    if e.x &lt; e.homeX - self.range then e.x, self.dir = e.homeX - self.range, 1 end
+  end }
+end
+
+function make.health()
+  return { hp = 3, max = 3, respawn = 0,
+    update = function(self, e, dt) self.respawn = math.max(0, self.respawn - dt) end,
+    hit = function(self)
+      if self.respawn &gt; 0 then return end
+      self.hp = self.hp - 1
+      if self.hp &lt;= 0 then self.hp, self.respawn = self.max, 1 end
+    end,
+    draw = function(self, e) love.graphics.print("hp " .. self.hp, e.x - 14, e.y - 70) end }
+end
+
+function make.glow()
+  return { t = 0, update = function(self, e, dt)
+<span class="k">    local h = e.parts.health               <span class="c">-- optional neighbour</span>
+    local rate = 1
+    if h then rate = 1 + (h.max - h.hp) end</span>
+    self.t = self.t + rate * dt
+  end, draw = function(self, e)
+    local a = 0.25 + 0.2 * math.sin(self.t * 2 * math.pi)
+    love.graphics.setColor(1, 0.85, 0.3, a)
+    love.graphics.circle("fill", e.x, e.y - 18, 34)
+    love.graphics.setColor(1, 1, 1)
+  end }
+end
+
+function love.load() entity.parts.movement = make.movement() end
+
+function love.keypressed(key)
+  local name = ORDER[tonumber(key)]
+  if name then
+<span class="k">    if entity.parts[name] then entity.parts[name] = nil   <span class="c">-- its data goes too</span>
+    else entity.parts[name] = make[name]() end</span>
+  end
+  local h = entity.parts.health
+  if key == "h" and h then h:hit() end
+  if key == "l" then
+    entity.y = GROUND - 120
+    if entity.parts.gravity then entity.parts.gravity.vy = 0 end
+  end
+end
+
+function love.update(dt)
+<span class="k">  for _, name in ipairs(ORDER) do
+    local c = entity.parts[name]
+    if c and c.update then c:update(entity, dt) end
+  end</span>
+end
+
+function love.draw()
+  love.graphics.line(0, GROUND, 800, GROUND)
+  local h = entity.parts.health
+  if h and h.respawn &gt; 0 then return end   <span class="c">-- dead: draw nothing</span>
+  for _, name in ipairs(ORDER) do
+    local c = entity.parts[name]
+    if c and c.draw then c:draw(entity) end
+  end
+  love.graphics.setColor(0.3, 0.5, 0.9)
+  love.graphics.rectangle("fill", entity.x - 14, entity.y - 36, 28, 36)
+  love.graphics.setColor(1, 1, 1)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># entity.gd. Godot 4. Attach to a Node2D in a new 2D scene and run.</span>
+<span class="c"># Keys 1-4 toggle Gravity, Movement, Health, Glow. H hits, L lifts. Watch Output.</span>
+extends Node2D
+
+var home_x := 200.0
+
+class Gravity extends Node:
+    var vy := 0.0
+    func _process(delta: float) -&gt; void:
+        var e := get_parent() as Node2D
+        vy += 600.0 * delta
+        e.position.y += vy * delta
+        if e.position.y &gt;= 300.0:
+            e.position.y = 300.0
+            vy = 0.0
+
+class Movement extends Node:
+    var speed := 60.0
+    var range_px := 80.0
+    var dir := 1.0
+    func _process(delta: float) -&gt; void:
+        var e = get_parent()
+        e.position.x += speed * dir * delta
+        if e.position.x &gt; e.home_x + range_px:
+            e.position.x = e.home_x + range_px
+            dir = -1.0
+        elif e.position.x &lt; e.home_x - range_px:
+            e.position.x = e.home_x - range_px
+            dir = 1.0
+
+class Health extends Node:
+    signal died
+    var max_hp := 3
+    var hp := 3
+    func hit() -&gt; void:
+        hp -= 1
+        print("Health: hp ", hp)
+        if hp &lt;= 0:
+            hp = max_hp
+            died.emit()
+
+class Glow extends Node2D:   <span class="c"># a Node2D child follows the parent's position</span>
+    var t := 0.0
+    func _ready() -&gt; void:
+        show_behind_parent = true
+    func _process(delta: float) -&gt; void:
+        var rate := 1.0
+<span class="k">        var h = get_parent().get_node_or_null("Health")   <span class="c"># optional neighbour</span>
+        if h:
+            rate = 1.0 + (h.max_hp - h.hp)</span>
+        t += rate * delta
+        queue_redraw()
+    func _draw() -&gt; void:
+        var a := 0.25 + 0.2 * sin(t * TAU)
+        draw_circle(Vector2(0, -18), 34.0, Color(1, 0.85, 0.3, a))
+
+func _ready() -&gt; void:
+    position = Vector2(home_x, 180.0)
+    toggle("Movement", Movement)
+
+func _draw() -&gt; void:
+    draw_rect(Rect2(-14, -36, 28, 36), Color(0.3, 0.5, 0.9))
+
+func toggle(part_name: String, part_class) -&gt; void:
+    var part = get_node_or_null(part_name)
+    if part:
+        remove_child(part)          <span class="c"># out of the tree now, freed at the end of the frame</span>
+        part.queue_free()
+        print(part_name, " removed")
+    else:
+<span class="k">        part = part_class.new()
+        part.name = part_name
+        add_child(part)             <span class="c"># goes last, so it is processed last</span></span>
+        if part is Health:
+            part.died.connect(func(): print("Health: died and respawned"))
+        print(part_name, " added")
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    var key := event as InputEventKey
+    if key == null or not key.pressed or key.echo:
+        return
+    match key.keycode:
+        KEY_1: toggle("Gravity", Gravity)
+        KEY_2: toggle("Movement", Movement)
+        KEY_3: toggle("Health", Health)
+        KEY_4: toggle("Glow", Glow)
+        KEY_L: position.y = 180.0
+        KEY_H:
+            var h = get_node_or_null("Health")
+            if h:
+                h.hit()
+            else:
+                print("Hit ignored: no Health component")</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 6 or 2022 LTS with the Input System package. One class per file.</span>
+<span class="c">// Add a Square sprite from the 2D Object menu, then add Entity to it and press Play.</span>
+<span class="c">// Distances are in units: 600 px/s² becomes 6, 60 px/s becomes 0.6, ground is y = 0.</span>
+
+<span class="c">// Entity.cs</span>
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class Entity : MonoBehaviour
+{
+    public float homeX = 0f;
+
+    void Start() { transform.position = new Vector3(homeX, 1.2f, 0f); Toggle&lt;Movement&gt;(); }
+
+    void Update()
+    {
+        var kb = Keyboard.current;
+        if (kb == null) return;
+        if (kb.digit1Key.wasPressedThisFrame) Toggle&lt;Gravity&gt;();
+        if (kb.digit2Key.wasPressedThisFrame) Toggle&lt;Movement&gt;();
+        if (kb.digit3Key.wasPressedThisFrame) Toggle&lt;Health&gt;();
+        if (kb.digit4Key.wasPressedThisFrame) Toggle&lt;Glow&gt;();
+        if (kb.lKey.wasPressedThisFrame) transform.position = new Vector3(transform.position.x, 1.2f, 0f);
+        if (kb.hKey.wasPressedThisFrame)
+        {
+            if (TryGetComponent(out Health h)) h.Hit();
+            else Debug.Log("Hit ignored: no Health component");
+        }
+    }
+
+    void Toggle&lt;T&gt;() where T : Component
+    {
+<span class="k">        bool had = TryGetComponent(out T part);
+        if (had) Destroy(part);   <span class="c">// removed after this frame's updates</span>
+        else gameObject.AddComponent&lt;T&gt;();</span>
+        Debug.Log(typeof(T).Name + (had ? " removed" : " added"));
+    }
+}
+
+<span class="c">// Gravity.cs</span>
+using UnityEngine;
+
+public class Gravity : MonoBehaviour
+{
+    public float g = 6f;
+    float vy;
+
+    void Update()
+    {
+        vy -= g * Time.deltaTime;
+        var p = transform.position;
+        p.y += vy * Time.deltaTime;
+        if (p.y &lt;= 0f) { p.y = 0f; vy = 0f; }
+        transform.position = p;
+    }
+}
+
+<span class="c">// Movement.cs</span>
+using UnityEngine;
+
+public class Movement : MonoBehaviour
+{
+    public float speed = 0.6f, range = 0.8f;
+    float dir = 1f;
+    Entity entity;
+
+    void Awake() { entity = GetComponent&lt;Entity&gt;(); }   <span class="c">// look up once, not every frame</span>
+
+    void Update()
+    {
+        var p = transform.position;
+        p.x += speed * dir * Time.deltaTime;
+        if (p.x &gt; entity.homeX + range) { p.x = entity.homeX + range; dir = -1f; }
+        if (p.x &lt; entity.homeX - range) { p.x = entity.homeX - range; dir = 1f; }
+        transform.position = p;
+    }
+}
+
+<span class="c">// Health.cs</span>
+using UnityEngine;
+
+public class Health : MonoBehaviour
+{
+    public int max = 3, hp = 3;
+
+    public void Hit()
+    {
+        hp--;
+        Debug.Log("Health: hp " + hp);
+        if (hp &lt;= 0) { hp = max; Debug.Log("Health: died and respawned"); }
+    }
+}
+
+<span class="c">// Glow.cs</span>
+using UnityEngine;
+
+[RequireComponent(typeof(SpriteRenderer))]
+public class Glow : MonoBehaviour
+{
+    float t;
+    SpriteRenderer sr;
+
+    void Awake() { sr = GetComponent&lt;SpriteRenderer&gt;(); }
+
+    void Update()
+    {
+        float rate = 1f;
+<span class="k">        if (TryGetComponent(out Health h)) rate = 1 + (h.max - h.hp);   <span class="c">// optional neighbour</span></span>
+        t += rate * Time.deltaTime;
+        float a = 0.5f + 0.5f * Mathf.Sin(t * 2f * Mathf.PI);
+        sr.color = Color.Lerp(Color.white, Color.yellow, a);
+    }
+
+    void OnDestroy() { if (sr) sr.color = Color.white; }   <span class="c">// clean up when removed</span>
+}</code></pre>
+  </div>
+  <p>The GDScript version keeps every part in one file as inner classes so it runs from a single script; in a real project each would be its own script with a <code>class_name</code>. The Unity version needs one file per class, named after the class. Glow tints the sprite there instead of drawing a halo.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Components that assume a neighbour.</strong> If Glow calls Health without checking, a lamp with no Health crashes. Check for nil, or make the need explicit with <code>[RequireComponent]</code> in Unity or a warning in Godot's <code>_ready</code>.</li>
+    <li><strong>Hidden order bugs.</strong> Two parts that both write the position give different results depending on who runs last. In Godot, removing and re-adding a child moves it to the end of the tree, so its order changes; use <code>move_child</code> to put it back. In Unity, set the order explicitly when it matters.</li>
+    <li><strong>Looking up neighbours every frame.</strong> <code>GetComponent</code> and <code>get_node</code> search for the part each call. Cache the result in <code>Awake</code> or <code>_ready</code> when the neighbour is fixed, as Movement does above. Glow searches every frame only because Health can come and go.</li>
+    <li><strong>Components that are too small.</strong> A component per variable, such as Speed, turns every behaviour into a tangle of lookups. One component, one ability.</li>
+    <li><strong>The god component.</strong> The opposite mistake: a <code>PlayerController</code> that walks, shoots, takes damage and plays sounds is the old base class with a new name. Split it when two kinds of object want only half of it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Unity's whole object model is components on GameObjects, and Godot projects commonly use child nodes as reusable parts, such as a hitbox or health node shared by the player and enemies. Robert Nystrom's <cite>Game Programming Patterns</cite> describes the pattern with a game object split into input, physics and graphics components.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a subclass in your project that exists only to add one ability, such as a <code>DamageableEnemy</code> or a player class that holds health. Move that ability into a component: a child node in Godot, a <code>MonoBehaviour</code> in Unity. You are done when two objects that do not inherit from each other, for example a crate and an enemy, both take damage through the same component.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Inheritance handles one new ability at a time; mixes of abilities lead to copied code, bloated base classes or a class per combination.</li>
+    <li>With components, an entity is a container and each component owns one ability and its data. Behaviour is the list of parts.</li>
+    <li>Fix the update order on purpose. Godot uses tree order; Unity needs Script Execution Order when it matters.</li>
+    <li>Parts talk by asking the entity for an optional neighbour, or by announcing events. Cache lookups that do not change.</li>
+    <li>Inherit to say what a thing is, one level deep. Compose to say what it can do.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we pull the code out of the components entirely: an entity component system stores components in tables and runs systems over every entity that has the right ones.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Component".</li>
+    <li>Erich Gamma, Richard Helm, Ralph Johnson and John Vlissides, <cite>Design Patterns</cite>, 1994, for the principle "favor object composition over class inheritance".</li>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/master/tutorials/best_practices/scene_organization.rst">Scene organization</a></cite>, on signals, calling child methods, and node trees as aggregation.</li>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/master/tutorials/scripting/gdscript/gdscript_basics.rst">GDScript reference</a></cite>, section "Inner classes".</li>
+    <li>Unity Scripting Reference, <cite>Component.TryGetComponent</cite>, <cite>GameObject.AddComponent</cite> and <cite>RequireComponent</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var ORDER = ['gravity', 'movement', 'health', 'glow'];
+  var TITLE = { gravity: 'Gravity', movement: 'Movement', health: 'Health', glow: 'Glow' };
+  var ADJ = { gravity: 'Falling', movement: 'Moving', health: 'Mortal', glow: 'Glowing' };
+  var GRAVITY = 600, LIFT = 120;
+  var SCENE_H = 200, GROUND = 170;
+
+  var make = {
+    gravity: function () {
+      return {
+        vy: 0,
+        update: function (e, dt) {
+          this.vy += GRAVITY * dt;
+          e.y += this.vy * dt;
+          if (e.y >= GROUND) { e.y = GROUND; this.vy = 0; }
+        },
+        info: function () { return 'vy ' + Math.round(this.vy) + ' px/s'; }
+      };
+    },
+    movement: function () {
+      return {
+        speed: 60, range: 80, dir: 1,
+        update: function (e, dt) {
+          e.x += this.speed * this.dir * dt;
+          if (e.x > e.homeX + this.range) { e.x = e.homeX + this.range; this.dir = -1; }
+          if (e.x < e.homeX - this.range) { e.x = e.homeX - this.range; this.dir = 1; }
+        },
+        info: function () { return 'speed 60, dir ' + (this.dir > 0 ? 'right' : 'left'); }
+      };
+    },
+    health: function () {
+      return {
+        hp: 3, max: 3, respawn: 0,
+        update: function (e, dt) { this.respawn = Math.max(0, this.respawn - dt); },
+        hit: function () {
+          if (this.respawn > 0) return false;
+          this.hp -= 1;
+          if (this.hp <= 0) { this.hp = this.max; this.respawn = 1; return 'died'; }
+          return true;
+        },
+        info: function () {
+          if (this.respawn > 0) return 'dead, back in ' + this.respawn.toFixed(1) + ' s';
+          return 'hp ' + this.hp + ' / ' + this.max;
+        }
+      };
+    },
+    glow: function () {
+      return {
+        t: 0, rate: 1,
+        update: function (e, dt) {
+          var h = e.parts.health;          // optional neighbour
+          this.rate = 1;
+          if (h) this.rate = 1 + (h.max - h.hp);
+          this.t += this.rate * dt;
+        },
+        info: function () { return 'pulse ' + this.rate + ' per s'; }
+      };
+    }
+  };
+
+  var entity = { x: 160, y: GROUND - LIFT, homeX: 160, parts: {} };
+  var handle = null;
+  var toggles = {};
+
+  function setPart(name, on) {
+    if (on && !entity.parts[name]) {
+      entity.parts[name] = make[name]();
+      say(TITLE[name] + ' added with fresh data');
+    } else if (!on && entity.parts[name]) {
+      delete entity.parts[name];
+      say(TITLE[name] + ' removed, its data is gone');
+    }
+    updateClass();
+    if (handle) handle.redraw();
+  }
+
+  function hit() {
+    var h = entity.parts.health;
+    if (!h) { say('Hit ignored: no Health component, nothing owns hit points'); return; }
+    var r = h.hit();
+    if (r === false) say('Hit ignored: dead, waiting to respawn');
+    else if (r === 'died') say('Health reached 0: died, respawns in 1 s with 3 hp');
+    else say('Health: hp ' + h.hp + (entity.parts.glow ? ', Glow speeds up' : ''));
+    if (handle) handle.redraw();
+  }
+
+  function lift() {
+    entity.y = GROUND - LIFT;
+    if (entity.parts.gravity) entity.parts.gravity.vy = 0;
+    say('Lifted 120 px above the ground');
+    if (handle) handle.redraw();
+  }
+
+  function className() {
+    var n = '';
+    var count = 0;
+    for (var i = 0; i < ORDER.length; i++) {
+      if (entity.parts[ORDER[i]]) { n += ADJ[ORDER[i]]; count += 1; }
+    }
+    return { name: n + 'Entity', count: count };
+  }
+
+  var ui = DemoKit.controls('[data-demo="components"]');
+  for (var i = 0; i < ORDER.length; i++) {
+    (function (name, idx) {
+      toggles[name] = ui.toggle({
+        label: (idx + 1) + ' ' + TITLE[name],
+        value: name === 'movement',
+        onChange: function (v) { setPart(name, v); }
+      });
+    })(ORDER[i], i);
+  }
+  ui.button({ label: 'Hit', onClick: hit });
+  ui.button({ label: 'Lift', onClick: lift });
+  var classOut = ui.readout({ label: 'As one class' });
+  var logOut = ui.readout({ label: 'Last event' });
+
+  function say(t) { logOut.set(t); }
+  function updateClass() {
+    var c = className();
+    classOut.set(c.name + ' (one of 16 mixes)');
+  }
+
+  entity.parts.movement = make.movement();
+  say('none yet');
+  updateClass();
+
+  function drawCard(ctx, c, x, y, w, h, idx, name) {
+    var part = entity.parts[name];
+    ctx.fillStyle = part ? c.surface : c.surface2;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = part ? c.topic : c.line;
+    ctx.lineWidth = part ? 2 : 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = part ? c.ink : c.ink3;
+    ctx.fillText((idx + 1) + '  ' + TITLE[name], x + 10, y + 17);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = part ? c.ink2 : c.ink3;
+    ctx.fillText(part ? part.info() : 'not attached', x + 10, y + 38);
+  }
+
+  function hidden() {
+    var h = entity.parts.health;
+    return !!(h && h.respawn > 0);
+  }
+
+  handle = DemoKit.canvas('#components', {
+    height: 430,
+    label: 'An entity in a small scene with component cards below. Toggle Gravity, Movement, Health and Glow, and use Hit and Lift, to see its behaviour and each component\'s data change.',
+    onResize: function (s) {
+      var dx = s.width / 2 - entity.homeX;
+      entity.homeX += dx;
+      entity.x += dx;
+    },
+    update: function (dt) {
+      for (var i = 0; i < ORDER.length; i++) {
+        var p = entity.parts[ORDER[i]];
+        if (p && p.update) p.update(entity, dt);
+      }
+    },
+    onDown: function (p) {
+      if (p.y > SCENE_H || hidden()) return;
+      if (Math.abs(p.x - entity.x) < 30 && p.y > entity.y - 50 && p.y < entity.y + 10) hit();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width;
+      // scene
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, w, SCENE_H);
+      ctx.fillStyle = c.line;
+      ctx.fillRect(0, GROUND, w, SCENE_H - GROUND);
+      // patrol range marks
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(entity.homeX - 80, GROUND + 4); ctx.lineTo(entity.homeX - 80, GROUND + 22);
+      ctx.moveTo(entity.homeX + 80, GROUND + 4); ctx.lineTo(entity.homeX + 80, GROUND + 22);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (!hidden()) {
+        var order = ORDER;
+        for (var i = 0; i < order.length; i++) {
+          var name = order[i];
+          var part = entity.parts[name];
+          if (!part) continue;
+          if (name === 'glow') {
+            var a = 0.25 + 0.2 * Math.sin(part.t * 2 * Math.PI);
+            ctx.globalAlpha = Math.max(0, a);
+            ctx.fillStyle = c.warn;
+            ctx.beginPath();
+            ctx.arc(entity.x, entity.y - 18, 34, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          } else if (name === 'health') {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 12px system-ui, sans-serif';
+            ctx.fillStyle = c.ink;
+            ctx.fillText('hp ' + part.hp, entity.x, entity.y - 62);
+          }
+        }
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(entity.x - 14, entity.y - 36, 28, 36);
+        ctx.fillStyle = c.bg;
+        var eye = entity.parts.movement && entity.parts.movement.dir < 0 ? -8 : 4;
+        ctx.fillRect(entity.x + eye, entity.y - 30, 4, 4);
+      } else {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('respawning', entity.x, entity.y - 18);
+      }
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, w - 1, SCENE_H - 1);
+
+      // component cards
+      var top = SCENE_H + 12;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Components on the entity, in update order', 0, top + 6);
+      var cols = w >= 560 ? 4 : 2;
+      var gap = 8;
+      var cw = (w - gap * (cols - 1)) / cols;
+      var ch = 52;
+      for (var j = 0; j < ORDER.length; j++) {
+        var col = j % cols;
+        var row = Math.floor(j / cols);
+        drawCard(ctx, c, col * (cw + gap), top + 20 + row * (ch + gap), cw, ch, j, ORDER[j]);
+      }
+      var rows = Math.ceil(ORDER.length / cols);
+      var by = top + 20 + rows * (ch + gap) + 12;
+      var cn = className();
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Components on: ' + cn.count + ' of 4.', 0, by);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Inheritance: one class per mix, 16 in all.', 0, by + 18);
+    }
+  });
+})();
+</script>
+</body>
+</html>

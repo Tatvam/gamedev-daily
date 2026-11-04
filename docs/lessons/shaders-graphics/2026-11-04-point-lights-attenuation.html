@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Point lights and attenuation: light that fades with distance · Game Dev Daily</title>
+<meta name="description" content="A point light gives every pixel its own direction and distance. N·L handles the direction; a falloff curve that reaches zero at a range handles the distance.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-04">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Point lights and attenuation: light that fades with distance</h1>
+  <p class="lede">A point light gives every pixel its own direction and distance. N·L handles the direction; a falloff curve that reaches zero at a range handles the distance.</p>
+</header>
+
+<section data-section="hook">
+  <p>A torch on a dungeon wall should light the floor around it and leave the far corner dark. A sun cannot do that: it lights the whole room equally. You need a light that sits at a point, and brightness that drops the further a pixel is from it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>From a direction to a position</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Last lesson it took a normal N and one light direction L, shared by every pixel, and returned <code>albedo × max(N·L, 0)</code>.</p>
+  <p>A <dfn>point light</dfn> is a light at a position that shines equally in all directions, like a bare bulb. Now every pixel has to work out its own L, because each one sees the bulb from a different angle. That takes one more input: the surface point's position in the world. The shader subtracts it from the light's position:</p>
+<pre><code>local tx, ty, tz = lightX - px, lightY - py, lightZ - pz   -- surface to light
+local d = math.sqrt(tx * tx + ty * ty + tz * tz)          -- distance to the light
+local lx, ly, lz = tx / d, ty / d, tz / d                 -- L, length 1</code></pre>
+  <p>Dividing by <code>d</code> normalises the vector, so the distance we need anyway is the same number that makes L a unit vector. N·L works exactly as before.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Side view of a floor with a point light at height h above it. At point P1, straight below the light, the normal and the light direction both point up, the distance is h and N dot L is 1. At point P2, further along the floor, the direction to the light slants, the distance d2 is longer and N dot L is h divided by d2. An arc of radius r around the light meets the floor further out; past that point the floor gets no light.">
+      <defs>
+        <marker id="pl-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-accent-fill" d="M0 0 L8 4 L0 8 Z"/></marker>
+        <marker id="pl-ak" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-text" d="M0 0 L8 4 L0 8 Z"/></marker>
+      </defs>
+      <path class="d-stroke" d="M20 190 H620"/>
+      <path class="d-dash" d="M180 60 V190"/>
+      <path class="d-dash" d="M180 50 L420 190"/>
+      <path class="d-thin" d="M500 50 A320 320 0 0 1 467.7 190"/>
+      <circle class="d-accent-fill" cx="180" cy="50" r="9"/>
+      <text class="d-text" x="198" y="46">point light</text>
+
+      <path class="d-accent" d="M180 190 V150" marker-end="url(#pl-ah)"/>
+      <text class="d-label" x="170" y="124" text-anchor="end">d₁ = h</text>
+      <text class="d-label" x="190" y="172">N·L = 1</text>
+      <text class="d-text" x="180" y="212" text-anchor="middle">P₁</text>
+
+      <path class="d-accent" d="M420 190 V146" marker-end="url(#pl-ah)"/>
+      <path class="d-stroke" d="M420 190 L382 167.8" marker-end="url(#pl-ak)"/>
+      <text class="d-text" x="430" y="160">N</text>
+      <text class="d-text" x="384" y="184" text-anchor="end">L</text>
+      <text class="d-label" x="292" y="104">d₂</text>
+      <text class="d-label" x="300" y="176" text-anchor="middle">N·L = h / d₂</text>
+      <text class="d-text" x="420" y="212" text-anchor="middle">P₂</text>
+
+      <text class="d-muted" x="508" y="120">range r</text>
+      <text class="d-muted" x="560" y="212" text-anchor="middle">no light past here</text>
+    </svg>
+    <figcaption>Each floor point gets its own L (black arrow) and distance d. Even without falloff, P₂ is dimmer because its L slants: on a flat floor N·L = h / d. The arc marks the range r, where a game's falloff reaches zero.</figcaption>
+  </figure>
+
+  <h3>Why light fades: the inverse square law</h3>
+  <p>A bulb's light spreads over a sphere around it. Twice as far, the sphere has four times the area, so each patch gets a quarter. Brightness goes as 1 / d². That is the <dfn>inverse square law</dfn>, and the fading it describes is called <dfn>attenuation</dfn>, or falloff.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 200" role="img" aria-label="Rays leave a light and spread out. At distance 1 they cross a patch of area 1. At distance 2 the same rays cross a patch twice as tall and twice as wide, area 4, so each part is a quarter as bright.">
+      <path class="d-thin" d="M20 100 L300 16"/>
+      <path class="d-thin" d="M20 100 L300 184"/>
+      <circle class="d-accent-fill" cx="20" cy="100" r="6"/>
+      <text class="d-text" x="12" y="84">light</text>
+      <rect class="d-accent-soft" x="116" y="70" width="8" height="60"/>
+      <rect class="d-accent-soft" x="216" y="40" width="8" height="120"/>
+      <path class="d-accent" d="M216 100 H224"/>
+      <text class="d-mono" x="120" y="160" text-anchor="middle">d = 1</text>
+      <text class="d-muted" x="120" y="177" text-anchor="middle">area 1</text>
+      <text class="d-mono" x="236" y="96">d = 2</text>
+      <text class="d-muted" x="236" y="113">area 2 × 2 = 4</text>
+      <text class="d-muted" x="236" y="130">¼ as bright</text>
+    </svg>
+    <figcaption>Twice as far, the same light covers four times the area.</figcaption>
+  </figure>
+
+  <p>Pure 1 / d² has two problems in a game. Close to the light it shoots towards infinity. Far away it gets small but never reaches zero, so every light touches every pixel on screen. A game wants to skip a light for pixels it cannot visibly reach, and that only works if the light has a <dfn>range</dfn>: a distance past which it contributes exactly nothing.</p>
+
+  <h3>Four falloff curves</h3>
+  <p>The demo lets you switch between these, with <code>r = d / range</code>:</p>
+<pre><code>none             1
+linear           max(1 - r, 0)
+inverse square   1 / d²
+windowed         max(1 - r⁴, 0)² / (d² + 1)</code></pre>
+  <p>Linear is cheap and reaches zero, but it does not look like a real light: the bright spot is too wide and the edge too sudden. The windowed curve is the one Brian Karis described for Unreal Engine 4 in 2013. The <code>d² + 1</code> keeps it finite near the bulb, and the window <code>(1 − r⁴)²</code> stays close to 1 for most of the range, then eases the light down to exactly zero at the range.</p>
+  <p>The whole effect, with the demo's Stage menu showing each line:</p>
+<pre><code>d      = length(lightPos - pos)             -- 1. how far is the light?
+att    = intensity * falloff(d)             -- 2. how much survives the trip?
+ndotl  = max(dot(N, (lightPos - pos) / d), 0) -- 3. do I face it?
+light  = att * ndotl                        -- 4. light arriving here
+colour = albedo * (lightColour * light + ambient) -- 5. tint it</code></pre>
+
+  <div class="callout">
+    <p class="callout-title">Axes, units and colour space</p>
+    <p>The demo looks straight down at a floor: x right, y up the screen, z the height above the floor, towards you. <code>gl_FragCoord</code> has (0, 0) at the bottom-left; LÖVE's <code>screen_coords</code> and Godot's <code>UV</code> start at the top-left, so those tabs flip y. Distances are in world units, with the canvas 4 units tall. The page skips gamma correction, which makes inverse square look harsher than in a linear pipeline; a later lesson covers gamma.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag on the floor, or use the arrow keys, to move the light. Stage 1 draws a blue line every unit of distance. Stage 2 shows the falloff alone, yellow where it reaches 1 and the screen clips to white. Pick <em>Inverse square</em> and lower the light: the yellow patch grows and the corners never go black. Pick <em>Windowed</em> and drag <em>Range</em>: the light ends at the ring.</p>
+  <p>Pick <em>None</em> at Stage 4: the floor still darkens away from the light, from N·L alone. The ball's lit side always turns towards the light.</p>
+
+  <figure class="demo wide" data-demo="point-light">
+    <canvas id="point-light-floor"></canvas>
+    <canvas id="point-light-graph"></canvas>
+    <figcaption>The graph plots intensity × falloff against distance for all four curves, the chosen one in colour. The dot is the floor straight below the light, where d equals the height. There are no shadows: light passes through the ball.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over a full-window rectangle. The mouse moves the light, <kbd>up</kbd>/<kbd>down</kbd> set its height, <kbd>left</kbd>/<kbd>right</kbd> the range, and <kbd>1</kbd> to <kbd>4</kbd> the curve. The numbers match the demo; the floor is flat instead of tiled.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local VIEW = 4.0                              <span class="c">-- the window is 4 world units tall</span>
+local light = { x = 0.6, y = 0.4, z = 1.0 }  <span class="c">-- x right, y up, z height above the floor</span>
+local range = 3.0
+local intensity = 2.0
+local curve = 3                               <span class="c">-- 0 none, 1 linear, 2 inverse square, 3 windowed</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform vec3 u_lightPos;
+uniform float u_range;
+uniform float u_intensity;
+uniform float u_curve;
+const float VIEW = 4.0;
+const vec2 BALL = vec2(-1.0, -0.3);
+const float BALL_R = 0.45;
+const vec3 LIGHT_COL = vec3(1.0, 0.86, 0.65);
+const float AMBIENT = 0.04;
+
+float falloff(float d) {
+  float r = min(d / u_range, 2.0);
+  if (u_curve &lt; 0.5) return 1.0;
+  if (u_curve &lt; 1.5) return clamp(1.0 - r, 0.0, 1.0);
+  if (u_curve &lt; 2.5) return 1.0 / (d * d);
+  float w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
+  return w * w / (d * d + 1.0);
+}
+
+vec3 shade(vec3 pos, vec3 n, vec3 albedo) {
+  vec3 toLight = u_lightPos - pos;
+  float d = max(length(toLight), 0.05);
+<span class="k">  float lit = u_intensity * falloff(d) * max(dot(n, toLight / d), 0.0);</span>
+  return albedo * (LIGHT_COL * lit + AMBIENT);
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 q = (screen_coords - 0.5 * u_resolution) / u_resolution.y * VIEW;
+  q.y = -q.y;                          // LÖVE's y grows downwards: make it grow up
+  vec3 col = shade(vec3(q, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.62, 0.58, 0.52));
+  vec2 b = (q - BALL) / BALL_R;
+  if (dot(b, b) &lt; 1.0) {
+    vec3 n = vec3(b, sqrt(1.0 - dot(b, b)));
+    col = shade(vec3(BALL, BALL_R) + BALL_R * n, n, vec3(0.85, 0.4, 0.2));
+  }
+  return vec4(col, 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "1" or key == "2" or key == "3" or key == "4" then
+    curve = tonumber(key) - 1
+  end
+end
+
+function love.update(dt)
+  local w, h = love.graphics.getDimensions()
+  local mx, my = love.mouse.getPosition()
+  light.x = (mx - 0.5 * w) / h * VIEW
+  light.y = -(my - 0.5 * h) / h * VIEW       <span class="c">-- flip: screen y goes down</span>
+  if love.keyboard.isDown("up") then light.z = light.z + dt end
+  if love.keyboard.isDown("down") then light.z = math.max(0.1, light.z - dt) end
+  if love.keyboard.isDown("right") then range = range + 2 * dt end
+  if love.keyboard.isDown("left") then range = math.max(0.5, range - 2 * dt) end
+end
+
+function love.draw()
+  shader:send("u_resolution", { love.graphics.getPixelDimensions() })
+<span class="k">  shader:send("u_lightPos", { light.x, light.y, light.z })</span>
+  shader:send("u_range", range)
+  shader:send("u_intensity", intensity)
+  shader:send("u_curve", curve)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
+  love.graphics.setShader()
+  love.graphics.print(string.format("height %.2f  range %.2f  curve %d", light.z, range, curve), 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform vec3 u_lightPos;   // light in world units: x right, y up the screen, z height above the floor
+uniform vec2 u_lightPx;    // where the light marker is drawn, device pixels, origin bottom-left
+uniform float u_range;     // distance at which the windowed and linear curves reach 0
+uniform float u_intensity; // brightness multiplier
+uniform float u_curve;     // 0 none, 1 linear, 2 inverse square, 3 windowed inverse square
+uniform float u_ring;      // 1 draws the floor circle where d equals the range
+uniform float u_stage;     // 0 distance ... 4 final colour
+
+const float VIEW = 4.0;                       // the canvas is 4 world units tall
+const vec2 BALL = vec2(-1.0, -0.3);           // where the ball rests on the floor
+const float BALL_R = 0.45;                    // ball radius
+const vec3 LIGHT_COL = vec3(1.0, 0.86, 0.65); // warm light
+const float AMBIENT = 0.04;
+
+float falloff(float d) {
+  float r = min(d / u_range, 2.0);            // capped so r * r * r * r stays small
+  if (u_curve &lt; 0.5) return 1.0;
+  if (u_curve &lt; 1.5) return clamp(1.0 - r, 0.0, 1.0);
+  if (u_curve &lt; 2.5) return 1.0 / (d * d);
+  float w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
+  return w * w / (d * d + 1.0);
+}
+
+vec3 floorColour(vec2 q) {
+  vec2 cell = q * 2.0;                        // tiles half a unit wide
+  vec2 id = floor(cell);
+  vec2 f = fract(cell);
+  float v = fract((id.x * 3.0 + id.y * 5.0) / 7.0);
+  vec3 tile = vec3(0.62, 0.58, 0.52) + 0.1 * (v - 0.5);
+  float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+  return mix(vec3(0.3, 0.28, 0.26), tile, smoothstep(0.03, 0.07, edge));
+}
+
+vec3 shade(vec3 pos, vec3 n, vec3 albedo, float px) {
+  // 1. distance and direction from this surface point to the light
+  vec3 toLight = u_lightPos - pos;
+  float d = max(length(toLight), 0.05);
+  vec3 L = toLight / d;
+  // 2. how much of the light survives the distance
+  float att = u_intensity * falloff(d);
+  // 3. Lambert: how squarely the surface faces the light
+  float ndotl = max(dot(n, L), 0.0);
+  // 4. light arriving at this point
+  float lit = att * ndotl;
+  // 5. tint by the light and surface colours, plus a little ambient
+  vec3 col = albedo * (LIGHT_COL * lit + AMBIENT);
+
+  if (u_stage &lt; 3.5) col = vec3(lit);
+  if (u_stage &lt; 2.5) col = vec3(ndotl);
+  if (u_stage &lt; 1.5) col = mix(vec3(att), vec3(1.0, 0.8, 0.2), step(1.0, att));
+  if (u_stage &lt; 0.5) {
+    float band = abs(fract(d + 0.5) - 0.5);   // 0 on every whole unit of distance
+    col = vec3(clamp(d / 6.0, 0.0, 1.0));
+    col = mix(col, vec3(0.25, 0.6, 1.0), 1.0 - smoothstep(px, 2.0 * px, band));
+  }
+  return col;
+}
+
+void main() {
+  vec2 q = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y * VIEW;
+  float px = VIEW / u_resolution.y;           // one pixel, in world units
+
+  // the floor: height 0, normal straight up
+  vec3 col = shade(vec3(q, 0.0), vec3(0.0, 0.0, 1.0), floorColour(q), px);
+
+  // the ball resting on the floor, seen from above
+  vec2 b = (q - BALL) / BALL_R;
+  float ball = 1.0 - smoothstep(1.0 - px / BALL_R, 1.0, length(b));
+  vec3 n = vec3(b, sqrt(max(1.0 - dot(b, b), 0.0)));
+  vec3 ballCol = shade(vec3(BALL, BALL_R) + BALL_R * n, n, vec3(0.85, 0.4, 0.2), px);
+  col = mix(col, ballCol, ball);
+
+  // the range ring: the circle on the floor where d equals the range
+  float h = u_lightPos.z;
+  float rr = sqrt(max(u_range * u_range - h * h, 0.0));
+  float ring = 1.0 - smoothstep(px, 2.0 * px, abs(length(q - u_lightPos.xy) - rr));
+  col = mix(col, vec3(0.3, 0.75, 1.0), ring * u_ring * step(h, u_range) * (1.0 - ball));
+
+  // the light marker
+  float lw = max(1.0, u_resolution.y / 300.0);
+  float dm = length(gl_FragCoord.xy - u_lightPx);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(dm - 8.5 * lw)));
+  col = mix(col, vec3(1.0, 0.86, 0.4), 1.0 - smoothstep(4.5 * lw, 5.5 * lw, dm));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a ColorRect. A flat floor lit by one hand-made point light.
+shader_type canvas_item;
+
+uniform vec2 world_size = vec2(7.1, 4.0);       // match the rect's aspect ratio
+uniform vec3 light_pos = vec3(0.6, 0.4, 1.0);   // x right, y up, z height above the floor
+uniform float light_range = 3.0;
+uniform float intensity = 2.0;
+uniform vec3 light_colour = vec3(1.0, 0.86, 0.65);
+uniform vec3 albedo = vec3(0.62, 0.58, 0.52);
+
+float falloff(float d) {
+    float r = min(d / light_range, 2.0);
+    float w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
+    return w * w / (d * d + 1.0);
+}
+
+void fragment() {
+    vec2 q = (UV - 0.5) * world_size;
+    q.y = -q.y;                                 // Godot's UV (0, 0) is the top-left, y grows down
+    vec3 to_light = light_pos - vec3(q, 0.0);
+    float d = max(length(to_light), 0.05);
+    float ndotl = max(to_light.z / d, 0.0);     // the floor's normal is (0, 0, 1)
+<span class="k">    float lit = intensity * falloff(d) * ndotl;</span>
+    COLOR = vec4(albedo * (light_colour * lit + 0.04), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit, on a Quad facing the camera. The light position is in the
+// quad's own units (x right, y up, z height above the quad), not a Unity Light component.
+Shader "GameDevDaily/PointLightFloor"
+{
+    Properties
+    {
+        _Albedo ("Albedo", Color) = (0.62, 0.58, 0.52, 1)
+        _LampColor ("Lamp colour", Color) = (1, 0.86, 0.65, 1)
+        _LampPos ("Lamp position (x, y, height)", Vector) = (0.6, 0.4, 1, 0)
+        _Range ("Range", Float) = 3
+        _Intensity ("Intensity", Float) = 2
+        _WorldSize ("Quad size in world units", Vector) = (7.1, 4, 0, 0)
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            fixed4 _Albedo;
+            fixed4 _LampColor;
+            float4 _LampPos;
+            float _Range;
+            float _Intensity;
+            float4 _WorldSize;
+
+            float Falloff (float d)
+            {
+                float r = min(d / _Range, 2.0);
+                float w = saturate(1.0 - r * r * r * r);
+                return w * w / (d * d + 1.0);
+            }
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+                float2 q = (i.uv - 0.5) * _WorldSize.xy;   // uv (0, 0) is the bottom-left: y is already up
+                float3 toLight = _LampPos.xyz - float3(q, 0.0);
+                float d = max(length(toLight), 0.05);
+                float ndotl = max(toLight.z / d, 0.0);    // the floor's normal is (0, 0, 1)
+<span class="k">                float lit = _Intensity * Falloff(d) * ndotl;</span>
+                return fixed4(_Albedo.rgb * (_LampColor.rgb * lit + 0.04), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The engine tabs light a flat floor with the windowed curve only. In real scenes you place the engine's own OmniLight3D (Godot) or Point Light (Unity), which do this maths for you. In a Unity project set to Linear colour space the falloff looks softer than on this page.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Normalising before measuring.</strong> Call <code>normalize(lightPos - pos)</code> first and the length you take afterwards is always 1. Take the length once, then divide by it.</li>
+    <li><strong>Dividing by zero.</strong> When the light touches a surface, d is 0 and 1 / d² is infinite. Clamp d to a small minimum, or use the <code>d² + 1</code> form. On phones, <code>mediump</code> floats are often 16-bit: the GLSL ES spec only promises a range of about ±16,000, so large intermediate values overflow sooner than you expect. That is why the demo caps <code>d / range</code> at 2 before raising it to the fourth power.</li>
+    <li><strong>Cutting pure 1 / d² at the range.</strong> If an engine stops drawing a light at its range but the curve has not reached zero, the light's edge pops when objects cross it. Use a curve that is already zero there.</li>
+    <li><strong>Mixing up units.</strong> A curve tuned with d in metres is useless with d in pixels. Convert positions to one world unit before measuring.</li>
+    <li><strong>Positions in different spaces.</strong> Light and surface positions must both be in world space (or both in view space), or the light slides when the object moves.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One point light is a subtraction, a <code>length</code> (a square root), a divide, a dot product and a few multiplies per pixel: cheap even on a phone. The cost is lights × pixels. A light only has to run on pixels inside its range, and engines use that to skip work, so keep ranges as small as the scene allows. Unity's URP also caps how many extra lights affect each object.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The fixed-function lighting of classic OpenGL and Direct3D attenuated point lights by 1 / (constant + linear × d + quadratic × d²), with the three numbers set per light. Unreal Engine 4 switched to the windowed inverse square curve shown here, as described in Karis's 2013 course notes. Godot's OmniLight3D has a <em>Range</em> and an <em>Attenuation</em> property that bends its curve. Godot's 2D PointLight2D works differently: its falloff comes from a texture, often a radial gradient. Unity's Point Light has a <em>Range</em>, and in URP the falloff is an inverse square that is smoothed to zero at that range.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Add a second point light: send <code>u_lightPos2</code> and <code>u_lightCol2</code> (a cold blue), call the falloff again in <code>shade</code>, and add its light to <code>lit</code> as a colour.</li>
+    <li>Make the first light flicker like a torch: in <code>love.update</code>, set <code>intensity = 2.0 + 0.3 * math.sin(t * 13) * math.sin(t * 7)</code>, with <code>t</code> counting up by <code>dt</code>.</li>
+    <li>Do the same falloff maths in Lua for the floor point under the mouse and print the result, so you can check the shader.</li>
+  </ol>
+  <p>You are done when the two lights overlap smoothly, the flicker never goes negative, and the printed number reads 0 when the mouse is outside the range ring.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A point light needs each pixel's position: L = (lightPos − pos) / d, where d is the distance between them.</li>
+    <li>Physical light fades as 1 / d², but that curve never reaches zero and blows up near the light.</li>
+    <li>Games use a falloff that reaches exactly zero at a range, such as max(1 − (d / range)⁴, 0)² / (d² + 1).</li>
+    <li>Final light is intensity × falloff × max(N·L, 0). Even with no falloff, a floor darkens away from the light through N·L.</li>
+    <li>Cost scales with lights × pixels. A small range lets the engine skip pixels the light cannot reach.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes Blinn-Phong specular: the shiny highlight that moves when the viewer moves, built from the half vector.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Brian Karis, <cite>Real Shading in Unreal Engine 4</cite>, SIGGRAPH 2013 course notes (Physically Based Shading in Theory and Practice). The windowed inverse square falloff.</li>
+    <li>Mark Segal and Kurt Akeley, <cite>The OpenGL Graphics System: A Specification</cite> (version 2.1), the lighting section on constant, linear and quadratic attenuation.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, on <code>length</code>, <code>dot</code> and precision qualifiers.</li>
+    <li>Godot Engine documentation, <cite>3D lights and shadows</cite> and <cite>2D lights and shadows</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec3 u_lightPos;   // light in world units: x right, y up the screen, z height above the floor",
+    "uniform vec2 u_lightPx;    // where the light marker is drawn, device pixels, origin bottom-left",
+    "uniform float u_range;     // distance at which the windowed and linear curves reach 0",
+    "uniform float u_intensity; // brightness multiplier",
+    "uniform float u_curve;     // 0 none, 1 linear, 2 inverse square, 3 windowed inverse square",
+    "uniform float u_ring;      // 1 draws the floor circle where d equals the range",
+    "uniform float u_stage;     // 0 distance ... 4 final colour",
+    "",
+    "const float VIEW = 4.0;                       // the canvas is 4 world units tall",
+    "const vec2 BALL = vec2(-1.0, -0.3);           // where the ball rests on the floor",
+    "const float BALL_R = 0.45;                    // ball radius",
+    "const vec3 LIGHT_COL = vec3(1.0, 0.86, 0.65); // warm light",
+    "const float AMBIENT = 0.04;",
+    "",
+    "float falloff(float d) {",
+    "  float r = min(d / u_range, 2.0);            // capped so r * r * r * r stays small",
+    "  if (u_curve < 0.5) return 1.0;",
+    "  if (u_curve < 1.5) return clamp(1.0 - r, 0.0, 1.0);",
+    "  if (u_curve < 2.5) return 1.0 / (d * d);",
+    "  float w = clamp(1.0 - r * r * r * r, 0.0, 1.0);",
+    "  return w * w / (d * d + 1.0);",
+    "}",
+    "",
+    "vec3 floorColour(vec2 q) {",
+    "  vec2 cell = q * 2.0;                        // tiles half a unit wide",
+    "  vec2 id = floor(cell);",
+    "  vec2 f = fract(cell);",
+    "  float v = fract((id.x * 3.0 + id.y * 5.0) / 7.0);",
+    "  vec3 tile = vec3(0.62, 0.58, 0.52) + 0.1 * (v - 0.5);",
+    "  float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));",
+    "  return mix(vec3(0.3, 0.28, 0.26), tile, smoothstep(0.03, 0.07, edge));",
+    "}",
+    "",
+    "vec3 shade(vec3 pos, vec3 n, vec3 albedo, float px) {",
+    "  // 1. distance and direction from this surface point to the light",
+    "  vec3 toLight = u_lightPos - pos;",
+    "  float d = max(length(toLight), 0.05);",
+    "  vec3 L = toLight / d;",
+    "  // 2. how much of the light survives the distance",
+    "  float att = u_intensity * falloff(d);",
+    "  // 3. Lambert: how squarely the surface faces the light",
+    "  float ndotl = max(dot(n, L), 0.0);",
+    "  // 4. light arriving at this point",
+    "  float lit = att * ndotl;",
+    "  // 5. tint by the light and surface colours, plus a little ambient",
+    "  vec3 col = albedo * (LIGHT_COL * lit + AMBIENT);",
+    "",
+    "  if (u_stage < 3.5) col = vec3(lit);",
+    "  if (u_stage < 2.5) col = vec3(ndotl);",
+    "  if (u_stage < 1.5) col = mix(vec3(att), vec3(1.0, 0.8, 0.2), step(1.0, att));",
+    "  if (u_stage < 0.5) {",
+    "    float band = abs(fract(d + 0.5) - 0.5);   // 0 on every whole unit of distance",
+    "    col = vec3(clamp(d / 6.0, 0.0, 1.0));",
+    "    col = mix(col, vec3(0.25, 0.6, 1.0), 1.0 - smoothstep(px, 2.0 * px, band));",
+    "  }",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 q = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y * VIEW;",
+    "  float px = VIEW / u_resolution.y;           // one pixel, in world units",
+    "",
+    "  // the floor: height 0, normal straight up",
+    "  vec3 col = shade(vec3(q, 0.0), vec3(0.0, 0.0, 1.0), floorColour(q), px);",
+    "",
+    "  // the ball resting on the floor, seen from above",
+    "  vec2 b = (q - BALL) / BALL_R;",
+    "  float ball = 1.0 - smoothstep(1.0 - px / BALL_R, 1.0, length(b));",
+    "  vec3 n = vec3(b, sqrt(max(1.0 - dot(b, b), 0.0)));",
+    "  vec3 ballCol = shade(vec3(BALL, BALL_R) + BALL_R * n, n, vec3(0.85, 0.4, 0.2), px);",
+    "  col = mix(col, ballCol, ball);",
+    "",
+    "  // the range ring: the circle on the floor where d equals the range",
+    "  float h = u_lightPos.z;",
+    "  float rr = sqrt(max(u_range * u_range - h * h, 0.0));",
+    "  float ring = 1.0 - smoothstep(px, 2.0 * px, abs(length(q - u_lightPos.xy) - rr));",
+    "  col = mix(col, vec3(0.3, 0.75, 1.0), ring * u_ring * step(h, u_range) * (1.0 - ball));",
+    "",
+    "  // the light marker",
+    "  float lw = max(1.0, u_resolution.y / 300.0);",
+    "  float dm = length(gl_FragCoord.xy - u_lightPx);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(dm - 8.5 * lw)));",
+    "  col = mix(col, vec3(1.0, 0.86, 0.4), 1.0 - smoothstep(4.5 * lw, 5.5 * lw, dm));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var VIEW = 4.0;                    // the same as in the shader
+  var light = { x: 0.6, y: 0.4 };    // light position over the floor, world units, y up
+  var floorHandle = null;
+  var graph = null;
+
+  // The four curves, the same maths as falloff() in the shader.
+  function falloff(d, curve, range) {
+    var r = Math.min(d / range, 2);
+    if (curve === 0) return 1;
+    if (curve === 1) return DemoKit.clamp(1 - r, 0, 1);
+    if (curve === 2) return 1 / (d * d);
+    var w = DemoKit.clamp(1 - r * r * r * r, 0, 1);
+    return w * w / (d * d + 1);
+  }
+
+  function refresh() {
+    updateReadout();
+    if (floorHandle) floorHandle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="point-light"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Distance d to the light (blue line every unit)' },
+      { value: '1', label: '2. intensity × falloff(d) (yellow: 1 or more)' },
+      { value: '2', label: '3. Direction only: max(N·L, 0)' },
+      { value: '3', label: '4. Light arriving: falloff × N·L' },
+      { value: '4', label: '5. Final: albedo × (light colour × light + ambient)' }
+    ],
+    value: '4',
+    onChange: refresh
+  });
+  var curve = ui.select({
+    label: 'Falloff curve',
+    options: [
+      { value: '0', label: 'None: 1' },
+      { value: '1', label: 'Linear: 1 − d / range' },
+      { value: '2', label: 'Inverse square: 1 / d²' },
+      { value: '3', label: 'Windowed: (1 − (d / range)⁴)² / (d² + 1)' }
+    ],
+    value: '3',
+    onChange: refresh
+  });
+  var range = ui.slider({ label: 'Range', min: 0.5, max: 6, step: 0.1, value: 3, onInput: refresh });
+  var height = ui.slider({ label: 'Light height', min: 0.1, max: 2.5, step: 0.05, value: 1, onInput: refresh });
+  var intensity = ui.slider({ label: 'Intensity', min: 0, max: 4, step: 0.1, value: 2, onInput: refresh });
+  var ring = ui.toggle({ label: 'Show range ring', value: true, onChange: refresh });
+  var readout = ui.readout({ label: 'Below the light' });
+
+  function curveNumber() { return Number(curve.value); }
+  function usesRange(c) { return c === 1 || c === 3; }
+
+  function updateReadout() {
+    var c = curveNumber(), h = height.value, R = range.value;
+    var lit = intensity.value * falloff(Math.max(h, 0.05), c, R);
+    var text = 'd = ' + h.toFixed(2) + ', N·L = 1, light = ' + lit.toFixed(2) +
+      (lit >= 1 ? ' (clips to white)' : '');
+    if (c === 0) text += ' · no falloff: only N·L darkens the floor';
+    else if (c === 2) text += ' · 1 / d² ignores the range and never reaches 0';
+    else if (R > h) text += ' · the light reaches 0 on the floor at radius ' + Math.sqrt(R * R - h * h).toFixed(2);
+    else text += ' · the range is shorter than the height, so the floor gets no light';
+    readout.set(text);
+  }
+
+  function limits(s) {
+    var aspect = s.height > 0 ? s.width / s.height : 1;
+    return { x: 0.5 * aspect * VIEW, y: 0.5 * VIEW };
+  }
+
+  function moveLight(p, s) {
+    if (!s.width || !s.height) return;
+    var lim = limits(s);
+    light.x = DemoKit.clamp((p.x - 0.5 * s.width) / s.height * VIEW, -lim.x, lim.x);
+    light.y = DemoKit.clamp((0.5 * s.height - p.y) / s.height * VIEW, -lim.y, lim.y);
+    refresh();
+  }
+
+  floorHandle = DemoKit.shader('#point-light-floor', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 260,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader showing a tiled floor and an orange ball seen from above, lit by a point light. Drag on the canvas or use the arrow keys to move the light. Controls choose the stage, the falloff curve, the range, the light height and the intensity.',
+    uniforms: {
+      u_lightPos: function () { return [light.x, light.y, height.value]; },
+      u_lightPx: function (s) {
+        var W = s.width * s.dpr, H = s.height * s.dpr;
+        return [0.5 * W + light.x / VIEW * H, 0.5 * H + light.y / VIEW * H];
+      },
+      u_range: function () { return range.value; },
+      u_intensity: function () { return intensity.value; },
+      u_curve: function () { return curveNumber(); },
+      u_ring: function () { return ring.value && usesRange(curveNumber()) ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onDown: moveLight,
+    onMove: function (p, s) { if (p.down) moveLight(p, s); },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var lim = limits(s), step = 0.2;
+      if (key === 'arrowleft') light.x = Math.max(-lim.x, light.x - step);
+      else if (key === 'arrowright') light.x = Math.min(lim.x, light.x + step);
+      else if (key === 'arrowup') light.y = Math.min(lim.y, light.y + step);
+      else if (key === 'arrowdown') light.y = Math.max(-lim.y, light.y - step);
+      else return;
+      refresh();
+    }
+  });
+
+  var DMAX = 6, YMAX = 2.5;
+
+  graph = DemoKit.canvas('#point-light-graph', {
+    height: 160,
+    animate: false,
+    label: 'A graph of intensity times falloff against distance from 0 to 6 units, for the four curves. The chosen curve is drawn in colour, with a dashed line at the range and a dot at the floor point straight below the light.',
+    draw: function (ctx, s) {
+      var col = s.colors;
+      var left = 34, right = s.width - 12, top = 12, bottom = s.height - 26;
+      function X(d) { return left + (right - left) * d / DMAX; }
+      function Y(v) { return bottom - (bottom - top) * Math.min(v, YMAX) / YMAX; }
+      var c = curveNumber(), R = range.value, I = intensity.value, h = height.value;
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = col.line;
+      ctx.beginPath();
+      ctx.moveTo(left, top); ctx.lineTo(left, bottom); ctx.lineTo(right, bottom);
+      ctx.stroke();
+
+      ctx.fillStyle = col.ink3;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      for (var d = 0; d <= DMAX; d++) ctx.fillText(d === DMAX ? 'd = 6' : String(d), X(d), bottom + 6);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (var v = 0; v <= 2; v++) ctx.fillText(String(v), left - 6, Y(v));
+
+      // the value the screen shows as full white
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = col.ink3;
+      ctx.beginPath(); ctx.moveTo(left, Y(1)); ctx.lineTo(right, Y(1)); ctx.stroke();
+      if (usesRange(c) && R <= DMAX) {
+        ctx.strokeStyle = col.topic;
+        ctx.beginPath(); ctx.moveTo(X(R), top); ctx.lineTo(X(R), bottom); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.fillStyle = col.ink3;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('1 = white', right, Y(1) - 2);
+      if (usesRange(c) && R <= DMAX) {
+        ctx.fillStyle = col.topic;
+        ctx.textAlign = R > DMAX - 1 ? 'right' : 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('range', X(R) + (R > DMAX - 1 ? -4 : 4), top);
+      }
+
+      function plot(k) {
+        ctx.beginPath();
+        for (var i = 0; i <= 160; i++) {
+          var dd = 0.05 + (DMAX - 0.05) * i / 160;
+          var y = Y(I * falloff(dd, k, R));
+          if (i === 0) ctx.moveTo(X(dd), y); else ctx.lineTo(X(dd), y);
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle = col.ink3;
+      ctx.lineWidth = 1;
+      for (var k = 0; k < 4; k++) if (k !== c) plot(k);
+      ctx.strokeStyle = col.topic;
+      ctx.lineWidth = 2.5;
+      plot(c);
+
+      // the floor straight below the light, where d equals the height
+      ctx.fillStyle = col.topic;
+      ctx.beginPath();
+      ctx.arc(X(h), Y(I * falloff(Math.max(h, 0.05), c, R)), 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

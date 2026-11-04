@@ -32,7 +32,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 3: Lighting
 
 - [x] **Normals and Lambert diffuse** — How the dot product of the surface normal and the light direction gives basic shading. Demo: drag a light around a sphere drawn in the shader with a toggle that shows the normals as colour. (published 2026-11-03, normals-lambert-diffuse)
-- [ ] **Point lights and attenuation** — How the brightness of a light falls off with distance. Demo: drag a point light over a surface with sliders for range and falloff curve.
+- [x] **Point lights and attenuation** — How the brightness of a light falls off with distance. Demo: drag a point light over a surface with sliders for range and falloff curve. (published 2026-11-04, point-lights-attenuation)
 - [ ] **Blinn-Phong specular** — How the half vector creates highlights and how shininess controls their size. Demo: sliders for shininess and specular strength change a lit sphere.
 - [ ] **Normal maps** — How a texture of stored normals fakes fine surface detail on flat geometry. Demo: a generated bump pattern is lit by a draggable light with a strength slider.
 - [ ] **Lighting 2D sprites** — How normal maps let flat sprites react to lights in a 2D game. Demo: drag a coloured light around a sprite generated in code with a toggle for the normal map.
