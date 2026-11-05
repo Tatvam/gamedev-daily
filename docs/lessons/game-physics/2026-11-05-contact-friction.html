@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact friction · Game Dev Daily</title>
+<meta name="description" content="How a clamped impulse along the contact tangent lets a box rest on a ramp, start sliding at the right angle, and never glue itself to a wall.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-05">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Contact friction</h1>
+  <p class="lede">How a clamped impulse along the contact tangent lets a box rest on a ramp, start sliding at the right angle, and never glue itself to a wall.</p>
+</header>
+
+<section data-section="hook">
+  <p>You place a crate on a gentle slope in your level and press play. It creeps downhill forever, as if the world were ice. You add friction, and now the crate stays put. So does the player, hanging in mid-air against a wall. Both bugs live in the same few lines.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A smooth contact cannot hold anything still</h2>
+  <p>The previous lesson resolved a contact with one impulse along the <dfn>contact normal</dfn> <code>n</code>, the unit vector pointing straight out of the surface. That impulse removes the part of the velocity that drives into the surface. The part along the surface, the <dfn>tangent</dfn> direction <code>t</code>, passes through untouched.</p>
+  <p>For a box on a ramp that is a disaster. With gravity at 980 px/s², a step of 1/60 s and a 20 degree ramp, gravity adds 16.33 px/s straight down each step. The 15.35 px/s that points into the ramp is cancelled. The 5.59 px/s that points down the slope is kept, and piles up step after step.</p>
+
+  <h2>A second impulse, along the tangent</h2>
+  <p>Friction is a second impulse at the same contact, along <code>t</code>. First measure the sliding:</p>
+<pre><code>vt = dot(v, t)</code></pre>
+  <p>In words: the sliding speed is how much of the velocity points along the surface. With <code>t</code> pointing down the slope, positive means sliding downhill.</p>
+<pre><code>jt = -m * vt</code></pre>
+  <p>In words: the impulse that stops the sliding completely is mass times sliding speed, pointing the other way. An <dfn>impulse</dfn> is an instant change in momentum, in units of mass times velocity.</p>
+  <p>Apply that as it is and the box never slides, even at 80 degrees. That is the second bug from the hook.</p>
+
+  <h3>The limit</h3>
+  <p>Friction can only push back so hard, and the harder two surfaces are pressed together, the harder it can push. The usual game model, <dfn>Coulomb friction</dfn>, caps the friction impulse at a fixed fraction of the normal impulse:</p>
+<pre><code>|jt| &lt;= mu * jn</code></pre>
+  <p>In words: friction can push along the surface at most <code>mu</code> times as hard as the surface pushes out. <code>mu</code> is the <dfn>coefficient of friction</dfn>: 0 is ice, 1 is very grippy. In code the limit is a clamp:</p>
+<pre><code>jt = clamp(-m * vt, -mu * jn, mu * jn)</code></pre>
+  <p>In words: try to stop the sliding, but never push harder than the limit. So the normal impulse must be solved first.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Two boxes on ramps with mu 0.5. At each contact a shaded cone opens 26.6 degrees either side of the normal. On the 20 degree ramp the vertical push needed to cancel gravity lies inside the cone, so the box holds. On the 40 degree ramp it lies outside the cone, so the applied impulse is clamped to the cone edge and the box slides.">
+      <path class="d-fill" d="M42.5 127.2 L268.1 209.3 L42.5 209.3 Z"/>
+      <rect class="d-box" x="150.1" y="140.9" width="30" height="30" transform="rotate(20 165.1 155.9)"/>
+      <path class="d-accent-soft" fill-opacity="0.45" d="M160 170 L229 104.7 L149.1 75.6 Z"/>
+      <path class="d-dash" d="M160 170 L196.9 68.5"/>
+      <text class="d-label" x="199" y="62.9">n</text>
+      <path class="d-good" d="M160 170 L160 98"/>
+      <path class="d-good-fill" d="M160 90 L164.5 100 L155.5 100 Z"/>
+      <circle class="d-accent-fill" cx="160" cy="170" r="3"/>
+      <text class="d-text" x="10" y="24">Ramp 20°, μ = 0.5</text>
+      <text class="d-muted" x="10" y="42">needed push is inside the cone: holds</text>
+
+      <path class="d-thin" d="M320 12 V250"/>
+
+      <path class="d-fill" d="M384.2 89.7 L568.1 243.9 L384.2 243.9 Z"/>
+      <rect class="d-box" x="474.6" y="143.5" width="30" height="30" transform="rotate(40 489.6 158.5)"/>
+      <path class="d-accent-soft" fill-opacity="0.45" d="M480 170 L567.2 132.2 L502.1 77.6 Z"/>
+      <path class="d-dash" d="M480 170 L549.4 87.3"/>
+      <text class="d-label" x="553.3" y="82.7">n</text>
+      <path class="d-bad" d="M480 170 L480 98"/>
+      <path class="d-bad-fill" d="M480 90 L484.5 100 L475.5 100 Z"/>
+      <path class="d-accent" d="M480 170 L494.1 111.1"/>
+      <path class="d-accent-fill" d="M495.9 103.4 L498 114.1 L489.2 112 Z"/>
+      <circle class="d-accent-fill" cx="480" cy="170" r="3"/>
+      <text class="d-text" x="336" y="24">Ramp 40°, μ = 0.5</text>
+      <text class="d-muted" x="336" y="42">outside the cone: clamped, slides</text>
+
+      <path class="d-good" d="M20 266 H44"/>
+      <path class="d-bad" d="M44 266 H68"/>
+      <text class="d-text" x="78" y="271">push needed to cancel gravity</text>
+      <path class="d-accent" d="M336 266 H372"/>
+      <text class="d-text" x="382" y="271">impulse actually applied</text>
+      <path class="d-accent-soft" fill-opacity="0.45" d="M20 280 H68 V292 H20 Z"/>
+      <text class="d-text" x="78" y="291">friction cone: every impulse friction allows</text>
+      <path class="d-dash" d="M336 286 H372"/>
+      <text class="d-text" x="382" y="291">contact normal n</text>
+    </svg>
+    <figcaption>The clamp as a shape. The total contact impulse must stay inside a cone that opens <code>atan(mu)</code> either side of the normal, 26.6 degrees for <code>mu = 0.5</code>. To hold still the contact must push straight up. When that line leaves the cone, the best friction can do is the cone edge, and the box slides.</figcaption>
+  </figure>
+
+  <h3>When does the box start to slide?</h3>
+  <p>For a box at rest, each step the normal impulse is <code>m * g * dt * cos(angle)</code> and the friction needed to hold it is <code>m * g * dt * sin(angle)</code>. Divide them and only the angle is left:</p>
+<pre><code>holds when tan(angle) &lt;= mu</code></pre>
+  <p>In words: the box holds while the slope's steepness is at most <code>mu</code>. Mass and gravity drop out, so heavy and light crates let go at the same angle, 26.6 degrees for <code>mu = 0.5</code>.</p>
+
+  <h3>Check one step by hand</h3>
+  <p>A box of mass 1 rests on a 30 degree ramp with <code>mu = 0.5</code>. Screen y grows downwards, so <code>n = (0.5, −0.866)</code> and <code>t = (0.866, 0.5)</code>.</p>
+  <ul>
+    <li>Gravity: <code>v = (0, 980 / 60) = (0, 16.33)</code> px/s.</li>
+    <li>Normal: <code>vn = 16.33 × −0.866 = −14.15</code>, so <code>jn = 14.15</code>. Afterwards <code>v = (7.07, 4.08)</code>.</li>
+    <li>Tangent: <code>vt = 7.07 × 0.866 + 4.08 × 0.5 = 8.17</code> px/s downhill. Stopping it needs <code>jt = −8.17</code>.</li>
+    <li>Limit: <code>0.5 × 14.15 = 7.07</code>. The clamp gives <code>jt = −7.07</code>, so <code>1.09</code> px/s of sliding is left.</li>
+    <li>1.09 px/s per 1/60 s step is 65.6 px/s², matching <code>g × (sin 30° − 0.5 × cos 30°)</code>. It slides, as <code>tan 30° = 0.577</code> is above 0.5.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">The game answer</p>
+    <p>Real surfaces often need a harder push to start sliding than to keep sliding, so physics books use two coefficients, static and kinetic. Many 2D engines use one, and that already gives what players notice: things rest, then let go at a clear angle. The clamp also stops a slowing box at exactly zero, without the jitter from the ground friction lesson. The box here is a point that cannot tip or roll; rotation comes later.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the first bug, <strong>No friction</strong>: the box slides off a 20 degree ramp. Switch <strong>Friction rule</strong> to <strong>Clamped</strong> and press <strong>Reset</strong>: it holds. Raise the ramp angle slowly. It lets go at 27 degrees, when the dashed line leaves the cone. Raise the friction and it stops cleanly.</p>
+  <p>Then pick <strong>No limit</strong> and tilt to 80 degrees: the box clings to a near-wall. Drag or shove the box to see friction flip direction.</p>
+
+  <figure class="demo wide" data-demo="ramp">
+    <canvas id="ramp"></canvas>
+    <figcaption>Debug drawing: the cone is the friction limit, the dashed line the push needed to cancel gravity (green inside the cone, red outside), the blue arrow the last step's contact impulse, the orange arrow its friction part, the black arrow the velocity. Keyboard: up and down arrows tilt the ramp, left and right arrows shove the box, R resets.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step with the clamped rule and its default 20 degree ramp and <code>mu = 0.5</code>. The ramp is a line through <code>rampX, rampY</code>; within half a pixel counts as touching.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, GRAVITY, FRICTION = 1 / 60, 980, 0.5
+local ANGLE = math.rad(20)
+local rampX, rampY = 60, 120                   <span class="c">-- a point on the ramp surface</span>
+local nx, ny = math.sin(ANGLE), -math.cos(ANGLE) <span class="c">-- normal, out of the ramp</span>
+local tx, ty = math.cos(ANGLE), math.sin(ANGLE)  <span class="c">-- tangent, down the slope</span>
+local box = { x = rampX + 30 * tx, y = rampY + 30 * ty, vx = 0, vy = 0, m = 1 }
+
+local function step(b, dt)
+  b.vy = b.vy + GRAVITY * dt
+  local gap = (b.x - rampX) * nx + (b.y - rampY) * ny
+  if gap &lt; 0.5 then                            <span class="c">-- touching the ramp</span>
+    b.x, b.y = b.x - gap * nx, b.y - gap * ny  <span class="c">-- back onto the surface</span>
+    local vn = b.vx * nx + b.vy * ny
+    if vn &lt; 0 then
+      local jn = -b.m * vn                     <span class="c">-- normal impulse, no bounce</span>
+      b.vx, b.vy = b.vx + jn / b.m * nx, b.vy + jn / b.m * ny
+<span class="k">      local vt = b.vx * tx + b.vy * ty         -- sliding speed
+      local limit = FRICTION * jn
+      local jt = math.max(-limit, math.min(limit, -b.m * vt))
+      b.vx, b.vy = b.vx + jt / b.m * tx, b.vy + jt / b.m * ty</span>
+    end
+  end
+  b.x, b.y = b.x + b.vx * dt, b.y + b.vy * dt
+end
+
+local accumulator = 0
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(box, STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.line(rampX, rampY, rampX + 400 * tx, rampY + 400 * ty)
+  love.graphics.circle("fill", box.x, box.y, 5)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot's RigidBody2D solves the normal and friction impulses for you.</span>
+<span class="c"># You set mu on a PhysicsMaterial.</span>
+extends RigidBody2D
+
+func _ready() -&gt; void:
+    var material := PhysicsMaterial.new()
+<span class="k">    material.friction = 0.5     <span class="c"># mu</span></span>
+    material.bounce = 0.0
+    physics_material_override = material</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity's Rigidbody2D solves the normal and friction impulses for you.</span>
+<span class="c">// You set mu on a PhysicsMaterial2D.</span>
+void Start()
+{
+    var body = GetComponent&lt;Rigidbody2D&gt;();
+    var material = new PhysicsMaterial2D("Crate");
+<span class="k">    material.friction = 0.5f;   <span class="c">// mu</span></span>
+    material.bounciness = 0f;
+    body.sharedMaterial = material;
+}</code></pre>
+  </div>
+  <p>Both engines also let friction spin bodies, and each combines the friction of two touching materials by its own rule, so 0.5 on the crate alone does not mean the contact uses 0.5. Check your engine's documentation before tuning exact angles.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>No clamp.</strong> Friction that always cancels sliding makes everything sticky. A rigid-body player pushing into a wall in mid-air creates a normal impulse, and friction from it holds them up. The usual fix is a zero-friction material on the player, with grip handled by the movement code.</li>
+    <li><strong>A limit with the wrong units.</strong> Writing the limit as <code>mu * m * g</code> mixes a force with an impulse and at 60 steps per second it is more than 60 times too large. Use <code>mu * jn</code>: it includes the ramp angle and is zero when nothing presses the surfaces together.</li>
+    <li><strong>Friction before the normal impulse.</strong> The limit comes from <code>jn</code>, so solve the normal first, then measure <code>vt</code>.</li>
+    <li><strong>A tangent that is not at right angles to the normal.</strong> If <code>t</code> leaks some <code>n</code>, friction pushes the box into or off the surface. In 2D, build it from the normal, <code>t = (-ny, nx)</code>; its sign does not matter.</li>
+    <li><strong>Several contacts.</strong> A box resting flat touches at two points. Each point gets its own clamp from its own <code>jn</code>. Solver iterations, later in this track, share the load.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the open source engine by Erin Catto that Unity's 2D physics is built on, solves a friction impulse along the tangent at every contact point and clamps it between minus and plus the friction coefficient times that point's normal impulse, the same clamp as here. It clamps the total built up over its solver iterations, not one pass. In the 2.x versions, its default rule for combining two materials is the square root of the product of their friction values.</p>
+  <p>Godot exposes the coefficient as <code>PhysicsMaterial.friction</code> and Unity as <code>PhysicsMaterial2D.friction</code>.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua above or add friction to your own contact code. On a 30 degree ramp, find by trial the smallest <code>mu</code> that holds the box. You are done when it lies between 0.57 and 0.58, the tangent of 30 degrees. Then set <code>mu = 0.5</code> and check the slope speed grows by about 65.6 px/s each second. Finally remove the clamp and confirm the box sticks at 80 degrees.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A normal impulse alone cannot stop sliding. Friction is a second impulse along the contact tangent.</li>
+    <li>The friction impulse tries to cancel the sliding speed, <code>jt = -m * vt</code>, and is clamped to <code>±mu * jn</code>.</li>
+    <li>Without the clamp everything sticks, walls included. Without friction everything slides.</li>
+    <li>A resting box lets go when <code>tan(angle)</code> passes <code>mu</code>, whatever its mass.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes sliding along walls: removing only the part of a velocity that points into a surface, so a moving character glides along it instead of stopping dead.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Erin Catto, <cite>Fast and Simple Physics using Sequential Impulses</cite>, talk at the Game Developers Conference, 2006. Normal and friction impulses with clamping, as used in Box2D.</li>
+    <li>Erin Catto, <cite>Box2D</cite>, open source physics engine. Its contact solver shows the friction clamp in real code.</li>
+    <li>Randy Gaul, <cite>How to Create a Custom 2D Physics Engine</cite> series (Envato Tuts+, 2013). The friction part adds a tangent impulse to the normal one.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Covers friction at contacts and the static and dynamic coefficients.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // fixed timestep, seconds
+  var MAX_FRAME = 0.25;
+  var GRAVITY = 980;        // px/s^2, down the screen
+  var MASS = 1;
+  var HALF = 14;            // half the box size, px
+  var HEIGHT = 340;
+  var IMP = 4.2;            // px of arrow per unit of impulse
+  var VEL = 0.25;           // px of arrow per px/s of velocity
+  var SHOVE = 320;          // px/s added by a shove
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  var W = 320, H = HEIGHT;
+  var A, B, L, n, t;        // ramp top, ramp bottom, length, normal, tangent
+  var s, u;                 // box position along the ramp from A, and speed along it
+  var last, accumulator, dragging, atBottom;
+
+  var ui = DemoKit.controls('[data-demo="ramp"]');
+  var rule = ui.select({ label: 'Friction rule', value: 'none',
+    options: [
+      { value: 'none', label: 'No friction (bug)' },
+      { value: 'unlimited', label: 'No limit, jt = -m vt (bug)' },
+      { value: 'clamped', label: 'Clamped to mu times jn' }
+    ],
+    onChange: function () { updateReadouts(); } });
+  var angle = ui.slider({ label: 'Ramp angle', min: 0, max: 80, step: 1, value: 20, unit: '°',
+    onInput: function () { setAngle(); } });
+  var mu = ui.slider({ label: 'Friction mu', min: 0, max: 1.5, step: 0.01, value: 0.5,
+    onInput: function () { updateReadouts(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var verdict = ui.readout({ label: 'Slope against friction' });
+  var numbers = ui.readout({ label: 'Last step impulses' });
+  ui.button({ label: 'Shove up', onClick: function () { shove(-1); } });
+  ui.button({ label: 'Shove down', onClick: function () { shove(1); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  function layout() {
+    var th = angle.value * Math.PI / 180;
+    t = { x: Math.cos(th), y: Math.sin(th) };
+    n = { x: Math.sin(th), y: -Math.cos(th) };
+    L = Math.min(W - 80, 230);
+    B = { x: W - 36, y: H - 60 };
+    A = { x: B.x - L * t.x, y: B.y - L * t.y };
+  }
+
+  function clampS() {
+    atBottom = false;
+    if (s < HALF) { s = HALF; if (u < 0) u = 0; }
+    if (s > L - HALF) { s = L - HALF; if (u > 0) u = 0; atBottom = true; }
+  }
+
+  function setAngle() {
+    // The box keeps its place and its speed along the ramp while the ramp turns.
+    layout();
+    clampS();
+    if (verdict) updateReadouts();
+  }
+
+  function reset() {
+    layout();
+    s = 40;
+    u = 0;
+    accumulator = 0;
+    dragging = false;
+    atBottom = false;
+    last = null;
+  }
+
+  function shove(dir) {
+    u += dir * SHOVE;
+  }
+
+  // One step: the same maths as the Lua, in 2D, with the box always on the ramp.
+  function step(dt) {
+    var px = A.x + s * t.x, py = A.y + s * t.y;
+    var vx = u * t.x, vy = u * t.y;
+    vy += GRAVITY * dt;
+
+    var jn = 0, jt = 0, limit = 0, needed = 0;
+    var vn = vx * n.x + vy * n.y;
+    if (vn < 0) {
+      jn = -MASS * vn;                               // normal impulse, no bounce
+      vx += jn / MASS * n.x; vy += jn / MASS * n.y;
+      var vt = vx * t.x + vy * t.y;                  // sliding speed
+      needed = -MASS * vt;
+      limit = mu.value * jn;
+      if (rule.value === 'unlimited') jt = needed;
+      else if (rule.value === 'clamped') jt = Math.max(-limit, Math.min(limit, needed));
+      vx += jt / MASS * t.x; vy += jt / MASS * t.y;
+    }
+    px += vx * dt; py += vy * dt;
+
+    s = (px - A.x) * t.x + (py - A.y) * t.y;
+    u = vx * t.x + vy * t.y;
+    if (Math.abs(u) < 1e-9) u = 0;
+    clampS();
+    last = { jn: jn, jt: jt, limit: limit, needed: needed };
+  }
+
+  function fmt(x, d) {
+    var r = x.toFixed(d);
+    if (Number(r) === 0) r = (0).toFixed(d);
+    return r.charAt(0) === '-' ? '−' + r.slice(1) : r;
+  }
+
+  function updateReadouts() {
+    var a = angle.value;
+    var tn = Math.tan(a * Math.PI / 180);
+    if (rule.value === 'none') {
+      verdict.set(a === 0 ? 'no friction: flat, so nothing pulls it' : 'no friction: slides at any slope');
+    } else if (rule.value === 'unlimited') {
+      verdict.set('no limit: holds at any slope');
+    } else {
+      var holds = tn <= mu.value + 1e-9;
+      verdict.set('tan ' + a + '° = ' + tn.toFixed(2) + (holds ? ' ≤ ' : ' > ') +
+        'mu ' + mu.value.toFixed(2) + ': ' + (holds ? 'holds from rest' : 'slides'));
+    }
+    if (!last) { numbers.set('not stepped yet'); return; }
+    var text = 'jn ' + fmt(last.jn, 2) + ', jt ' + fmt(last.jt, 2);
+    if (rule.value === 'clamped') text += ', limit ±' + fmt(last.limit, 2);
+    numbers.set(text);
+  }
+
+  function project(p) {
+    s = (p.x - A.x) * t.x + (p.y - A.y) * t.y;
+    u = 0;
+    clampS();
+  }
+
+  // ---- Drawing ----
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function arrow(ctx, x1, y1, dx, dy) {
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 3) return;
+    var ux = dx / len, uy = dy / len;
+    var x2 = x1 + dx, y2 = y1 + dy;
+    line(ctx, x1, y1, x2 - ux * 6, y2 - uy * 6);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 9 - uy * 4, y2 - uy * 9 + ux * 4);
+    ctx.lineTo(x2 - ux * 9 + uy * 4, y2 - uy * 9 - ux * 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function draw(ctx, s2) {
+    var c = s2.colors;
+    var px = A.x + s * t.x, py = A.y + s * t.y;
+
+    // Floor and ramp.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    line(ctx, 10, B.y, W - 10, B.y);
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath();
+    ctx.moveTo(A.x, A.y);
+    ctx.lineTo(B.x, B.y);
+    ctx.lineTo(A.x, B.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Stop at the bottom end.
+    ctx.lineWidth = 4;
+    line(ctx, B.x, B.y, B.x + n.x * 10, B.y + n.y * 10);
+
+    // Box, bottom centre at the contact point.
+    ctx.save();
+    ctx.translate(px + n.x * HALF, py + n.y * HALF);
+    ctx.rotate(angle.value * Math.PI / 180);
+    ctx.fillStyle = c.topic;
+    ctx.globalAlpha = debug.value ? 0.55 : 1;
+    ctx.fillRect(-HALF, -HALF, 2 * HALF, 2 * HALF);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-HALF, -HALF, 2 * HALF, 2 * HALF);
+    ctx.restore();
+
+    if (debug.value) {
+      var g = MASS * GRAVITY * STEP * IMP;   // length of the push that cancels gravity
+      if (rule.value === 'clamped') {
+        var phi = Math.atan(mu.value), cl = 72;
+        var a1 = Math.atan2(n.y, n.x) + phi, a2 = Math.atan2(n.y, n.x) - phi;
+        ctx.fillStyle = c.topic;
+        ctx.globalAlpha = 0.16;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(a1) * cl, py + Math.sin(a1) * cl);
+        ctx.lineTo(px + Math.cos(a2) * cl, py + Math.sin(a2) * cl);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1;
+        line(ctx, px, py, px + Math.cos(a1) * cl, py + Math.sin(a1) * cl);
+        line(ctx, px, py, px + Math.cos(a2) * cl, py + Math.sin(a2) * cl);
+      }
+      // Push needed to cancel gravity: straight up.
+      var inside = rule.value === 'unlimited' ||
+        (rule.value === 'clamped' && Math.tan(angle.value * Math.PI / 180) <= mu.value + 1e-9) ||
+        angle.value === 0;
+      ctx.strokeStyle = inside ? c.good : c.bad;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      line(ctx, px, py, px, py - g);
+      ctx.setLineDash([]);
+
+      if (last && last.jn > 0) {
+        // Total impulse and its friction part.
+        var ix = (last.jn * n.x + last.jt * t.x) * IMP, iy = (last.jn * n.y + last.jt * t.y) * IMP;
+        ctx.strokeStyle = c.topic;
+        ctx.fillStyle = c.topic;
+        ctx.lineWidth = 2.5;
+        arrow(ctx, px, py, ix, iy);
+        ctx.strokeStyle = c.warn;
+        ctx.fillStyle = c.warn;
+        arrow(ctx, px, py, last.jt * t.x * IMP, last.jt * t.y * IMP);
+      }
+      // Velocity, drawn from the centre of the box.
+      if (Math.abs(u) > 2) {
+        var len = DemoKit.clamp(Math.abs(u) * VEL, 10, 90) * (u > 0 ? 1 : -1);
+        ctx.strokeStyle = c.ink;
+        ctx.fillStyle = c.ink;
+        ctx.lineWidth = 2;
+        arrow(ctx, px + n.x * HALF, py + n.y * HALF, t.x * len, t.y * len);
+      }
+    }
+
+    // Status.
+    ctx.font = BOLD;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    var status;
+    if (dragging) status = 'placing the box';
+    else if (atBottom && u === 0) status = 'at the bottom: Reset or drag it up';
+    else if (Math.abs(u) < 0.5) status = 'holding still';
+    else status = 'sliding ' + (u > 0 ? 'down' : 'up') + ' at ' + Math.round(Math.abs(u)) + ' px/s';
+    ctx.fillText(status, 10, 20);
+
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Drag the box along the ramp.', 10, H - 18);
+  }
+
+  layout();
+  reset();
+  updateReadouts();
+
+  DemoKit.canvas('#ramp', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A box on a tilting ramp. Debug drawing shows the friction cone, the push needed to hold the box, the contact impulse and its friction part, and the velocity.',
+    onResize: function (st) {
+      W = st.width;
+      H = st.height;
+      setAngle();
+    },
+    onDown: function (p) { dragging = true; project(p); },
+    onMove: function (p) { if (dragging && p.down) project(p); },
+    onUp: function () { dragging = false; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'r') reset();
+      else if (key === 'arrowup') { angle.set(Math.min(80, angle.value + 1)); setAngle(); }
+      else if (key === 'arrowdown') { angle.set(Math.max(0, angle.value - 1)); setAngle(); }
+      else if (key === 'arrowleft') shove(-1);
+      else if (key === 'arrowright') shove(1);
+    },
+    update: function (dt) {
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 30) {
+        if (!dragging) step(STEP);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+      updateReadouts();
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

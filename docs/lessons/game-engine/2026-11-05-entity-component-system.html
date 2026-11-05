@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entity component system: data in tables, logic in systems · Game Dev Daily</title>
+<meta name="description" content="How an ECS keeps components in tables keyed by entity id and runs systems over every entity that has the right set, and how Unity and Godot relate to it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-05">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Entity component system: data in tables, logic in systems</h1>
+  <p class="lede">How an ECS keeps components in tables keyed by entity id and runs systems over every entity that has the right set, and how Unity and Godot relate to it.</p>
+</header>
+
+<section data-section="hook">
+  <p>A bullet-hell scene has 5,000 bullets. Each is a node or GameObject with its own update script, so every frame the engine visits 5,000 objects and runs the same few lines on each in turn. The work is identical for every bullet. Only the numbers differ.</p>
+  <p>An entity component system turns that around: one function, one loop, all the bullets.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Turning objects inside out</h2>
+  <p>Yesterday's <a href="2026-11-04-component-pattern.html">component pattern</a> built an object from parts, and each part carried its own data <em>and</em> its own update code. An <dfn>entity component system</dfn> (ECS) splits those two apart into three pieces:</p>
+  <ul>
+    <li>An <dfn>entity</dfn> is only an id, a number. It has no code and no data of its own.</li>
+    <li>A <dfn>component</dfn> is plain data with no code: a Position is an x and a y, Gravity is one number.</li>
+    <li>A <dfn>system</dfn> is a function that runs over every entity that has a certain set of components. The set it asks for is its <dfn>query</dfn>.</li>
+  </ul>
+  <p>Picture the components as a table: a row per entity, a column per component type, and each cell filled or empty. A system only asks: does this row have every column I need?</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: three objects, ball, tree and hero, each holding its own data and its own update function. Right: the same three as rows in a table with columns Position, Velocity, Gravity and Sprite. The tree has no Velocity and the hero has no Gravity. Below the table, three systems with their queries: Gravity needs Velocity and Gravity and runs on row 1; Movement needs Position and Velocity and runs on rows 1 and 3; Draw needs Position and Sprite and runs on rows 1, 2 and 3.">
+      <text class="d-label" x="10" y="24">Objects update themselves</text>
+      <text class="d-label" x="335" y="24">ECS</text>
+      <path class="d-dash" d="M318 12 V268"/>
+
+      <rect class="d-box" x="10" y="44" width="290" height="56" rx="6"/>
+      <rect class="d-box" x="10" y="114" width="290" height="56" rx="6"/>
+      <rect class="d-box" x="10" y="184" width="290" height="56" rx="6"/>
+      <text class="d-text" x="24" y="66">Ball: position, velocity, gravity</text>
+      <text class="d-muted" x="24" y="88">update(): fall, move, draw itself</text>
+      <text class="d-text" x="24" y="136">Tree: position, gravity</text>
+      <text class="d-muted" x="24" y="158">update(): draw itself</text>
+      <text class="d-text" x="24" y="206">Hero: position, velocity</text>
+      <text class="d-muted" x="24" y="228">update(): move, draw itself</text>
+      <text class="d-muted" x="155" y="262" text-anchor="middle">The engine calls update() on each object.</text>
+
+      <g text-anchor="middle">
+        <text class="d-muted" x="416" y="50">Position</text>
+        <text class="d-muted" x="473" y="50">Velocity</text>
+        <text class="d-muted" x="530" y="50">Gravity</text>
+        <text class="d-muted" x="587" y="50">Sprite</text>
+      </g>
+      <text class="d-text" x="335" y="75">1 ball</text>
+      <text class="d-text" x="335" y="101">2 tree</text>
+      <text class="d-text" x="335" y="127">3 hero</text>
+      <rect class="d-accent-soft" x="391" y="60" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="448" y="60" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="505" y="60" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="562" y="60" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="391" y="86" width="51" height="20" rx="3"/>
+      <rect class="d-fill" x="448" y="86" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="505" y="86" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="562" y="86" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="391" y="112" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="448" y="112" width="51" height="20" rx="3"/>
+      <rect class="d-fill" x="505" y="112" width="51" height="20" rx="3"/>
+      <rect class="d-accent-soft" x="562" y="112" width="51" height="20" rx="3"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="473" y="101">empty</text>
+        <text class="d-muted" x="530" y="127">empty</text>
+      </g>
+
+      <rect class="d-box" x="335" y="160" width="88" height="30" rx="15"/>
+      <rect class="d-box" x="431" y="160" width="88" height="30" rx="15"/>
+      <rect class="d-box" x="527" y="160" width="88" height="30" rx="15"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="379" y="180">Gravity</text>
+        <text class="d-text" x="475" y="180">Movement</text>
+        <text class="d-text" x="571" y="180">Draw</text>
+        <text class="d-muted" x="379" y="212">Vel + Grav</text>
+        <text class="d-muted" x="475" y="212">Pos + Vel</text>
+        <text class="d-muted" x="571" y="212">Pos + Sprite</text>
+        <text class="d-label" x="379" y="236">row 1</text>
+        <text class="d-label" x="475" y="236">rows 1, 3</text>
+        <text class="d-label" x="571" y="236">rows 1, 2, 3</text>
+      </g>
+      <text class="d-muted" x="475" y="262" text-anchor="middle">Each system runs over the rows its query matches.</text>
+    </svg>
+    <figcaption>Left, behaviour lives inside each object. Right, data lives in a table and behaviour in systems. The tree has Gravity but no Velocity, so the Gravity system skips it.</figcaption>
+  </figure>
+
+  <h2>What happens, in what order</h2>
+  <p>The <dfn>world</dfn> holds the table and the list of systems. Each frame it runs the systems in a fixed order, here Gravity, Movement, Draw: Gravity changes the speed, Movement uses it, Draw shows the result. The outer loop is over systems, not objects:</p>
+<pre><code><span class="c">-- Objects: for each object, do all of its work.</span>
+for _, obj in ipairs(objects) do obj:update(dt) end
+
+<span class="c">-- ECS: for each system, do one job for every match.</span>
+for _, sys in ipairs(systems) do
+  for id = 1, nextId do
+    if matches(id, sys.needs) then sys.run(id, dt) end
+  end
+end</code></pre>
+  <p>That swap is the whole idea. Order stops depending on where an object sits in a tree and becomes one list you can read top to bottom.</p>
+
+  <h2>Who owns the data</h2>
+  <p>The <strong>world</strong> owns every component. An <strong>entity</strong> owns nothing; it is the row number that ties cells together. A <strong>system</strong> owns logic but no per-entity state. So behaviour changes by data alone: give the tree a Velocity and Gravity starts pulling it down, with no code edited.</p>
+
+  <h2>Why it can be fast</h2>
+  <p>Real ECS libraries store the table compactly. Some keep each component type in its own packed array. Others group entities with exactly the same set of components, an <dfn>archetype</dfn>, and store each group side by side. Either way a system walks memory in order instead of hopping between objects, which processors handle very well. And because a query says what it reads and writes, systems that touch different data can run on different cores at once.</p>
+
+  <h2>How the engines express it</h2>
+  <p><strong>Unity</strong> has a full ECS in the separate <code>com.unity.entities</code> package, part of DOTS, its Data-Oriented Technology Stack. The code below targets Entities 1.x on Unity 2022.3 LTS or Unity 6. A component is a struct implementing <code>IComponentData</code>. A system is a <code>partial struct</code> implementing <code>ISystem</code> that loops over <code>SystemAPI.Query&lt;RefRW&lt;A&gt;, RefRO&lt;B&gt;&gt;()</code> (read-write and read-only). Entities are stored by archetype in 16 KB blocks called chunks, so adding or removing a component moves the entity, a <dfn>structural change</dfn>. Order comes from system groups and <code>[UpdateBefore]</code> / <code>[UpdateAfter]</code>. You usually author GameObjects in a subscene and a step called baking converts them into entities.</p>
+  <p><strong>Godot 4</strong> has no built-in ECS. Its nodes update themselves, a design the Godot team has explained (see Further reading). For thousands of identical things, Godot's answer is to skip nodes and drive the low-level servers, such as <code>RenderingServer</code> and <code>PhysicsServer2D</code>, from one manager script. Community ECS add-ons exist. The GDScript tab writes the idea by hand, one Dictionary per component.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Reach for ECS when you have many things that share the same few behaviours: bullets, crowds, particles, units. For a few dozen unique, hand-built objects such as a player, a door and a menu, nodes and GameObjects are easier to build and debug.</p>
+  </div>
+  <p>The trade-off cuts both ways. ECS gives explicit order and fast loops, but behaviour is spread over systems, so "why did this entity do that?" takes more digging. Nodes and GameObjects keep everything about one thing in one place, at the cost of visiting objects one by one.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Six entities, and the table of their components. The Gravity query is highlighted. The tree (row 3) has Gravity but no Velocity: the dashed red cell is what the query misses, so it stays put. Tap that cell and watch it fall. Then highlight <strong>Draw</strong>: the ghost (row 4) has no Sprite, so Draw never visits it and only a debug outline shows it. Switch systems off and nothing moves or appears.</p>
+
+  <figure class="demo wide" data-demo="ecs">
+    <canvas id="ecs"></canvas>
+    <figcaption>Tap a cell to add or remove a component; with a keyboard, focus the canvas, use the arrows and Space. Removed data is lost; re-adding gives the starting value. The model checks every row and leaves out packed storage, archetypes and threads. With reduced motion, press Play.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete LÖVE program with the demo's six entities and numbers: a 400 by 180 world, gravity 300 px/s², bounces at y = 165 and y = 10, wrapping at the sides. It draws every sprite as a circle.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A tiny ECS. Keys 1-3 switch Gravity, Movement, Draw. T toggles the tree's Velocity.</span>
+local W, FLOOR, CEILING = 400, 165, 10
+local nextId = 0
+local position, velocity, gravity, sprite = {}, {}, {}, {}  <span class="c">-- one table per component</span>
+
+local function spawn(p, v, g, s)
+<span class="k">  nextId = nextId + 1
+  local id = nextId                        <span class="c">-- an entity is only this number</span>
+  position[id], velocity[id], gravity[id], sprite[id] = p, v, g, s</span>
+  return id
+end
+
+local function matches(id, needs)          <span class="c">-- the query</span>
+  for _, store in ipairs(needs) do
+    if store[id] == nil then return false end
+  end
+  return true
+end
+
+local function runSystem(sys, dt)
+<span class="k">  for id = 1, nextId do
+    if matches(id, sys.needs) then sys.run(id, dt) end
+  end</span>
+end
+
+local Gravity = { on = true, needs = { velocity, gravity }, run = function(id, dt)
+  velocity[id].y = velocity[id].y + gravity[id] * dt
+end }
+
+local Movement = { on = true, needs = { position, velocity }, run = function(id, dt)
+  local p, v = position[id], velocity[id]
+  p.x = p.x + v.x * dt
+  p.y = p.y + v.y * dt
+  if p.x &gt; W then p.x = p.x - W end
+  if p.x &lt; 0 then p.x = p.x + W end
+  if p.y &gt; FLOOR then p.y, v.y = FLOOR, -math.abs(v.y) end
+  if p.y &lt; CEILING then p.y, v.y = CEILING, math.abs(v.y) end
+end }
+
+local Draw = { on = true, needs = { position, sprite }, run = function(id)
+  local p, s = position[id], sprite[id]
+  love.graphics.setColor(s.r, s.g, s.b)
+  love.graphics.circle("fill", p.x, p.y, s.size)
+end }
+
+local ORDER = { Gravity, Movement }        <span class="c">-- update order; Draw runs in love.draw</span>
+
+function love.load()
+  spawn({ x = 60, y = 150 }, { x = 50, y = 0 }, nil, { size = 8, r = 0.2, g = 0.45, b = 0.85 })   <span class="c">-- 1 hero</span>
+  spawn({ x = 150, y = 40 }, { x = 30, y = 0 }, 300, { size = 8, r = 0.9, g = 0.6, b = 0.1 })     <span class="c">-- 2 ball</span>
+  spawn({ x = 250, y = 150 }, nil, 300, { size = 12, r = 0.2, g = 0.6, b = 0.3 })                <span class="c">-- 3 tree</span>
+  spawn({ x = 320, y = 60 }, { x = -40, y = 20 }, nil, nil)                                      <span class="c">-- 4 ghost</span>
+  spawn({ x = 200, y = 30 }, { x = -15, y = 0 }, nil, { size = 10, r = 0.7, g = 0.7, b = 0.7 })  <span class="c">-- 5 cloud</span>
+  spawn({ x = 340, y = 20 }, { x = 0, y = 0 }, 300, { size = 6, r = 0.8, g = 0.2, b = 0.2 })     <span class="c">-- 6 apple</span>
+end
+
+function love.keypressed(key)
+  local sys = ({ Gravity, Movement, Draw })[tonumber(key) or 0]
+  if sys then sys.on = not sys.on end
+  if key == "t" then
+<span class="k">    if velocity[3] then velocity[3] = nil else velocity[3] = { x = 0, y = 0 } end</span>
+  end
+end
+
+function love.update(dt)
+  for _, sys in ipairs(ORDER) do
+    if sys.on then runSystem(sys, dt) end
+  end
+end
+
+function love.draw()
+  love.graphics.scale(2)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.line(0, 173, W, 173)
+  if Draw.on then runSystem(Draw, 0) end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Attach to a Node2D in a new scene and run it.</span>
+<span class="c"># Godot has no built-in ECS, so this writes the idea by hand.</span>
+extends Node2D
+
+const W := 400.0
+const FLOOR := 165.0
+const CEILING := 10.0
+var next_id := 0
+var positions := {}    <span class="c"># id -&gt; Vector2, one Dictionary per component</span>
+var velocities := {}   <span class="c"># id -&gt; Vector2</span>
+var gravities := {}    <span class="c"># id -&gt; float</span>
+var sprites := {}      <span class="c"># id -&gt; Color</span>
+
+func spawn(p, v, g, s) -&gt; int:
+    next_id += 1
+    if p != null: positions[next_id] = p
+    if v != null: velocities[next_id] = v
+    if g != null: gravities[next_id] = g
+    if s != null: sprites[next_id] = s
+    return next_id
+
+<span class="k">func query(stores: Array) -&gt; Array:
+    var ids := []
+    for id in range(1, next_id + 1):
+        var ok := true
+        for store in stores:
+            if not store.has(id):
+                ok = false
+        if ok:
+            ids.append(id)
+    return ids</span>
+
+func _ready() -&gt; void:
+    scale = Vector2(2, 2)
+    spawn(Vector2(60, 150), Vector2(50, 0), null, Color.ROYAL_BLUE)    <span class="c"># 1 hero</span>
+    spawn(Vector2(150, 40), Vector2(30, 0), 300.0, Color.ORANGE)       <span class="c"># 2 ball</span>
+    spawn(Vector2(250, 150), null, 300.0, Color.FOREST_GREEN)          <span class="c"># 3 tree</span>
+    spawn(Vector2(320, 60), Vector2(-40, 20), null, null)              <span class="c"># 4 ghost</span>
+    spawn(Vector2(200, 30), Vector2(-15, 0), null, Color.LIGHT_GRAY)   <span class="c"># 5 cloud</span>
+    spawn(Vector2(340, 20), Vector2(0, 0), 300.0, Color.CRIMSON)       <span class="c"># 6 apple</span>
+
+func _process(delta: float) -&gt; void:
+    for id in query([velocities, gravities]):        <span class="c"># Gravity system</span>
+        var v: Vector2 = velocities[id]
+        v.y += gravities[id] * delta
+        velocities[id] = v
+    for id in query([positions, velocities]):        <span class="c"># Movement system</span>
+        var p: Vector2 = positions[id]
+        var v: Vector2 = velocities[id]
+        p += v * delta
+        if p.x &gt; W: p.x -= W
+        if p.x &lt; 0.0: p.x += W
+        if p.y &gt; FLOOR:
+            p.y = FLOOR
+            v.y = -absf(v.y)
+        if p.y &lt; CEILING:
+            p.y = CEILING
+            v.y = absf(v.y)
+        positions[id] = p
+        velocities[id] = v
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_line(Vector2(0, 173), Vector2(W, 173), Color.WHITE)
+    for id in query([positions, sprites]):           <span class="c"># Draw system</span>
+        draw_circle(positions[id], 8.0, sprites[id])</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Needs the Entities package (com.unity.entities 1.x), Unity 2022.3 LTS or Unity 6.</span>
+<span class="c">// Put this in one .cs file. The systems are created automatically in the default world.</span>
+<span class="c">// y points down here to match the demo's numbers. Drawing needs the separate</span>
+<span class="c">// Entities Graphics package, so inspect the entities in the editor's Entities windows.</span>
+using Unity.Entities;
+using Unity.Mathematics;
+
+public struct Position : IComponentData { public float2 Value; }
+public struct Velocity : IComponentData { public float2 Value; }
+public struct Gravity  : IComponentData { public float Value; }
+
+public partial struct SpawnSystem : ISystem
+{
+    public void OnCreate(ref SystemState state)
+    {
+        var em = state.EntityManager;
+        var ball = em.CreateEntity();                        <span class="c">// an entity is only an id</span>
+        em.AddComponentData(ball, new Position { Value = new float2(150, 40) });
+        em.AddComponentData(ball, new Velocity { Value = new float2(30, 0) });
+        em.AddComponentData(ball, new Gravity  { Value = 300f });
+        var tree = em.CreateEntity();                        <span class="c">// no Velocity: Gravity skips it</span>
+        em.AddComponentData(tree, new Position { Value = new float2(250, 150) });
+        em.AddComponentData(tree, new Gravity  { Value = 300f });
+    }
+}
+
+[UpdateBefore(typeof(MovementSystem))]
+public partial struct GravitySystem : ISystem
+{
+    public void OnUpdate(ref SystemState state)
+    {
+        float dt = SystemAPI.Time.DeltaTime;
+<span class="k">        foreach (var (vel, g) in SystemAPI.Query&lt;RefRW&lt;Velocity&gt;, RefRO&lt;Gravity&gt;&gt;())
+            vel.ValueRW.Value.y += g.ValueRO.Value * dt;</span>
+    }
+}
+
+public partial struct MovementSystem : ISystem
+{
+    public void OnUpdate(ref SystemState state)
+    {
+        float dt = SystemAPI.Time.DeltaTime;
+        foreach (var (pos, vel) in SystemAPI.Query&lt;RefRW&lt;Position&gt;, RefRW&lt;Velocity&gt;&gt;())
+        {
+            pos.ValueRW.Value += vel.ValueRO.Value * dt;
+            if (pos.ValueRO.Value.y &gt; 165f)
+            {
+                pos.ValueRW.Value.y = 165f;
+                vel.ValueRW.Value.y = -math.abs(vel.ValueRO.Value.y);
+            }
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In all three, whether an entity falls depends only on its components. The Gravity system never names the ball or the tree.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Adding or removing components while a system is looping.</strong> As in the <a href="2026-10-22-freeing-objects-safely.html">freeing objects lesson</a>, the set you are walking changes under you. Record the change and apply it after the loop; in Unity, that is what an <code>EntityCommandBuffer</code> is for.</li>
+    <li><strong>A query that silently matches nothing.</strong> The tree has Gravity and does not fall, and nothing reports an error. When an entity does nothing, check its components first.</li>
+    <li><strong>Systems in the wrong order.</strong> If Draw ran before Movement, everything would be drawn a frame late. Set the order on purpose, in one place.</li>
+    <li><strong>Holding on to an entity id after it is destroyed.</strong> Many ECS libraries reuse ids, so an old id can quietly point at a new entity. Store a generation counter that changes on each reuse, or check the entity still exists.</li>
+    <li><strong>Making everything an ECS.</strong> A menu or a single boss gains little from queries and loses the editor's usual tools. Many projects use ECS only for the crowded parts.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Unity's Entities package serves projects with very large numbers of objects. Bevy, an open source engine written in Rust, is built around an ECS. EnTT (C++) and Flecs (C and C++) are widely used standalone ECS libraries. Blizzard's Timothy Ford described Overwatch's ECS-based gameplay architecture in a GDC 2017 talk. Godot takes the other path: nodes for most code, servers where one object per thing costs too much.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the code tab for your engine and spawn 200 entities at seeded random positions and velocities. Give every second one a Gravity component. You are done when half fall and bounce while half drift, without a single <code>if</code> about which kind of entity is which. Bonus: add a Lifetime component and a system that removes expired entities after its loop.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An entity is an id, a component is plain data, and a system is a function that runs over every entity matching its query.</li>
+    <li>The world owns all the data. Behaviour changes by adding and removing components, not by editing classes.</li>
+    <li>The outer loop is over systems, so the frame order is one explicit list you can read.</li>
+    <li>Packed storage makes system loops fast; change components only between loops.</li>
+    <li>Unity offers ECS in its Entities package; Godot uses nodes, with servers for crowds.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next: how coroutines in Unity and <code>await</code> in Godot let one function pause and carry on in a later frame, so a sequence reads from top to bottom.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapters "Component" and "Data Locality". The second explains why packed arrays are fast.</li>
+    <li>Unity Technologies, <cite>Entities package manual</cite> (com.unity.entities, version 1.x).</li>
+    <li>Juan Linietsky, <cite>Why isn't Godot an ECS-based game engine?</cite>, Godot Engine blog.</li>
+    <li>Godot Engine documentation, <cite>Optimization using Servers</cite>.</li>
+    <li>Sander Mertens, <cite>ECS FAQ</cite>, by the author of Flecs, on storage designs and trade-offs.</li>
+    <li>Timothy Ford, <cite>Overwatch Gameplay Architecture and Netcode</cite>, GDC 2017.</li>
+  </ul>
+  <p>These are named without links because the documentation could not be opened while this lesson was written.</p>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 400, H = 180, FLOOR = 165, CEILING = 10, GROUND = 173;
+  var COMPS = ['position', 'velocity', 'gravity', 'sprite'];
+  var LONG = { position: 'Position', velocity: 'Velocity', gravity: 'Gravity', sprite: 'Sprite' };
+  var SHORT = { position: 'Pos', velocity: 'Vel', gravity: 'Grav', sprite: 'Sprite' };
+
+  // Starting values. "start" lists the components each entity begins with; the other values
+  // are what a component gets when the reader adds it.
+  var TEMPLATES = [
+    { name: 'hero', start: ['position', 'velocity', 'sprite'],
+      position: { x: 60, y: 150 }, velocity: { x: 50, y: 0 }, gravity: 300,
+      sprite: { shape: 'square', size: 8, color: 'topic' } },
+    { name: 'ball', start: ['position', 'velocity', 'gravity', 'sprite'],
+      position: { x: 150, y: 40 }, velocity: { x: 30, y: 0 }, gravity: 300,
+      sprite: { shape: 'circle', size: 8, color: 'warn' } },
+    { name: 'tree', start: ['position', 'gravity', 'sprite'],
+      position: { x: 250, y: 150 }, velocity: { x: 0, y: 0 }, gravity: 300,
+      sprite: { shape: 'tree', size: 12, color: 'good' } },
+    { name: 'ghost', start: ['position', 'velocity'],
+      position: { x: 320, y: 60 }, velocity: { x: -40, y: 20 }, gravity: 300,
+      sprite: { shape: 'diamond', size: 8, color: 'ink2' } },
+    { name: 'cloud', start: ['position', 'velocity', 'sprite'],
+      position: { x: 200, y: 30 }, velocity: { x: -15, y: 0 }, gravity: 300,
+      sprite: { shape: 'cloud', size: 10, color: 'ink3' } },
+    { name: 'apple', start: ['position', 'velocity', 'gravity', 'sprite'],
+      position: { x: 340, y: 20 }, velocity: { x: 0, y: 0 }, gravity: 300,
+      sprite: { shape: 'circle', size: 6, color: 'bad' } }
+  ];
+  var COUNT = TEMPLATES.length;
+
+  var store;
+  function copy(v) { return (v && typeof v === 'object') ? JSON.parse(JSON.stringify(v)) : v; }
+  function reset() {
+    store = { position: {}, velocity: {}, gravity: {}, sprite: {} };
+    TEMPLATES.forEach(function (t, i) {
+      t.start.forEach(function (c) { store[c][i + 1] = copy(t[c]); });
+    });
+  }
+  reset();
+
+  function has(id, c) { return store[c][id] !== undefined; }
+  function matches(id, needs) {
+    for (var i = 0; i < needs.length; i++) if (!has(id, needs[i])) return false;
+    return true;
+  }
+
+  var SYSTEMS = {
+    gravity: { name: 'Gravity', needs: ['velocity', 'gravity'], run: function (id, dt) {
+      store.velocity[id].y += store.gravity[id] * dt;
+    } },
+    movement: { name: 'Movement', needs: ['position', 'velocity'], run: function (id, dt) {
+      var p = store.position[id], v = store.velocity[id];
+      p.x += v.x * dt;
+      p.y += v.y * dt;
+      if (p.x > W) p.x -= W;
+      if (p.x < 0) p.x += W;
+      if (p.y > FLOOR) { p.y = FLOOR; v.y = -Math.abs(v.y); }
+      if (p.y < CEILING) { p.y = CEILING; v.y = Math.abs(v.y); }
+    } },
+    draw: { name: 'Draw', needs: ['position', 'sprite'] }
+  };
+
+  var ui = DemoKit.controls('[data-demo="ecs"]');
+  var runGravity = ui.toggle({ label: 'Run Gravity system', value: true, onChange: redraw });
+  var runMovement = ui.toggle({ label: 'Run Movement system', value: true, onChange: redraw });
+  var runDraw = ui.toggle({ label: 'Run Draw system', value: true, onChange: redraw });
+  var highlight = ui.select({ label: 'Highlight query', value: 'gravity', onChange: redraw, options: [
+    { value: 'gravity', label: 'Gravity: Velocity + Gravity' },
+    { value: 'movement', label: 'Movement: Position + Velocity' },
+    { value: 'draw', label: 'Draw: Position + Sprite' },
+    { value: 'none', label: 'None' }
+  ] });
+  var outlines = ui.toggle({ label: 'Debug outline for undrawn entities', value: true, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () { reset(); redraw(); } });
+  var counts = ui.readout({ label: 'Entities each system visits' });
+
+  var handle = null;
+  var cv = document.getElementById('ecs');
+  function redraw() { if (handle) handle.redraw(); }
+
+  var cursor = { row: 2, col: 1 };   // starts on the tree's Velocity cell
+
+  function layout(s) {
+    var k = Math.min((s.width - 16) / W, 1.2);
+    var band = H * 1.2;
+    var worldW = W * k, worldH = H * k;
+    var ox = (s.width - worldW) / 2;
+    var oy = 8 + (band - worldH) / 2;
+    var tx = 8, tw = s.width - 16;
+    var ty = 8 + band + 14;
+    var entW = Math.max(70, Math.round(tw * 0.2));
+    var colW = (tw - entW) / COMPS.length;
+    return { k: k, ox: ox, oy: oy, worldW: worldW, worldH: worldH,
+      tx: tx, ty: ty, tw: tw, entW: entW, colW: colW, headH: 26, rowH: 28 };
+  }
+
+  function cellAt(L, x, y) {
+    var top = L.ty + L.headH;
+    var row = Math.floor((y - top) / L.rowH);
+    var col = Math.floor((x - L.tx - L.entW) / L.colW);
+    if (row < 0 || row >= COUNT || col < 0 || col >= COMPS.length) return null;
+    return { row: row, col: col };
+  }
+
+  function toggleCell(row, col) {
+    var id = row + 1, c = COMPS[col];
+    if (has(id, c)) delete store[c][id];
+    else store[c][id] = copy(TEMPLATES[row][c]);
+  }
+
+  function systemOn(key) {
+    if (key === 'gravity') return runGravity.value;
+    if (key === 'movement') return runMovement.value;
+    return runDraw.value;
+  }
+
+  function cellText(c, value) {
+    if (c === 'position' || c === 'velocity') return Math.round(value.x) + ',' + Math.round(value.y);
+    if (c === 'gravity') return String(value);
+    return value.shape;
+  }
+
+  function drawSprite(ctx, colors, sp, X, Y, k) {
+    var r = sp.size * k;
+    ctx.fillStyle = colors[sp.color] || colors.ink;
+    ctx.beginPath();
+    if (sp.shape === 'square') {
+      ctx.rect(X - r, Y - r, 2 * r, 2 * r);
+    } else if (sp.shape === 'tree') {
+      ctx.moveTo(X, Y - r * 1.3);
+      ctx.lineTo(X - r, Y + r);
+      ctx.lineTo(X + r, Y + r);
+      ctx.closePath();
+    } else if (sp.shape === 'diamond') {
+      ctx.moveTo(X, Y - r);
+      ctx.lineTo(X + r, Y);
+      ctx.lineTo(X, Y + r);
+      ctx.lineTo(X - r, Y);
+      ctx.closePath();
+    } else if (sp.shape === 'cloud') {
+      ctx.arc(X - r * 0.8, Y + r * 0.2, r * 0.7, 0, Math.PI * 2);
+      ctx.moveTo(X + r * 1.5, Y + r * 0.2);
+      ctx.arc(X + r * 0.8, Y + r * 0.2, r * 0.7, 0, Math.PI * 2);
+      ctx.moveTo(X + r, Y - r * 0.2);
+      ctx.arc(X, Y - r * 0.2, r, 0, Math.PI * 2);
+    } else {
+      ctx.arc(X, Y, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function drawWorld(ctx, s, L) {
+    var c = s.colors;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(L.ox, L.oy, L.worldW, L.worldH);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(L.ox + 0.5, L.oy + 0.5, L.worldW - 1, L.worldH - 1);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(L.ox, L.oy + GROUND * L.k);
+    ctx.lineTo(L.ox + L.worldW, L.oy + GROUND * L.k);
+    ctx.stroke();
+
+    var hl = highlight.value === 'none' ? null : SYSTEMS[highlight.value];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(L.ox, L.oy, L.worldW, L.worldH);
+    ctx.clip();
+    for (var id = 1; id <= COUNT; id++) {
+      if (!has(id, 'position')) continue;   // no Position: nowhere to be
+      var p = store.position[id];
+      var X = L.ox + p.x * L.k, Y = L.oy + p.y * L.k;
+      var size = has(id, 'sprite') ? store.sprite[id].size : 8;
+      var drawn = runDraw.value && has(id, 'sprite');
+      if (drawn) {
+        drawSprite(ctx, c, store.sprite[id], X, Y, L.k);
+      } else if (outlines.value) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(X, Y, 9 * L.k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (hl && matches(id, hl.needs)) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(X, Y, (size * 1.3 + 6) * L.k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (drawn || outlines.value) {
+        ctx.fillStyle = c.ink2;
+        ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(id), X, Y - (size * 1.3 + 9) * L.k);
+      }
+    }
+    ctx.restore();
+
+    if (!runDraw.value) {
+      ctx.fillStyle = c.ink3;
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('Draw system off', L.ox + 8, L.oy + 18);
+    }
+  }
+
+  function drawTable(ctx, s, L) {
+    var c = s.colors;
+    var hl = highlight.value === 'none' ? null : SYSTEMS[highlight.value];
+    var narrow = L.colW < 74;
+    var mono = (narrow ? '11px' : '12px') + ' ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    var body = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    var bold = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    var focused = document.activeElement === cv;
+
+    // Header.
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = bold;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Entity', L.tx + 6, L.ty + L.headH / 2);
+    for (var j = 0; j < COMPS.length; j++) {
+      var hx = L.tx + L.entW + j * L.colW;
+      var needed = hl && hl.needs.indexOf(COMPS[j]) >= 0;
+      if (needed) {
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(hx + 1, L.ty, L.colW - 2, L.headH);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = needed ? c.topic : c.ink2;
+      ctx.textAlign = 'center';
+      ctx.fillText(narrow ? SHORT[COMPS[j]] : LONG[COMPS[j]], hx + L.colW / 2, L.ty + L.headH / 2);
+    }
+
+    // Rows.
+    for (var r = 0; r < COUNT; r++) {
+      var id = r + 1;
+      var y = L.ty + L.headH + r * L.rowH;
+      var match = hl && matches(id, hl.needs);
+      if (match) {
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(L.tx, y, L.tw, L.rowH);
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(L.tx, Math.round(y) + 0.5);
+      ctx.lineTo(L.tx + L.tw, Math.round(y) + 0.5);
+      ctx.stroke();
+
+      ctx.font = match ? bold : body;
+      ctx.fillStyle = match ? c.topic : c.ink;
+      ctx.textAlign = 'left';
+      ctx.fillText(id + ' ' + TEMPLATES[r].name, L.tx + 6, y + L.rowH / 2);
+
+      var partial = false;
+      if (hl && !match) {
+        for (var q = 0; q < hl.needs.length; q++) if (has(id, hl.needs[q])) partial = true;
+      }
+
+      for (var k2 = 0; k2 < COMPS.length; k2++) {
+        var comp = COMPS[k2];
+        var cx = L.tx + L.entW + k2 * L.colW;
+        var bx = cx + 3, by = y + 4, bw = L.colW - 6, bh = L.rowH - 8;
+        if (has(id, comp)) {
+          roundRect(ctx, bx, by, bw, bh, 4);
+          ctx.fillStyle = c.surface;
+          ctx.fill();
+          ctx.strokeStyle = (hl && hl.needs.indexOf(comp) >= 0 && match) ? c.topic : c.ink3;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.font = mono;
+          ctx.fillStyle = c.ink;
+          ctx.textAlign = 'center';
+          ctx.fillText(cellText(comp, store[comp][id]), cx + L.colW / 2, y + L.rowH / 2);
+        } else {
+          ctx.font = body;
+          ctx.fillStyle = c.ink3;
+          ctx.textAlign = 'center';
+          ctx.fillText('–', cx + L.colW / 2, y + L.rowH / 2);
+          if (partial && hl.needs.indexOf(comp) >= 0) {
+            roundRect(ctx, bx, by, bw, bh, 4);
+            ctx.strokeStyle = c.bad;
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
+        if (focused && cursor.row === r && cursor.col === k2) {
+          ctx.strokeStyle = c.ink;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(cx + 1, y + 1, L.colW - 2, L.rowH - 2);
+        }
+      }
+    }
+    var end = L.ty + L.headH + COUNT * L.rowH;
+    ctx.strokeStyle = c.line;
+    ctx.beginPath();
+    ctx.moveTo(L.tx, Math.round(end) + 0.5);
+    ctx.lineTo(L.tx + L.tw, Math.round(end) + 0.5);
+    ctx.stroke();
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.font = body;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Tap a cell to add or remove it', L.tx, end + 22);
+  }
+
+  function updateCounts() {
+    var parts = ['gravity', 'movement', 'draw'].map(function (key) {
+      var n = 0;
+      for (var id = 1; id <= COUNT; id++) if (matches(id, SYSTEMS[key].needs)) n++;
+      return SYSTEMS[key].name + ' ' + (systemOn(key) ? n : 'off');
+    });
+    counts.set(parts.join(', '));
+  }
+
+  handle = DemoKit.canvas('#ecs', {
+    height: 480,
+    keys: true,
+    label: 'An ECS world with six entities above a table of their components. Click cells to add or remove components; the highlighted query shows which entities a system visits.',
+    update: function (dt) {
+      // Systems run in a fixed order: Gravity, then Movement. Draw runs in draw().
+      ['gravity', 'movement'].forEach(function (key) {
+        if (!systemOn(key)) return;
+        var sys = SYSTEMS[key];
+        for (var id = 1; id <= COUNT; id++) {
+          if (matches(id, sys.needs)) sys.run(id, dt);
+        }
+      });
+    },
+    draw: function (ctx, s) {
+      var L = layout(s);
+      drawWorld(ctx, s, L);
+      drawTable(ctx, s, L);
+      updateCounts();
+    },
+    onDown: function (p, s) {
+      var cell = cellAt(layout(s), p.x, p.y);
+      if (!cell) return;
+      cursor.row = cell.row;
+      cursor.col = cell.col;
+      toggleCell(cell.row, cell.col);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowup') cursor.row = (cursor.row + COUNT - 1) % COUNT;
+      else if (key === 'arrowdown') cursor.row = (cursor.row + 1) % COUNT;
+      else if (key === 'arrowleft') cursor.col = (cursor.col + COMPS.length - 1) % COMPS.length;
+      else if (key === 'arrowright') cursor.col = (cursor.col + 1) % COMPS.length;
+      else if (key === 'space' || key === 'enter') toggleCell(cursor.row, cursor.col);
+    }
+  });
+  cv.addEventListener('focus', redraw);
+  cv.addEventListener('blur', redraw);
+})();
+</script>
+</body>
+</html>

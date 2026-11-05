@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quake's potentially visible set: deciding what to draw before the game ships · Game Dev Daily</title>
+<meta name="description" content="Quake worked out in advance which parts of a level can ever see each other, stored it as one bit per area, and skipped the rest of the map every frame.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-05">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Quake's potentially visible set: deciding what to draw before the game ships</h1>
+  <p class="lede">Quake worked out in advance which parts of a level can ever see each other, stored it as one bit per area, and skipped the rest of the map every frame.</p>
+</header>
+
+<section data-section="hook">
+  <p>Stand in a small room in a big level. Almost everything sits behind solid walls, yet a naive renderer still examines every hidden wall each frame before deciding not to draw it. Quake moved that decision out of the game: a tool made it once, before the level shipped.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: true 3D on a mid-1990s PC</h2>
+  <p>Quake shipped in the summer of 1996 with fully 3D levels, drawn in software on the processor. The hard part, as Michael Abrash described it, is <dfn>visible surface determination</dfn>: working out which polygons the camera can see. The methods tried first did more work in complicated scenes, and Abrash recalls one spot where the frame rate fell into single digits.</p>
+
+  <h2>Leaves: the level is already cut into pieces</h2>
+  <p>Like Doom, a Quake level is compiled into a binary space partitioning tree (see the <a href="2026-11-02-doom-bsp-tree.html">Doom BSP lesson</a>), here with 3D planes. The empty space ends up cut into convex pieces called <dfn>leaves</dfn>, each holding the polygons on its boundary. The released map format allows up to 8192 leaves.</p>
+
+  <h2>The trick: a lookup table of what can ever be seen</h2>
+  <p>For every leaf, the tools work out which other leaves can be seen from <em>anywhere</em> inside it. That list is the leaf's <dfn>potentially visible set</dfn>, or PVS. It is stored as a row of bits, one bit per leaf in the level: 1 means "might be visible from here", 0 means "can never be seen from here, whatever you do".</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Left: a map of four rooms seen from above, with doorways between rooms 0 and 1, 1 and 3, and 2 and 3. The player stands in room 0. Rooms 0 and 1 are shaded. Right: a four by four table of bits, one row per room. The row for room 0 reads 1 1 0 0 and is outlined, with an arrow from the player's room to it.">
+      <text class="d-muted" x="160" y="24" text-anchor="middle">the level, seen from above</text>
+      <rect class="d-accent-soft" x="20" y="40" width="140" height="90"/>
+      <rect class="d-accent-soft" x="160" y="40" width="140" height="90"/>
+      <rect class="d-fill" x="20" y="130" width="140" height="90"/>
+      <rect class="d-fill" x="160" y="130" width="140" height="90"/>
+      <path class="d-stroke" style="stroke-width:4" d="M20 40 H300 V220 H20 Z M160 40 V70 M160 100 V175 M160 205 V220 M20 130 H230 M260 130 H300"/>
+      <text class="d-text" x="90" y="80" text-anchor="middle">room 0</text>
+      <text class="d-text" x="230" y="80" text-anchor="middle">room 1</text>
+      <text class="d-text" x="90" y="180" text-anchor="middle">room 2</text>
+      <text class="d-text" x="230" y="180" text-anchor="middle">room 3</text>
+      <circle class="d-accent-fill" cx="60" cy="108" r="7"/>
+      <text class="d-muted" x="74" y="113">you</text>
+      <path class="d-accent" d="M306 80 H366"/>
+      <path class="d-accent-fill" d="M374 80 L364 74 L364 86 Z"/>
+      <text class="d-muted" x="490" y="24" text-anchor="middle">baked table: one row per room</text>
+      <text class="d-muted" x="490" y="48" text-anchor="middle">can see room</text>
+      <text class="d-mono" x="438" y="64" text-anchor="middle">0</text>
+      <text class="d-mono" x="474" y="64" text-anchor="middle">1</text>
+      <text class="d-mono" x="510" y="64" text-anchor="middle">2</text>
+      <text class="d-mono" x="546" y="64" text-anchor="middle">3</text>
+      <text class="d-mono" x="400" y="89" text-anchor="middle">0</text>
+      <text class="d-mono" x="400" y="119" text-anchor="middle">1</text>
+      <text class="d-mono" x="400" y="149" text-anchor="middle">2</text>
+      <text class="d-mono" x="400" y="179" text-anchor="middle">3</text>
+      <rect class="d-box" x="420" y="70" width="144" height="120"/>
+      <path class="d-thin" d="M456 70 V190 M492 70 V190 M528 70 V190 M420 100 H564 M420 130 H564 M420 160 H564"/>
+      <text class="d-mono" x="438" y="89" text-anchor="middle">1</text><text class="d-mono" x="474" y="89" text-anchor="middle">1</text><text class="d-mono" x="510" y="89" text-anchor="middle">0</text><text class="d-mono" x="546" y="89" text-anchor="middle">0</text>
+      <text class="d-mono" x="438" y="119" text-anchor="middle">1</text><text class="d-mono" x="474" y="119" text-anchor="middle">1</text><text class="d-mono" x="510" y="119" text-anchor="middle">0</text><text class="d-mono" x="546" y="119" text-anchor="middle">1</text>
+      <text class="d-mono" x="438" y="149" text-anchor="middle">0</text><text class="d-mono" x="474" y="149" text-anchor="middle">0</text><text class="d-mono" x="510" y="149" text-anchor="middle">1</text><text class="d-mono" x="546" y="149" text-anchor="middle">1</text>
+      <text class="d-mono" x="438" y="179" text-anchor="middle">0</text><text class="d-mono" x="474" y="179" text-anchor="middle">1</text><text class="d-mono" x="510" y="179" text-anchor="middle">1</text><text class="d-mono" x="546" y="179" text-anchor="middle">1</text>
+      <rect class="d-accent" x="418" y="71" width="148" height="28"/>
+      <text class="d-label" x="490" y="220" text-anchor="middle">you are in room 0, so read row 0:</text>
+      <text class="d-text" x="490" y="242" text-anchor="middle">draw rooms 0 and 1, skip 2 and 3</text>
+    </svg>
+    <figcaption>No straight line can leave room 0 and reach rooms 2 or 3, so their bits in row 0 are 0. At run time the game reads one row and never looks at the rest of the map.</figcaption>
+  </figure>
+
+  <h3>Building the table, slowly</h3>
+  <p>A separate tool called <code>vis</code> does the work after the BSP is built. The level must be sealed, so the outside can be thrown away. The openings between neighbouring leaves are <dfn>portals</dfn>. In the released source, vis first makes a rough guess for each portal by flooding through the portals in front of it, then refines it by following chains of portals: if no straight line can thread the whole chain, the leaf at the end is not visible.</p>
+  <p>Abrash wrote that processing a level took 10 to 30 minutes on a four-processor Alpha, a figure that includes building the BSP and the lighting. A <code>-fast</code> option keeps only the rough guess.</p>
+
+  <h3>Making it small</h3>
+  <p>Abrash says the first uncompressed tables were several megabytes. But from any one leaf most of the level is hidden, so most bytes in a row are zero: a non-zero byte is stored as it is, and a run of zero bytes becomes a zero followed by a count. The row <code>03 00 00 00 00 00 10</code> is stored as <code>03 00 05 10</code>. With that, fewer leaves and the sealed outside removed, Abrash puts the table at about 20 KB for a good-size level.</p>
+
+  <h3>Using it, cheaply</h3>
+  <p>Each frame the game finds the camera's leaf by walking down the BSP tree. When that leaf changes, it unpacks the row and marks every visible leaf, and the nodes above it, with a frame number. The BSP walk then skips unmarked branches.</p>
+  <p>The price is extra work. The set holds what is visible from anywhere in the leaf, not from your exact spot, so it includes more than is really in view: Abrash says two or three times as many polygons as are actually visible.</p>
+
+  <div class="callout">
+    <p class="callout-title">The lesson for today</p>
+    <p>Abrash quotes Terje Mathisen: "almost all programming can be viewed as an exercise in caching." Baked occlusion data, lighting and navigation meshes make the same trade: build time and a little memory so that a phone or browser does less work every frame, and the worst frame is not much worse than the best.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The table for these twelve rooms was baked when the page loaded. Drag the dot, or click the map and use the arrow keys. Lit rooms are in the current row; the rest are never sent to be drawn. Turn on <strong>True line of sight</strong> and notice that the lit set is often larger than what you really see. Then switch <strong>Map</strong> to the open hall.</p>
+
+  <figure class="demo wide" data-demo="quake-pvs">
+    <canvas id="quake-pvs"></canvas>
+    <figcaption>In the rooms map, room 2 can only ever see itself and room 3, while room 6 sees 9 of the 12. In the open hall every room sees all 12, so the table saves nothing. The strip under the map is the row being read, bit 0 on the left.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A slow bake and a cheap lookup. Rooms are numbered from 0 so room <code>j</code> is bit <code>j</code>, as in the demo strip; rows are plain numbers read with division, since Lua 5.1 has no bit operators. <code>clearLine</code> is your own grid ray test, like the one in the <a href="2026-11-01-wolfenstein-raycasting.html">Wolfenstein lesson</a>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local COLS, NUM_ROOMS = 4, 12           <span class="c">-- 4 by 3 rooms, each 8 by 5 tiles</span>
+local pvs = {}                          <span class="c">-- pvs[room] = one bit per room</span>
+local usePVS = true
+local player = { x = 2.5, y = 2.5 }     <span class="c">-- in tiles</span>
+
+local function roomAt(x, y)
+  local c = math.min(COLS - 1, math.floor((x - 1) / 8))
+  local r = math.min(2, math.floor((y - 1) / 5))
+  return r * COLS + c
+end
+
+local function hasBit(row, j)
+  return math.floor(row / 2 ^ j) % 2 == 1
+end
+
+local function anyLine(a, b, clearLine) <span class="c">-- any point in a sees any point in b?</span>
+  for _, p in ipairs(a) do
+    for _, q in ipairs(b) do
+      if clearLine(p.x, p.y, q.x, q.y) then return true end
+    end
+  end
+  return false
+end
+
+<span class="c">-- Offline, once per level. samples[i] lists points spread over room i.</span>
+local function bakePVS(samples, clearLine)
+  for i = 0, NUM_ROOMS - 1 do
+    local row = 2 ^ i                   <span class="c">-- a room always sees itself</span>
+    for j = 0, NUM_ROOMS - 1 do
+      if j ~= i and anyLine(samples[i], samples[j], clearLine) then
+        row = row + 2 ^ j
+      end
+    end
+    pvs[i] = row
+  end
+end
+
+local function drawRoom(j)              <span class="c">-- stand-in for sending room j to the renderer</span>
+  local c, r = j % COLS, math.floor(j / COLS)
+  love.graphics.rectangle("fill", (1 + c * 8) * 16, (1 + r * 5) * 16, 7 * 16, 4 * 16)
+end
+
+<span class="c">-- In love.load, call bakePVS(samples, clearLine) or load a table your build tool saved.</span>
+function love.draw()
+<span class="k">  local row = pvs[roomAt(player.x, player.y)]</span>
+  for j = 0, NUM_ROOMS - 1 do
+<span class="k">    if not usePVS or hasBit(row, j) then drawRoom(j) end</span>
+  end
+end</code></pre>
+  </div>
+  <p>The bake may test thousands of lines per pair of rooms. The draw is one read and twelve bit tests.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Open spaces defeat it.</strong> It only helps when walls block sight, as the hall map shows.</li>
+    <li><strong>Moving things are not in the table.</strong> The bake sees only fixed geometry. A closed door does not hide the room behind it unless you add a separate run-time test.</li>
+    <li><strong>A bake that samples can miss.</strong> The demo tests lines between sample points and could miss a thin gap, making a room pop in. Quake's vis works with exact portal shapes. If you sample, use many points and lean towards "visible".</li>
+    <li><strong>Leaks.</strong> The method assumes a sealed level, so the tools can throw the outside away. A hole to the outside breaks that assumption.</li>
+    <li><strong>Long builds.</strong> Minutes per level slow designers down. Keep a rough mode for test builds, like <code>-fast</code>.</li>
+    <li><strong>Unpacking every frame.</strong> The row only changes when the camera moves to a new area. Cache it, as Quake did.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Quake's vis tool and the engine code that reads the table are in id Software's released source. GLQuake's console variable <code>r_novis</code> marks every leaf visible, like the demo's toggle. Abrash describes the PVS also limiting which models were drawn and which entities were sent over the network, and a QuakeWorld version using a wider "potentially hearable set" to pick which sounds to send, which he credits with raising the player limit from 16 to 32. Valve's Source engine compiles maps with a tool named VVIS, and Unity offers baked occlusion culling for the same reason.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take a level in your own project and give every area a zone number. Write an editor or start-up step that casts rays between points spread over each pair of zones and stores one visibility row per zone, saved to a file. At run time, look up the row for the player's zone and switch off drawing for every object in a zone whose bit is 0. You are done when an on-screen counter of drawn objects drops sharply as you walk into a closed room, and a key that ignores the table brings the count back.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Quake's tools split each level into convex leaves and stored, for every leaf, one bit per leaf saying whether it could ever be seen from there.</li>
+    <li>Building the table took minutes per level; using it took one lookup when the camera changed leaf.</li>
+    <li>Rows are mostly zeros, so runs of zero bytes were packed into a zero and a count.</li>
+    <li>The set is conservative: it holds everything visible from anywhere in the leaf, so some hidden polygons still get drawn.</li>
+    <li>It works when walls block sight, and moving objects need their own test.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we stay with Quake and see how its lighting and shadows were also calculated in advance and stored as small lightmap textures.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The mechanism, the figures and the quotation were checked in this session against Abrash's chapters and the released Quake source. Wikipedia and Fabien Sanglard's site could not be reached from this session.</p>
+  <ul>
+    <li>Michael Abrash, <cite>Graphics Programming Black Book, Special Edition</cite> (1997), chapter 64, <a href="https://raw.githubusercontent.com/jagregory/abrash-black-book/master/src/chapter-64.md">Quake's Visible-Surface Determination</a>, on how the PVS was arrived at, its size and its overdraw.</li>
+    <li>Michael Abrash, same book, chapter 70, <a href="https://raw.githubusercontent.com/jagregory/abrash-black-book/master/src/chapter-70.md">Quake: A Post-Mortem and a Glimpse into the Future</a>, on processing times, the drawing order, models and the potentially hearable set.</li>
+    <li>id Software, Quake tools source: <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qutils/VIS/VIS.C">qutils/VIS/VIS.C</a> (<code>CompressRow</code>, <code>LeafFlow</code>, the <code>-fast</code> option) and <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qutils/VIS/FLOW.C">qutils/VIS/FLOW.C</a> (<code>BasePortalVis</code> and the portal chain test).</li>
+    <li>id Software, Quake engine source: <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/model.c">WinQuake/model.c</a> (<code>Mod_DecompressVis</code>), <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/r_main.c">WinQuake/r_main.c</a> (<code>R_MarkLeaves</code>), <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/gl_rsurf.c">WinQuake/gl_rsurf.c</a> (<code>r_novis</code>) and <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/bspfile.h">WinQuake/bspfile.h</a> (<code>MAX_MAP_LEAFS</code>).</li>
+    <li>Seth Teller, <cite>Visibility Computations in Densely Occluded Polyhedral Environments</cite>, doctoral dissertation, and <cite>Visibility Preprocessing for Interactive Walkthroughs</cite>, SIGGRAPH 91, both listed in Abrash's references for the academic background.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Map: 33 by 16 tiles, cut into 4 by 3 rooms of 8 by 5 tiles ----
+  var MW = 33, MH = 16, COLS = 4, ROWS = 3, NR = COLS * ROWS;
+
+  function roomOf(x, y) {
+    var c = Math.min(COLS - 1, Math.max(0, Math.floor((x - 1) / 8)));
+    var r = Math.min(ROWS - 1, Math.max(0, Math.floor((y - 1) / 5)));
+    return r * COLS + c;
+  }
+
+  function buildMap(kind) {
+    var g = [], x, y;
+    for (y = 0; y < MH; y += 1) {
+      var row = [];
+      for (x = 0; x < MW; x += 1) {
+        var border = x === 0 || y === 0 || x === MW - 1 || y === MH - 1;
+        var line = x % 8 === 0 || y % 5 === 0;
+        row.push(border || (kind === 'rooms' && line) ? 1 : 0);
+      }
+      g.push(row);
+    }
+    var list = kind === 'rooms'
+      ? [[8, 2], [24, 3], [8, 8], [16, 7], [24, 8], [16, 13], [24, 12], [8, 12],
+         [3, 5], [14, 5], [27, 5], [5, 10], [20, 10], [29, 10]]      // doorways
+      : [[4, 3], [12, 7], [20, 3], [28, 7], [4, 12], [12, 12], [20, 12], [28, 12],
+         [8, 7], [24, 7]];                                             // pillars
+    for (var i = 0; i < list.length; i += 1) g[list[i][1]][list[i][0]] = kind === 'rooms' ? 0 : 1;
+    return g;
+  }
+
+  function isWall(g, x, y) {
+    return x < 0 || y < 0 || x >= MW || y >= MH || g[y][x] === 1;
+  }
+
+  // Grid line test: walk every tile the segment touches. Passing exactly
+  // through a corner is blocked if either side tile is a wall.
+  function clearLine(g, x0, y0, x1, y1) {
+    var tx = Math.floor(x0), ty = Math.floor(y0);
+    var ex = Math.floor(x1), ey = Math.floor(y1);
+    var dx = x1 - x0, dy = y1 - y0;
+    var sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+    var tdx = dx !== 0 ? Math.abs(1 / dx) : Infinity;
+    var tdy = dy !== 0 ? Math.abs(1 / dy) : Infinity;
+    var tmx = dx !== 0 ? (dx > 0 ? tx + 1 - x0 : x0 - tx) * tdx : Infinity;
+    var tmy = dy !== 0 ? (dy > 0 ? ty + 1 - y0 : y0 - ty) * tdy : Infinity;
+    for (var k = 0; k < 200; k += 1) {
+      if (isWall(g, tx, ty)) return false;
+      if (tx === ex && ty === ey) return true;
+      if (Math.abs(tmx - tmy) < 1e-9) {
+        if (isWall(g, tx + sx, ty) || isWall(g, tx, ty + sy)) return false;
+        tx += sx; ty += sy; tmx += tdx; tmy += tdy;
+      } else if (tmx < tmy) { tx += sx; tmx += tdx; }
+      else { ty += sy; tmy += tdy; }
+    }
+    return false;
+  }
+
+  // ---- The bake: room i sees room j if any sample line between them is clear ----
+  function bake(g) {
+    var samples = [], tiles = [], i, j, x, y, k;
+    for (i = 0; i < NR; i += 1) { samples.push([]); tiles.push(0); }
+    var off = [[0.5, 0.5], [0.08, 0.08], [0.92, 0.08], [0.08, 0.92], [0.92, 0.92]];
+    for (y = 0; y < MH; y += 1) {
+      for (x = 0; x < MW; x += 1) {
+        if (g[y][x]) continue;
+        var r = roomOf(x, y);
+        tiles[r] += 1;
+        for (k = 0; k < off.length; k += 1) samples[r].push([x + off[k][0], y + off[k][1]]);
+      }
+    }
+    var pvs = [];
+    for (i = 0; i < NR; i += 1) pvs.push(1 << i);
+    for (i = 0; i < NR; i += 1) {
+      for (j = i + 1; j < NR; j += 1) {
+        var seen = false, A = samples[i], B = samples[j];
+        for (var a = 0; a < A.length && !seen; a += 1) {
+          for (var b = 0; b < B.length; b += 1) {
+            if (clearLine(g, A[a][0], A[a][1], B[b][0], B[b][1])) { seen = true; break; }
+          }
+        }
+        if (seen) { pvs[i] |= 1 << j; pvs[j] |= 1 << i; }
+      }
+    }
+    return { grid: g, pvs: pvs, tiles: tiles };
+  }
+
+  var levels = {};
+  function level(kind) {
+    if (!levels[kind]) levels[kind] = bake(buildMap(kind));
+    return levels[kind];
+  }
+
+  function countBits(v) { var n = 0; for (var j = 0; j < NR; j += 1) if ((v >> j) & 1) n += 1; return n; }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="quake-pvs"]');
+  var mapSel = ui.select({
+    label: 'Map',
+    options: [{ value: 'rooms', label: 'Rooms and doorways' }, { value: 'hall', label: 'Open hall with pillars' }],
+    value: 'rooms',
+    onChange: function () { placePlayer(player.x, player.y, true); }
+  });
+  var usePvs = ui.toggle({ label: 'Use the PVS (off: draw everything)', value: true });
+  var showLos = ui.toggle({ label: 'True line of sight from the dot', value: false });
+  var roomOut = ui.readout({ label: 'You are in' });
+  var pvsOut = ui.readout({ label: 'Rooms in its PVS' });
+  var losOut = ui.readout({ label: 'Rooms really in view from the dot' });
+  var tileOut = ui.readout({ label: 'Floor tiles sent to draw' });
+  var sizeOut = ui.readout({ label: 'Whole table' });
+  sizeOut.set(NR + ' rows of ' + NR + ' bits; padded to 2 bytes per row as Quake does: ' + NR * 2 + ' bytes');
+
+  var player = { x: 2.5, y: 2.5 };
+  var RADIUS = 0.25;
+
+  function fits(g, x, y) {
+    return !isWall(g, Math.floor(x - RADIUS), Math.floor(y - RADIUS)) &&
+           !isWall(g, Math.floor(x + RADIUS), Math.floor(y - RADIUS)) &&
+           !isWall(g, Math.floor(x - RADIUS), Math.floor(y + RADIUS)) &&
+           !isWall(g, Math.floor(x + RADIUS), Math.floor(y + RADIUS));
+  }
+
+  function placePlayer(x, y, resetIfBlocked) {
+    var g = level(mapSel.value).grid;
+    if (fits(g, x, y)) { player.x = x; player.y = y; }
+    else if (resetIfBlocked) { player.x = 2.5; player.y = 2.5; }
+  }
+
+  // ---- Exact view from the dot: a fan of rays ----
+  var RAYS = 360;
+  var hits = new Float32Array(RAYS);
+  var reallySeen = [];
+
+  function castRays(g) {
+    var i;
+    for (i = 0; i < NR; i += 1) reallySeen[i] = false;
+    for (i = 0; i < RAYS; i += 1) {
+      var ang = (i + 0.5) / RAYS * Math.PI * 2;
+      var dx = Math.cos(ang), dy = Math.sin(ang);
+      var x0 = player.x, y0 = player.y;
+      var tx = Math.floor(x0), ty = Math.floor(y0);
+      var sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+      var tdx = Math.abs(dx) > 1e-12 ? Math.abs(1 / dx) : 1e30;
+      var tdy = Math.abs(dy) > 1e-12 ? Math.abs(1 / dy) : 1e30;
+      var tmx = Math.abs(dx) > 1e-12 ? (dx > 0 ? tx + 1 - x0 : x0 - tx) * tdx : 1e30;
+      var tmy = Math.abs(dy) > 1e-12 ? (dy > 0 ? ty + 1 - y0 : y0 - ty) * tdy : 1e30;
+      var t = 0;
+      for (var k = 0; k < 200; k += 1) {
+        if (isWall(g, tx, ty)) break;
+        reallySeen[roomOf(tx, ty)] = true;
+        if (tmx < tmy) { t = tmx; tx += sx; tmx += tdx; }
+        else { t = tmy; ty += sy; tmy += tdy; }
+      }
+      hits[i] = t;
+    }
+  }
+
+  // ---- Layout helpers ----
+  var STRIP = 58;
+  function layout(s) {
+    var ts = Math.max(4, Math.min((s.width - 16) / MW, (s.height - STRIP - 12) / MH));
+    return { ts: ts, ox: (s.width - MW * ts) / 2, oy: 8 };
+  }
+
+  function pointerToTiles(p, s) {
+    var L = layout(s);
+    return { x: (p.x - L.ox) / L.ts, y: (p.y - L.oy) / L.ts };
+  }
+
+  var dragging = false;
+  function grab(p, s) {
+    var t = pointerToTiles(p, s);
+    placePlayer(t.x, t.y, false);
+  }
+
+  DemoKit.canvas('#quake-pvs', {
+    aspect: 1.5, minHeight: 250, maxHeight: 520,
+    drag: true, keys: true,
+    label: 'A top-down map of twelve rooms. Drag the dot or use the arrow keys. Rooms in the precomputed visible set of the dot\'s room are lit, and a strip of twelve bits shows that room\'s row of the table.',
+    onDown: function (p, s) { dragging = true; grab(p, s); },
+    onMove: function (p, s) { if (dragging && p.down) grab(p, s); },
+    onUp: function () { dragging = false; },
+    update: function (dt, s) {
+      var vx = 0, vy = 0, SPEED = 5;
+      if (s.keys.has('arrowleft')) vx -= 1;
+      if (s.keys.has('arrowright')) vx += 1;
+      if (s.keys.has('arrowup')) vy -= 1;
+      if (s.keys.has('arrowdown')) vy += 1;
+      if (!vx && !vy) return;
+      var g = level(mapSel.value).grid;
+      var nx = player.x + vx * SPEED * dt, ny = player.y + vy * SPEED * dt;
+      if (fits(g, nx, player.y)) player.x = nx;
+      if (fits(g, player.x, ny)) player.y = ny;
+    },
+    draw: function (ctx, s) {
+      var col = s.colors;
+      var lv = level(mapSel.value), g = lv.grid;
+      var L = layout(s), ts = L.ts, ox = L.ox, oy = L.oy;
+      var here = roomOf(Math.floor(player.x), Math.floor(player.y));
+      var row = lv.pvs[here];
+      var x, y, j;
+
+      ctx.fillStyle = col.surface2;
+      ctx.fillRect(0, 0, s.width, s.height);
+
+      // tiles
+      var drawnTiles = 0, totalTiles = 0;
+      for (j = 0; j < NR; j += 1) {
+        totalTiles += lv.tiles[j];
+        if (!usePvs.value || ((row >> j) & 1)) drawnTiles += lv.tiles[j];
+      }
+      for (y = 0; y < MH; y += 1) {
+        for (x = 0; x < MW; x += 1) {
+          var px = ox + x * ts, py = oy + y * ts;
+          if (g[y][x]) {
+            ctx.fillStyle = col.ink2;
+            ctx.fillRect(px, py, ts + 0.5, ts + 0.5);
+            continue;
+          }
+          var r = roomOf(x, y);
+          var drawn = !usePvs.value || ((row >> r) & 1);
+          ctx.fillStyle = col.surface;
+          ctx.fillRect(px, py, ts + 0.5, ts + 0.5);
+          if (drawn) {
+            ctx.globalAlpha = r === here ? 0.5 : 0.28;
+            ctx.fillStyle = col.topic;
+            ctx.fillRect(px, py, ts + 0.5, ts + 0.5);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+
+      // in the hall the leaves still exist, they just have no walls between them
+      if (mapSel.value === 'hall') {
+        ctx.strokeStyle = col.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        for (x = 8; x < MW - 1; x += 8) { ctx.moveTo(ox + x * ts, oy + ts); ctx.lineTo(ox + x * ts, oy + (MH - 1) * ts); }
+        for (y = 6; y < MH - 1; y += 5) { ctx.moveTo(ox + ts, oy + y * ts); ctx.lineTo(ox + (MW - 1) * ts, oy + y * ts); }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // room numbers
+      ctx.font = Math.max(11, Math.min(18, ts * 0.9)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (j = 0; j < NR; j += 1) {
+        var cx = ox + (1 + (j % COLS) * 8 + 3.5) * ts;
+        var cy = oy + (1 + Math.floor(j / COLS) * 5 + 2) * ts;
+        var lit = !usePvs.value || ((row >> j) & 1);
+        ctx.fillStyle = lit ? col.ink : col.ink3;
+        ctx.fillText(String(j), cx, cy);
+      }
+
+      // exact line of sight
+      castRays(g);
+      if (showLos.value) {
+        ctx.beginPath();
+        for (var i = 0; i < RAYS; i += 1) {
+          var ang = (i + 0.5) / RAYS * Math.PI * 2;
+          var hx = ox + (player.x + Math.cos(ang) * hits[i]) * ts;
+          var hy = oy + (player.y + Math.sin(ang) * hits[i]) * ts;
+          if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = col.warn;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = col.warn;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // player
+      ctx.beginPath();
+      ctx.arc(ox + player.x * ts, oy + player.y * ts, Math.max(5, ts * 0.42), 0, Math.PI * 2);
+      ctx.fillStyle = col.topic;
+      ctx.fill();
+      ctx.strokeStyle = col.ink;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // the row of the table being read
+      var sy0 = oy + MH * ts + 8;
+      var sq = Math.max(14, Math.min(26, (s.width - 110) / NR));
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = col.ink2;
+      ctx.fillText('Row for room ' + here + (usePvs.value ? '' : ' (ignored)') +
+        (showLos.value ? ', dot = really in view' : ''), 8, sy0);
+      var by = sy0 + 18;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '11px system-ui, sans-serif';
+      for (j = 0; j < NR; j += 1) {
+        var bx = 8 + j * sq;
+        var on = (row >> j) & 1;
+        ctx.fillStyle = on ? col.topic : col.surface;
+        ctx.fillRect(bx, by, sq - 2, sq - 2);
+        ctx.strokeStyle = j === here ? col.ink : col.line;
+        ctx.lineWidth = j === here ? 2 : 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, sq - 3, sq - 3);
+        ctx.fillStyle = on ? col.surface : col.ink3;
+        ctx.fillText(on ? '1' : '0', bx + (sq - 2) / 2, by + (sq - 2) / 2);
+        if (showLos.value && reallySeen[j]) {
+          ctx.beginPath();
+          ctx.arc(bx + (sq - 2) / 2, by + sq + 4, 3, 0, Math.PI * 2);
+          ctx.fillStyle = col.warn;
+          ctx.fill();
+        }
+      }
+
+      var inView = 0;
+      for (j = 0; j < NR; j += 1) if (reallySeen[j]) inView += 1;
+      roomOut.set('room ' + here);
+      pvsOut.set(countBits(row) + ' of ' + NR);
+      losOut.set(inView + ' of ' + NR);
+      tileOut.set(drawnTiles + ' of ' + totalTiles + (usePvs.value ? '' : ' (PVS off)'));
+    }
+  });
+})();
+</script>
+</body>
+</html>

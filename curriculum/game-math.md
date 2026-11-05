@@ -33,7 +33,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 
 - [x] **Quadratic Bezier curves** — How three points and repeated lerps define a smooth curve. Demo: drag the control points and a t slider to see the construction lines. (published 2026-11-03, quadratic-bezier-curves)
 - [x] **Cubic Bezier curves** — How four points give more control and how curves are joined smoothly into a path. Demo: drag the handles of two joined curves with a toggle that keeps the joint smooth. (published 2026-11-04, cubic-bezier-paths)
-- [ ] **Catmull-Rom splines** — How a curve can pass through every point you place. Demo: click to add points and adjust a tension slider to reshape the path.
+- [x] **Catmull-Rom splines** — How a curve can pass through every point you place. Demo: click to add points and adjust a tension slider to reshape the path. (published 2026-11-05, catmull-rom-splines)
 - [ ] **Arc length and constant speed** — Why equal steps in t do not give equal distances and how a lookup table fixes it. Demo: two dots travel along one curve, one by t and one by distance, with a slider for table size.
 - [ ] **2D transform matrices** — How one matrix stores translation, rotation and scale. Demo: sliders for each part transform a shape while the matrix values update.
 - [ ] **The order of transforms** — Why rotating and then moving differs from moving and then rotating. Demo: drag transform steps into a different order and see the shape land somewhere else.

@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pigment Slide: every block moves, every collision mixes · Game Dev Daily</title>
+<meta name="description" content="A sliding puzzle where all the paint moves at once and every collision mixes colours, so you must keep some apart. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-05">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pigment Slide: every block moves, every collision mixes</h1>
+  <p class="lede">A sliding puzzle where all the paint moves at once and every collision mixes colours, so you must keep some apart. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are the apprentice in a fresco workshop, and the master has chalked a colour on each patch of wall: green here, purple there. Your paints are blocks on a slippery table, and when you tilt it every block slides at once, and any two that touch mix for good.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: read, slide, mix</h2>
+  <p>Pigment Slide is a turn-based puzzle on a five by five grid. Some tiles are walls. Some are <dfn>targets</dfn>, floor tiles marked with the colour they want. The rest is open floor. On the floor sit blocks of the three painter's primaries: red, yellow and blue.</p>
+  <p>Each move is one direction. Every block on the board slides that way until it hits a wall, the edge, or another block. This is the same "slide until stopped" rule as an ice floor, applied to everything at once. When a sliding block runs into another block, the two become one block of the mixed colour.</p>
+  <p>Every ten seconds the player reads where each block would stop and picks a direction. Every minute they finish a canvas, when every target holds a block of its colour at the end of a move. Every session brings canvases with more targets, more blocks of the same colour, and a <dfn>par</dfn>, the fewest moves that solve it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read, predicting where every block will stop; slide, choosing one of four directions; and mix, where blocks that collide combine. It leads back to read. Beside it, two longer loops: every minute a canvas finished, and every session more targets and a par to beat.">
+      <defs>
+        <marker id="ps-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Read</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">where will each stop?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Slide</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">all blocks, one way</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Mix</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">collisions combine</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ps-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ps-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ps-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a canvas finished,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">every target filled</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">more targets, more</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">twins, a par to beat</text>
+    </svg>
+    <figcaption>The short loop is about prediction. Nothing moves until you choose, but once you choose, everything moves.</figcaption>
+  </figure>
+
+  <p>The mixing rules fit on one card. Two different primaries make a secondary colour. Two blocks of the same colour make one block of that colour, so you lose a block without gaining anything. Anything else turns to <dfn>mud</dfn>, a brown block that matches no target.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="The mixing card. Red plus yellow makes orange. Yellow plus blue makes green. Red plus blue makes purple. Blue plus blue makes a single blue, one block lost. A secondary colour plus anything else makes mud.">
+      <text class="d-label" x="20" y="28">Primaries mix</text>
+      <rect class="d-box" x="20" y="44" width="40" height="40" rx="6"/><text class="d-text" x="40" y="69" text-anchor="middle">R</text>
+      <text class="d-text" x="76" y="69" text-anchor="middle">+</text>
+      <rect class="d-box" x="92" y="44" width="40" height="40" rx="6"/><text class="d-text" x="112" y="69" text-anchor="middle">Y</text>
+      <text class="d-text" x="148" y="69" text-anchor="middle">=</text>
+      <rect class="d-accent-soft" x="164" y="44" width="40" height="40" rx="6"/><text class="d-text" x="184" y="69" text-anchor="middle">O</text>
+      <text class="d-muted" x="216" y="69">orange</text>
+
+      <rect class="d-box" x="20" y="100" width="40" height="40" rx="6"/><text class="d-text" x="40" y="125" text-anchor="middle">Y</text>
+      <text class="d-text" x="76" y="125" text-anchor="middle">+</text>
+      <rect class="d-box" x="92" y="100" width="40" height="40" rx="6"/><text class="d-text" x="112" y="125" text-anchor="middle">B</text>
+      <text class="d-text" x="148" y="125" text-anchor="middle">=</text>
+      <rect class="d-accent-soft" x="164" y="100" width="40" height="40" rx="6"/><text class="d-text" x="184" y="125" text-anchor="middle">G</text>
+      <text class="d-muted" x="216" y="125">green</text>
+
+      <rect class="d-box" x="20" y="156" width="40" height="40" rx="6"/><text class="d-text" x="40" y="181" text-anchor="middle">R</text>
+      <text class="d-text" x="76" y="181" text-anchor="middle">+</text>
+      <rect class="d-box" x="92" y="156" width="40" height="40" rx="6"/><text class="d-text" x="112" y="181" text-anchor="middle">B</text>
+      <text class="d-text" x="148" y="181" text-anchor="middle">=</text>
+      <rect class="d-accent-soft" x="164" y="156" width="40" height="40" rx="6"/><text class="d-text" x="184" y="181" text-anchor="middle">P</text>
+      <text class="d-muted" x="216" y="181">purple</text>
+
+      <path class="d-dash" d="M300 30 V230"/>
+
+      <text class="d-label" x="330" y="28">The traps</text>
+      <rect class="d-box" x="330" y="44" width="40" height="40" rx="6"/><text class="d-text" x="350" y="69" text-anchor="middle">B</text>
+      <text class="d-text" x="386" y="69" text-anchor="middle">+</text>
+      <rect class="d-box" x="402" y="44" width="40" height="40" rx="6"/><text class="d-text" x="422" y="69" text-anchor="middle">B</text>
+      <text class="d-text" x="458" y="69" text-anchor="middle">=</text>
+      <rect class="d-box" x="474" y="44" width="40" height="40" rx="6"/><text class="d-text" x="494" y="69" text-anchor="middle">B</text>
+      <text class="d-muted" x="526" y="69">one lost</text>
+
+      <rect class="d-accent-soft" x="330" y="100" width="40" height="40" rx="6"/><text class="d-text" x="350" y="125" text-anchor="middle">G</text>
+      <text class="d-text" x="386" y="125" text-anchor="middle">+</text>
+      <rect class="d-box" x="402" y="100" width="40" height="40" rx="6"/><text class="d-text" x="422" y="125" text-anchor="middle">R</text>
+      <text class="d-text" x="458" y="125" text-anchor="middle">=</text>
+      <rect class="d-fill" x="474" y="100" width="40" height="40" rx="6"/><text class="d-text" x="494" y="125" text-anchor="middle">M</text>
+      <text class="d-muted" x="526" y="125">mud</text>
+
+      <text class="d-muted" x="330" y="181">A secondary plus anything</text>
+      <text class="d-muted" x="330" y="201">different is mud, and mud</text>
+      <text class="d-muted" x="330" y="221">never mixes back.</text>
+    </svg>
+    <figcaption>The left column is what you want. The right column is what happens when you are careless, and it cannot be undone except with Undo.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>One direction moves everything.</strong> Blocks nearest the far wall settle first, then the ones behind them slide up and stop or mix.</li>
+    <li><strong>One mix per block per move.</strong> A block that was just made by a mix cannot mix again in the same move. A third block stops beside it. Without this rule a whole row would collapse into mud in one press.</li>
+    <li><strong>Mixing is permanent.</strong> There is no way to split a block. A canvas becomes unsolvable the moment a colour you still need is spent.</li>
+    <li><strong>The goal.</strong> At the end of a move, every target holds a block of its colour. Extra blocks elsewhere do not matter.</li>
+  </ul>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the careful apprentice. The constraint is that you cannot move one block on its own. That turns the puzzle inside out: the hard part is rarely making green, it is keeping the blue you need for purple away from the yellow while you make green. Canvas 2 in the demo opens with two blues side by side, and any sideways move merges them into one, which leaves you a blue short.</p>
+  <p>The mood is calm: no timer, and the only way to fail is to spend a colour, which Undo gives back.</p>
+  <p>The hardest part to build is the level design, not the rule. The slide is thirty lines, but knowing that every canvas is solvable and what its par is takes a solver. The prototype's canvases were checked with a breadth first search over all four directions. Each has fewer than two hundred reachable states, so the demo also runs that search after every move and tells you when a board becomes unsolvable.</p>
+  <p>The colour model is the traditional painter's red, yellow and blue. Real pigments do not mix this neatly, which is fine for a game.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Canvas 1 teaches the slide and the mix. On canvas 2, look at the two blues before you press anything. Canvas 3 wants one red to stay pure while another red becomes something else. Watch the target corners: a green outline means that target is done.</p>
+
+  <figure class="demo wide" data-demo="pigment-slide">
+    <canvas id="pigment-slide"></canvas>
+    <figcaption>Controls: click the canvas, then use the <kbd>arrow keys</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to slide every block. <kbd>Z</kbd> undoes, <kbd>R</kbd> restarts the canvas, and <kbd>Enter</kbd> opens the next canvas after a win. On a phone or with a mouse, swipe on the board, tap near one of its edges, or use the buttons. Blocks carry letters as well as colours.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: walk the grid starting from the side the blocks slide toward, push each block until something stops it, and mix it into the block it hits unless that block has already mixed this move. Drawing, the win check and the key bindings are left out: the arrow keys call <code>slide(0, -1)</code>, <code>slide(0, 1)</code>, <code>slide(-1, 0)</code> and <code>slide(1, 0)</code>, and a move counts only when <code>slide</code> returns true.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local N = 5
+local grid, wall = {}, {}   <span class="c">-- one table per row, filled from the level</span>
+local MIX = { ry = "o", yr = "o", yb = "g", by = "g", rb = "p", br = "p" }
+local function mix(a, b)
+  if a == b then return a end            <span class="c">-- blue into blue is still one blue</span>
+  return MIX[a .. b] or "m"              <span class="c">-- anything else is mud</span>
+end
+
+local function span(d)                   <span class="c">-- start from the side we slide toward</span>
+  if d &gt; 0 then return N, 1, -1 else return 1, N, 1 end
+end
+
+local function slide(dr, dc)             <span class="c">-- returns false if nothing moved</span>
+  local mixed, moved = {}, false
+  local r0, r1, rs = span(dr)
+  local c0, c1, cs = span(dc)
+  for r = r0, r1, rs do
+    for c = c0, c1, cs do
+      local paint, cr, cc = grid[r][c], r, c
+      if paint then
+        grid[r][c] = nil
+        while true do
+          local nr, nc = cr + dr, cc + dc
+          if nr &lt; 1 or nr &gt; N or nc &lt; 1 or nc &gt; N or wall[nr][nc] then break end
+          if grid[nr][nc] then
+<span class="k">            if not mixed[nr * N + nc] then  -- one mix per block per move
+              grid[nr][nc] = mix(paint, grid[nr][nc])
+              mixed[nr * N + nc], paint, moved = true, nil, true
+            end</span>
+            break
+          end
+          cr, cc = nr, nc
+        end
+        if paint then grid[cr][cc] = paint end
+        if cr ~= r or cc ~= c then moved = true end
+      end
+    end
+  end
+  return moved
+end</code></pre>
+  </div>
+  <p>The loop order is the whole trick. The block nearest the far wall is handled first, so it has already stopped when the block behind it arrives. The demo's solver uses the same function, so its par and its "unsolvable" warning always agree with what you see.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Prediction overload.</strong> With six or more blocks, players stop predicting and start pressing at random. The fun is in thinking one move ahead and being right. Test: ask a tester to say where every block will stop before each press. If they cannot on your third canvas, it has too many blocks.</li>
+    <li><strong>Silent dead ends.</strong> A canvas can become unsolvable many moves before the player notices, and then they push blocks around for minutes. Detect it with the solver and say so straight away, as the demo does, or the game feels unfair.</li>
+    <li><strong>Colour alone is not enough.</strong> Many players cannot tell red from green, or orange from yellow, at a glance. Put a letter or a shape on every block and every target from the first prototype, not as a late accessibility pass.</li>
+    <li><strong>Every canvas has the same answer.</strong> If the trick is always "make the secondary first", players solve by habit. Vary what is scarce: twin primaries, a pure colour that must survive, a wall that is the only place a block can stop.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Moving every tile at once with one swipe is well known from <cite>2048</cite> (Gabriele Cirulli, 2014), where equal numbered tiles merge when they slide together. Sliding until something stops you is the rule of the ice floor puzzles found in many role-playing games.</p>
+  <p>Pigment Slide puts those two rules on a fixed board with targets. Where 2048 is about growing numbers in an endless game, here the merge is something to avoid as often as something to seek, because different colours mix and mixing is final. Colour mixing has surely appeared in other puzzle games, but I have not surveyed them enough to say how close any comes.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with canvas 1 and canvas 2 typed in by hand, one coloured rectangle with a letter per block, and a win check. Skip animation, the solver and par. Add undo, though: without it the first mud ends the session.</p>
+  <p>Give it to a friend with only the controls. The one question: <strong>on canvas 2, do they spot the twin blues before their first sideways move, or only after merging them?</strong> If they spot it, or groan and understand why, the "keep them apart" idea carries the game. If they never notice what went wrong, the mix needs a louder moment on screen.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the demo's rules, fifteen hand-made canvases checked by a breadth first solver, par for each, letters on every block, and a satisfying splash when two colours mix.</li>
+    <li><strong>One-month version:</strong> larger walls of fresco made of several canvases, a level editor that runs the solver as you place blocks, and a gentle story about the workshop told between commissions.</li>
+    <li><strong>Cut first:</strong> extra colours such as white and black for tints and shades. Seven colours are plenty, and each new one multiplies the mixing table and the levels you must test.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: add a solvent tile that splits any block sliding over it back into its two primaries, which pop out on either side, so mixing is no longer final but costs space.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Josef Albers, <cite>Interaction of Color</cite> (Yale University Press, 1963). A classic on how colours affect each other, useful for picking paints that read well side by side.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The chapter on puzzles, especially the advice on giving a clear goal and making progress visible.</li>
+    <li>Stephen Lavelle, <cite>PuzzleScript</cite>. A free tool for turn-based grid puzzles, quick for trying many canvases before building them in LÖVE.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var N = 5, HUD = 48, FOOT = 40, ANIM = 0.13;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var PAINT = {
+    r: { name: 'red', fill: '#d8473d', ink: '#ffffff' },
+    y: { name: 'yellow', fill: '#ecc531', ink: '#2a2208' },
+    b: { name: 'blue', fill: '#3b6fd6', ink: '#ffffff' },
+    o: { name: 'orange', fill: '#ee8a2a', ink: '#2a1606' },
+    g: { name: 'green', fill: '#3d9a4c', ink: '#ffffff' },
+    p: { name: 'purple', fill: '#8c55c8', ink: '#ffffff' },
+    m: { name: 'mud', fill: '#7b5b3c', ink: '#ffffff' }
+  };
+  var MIX = { ry: 'o', yr: 'o', yb: 'g', by: 'g', rb: 'p', br: 'p' };
+  // Lower case: a block. Upper case: a target. '#': a wall. Pars found by breadth first search.
+  var LEVELS = [
+    { name: 'First mix', par: 2, hint: 'Slide red into yellow, then take the orange to its target.',
+      map: ['.....', 'r...y', '.....', '.....', '....O'] },
+    { name: 'Two blues', par: 6, hint: 'Green and purple both need a blue. Keep the blues apart.',
+      map: ['...r.', '.....', '.bb#.', '....y', '.P#.G'] },
+    { name: 'Keep red pure', par: 8, hint: 'One red must arrive unmixed. Watch the red beside the blue.',
+      map: ['..R#.', '...rb', '..r#.', '.y..G', '..#..'] }
+  ];
+  var DIRS = { arrowleft: [0, -1], a: [0, -1], arrowright: [0, 1], d: [0, 1],
+               arrowup: [-1, 0], w: [-1, 0], arrowdown: [1, 0], s: [1, 0] };
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var level, walls, targets, grid, moves, history, won, message, msgColor, anim, pop;
+  var L = null, handle = null, picker = null, press = null;
+
+  function mix(a, b) { return a === b ? a : (MIX[a + b] || 'm'); }
+  function copy(g) { return g.map(function (row) { return row.slice(); }); }
+  function key(g) { return g.map(function (row) { return row.map(function (v) { return v || '.'; }).join(''); }).join('/'); }
+  function say(text, color) { message = text; msgColor = color || 'ink2'; }
+
+  function slide(src, dr, dc) {
+    var g = copy(src), mixed = {}, sprites = [], mixes = [], moved = false, i, j;
+    var rs = [], cs = [];
+    for (i = 0; i < N; i++) { rs.push(dr > 0 ? N - 1 - i : i); cs.push(dc > 0 ? N - 1 - i : i); }
+    for (i = 0; i < N; i++) for (j = 0; j < N; j++) {
+      var r = rs[i], c = cs[j], paint = g[r][c];
+      if (!paint) continue;
+      g[r][c] = null;
+      var cr = r, cc = c, into = false;
+      for (;;) {
+        var nr = cr + dr, nc = cc + dc;
+        if (nr < 0 || nr >= N || nc < 0 || nc >= N || walls[nr][nc]) break;
+        if (g[nr][nc]) {
+          if (!mixed[nr * N + nc]) {
+            var made = mix(paint, g[nr][nc]);
+            mixes.push([paint, g[nr][nc], made]);
+            g[nr][nc] = made; mixed[nr * N + nc] = true; into = true; cr = nr; cc = nc;
+          }
+          break;
+        }
+        cr = nr; cc = nc;
+      }
+      if (!into) g[cr][cc] = paint;
+      if (into || cr !== r || cc !== c) moved = true;
+      sprites.push({ fr: r, fc: c, tr: cr, tc: cc, k: paint });
+    }
+    return moved ? { grid: g, sprites: sprites, mixed: mixed, mixes: mixes } : null;
+  }
+
+  function solved(g) {
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (targets[r][c] && g[r][c] !== targets[r][c]) return false;
+    return true;
+  }
+  function done(g) {
+    var n = 0, all = 0;
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (targets[r][c]) { all++; if (g[r][c] === targets[r][c]) n++; }
+    return [n, all];
+  }
+
+  // Breadth first search: true if solvable, false if not, null if the search was too big to finish.
+  function solvable(start) {
+    var seen = {}, queue = [start], head = 0, d, res;
+    seen[key(start)] = true;
+    while (head < queue.length) {
+      if (head > 6000) return null;
+      var g = queue[head++];
+      for (d = 0; d < 4; d++) {
+        res = slide(g, [0, 0, 1, -1][d], [1, -1, 0, 0][d]);
+        if (!res) continue;
+        if (solved(res.grid)) return true;
+        var k = key(res.grid);
+        if (!seen[k]) { seen[k] = true; queue.push(res.grid); }
+      }
+    }
+    return false;
+  }
+
+  function load(lv) {
+    level = lv; walls = []; targets = []; grid = [];
+    var map = LEVELS[lv].map;
+    for (var r = 0; r < N; r++) {
+      walls.push([]); targets.push([]); grid.push([]);
+      for (var c = 0; c < N; c++) {
+        var ch = map[r].charAt(c);
+        walls[r].push(ch === '#');
+        targets[r].push(/[ROYGBP]/.test(ch) ? ch.toLowerCase() : null);
+        grid[r].push(/[rybogpm]/.test(ch) ? ch : null);
+      }
+    }
+    moves = 0; history = []; won = false; anim = null; pop = null;
+    say(LEVELS[lv].hint);
+    if (picker) picker.set(String(lv));
+  }
+
+  function move(dr, dc) {
+    if (won) return;
+    anim = null;
+    var res = slide(grid, dr, dc);
+    if (!res) { say('Nothing can slide that way.', 'ink3'); return; }
+    history.push({ grid: grid, moves: moves });
+    grid = res.grid; moves += 1;
+    anim = reduced ? null : { sprites: res.sprites, t: 0 };
+    pop = { cells: res.mixed, t: reduced ? 1 : 0 };
+    if (solved(grid)) {
+      won = true;
+      say('Canvas finished in ' + moves + ' moves.', 'good');
+      return;
+    }
+    var last = res.mixes[res.mixes.length - 1];
+    var what = '', color = 'ink';
+    if (last && last[2] === 'm') { what = 'That made mud.'; color = 'warn'; }
+    else if (last && last[0] === last[1]) { what = 'Two ' + PAINT[last[0]].name + 's became one.'; color = 'warn'; }
+    else if (last) what = cap(PAINT[last[0]].name) + ' and ' + PAINT[last[1]].name + ' made ' + PAINT[last[2]].name + '.';
+    if (solvable(grid) === false) say((what ? what + ' ' : '') + 'Now unsolvable: undo (Z).', 'bad');
+    else if (what) say(what, color);
+    else say(LEVELS[level].hint);
+  }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  function undo() {
+    if (!history.length) { say('Nothing to undo.', 'ink3'); return; }
+    var h = history.pop();
+    grid = h.grid; moves = h.moves; won = false; anim = null; pop = null;
+    say('Undone.');
+  }
+  function nextCanvas() { load((level + 1) % LEVELS.length); }
+
+  function layout(s) {
+    var t = Math.floor(Math.min((s.width - 16) / N, (s.height - HUD - FOOT) / N));
+    t = Math.max(28, Math.min(76, t));
+    return { t: t, x: Math.round((s.width - N * t) / 2), y: Math.round(HUD + (s.height - HUD - FOOT - N * t) / 2) };
+  }
+
+  function rr(ctx, x, y, w, h, rad) {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y); ctx.lineTo(x + w - rad, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+    ctx.lineTo(x + w, y + h - rad); ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+    ctx.lineTo(x + rad, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+    ctx.lineTo(x, y + rad); ctx.quadraticCurveTo(x, y, x + rad, y); ctx.closePath();
+  }
+  function text(ctx, str, x, y, color, font, align, maxW) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left';
+    if (maxW) ctx.fillText(str, x, y, maxW); else ctx.fillText(str, x, y);
+  }
+  function block(ctx, c, k, x, y, t, scale) {
+    var inset = t * 0.09, w = (t - inset * 2) * scale, cx = x + t / 2, cy = y + t / 2;
+    rr(ctx, cx - w / 2, cy - w / 2, w, w, t * 0.16);
+    ctx.fillStyle = PAINT[k].fill; ctx.fill();
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.textBaseline = 'middle';
+    text(ctx, k.toUpperCase(), cx, cy + 1, PAINT[k].ink, '700 ' + Math.round(t * 0.36) + 'px', 'center');
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, t, r, k;
+    L = layout(s); t = L.t;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+
+    for (r = 0; r < N; r++) for (k = 0; k < N; k++) {
+      var x = L.x + k * t, y = L.y + r * t;
+      if (walls[r][k]) {
+        ctx.fillStyle = c.ink3; ctx.fillRect(x, y, t, t);
+        ctx.strokeStyle = c.ink2; ctx.lineWidth = 1; ctx.beginPath();
+        for (var h = 0.25; h < 1; h += 0.25) { ctx.moveTo(x, y + t * h); ctx.lineTo(x + t, y + t * h); }
+        ctx.stroke();
+        continue;
+      }
+      ctx.fillStyle = c.surface; ctx.fillRect(x, y, t, t);
+      var want = targets[r][k];
+      if (want) {
+        ctx.globalAlpha = 0.22; ctx.fillStyle = PAINT[want].fill; ctx.fillRect(x, y, t, t); ctx.globalAlpha = 1;
+        ctx.setLineDash([4, 3]); ctx.strokeStyle = PAINT[want].fill; ctx.lineWidth = 2;
+        ctx.strokeRect(x + 4, y + 4, t - 8, t - 8); ctx.setLineDash([]);
+        ctx.textBaseline = 'middle';
+        text(ctx, want.toUpperCase(), x + t / 2, y + t / 2 + 1, c.ink3, '600 ' + Math.round(t * 0.3) + 'px', 'center');
+        ctx.textBaseline = 'alphabetic';
+      }
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, t - 1, t - 1);
+    }
+
+    if (anim) {
+      var e = anim.t * (2 - anim.t);
+      for (var i = 0; i < anim.sprites.length; i++) {
+        var sp = anim.sprites[i];
+        block(ctx, c, sp.k, L.x + (sp.fc + (sp.tc - sp.fc) * e) * t, L.y + (sp.fr + (sp.tr - sp.fr) * e) * t, t, 1);
+      }
+    } else {
+      for (r = 0; r < N; r++) for (k = 0; k < N; k++) {
+        if (!grid[r][k]) continue;
+        var sc = pop && pop.cells[r * N + k] ? 1 + 0.16 * Math.sin(Math.PI * pop.t) : 1;
+        block(ctx, c, grid[r][k], L.x + k * t, L.y + r * t, t, sc);
+      }
+    }
+
+    // Target markers on top: a corner swatch of the wanted colour, and a green outline when done.
+    for (r = 0; r < N; r++) for (k = 0; k < N; k++) {
+      var tw = targets[r][k];
+      if (!tw) continue;
+      var tx = L.x + k * t, ty = L.y + r * t, q = Math.max(8, Math.round(t * 0.2));
+      ctx.fillStyle = PAINT[tw].fill; ctx.fillRect(tx + 2, ty + 2, q, q);
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 1; ctx.strokeRect(tx + 2.5, ty + 2.5, q - 1, q - 1);
+      if (!anim && grid[r][k] === tw) {
+        ctx.strokeStyle = c.good; ctx.lineWidth = 3; ctx.strokeRect(tx + 1.5, ty + 1.5, t - 3, t - 3);
+      }
+    }
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5; ctx.strokeRect(L.x, L.y, N * t, N * t);
+
+    var d = done(grid);
+    text(ctx, 'Canvas ' + (level + 1) + ': ' + LEVELS[level].name, 8, 19, c.ink, '600 13px', 'left', s.width - 110);
+    text(ctx, 'Targets ' + d[0] + '/' + d[1], s.width - 8, 19, d[0] === d[1] ? c.good : c.ink2, '600 13px', 'right');
+    text(ctx, 'Moves ' + moves + '   Par ' + LEVELS[level].par, 8, 39, c.ink2, '12px');
+    text(ctx, message, 8, s.height - 16, c[msgColor] || c.ink2, '12px', 'left', s.width - 100);
+
+    if (won && !anim) {
+      var bw = Math.min(300, s.width - 20), bx = s.width / 2 - bw / 2, by = L.y + N * t / 2 - 28;
+      ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(bx, by, bw, 56); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.good; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 56);
+      var par = moves <= LEVELS[level].par;
+      text(ctx, 'Finished in ' + moves + ' moves' + (par ? ': par!' : ' (par ' + LEVELS[level].par + ')'), s.width / 2, by + 23, c.good, '600 14px', 'center', bw - 12);
+      text(ctx, level < LEVELS.length - 1 ? 'Enter or tap for the next canvas' : 'All canvases done. Enter or tap for canvas 1',
+        s.width / 2, by + 43, c.ink2, '12px', 'center', bw - 12);
+    }
+  }
+
+  function update(dt) {
+    if (anim) { anim.t += dt / ANIM; if (anim.t >= 1) anim = null; }
+    if (!anim && pop && pop.t < 1) pop.t = Math.min(1, pop.t + dt / 0.18);
+  }
+
+  function wake() { if (!handle) return; if (!reduced) handle.play(); handle.redraw(); }
+
+  function pointerMove(p) {
+    if (!press) return;
+    var dx = p.x - press.x, dy = p.y - press.y;
+    press = null;
+    if (won) { nextCanvas(); return; }
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) {
+      // A tap: slide toward the side of the board that was tapped.
+      if (!L) return;
+      dx = p.x - (L.x + N * L.t / 2); dy = p.y - (L.y + N * L.t / 2);
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < L.t * 0.8) { say('Swipe, or tap near an edge of the board.', 'ink3'); return; }
+    }
+    if (Math.abs(dx) > Math.abs(dy)) move(0, dx > 0 ? 1 : -1);
+    else move(dy > 0 ? 1 : -1, 0);
+  }
+
+  var ui = DemoKit.controls('[data-demo="pigment-slide"]');
+  picker = ui.select({
+    label: 'Canvas',
+    options: LEVELS.map(function (lv, i) { return { value: String(i), label: (i + 1) + ': ' + lv.name }; }),
+    value: '0',
+    onChange: function (v) { load(Number(v)); wake(); }
+  });
+  ui.button({ label: 'Left', onClick: function () { move(0, -1); wake(); } });
+  ui.button({ label: 'Up', onClick: function () { move(-1, 0); wake(); } });
+  ui.button({ label: 'Down', onClick: function () { move(1, 0); wake(); } });
+  ui.button({ label: 'Right', onClick: function () { move(0, 1); wake(); } });
+  ui.button({ label: 'Undo (Z)', onClick: function () { undo(); wake(); } });
+  ui.button({ label: 'Restart (R)', onClick: function () { load(level); wake(); } });
+
+  load(0);
+
+  handle = DemoKit.canvas('#pigment-slide', {
+    aspect: 640 / 480,
+    minHeight: 400,
+    maxHeight: 520,
+    keys: true,
+    drag: true,
+    label: 'Pigment Slide prototype. A five by five board of paint blocks marked with letters. Every move slides all blocks one way, and blocks that collide mix colours. Fill each target tile with a block of its colour.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { press = { x: p.x, y: p.y }; },
+    onUp: function (p) { pointerMove(p); wake(); },
+    onKey: function (k, isDown) {
+      if (!isDown) return;
+      if (DIRS[k]) move(DIRS[k][0], DIRS[k][1]);
+      else if (k === 'enter') { if (won) nextCanvas(); }
+      else if (k === 'z') undo();
+      else if (k === 'r') load(level);
+      else return;
+      wake();
+    }
+  });
+})();
+</script>
+</body>
+</html>
