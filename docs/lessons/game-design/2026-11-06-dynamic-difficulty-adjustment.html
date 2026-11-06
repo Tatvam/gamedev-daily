@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynamic difficulty adjustment · Game Dev Daily</title>
+<meta name="description" content="How a game can measure the player and nudge a hidden difficulty value to match them, how to tune it, and what goes wrong when players notice.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Dynamic difficulty adjustment</h1>
+  <p class="lede">How a game can measure the player and nudge a hidden difficulty value to match them, how to tune it, and what goes wrong when players notice.</p>
+</header>
+
+<section data-section="hook">
+  <p>One playtester dies on your third wave twelve times and quits. Another clears all ten waves without a scratch and calls the game "fine". Yesterday's lesson drew a difficulty curve for one imagined player. Neither of these two is that player.</p>
+  <p>Some games stop guessing. They watch how the player is doing and quietly move the difficulty while they play.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A game that tunes itself</h2>
+  <p><dfn>Dynamic difficulty adjustment</dfn>, usually shortened to DDA, means the game measures the player's performance during play and changes its own difficulty in response. It is a negative feedback loop, like the catch-up mechanics from an earlier lesson, balancing the player against the game.</p>
+  <p>Every DDA system has three parts:</p>
+  <ol>
+    <li><strong>A measurement.</strong> How the player is doing: hits taken, deaths, time to clear a room.</li>
+    <li><strong>A hidden value.</strong> One number, here called <code>difficulty</code>, from 0 (easiest) to 1 (hardest). The measurement nudges it up or down.</li>
+    <li><strong>Rules that read it.</strong> Spawn rate, enemy speed, damage: the knobs the player feels.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="Left: a loop of four boxes. The player produces a result, a measurement nudges the hidden difficulty, the hidden difficulty sets the game rules, and the rules set the challenge the player faces. Right: a graph of the hidden difficulty over time. It climbs slowly while the player is safe, drops sharply at each hit, and settles around a level where the hit rate equals the target.">
+      <rect class="d-box" x="20" y="30" width="120" height="44" rx="8"/>
+      <text class="d-text" x="80" y="57" text-anchor="middle">Player</text>
+      <rect class="d-box" x="220" y="30" width="120" height="44" rx="8"/>
+      <text class="d-text" x="280" y="57" text-anchor="middle">Measure</text>
+      <rect class="d-accent-soft" x="220" y="170" width="120" height="44" rx="8"/>
+      <text class="d-text" x="280" y="197" text-anchor="middle">Hidden difficulty</text>
+      <rect class="d-box" x="20" y="170" width="120" height="44" rx="8"/>
+      <text class="d-text" x="80" y="197" text-anchor="middle">Game rules</text>
+
+      <path class="d-accent" d="M140 52 H212"/>
+      <path class="d-accent" d="M204 46 L212 52 L204 58"/>
+      <text class="d-label" x="180" y="42" text-anchor="middle">result</text>
+      <path class="d-accent" d="M280 74 V162"/>
+      <path class="d-accent" d="M274 154 L280 162 L286 154"/>
+      <text class="d-label" x="290" y="122">nudge</text>
+      <path class="d-accent" d="M220 192 H148"/>
+      <path class="d-accent" d="M156 186 L148 192 L156 198"/>
+      <text class="d-label" x="184" y="234" text-anchor="middle">spawns, speed</text>
+      <path class="d-accent" d="M80 170 V82"/>
+      <path class="d-accent" d="M74 90 L80 82 L86 90"/>
+      <text class="d-label" x="72" y="130" text-anchor="end">challenge</text>
+      <text class="d-muted" x="180" y="126" text-anchor="middle">feedback loop</text>
+
+      <path class="d-stroke" d="M390 40 V230 H620"/>
+      <text class="d-muted" x="376" y="135" text-anchor="middle" transform="rotate(-90 376 135)">difficulty</text>
+      <text class="d-muted" x="505" y="252" text-anchor="middle">time</text>
+      <path class="d-dash" d="M390 156 H620"/>
+      <polyline class="d-accent" fill="none" points="390,200 440,160 440,184 480,152 480,176 520,144 520,168 545,148 545,172 585,140 585,164 615,140"/>
+      <text class="d-label" x="505" y="116" text-anchor="middle">slow climb while safe</text>
+      <text class="d-label" x="505" y="212" text-anchor="middle">drop on each hit</text>
+      <path class="d-dash" d="M400 24 H424"/>
+      <text class="d-label" x="430" y="28">where it settles</text>
+    </svg>
+    <figcaption>Left: the loop. Right: with the rule below, the hidden number climbs while the player is safe, drops at each hit, and settles where the player is hit at the target rate.</figcaption>
+  </figure>
+
+  <h3>The simplest rule that works</h3>
+  <p>Raise <code>difficulty</code> a little every second the player is doing fine. Lower it by a fixed step every time they are hit. That is the whole system in the demo below:</p>
+<pre><code>difficulty = difficulty + CLIMB * dt   -- every frame
+difficulty = difficulty - DROP          -- on each hit</code></pre>
+  <p>Over a minute the climb adds <code>CLIMB * 60</code> and the hits remove <code>DROP</code> per hit. The two cancel when the player is hit <code>CLIMB * 60 / DROP</code> times a minute. So if you set <code>CLIMB = DROP * target / 60</code>, the value drifts until the player is being hit at your <dfn>target rate</dfn>, whatever their skill.</p>
+  <p>So you no longer pick how fast the rocks are. You pick what the game should <em>feel</em> like, "about four hits a minute", and the system finds the rock speed that produces it for each player.</p>
+
+  <h3>Fall fast, climb slow</h3>
+  <p>The rule is lopsided on purpose. A hit drops the value at once, so help arrives while the player is struggling; the climb back is gradual, so pressure returns gently. Two more guards are needed:</p>
+  <ul>
+    <li>A <dfn>floor</dfn> and a <dfn>ceiling</dfn>, limits the value may not pass. They stop the game becoming trivial or unfair.</li>
+    <li>A short <dfn>cooldown</dfn> after a hit, so a cluster of rocks hitting at once counts as one mistake, not three.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Starting points, not rules</p>
+    <p>Difficulty from 0 to 1, starting at 0.4. Drop 0.15 per hit, cooldown 0.6 seconds, floor 0.05, ceiling 1. Target four hits a minute for a game with no lives, fewer where hits really cost. Tune by watching players.</p>
+  </div>
+
+  <h3>When players notice</h3>
+  <p>Three problems tend to appear once players see the system:</p>
+  <ul>
+    <li><strong>Getting better stops showing.</strong> If the game always matches your skill, it always feels equally hard, and the moment of "this used to be difficult" never comes.</li>
+    <li><strong>Sandbagging.</strong> A player who knows that failing makes things easier can fail on purpose before a hard section. The rule now rewards playing badly.</li>
+    <li><strong>Lost trust.</strong> Some players feel patronised or cheated when they learn a win was helped. Others do not mind at all.</li>
+  </ul>
+  <p>Hidden DDA is, plainly, a decision to deceive the player about how the game works. When it only keeps someone out of frustration, many designers consider that a fair trade. The same machinery becomes manipulation when it is tuned for spending instead of enjoyment, for example making a game harder right when a paid boost is on offer. Ask who the adjustment serves.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press Start and dodge for a minute with "Reveal hidden difficulty" switched off. Did the game change? Then switch Reveal on and watch the line. Try being hit on purpose three times and see what the game does for you. Then pick each bot: the same rule settles at very different difficulties, while both end up near the target hit rate.</p>
+
+  <figure class="demo wide" data-demo="dda">
+    <canvas id="dda"></canvas>
+    <figcaption>Controls: click the canvas, then use the Up and Down arrows (or W and S) to dodge and Space to start. On a phone, press Start and drag up and down in the play field. The graph shows the last 60 seconds: red ticks are hits; with Reveal on, the line is the hidden difficulty. With Adaptation off, the Starting difficulty slider sets a fixed difficulty.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same names and numbers as the demo. <code>spawnRock</code> and <code>updateRocks</code> stand for your game's own spawner and collision code; <code>updateRocks</code> should call <code>onPlayerHit</code> when a rock touches the player.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Hidden difficulty from 0 (easiest) to 1 (hardest)</span>
+local difficulty = 0.4
+local FLOOR, CEILING = 0.05, 1.0
+local TARGET_HITS_PER_MINUTE = 4
+local ADAPT_SPEED = 1
+local DROP = 0.15 * ADAPT_SPEED                   <span class="c">-- fall per hit</span>
+<span class="k">local CLIMB = DROP * TARGET_HITS_PER_MINUTE / 60  -- rise per second</span>
+local HIT_COOLDOWN = 0.6
+
+local cooldown = 0
+local spawnDebt = 0
+
+local function clamp(x, lo, hi)
+  return math.max(lo, math.min(hi, x))
+end
+
+<span class="c">-- What difficulty means in this game</span>
+local function rocksPerSecond() return 1 + 7 * difficulty end
+local function crossTime() return 3 - 2 * difficulty end
+
+function onPlayerHit()
+  if cooldown &gt; 0 then return end   <span class="c">-- a cluster of rocks is one mistake</span>
+  cooldown = HIT_COOLDOWN
+<span class="k">  difficulty = clamp(difficulty - DROP, FLOOR, CEILING)</span>
+end
+
+function love.update(dt)
+  cooldown = math.max(0, cooldown - dt)
+<span class="k">  difficulty = clamp(difficulty + CLIMB * dt, FLOOR, CEILING)</span>
+
+  spawnDebt = spawnDebt + rocksPerSecond() * dt
+  while spawnDebt &gt;= 1 do
+    spawnDebt = spawnDebt - 1
+    spawnRock(crossTime())   <span class="c">-- your spawner: seconds to cross the screen</span>
+  end
+  updateRocks(dt)            <span class="c">-- your movement and collision code</span>
+end</code></pre>
+  </div>
+  <p>Log <code>difficulty</code> and hits per minute for a few testers. If the hit rate settles near the target while the value settles at different levels for different people, it is working.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Adjusting too fast.</strong> A large step makes the game swing between easy and hard within seconds, which feels random. Raise the adapt speed in the demo to see it.</li>
+    <li><strong>Measuring the wrong thing.</strong> Deaths alone react too late. Pick a measurement that moves often and that good play really reduces.</li>
+    <li><strong>Changing what the player can see.</strong> Players notice a health bar that suddenly lasts longer. Prefer knobs that are hard to perceive, such as spawn timing or enemy accuracy.</li>
+    <li><strong>Adjusting mid-moment.</strong> Changing a boss while the player learns its pattern breaks what they learned. Adjust between attempts or rooms instead.</li>
+      </ul>
+  <h3>When not to use it</h3>
+  <p>Competitive play, score attack and speedrunning need everyone on the same rules. Games whose appeal is mastery of a fixed challenge lose their point if the challenge moves. For many games a visible choice, such as difficulty options or an offer of help after several failures, does the same job without the secrecy.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p><cite>Resident Evil 4</cite> (2005) is widely reported to keep a hidden difficulty rank that rises and falls with how the player is doing, affecting things such as enemy aggression and damage. Capcom did not advertise it, so treat specific numbers found online with care.</p>
+  <p>Andy Gavin, co-founder of Naughty Dog, has written that the early <cite>Crash Bandicoot</cite> games used what the team called DDA to quietly help players who kept failing in the same place. The original post was not checked for this lesson, so details are left out.</p>
+  <p>The AI Director in <cite>Left 4 Dead</cite> (2008), described by Valve's Michael Booth, estimates how intense the game is for each player and builds up or holds back enemies to create peaks and rests: adaptive pacing, a close relative of this lesson's loop.</p>
+  <p>Robin Hunicke's research system Hamlet, built on the <cite>Half-Life</cite> engine, adjusted item supplies and enemy strength from a running estimate of player performance.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one difficulty knob in your game and drive it from a single <code>difficulty</code> value between 0 and 1. Add the climb and drop rule from the code, with a floor and a ceiling. Draw the value on screen in a debug corner.</p>
+  <p>Play badly on purpose for one minute, then as well as you can for one minute. You are done when the value visibly falls and then rises, and when you have written down one way a player could exploit it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>DDA is a feedback loop: measure the player, nudge one hidden value, let that value set the rules.</li>
+    <li>Climb slowly while the player is safe and drop on each failure. The value settles where the player fails at your target rate, so you design a feel, not a number.</li>
+    <li>Fall fast, climb slow, clamp to a floor and ceiling, and ignore clusters of hits with a cooldown.</li>
+    <li>Once players notice, DDA can hide their progress and reward failing on purpose. Prefer invisible knobs and adjustments between attempts.</li>
+    <li>Hidden adjustment is a form of deception. It is defensible when it serves the player's enjoyment and manipulative when it serves spending.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes teaching without tutorials: how a safe first room can teach a mechanic through play instead of a text box.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robin Hunicke, <cite>The Case for Dynamic Difficulty Adjustment in Games</cite>, ACM SIGCHI International Conference on Advances in Computer Entertainment Technology (2005).</li>
+    <li>Michael Booth, <cite>The AI Systems of Left 4 Dead</cite>, a 2009 talk from Valve on the AI Director.</li>
+    <li>Andy Gavin, the <cite>Making Crash Bandicoot</cite> blog series on all-things-andy-gavin.com. Not opened in this session, so no link is given.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (2008), the chapters on flow and balance, for the background this lesson builds on.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // The play field is simulated in fixed logical units and scaled to fit, so the game plays
+  // the same on a phone and on a wide screen.
+  var LW = 560;              // logical field width
+  var LH = 150;              // logical field height
+  var SHIP_X = 40;
+  var SHIP_R = 9;
+  var ROCK_R = 9;
+  var HIT_DIST = 14;         // a little smaller than SHIP_R + ROCK_R, to be generous
+  var SHIP_SPEED = 300;      // logical pixels per second
+  var FLOOR = 0.05;
+  var CEILING = 1.0;
+  var HIT_COOLDOWN = 0.6;
+  var WINDOW = 60;           // seconds shown on the graph
+  var SAMPLE = 0.25;         // seconds between graph samples
+
+  // Bots: how far ahead they look (s), how fast they move (fraction of ship speed),
+  // how often they re-plan (s) and how badly they misjudge where a rock is.
+  var BOTS = {
+    novice: { look: 0.5, speed: 0.5, think: 0.4, err: 0.2 },
+    expert: { look: 0.7, speed: 0.6, think: 0.25, err: 0.14 }
+  };
+
+  var ui = DemoKit.controls('[data-demo="dda"]');
+  var player = ui.select({
+    label: 'Player',
+    value: 'you',
+    options: [
+      { value: 'you', label: 'You' },
+      { value: 'novice', label: 'Bot: novice' },
+      { value: 'expert', label: 'Bot: expert' }
+    ],
+    onChange: function (v) { if (v === 'you') resetRun(); else startRun(); }
+  });
+  var adapt = ui.toggle({ label: 'Adaptation', value: true, onChange: function () { redraw(); } });
+  var reveal = ui.toggle({ label: 'Reveal hidden difficulty', value: false, onChange: function () { refresh(); } });
+  var startD = ui.slider({ label: 'Starting difficulty', min: 0.05, max: 1, step: 0.05, value: 0.4,
+    onInput: function () { resetRun(); } });
+  var target = ui.slider({ label: 'Target hits per minute', min: 1, max: 10, step: 1, value: 4 });
+  var speedS = ui.slider({ label: 'Adapt speed', min: 0.5, max: 3, step: 0.5, value: 1, unit: '×' });
+  ui.button({ label: 'Start / restart', onClick: function () { startRun(); } });
+  var outRate = ui.readout({ label: 'Hits per minute (last 60 s)' });
+  var outD = ui.readout({ label: 'Hidden difficulty' });
+
+  function drop() { return 0.15 * speedS.value; }
+  function climb() { return drop() * target.value / 60; }
+  function rocksPerSecond(d) { return 1 + 7 * d; }
+  function crossTime(d) { return 3 - 2 * d; }
+
+  var mode = 'ready';        // 'ready' or 'play'
+  var difficulty = startD.value;
+  var time = 0;
+  var rocks = [];            // { x, y (0..1 of free height), speed (logical px/s), e (misjudgement) }
+  var spawnDebt = 0;
+  var cooldown = 0;
+  var hits = [];             // times of recent hits
+  var totalHits = 0;
+  var samples = [];          // { t, d }
+  var sampleT = 0;
+  var shipY = 0.5;
+  var botTarget = 0.5;
+  var botThink = 0;
+  var steering = false;
+  var random = DemoKit.rng(11);
+  var noise = DemoKit.rng(5);
+  var handle = null;
+  var refreshT = 0;
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  function resetRun() {
+    mode = 'ready';
+    difficulty = startD.value;
+    time = 0;
+    rocks = [];
+    spawnDebt = 0;
+    cooldown = 0;
+    hits = [];
+    totalHits = 0;
+    samples = [{ t: 0, d: difficulty }];
+    sampleT = 0;
+    shipY = 0.5;
+    botTarget = 0.5;
+    botThink = 0;
+    random = DemoKit.rng(11);
+    noise = DemoKit.rng(5);
+    refresh();
+  }
+
+  function startRun() {
+    resetRun();
+    mode = 'play';
+    refresh();
+  }
+
+  function hitRate() {
+    if (time <= 0) return 0;
+    var n = 0;
+    for (var i = 0; i < hits.length; i++) if (hits[i] > time - WINDOW) n += 1;
+    return n * 60 / Math.min(WINDOW, Math.max(time, 10));
+  }
+
+  function refresh() {
+    outRate.set(mode === 'play' ? hitRate().toFixed(1) + ' (target ' + target.value + ')' : 'not started');
+    outD.set(reveal.value ? difficulty.toFixed(2) : 'hidden');
+    redraw();
+  }
+
+  function onPlayerHit() {
+    if (cooldown > 0) return;
+    cooldown = HIT_COOLDOWN;
+    hits.push(time);
+    totalHits += 1;
+    if (adapt.value) difficulty = DemoKit.clamp(difficulty - drop(), FLOOR, CEILING);
+  }
+
+  var span = LH - 2 * SHIP_R;
+
+  function botPlan(bot) {
+    var rate = SHIP_SPEED * bot.speed / span;
+    var best = shipY;
+    var bestScore = Infinity;
+    for (var k = 0; k <= 20; k++) {
+      var cy = k / 20;
+      var score = Math.abs(cy - shipY) * 0.2 + noise() * 0.05;
+      for (var i = 0; i < rocks.length; i++) {
+        var r = rocks[i];
+        var dx = r.x - SHIP_X;
+        if (dx < -ROCK_R) continue;
+        var ta = dx / r.speed;
+        if (ta > bot.look) continue;
+        var dir = cy > shipY ? 1 : -1;
+        var p = shipY + dir * Math.min(Math.abs(cy - shipY), rate * Math.max(0, ta));
+        var dy = Math.abs(p - (r.y + r.e * bot.err)) * span;
+        if (dy < HIT_DIST + 8) score += 1 + (bot.look - ta);
+      }
+      if (score < bestScore) { bestScore = score; best = cy; }
+    }
+    return best;
+  }
+
+  function update(dt, s) {
+    var L = layout(s);
+    var maxMove;
+
+    if (player.value === 'you') {
+      var dir = 0;
+      if (s.keys.has('arrowup') || s.keys.has('w')) dir -= 1;
+      if (s.keys.has('arrowdown') || s.keys.has('s')) dir += 1;
+      if (dir !== 0) {
+        shipY += dir * SHIP_SPEED * dt / span;
+      } else if (steering && s.pointer.down) {
+        var targetY = ((s.pointer.y - L.top) / L.k - SHIP_R) / span;
+        maxMove = SHIP_SPEED * dt / span;
+        shipY += DemoKit.clamp(targetY - shipY, -maxMove, maxMove);
+      }
+    } else if (mode === 'play') {
+      var bot = BOTS[player.value];
+      botThink -= dt;
+      if (botThink <= 0) {
+        botThink = bot.think;
+        botTarget = botPlan(bot);
+      }
+      maxMove = SHIP_SPEED * bot.speed * dt / span;
+      shipY += DemoKit.clamp(botTarget - shipY, -maxMove, maxMove);
+    }
+    shipY = DemoKit.clamp(shipY, 0, 1);
+
+    if (mode !== 'play') return;
+
+    time += dt;
+    cooldown = Math.max(0, cooldown - dt);
+    if (adapt.value) {
+      difficulty = DemoKit.clamp(difficulty + climb() * dt, FLOOR, CEILING);
+    } else {
+      difficulty = startD.value;
+    }
+
+    spawnDebt += rocksPerSecond(difficulty) * dt;
+    while (spawnDebt >= 1) {
+      spawnDebt -= 1;
+      rocks.push({ x: LW + ROCK_R, y: random(), speed: (LW + 2 * ROCK_R) / crossTime(difficulty), e: random() - 0.5 });
+    }
+
+    for (var i = rocks.length - 1; i >= 0; i--) {
+      var r = rocks[i];
+      r.x -= r.speed * dt;
+      var dx = r.x - SHIP_X;
+      var dy = (r.y - shipY) * span;
+      if (dx * dx + dy * dy < HIT_DIST * HIT_DIST) {
+        rocks.splice(i, 1);
+        onPlayerHit();
+      } else if (r.x < -ROCK_R) {
+        rocks.splice(i, 1);
+      }
+    }
+
+    sampleT += dt;
+    if (sampleT >= SAMPLE) {
+      sampleT -= SAMPLE;
+      samples.push({ t: time, d: difficulty });
+      while (samples.length && samples[0].t < time - WINDOW - 1) samples.shift();
+      while (hits.length && hits[0] < time - WINDOW - 1) hits.shift();
+    }
+
+    refreshT += dt;
+    if (refreshT >= 0.5) {
+      refreshT = 0;
+      outRate.set(hitRate().toFixed(1) + ' (target ' + target.value + ')');
+      outD.set(reveal.value ? difficulty.toFixed(2) : 'hidden');
+    }
+  }
+
+  function layout(s) {
+    var k = Math.min(1, (s.width - 24) / LW);
+    var left = (s.width - LW * k) / 2;
+    var top = 30;
+    var bottom = top + LH * k;
+    var gTop = bottom + 40;
+    var gBottom = s.height - 50;
+    return { k: k, left: left, top: top, bottom: bottom, gTop: gTop, gBottom: gBottom,
+      gLeft: 40, gRight: s.width - 14 };
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var L = layout(s);
+    var font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    var bold = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    var i;
+
+    // ---- Header ----
+    ctx.font = bold;
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    var who = player.value === 'you' ? 'You' : (player.value === 'novice' ? 'Novice bot' : 'Expert bot');
+    var head = who + ' · ' + (adapt.value ? 'adaptation on' : 'fixed difficulty') + ' · ' + Math.floor(time) + ' s';
+    ctx.fillText(head, 12, 18);
+
+    // ---- Field ----
+    ctx.save();
+    ctx.translate(L.left, L.top);
+    ctx.scale(L.k, L.k);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, LW, LH);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1 / L.k;
+    ctx.strokeRect(0, 0, LW, LH);
+
+    ctx.fillStyle = c.ink2;
+    for (i = 0; i < rocks.length; i++) {
+      ctx.beginPath();
+      ctx.arc(rocks[i].x, ROCK_R + rocks[i].y * span, ROCK_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    var sy = SHIP_R + shipY * span;
+    ctx.fillStyle = cooldown > HIT_COOLDOWN - 0.4 ? c.bad : c.topic;
+    ctx.beginPath();
+    ctx.moveTo(SHIP_X + SHIP_R + 3, sy);
+    ctx.lineTo(SHIP_X - SHIP_R, sy - SHIP_R);
+    ctx.lineTo(SHIP_X - SHIP_R + 4, sy);
+    ctx.lineTo(SHIP_X - SHIP_R, sy + SHIP_R);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    if (mode === 'ready') {
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Press Start, Space, or tap here', s.width / 2, (L.top + L.bottom) / 2 + 4);
+    }
+
+    // ---- Graph of the last 60 seconds ----
+    var gw = L.gRight - L.gLeft;
+    var gh = L.gBottom - L.gTop;
+    var t0 = Math.max(0, time - WINDOW);
+    var gx = function (t) { return L.gLeft + (t - t0) / WINDOW * gw; };
+    var gy = function (d) { return L.gBottom - d * gh; };
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(reveal.value ? 'Hidden difficulty and hits, last 60 s' : 'Hits, last 60 s (difficulty hidden)', L.gLeft, L.gTop - 12);
+
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(L.gLeft + 0.5, L.gTop);
+    ctx.lineTo(L.gLeft + 0.5, L.gBottom + 0.5);
+    ctx.lineTo(L.gRight, L.gBottom + 0.5);
+    ctx.stroke();
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('1', L.gLeft - 6, gy(1) + 4);
+    ctx.fillText('0', L.gLeft - 6, gy(0) + 4);
+
+    // hit ticks
+    ctx.strokeStyle = c.bad;
+    ctx.lineWidth = 2;
+    for (i = 0; i < hits.length; i++) {
+      if (hits[i] < t0) continue;
+      var hx = gx(hits[i]);
+      ctx.beginPath();
+      ctx.moveTo(hx, L.gBottom);
+      ctx.lineTo(hx, L.gBottom - 12);
+      ctx.stroke();
+    }
+
+    if (reveal.value) {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(L.gLeft, gy(FLOOR));
+      ctx.lineTo(L.gRight, gy(FLOOR));
+      ctx.moveTo(L.gLeft, gy(CEILING));
+      ctx.lineTo(L.gRight, gy(CEILING));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('ceiling', L.gRight, gy(CEILING) + 14);
+
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      var started = false;
+      for (i = 0; i < samples.length; i++) {
+        if (samples[i].t < t0) continue;
+        var px = gx(samples[i].t);
+        var py = gy(samples[i].d);
+        if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+      }
+      if (mode === 'play') ctx.lineTo(gx(time), gy(difficulty));
+      ctx.stroke();
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(gx(time), gy(difficulty), 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Did the game change? Switch on Reveal to check.', L.gLeft + gw / 2, L.gTop + gh / 2);
+    }
+
+    // ---- Status strip (left side; the Pause button lives bottom right) ----
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('hits ' + totalHits + '   rate ' + hitRate().toFixed(1) + '/min', 12, s.height - 16);
+  }
+
+  handle = DemoKit.canvas('#dda', {
+    height: 420,
+    keys: true,
+    drag: true,
+    label: 'A dodging game. The ship avoids rocks flying from the right. Below the field, a graph shows hits over the last minute and, when revealed, the hidden difficulty value that rises while the player is safe and drops on each hit.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) {
+      var L = layout(s);
+      if (p.y > L.top - 6 && p.y < L.bottom + 6) {
+        steering = true;
+        if (mode === 'ready') {
+          if (player.value !== 'you') player.set('you');
+          startRun();
+        }
+      }
+    },
+    onUp: function () { steering = false; },
+    onKey: function (key, isDown) {
+      if (isDown && key === 'space' && mode === 'ready') startRun();
+    }
+  });
+
+  resetRun();
+})();
+</script>
+</body>
+</html>

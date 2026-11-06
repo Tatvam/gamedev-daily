@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sliding along walls · Game Dev Daily</title>
+<meta name="description" content="How removing only the part of a velocity that points into a surface lets a body glide along a wall instead of stopping dead or sticking.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sliding along walls</h1>
+  <p class="lede">How removing only the part of a velocity that points into a surface lets a body glide along a wall instead of stopping dead or sticking.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hold up and right, the character walks diagonally into a wall, and it freezes. You are still pushing up, there is nothing above you, yet the character will not move until you let go of right. The wall feels like glue.</p>
+  <p>The collision code threw away the whole velocity when it only needed to throw away part of it. This lesson shows which part.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The bug: stopping on contact</h2>
+  <p>The simplest collision response is "if I hit something, stop": set the velocity to zero, or undo the move. Both throw away the motion that was heading somewhere free, so diagonal movement into a wall dies and a jump that brushes a wall stops in mid-air.</p>
+  <p>The wall only blocks motion <em>into</em> it. Motion <em>along</em> it is none of the wall's business.</p>
+
+  <h2>Split the velocity in two</h2>
+  <p>Every contact comes with a <dfn>contact normal</dfn> <code>n</code>: a vector of length 1 that points out of the surface, towards the body. Any velocity <code>v</code> can be split into two parts that add back up to <code>v</code>:</p>
+  <ul>
+    <li>The <dfn>normal part</dfn>, which points straight along <code>n</code>, into or out of the wall.</li>
+    <li>The <dfn>tangent part</dfn>, which runs along the surface.</li>
+  </ul>
+  <p>The dot product measures the first one:</p>
+<pre><code>into = vx * nx + vy * ny      -- v · n</code></pre>
+  <p>In words: <code>into</code> is how fast the body moves in the direction the wall faces. Negative means it is moving into the wall. Positive means it is moving away. Zero means it moves exactly along the surface.</p>
+  <p>The normal part is that speed along the normal direction, <code>(v · n) n</code>. Subtract it and what remains is the tangent part:</p>
+<pre><code>vx = vx - into * nx
+vy = vy - into * ny           -- v - (v · n) n</code></pre>
+  <p>In words: take away the motion that points into the wall, keep everything else. The result is the velocity that slides.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" role="img" aria-label="Left: a velocity v heading up and into a wall on the right is split into a red part pointing straight into the wall, which is removed, and a green part pointing up along the wall, which is kept. Right: a velocity heading away from the wall is left unchanged.">
+      <text class="d-text" x="16" y="24">Moving into the wall</text>
+      <text class="d-muted" x="16" y="42">v · n &lt; 0: remove the part along n</text>
+      <rect class="d-fill" x="250" y="56" width="22" height="176"/>
+      <path class="d-stroke" d="M250 56 V232"/>
+      <path class="d-accent" d="M250 76 H215"/>
+      <path class="d-accent-fill" d="M205 76 L215 71.5 L215 80.5 Z"/>
+      <text class="d-label" x="222" y="68">n</text>
+      <path class="d-dash" d="M90 110 H210 V200"/>
+      <path class="d-stroke" d="M90 200 L202 116"/>
+      <path class="d-text" d="M210 110 L204.7 119.6 L199.3 112.4 Z"/>
+      <text class="d-text" x="160" y="174">v</text>
+      <path class="d-bad" d="M90 200 H200"/>
+      <path class="d-bad-fill" d="M210 200 L200 195.5 L200 204.5 Z"/>
+      <text class="d-text" x="150" y="222" text-anchor="middle">removed: (v · n) n</text>
+      <path class="d-good" d="M90 200 V120"/>
+      <path class="d-good-fill" d="M90 110 L85.5 120 L94.5 120 Z"/>
+      <text class="d-text" x="100" y="132">kept: slides</text>
+
+      <path class="d-thin" d="M320 12 V232"/>
+
+      <text class="d-text" x="340" y="24">Moving away from the wall</text>
+      <text class="d-muted" x="340" y="42">v · n &gt; 0: leave v alone</text>
+      <rect class="d-fill" x="580" y="56" width="22" height="176"/>
+      <path class="d-stroke" d="M580 56 V232"/>
+      <path class="d-accent" d="M580 76 H545"/>
+      <path class="d-accent-fill" d="M535 76 L545 71.5 L545 80.5 Z"/>
+      <text class="d-label" x="552" y="68">n</text>
+      <path class="d-stroke" d="M470 200 L358 116"/>
+      <path class="d-text" d="M350 110 L360.7 112.4 L355.3 119.6 Z"/>
+      <text class="d-text" x="420" y="146">v</text>
+      <text class="d-text" x="470" y="222" text-anchor="middle">unchanged: the body can leave</text>
+    </svg>
+    <figcaption>The same wall, two velocities. Only a velocity that points into the wall loses anything, and it loses only the red part along the normal.</figcaption>
+  </figure>
+
+  <h3>One step by hand</h3>
+  <p>A ball moves at <code>v = (200, -150)</code> pixels per second. Screen <code>y</code> grows downwards, as in LÖVE, so the ball is heading right and up. Its speed is 250. It hits a vertical wall on its right, whose normal points left: <code>n = (-1, 0)</code>.</p>
+  <ol>
+    <li><code>into = 200 × -1 + -150 × 0 = -200</code>. Negative, so it is moving into the wall.</li>
+    <li><code>vx = 200 - (-200 × -1) = 0</code> and <code>vy = -150 - (-200 × 0) = -150</code>.</li>
+  </ol>
+  <p>The ball now moves straight up at 150 pixels per second, 2.5 pixels per step at 60 steps per second. The 200 pixels per second into the wall are gone; the 150 along it are untouched.</p>
+
+  <h3>Only when moving into the surface</h3>
+  <p>The check <code>into &lt; 0</code> matters. Without it, a body standing against a wall that tries to walk away would have its "away" speed removed too, and it could never leave. The wall would be glue again, from the other side.</p>
+
+  <div class="callout">
+    <p class="callout-title">Sliding is a bounce with no bounce</p>
+    <p>The restitution lesson reflected the normal part: <code>v - (1 + e)(v · n) n</code>. Set the restitution <code>e</code> to 0 and you get exactly the slide formula. With <code>e = 1</code> it is a perfect mirror bounce. A frictionless, non-bouncy wall in real physics does the same thing, so here the physics answer and the game answer agree.</p>
+  </div>
+
+  <h3>Where games part from physics: keeping the speed</h3>
+  <p>Sliding loses speed: a shallow hit barely slows you, a nearly head-on hit almost stops you. That is physically right, but some games rescale the slid velocity back to the original speed so brushing a wall never feels sluggish. It is a design choice with a sharp edge, which the demo lets you find.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The ball replays the same throw over and over with a fixed timestep. Drag anywhere on the canvas to aim and size its velocity, or focus the canvas and use the arrow keys. The response starts on <strong>Stop dead</strong>: watch the ball park on the wall. Switch to <strong>Slide</strong> and it glides along at the speed of the green arrow.</p>
+  <p>Then tilt the wall and turn on <strong>Show all three responses</strong>. With the starting velocity, set the tilt to 37° and pick <strong>Slide and keep full speed</strong>: the ball hits almost head-on yet shoots down the wall at full speed. Move the tilt to 36° and it shoots up instead.</p>
+
+  <figure class="demo" data-demo="wall-slide">
+    <canvas id="wall-slide"></canvas>
+    <figcaption>At the point of contact the debug drawing splits the incoming velocity into the red part into the wall and the green part along it. The dots are the ball's positions at earlier steps, and the short line is the wall's normal.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A ball against one wall, stepped with a fixed timestep. The wall is a point on its surface and a unit normal, so it can face any direction. The numbers match the demo's starting setup.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local RADIUS = 14
+local wall = { x = 400, y = 170, nx = -1, ny = 0 }   <span class="c">-- a point on the wall, unit normal</span>
+local ball = { x = 240, y = 270, vx = 200, vy = -150 }
+local accumulator = 0
+
+<span class="c">-- Remove the part of (vx, vy) that points into a surface with normal (nx, ny).</span>
+local function slide(vx, vy, nx, ny)
+  local into = vx * nx + vy * ny          <span class="c">-- v . n</span>
+  if into &gt;= 0 then
+    return vx, vy                          <span class="c">-- moving away or along: leave it</span>
+  end
+<span class="k">  return vx - into * nx, vy - into * ny</span>
+end
+
+local function step(dt)
+  ball.x = ball.x + ball.vx * dt
+  ball.y = ball.y + ball.vy * dt
+  local d = (ball.x - wall.x) * wall.nx + (ball.y - wall.y) * wall.ny
+  if d &lt; RADIUS then
+    ball.x = ball.x + wall.nx * (RADIUS - d)   <span class="c">-- push out of the wall</span>
+    ball.y = ball.y + wall.ny * (RADIUS - d)
+<span class="k">    ball.vx, ball.vy = slide(ball.vx, ball.vy, wall.nx, wall.ny)</span>
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  local tx, ty = -wall.ny, wall.nx                 <span class="c">-- direction along the wall</span>
+  love.graphics.line(wall.x - tx * 1000, wall.y - ty * 1000,
+                     wall.x + tx * 1000, wall.y + ty * 1000)
+  love.graphics.circle("fill", ball.x, ball.y, RADIUS)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># CharacterBody2D.move_and_slide() moves by velocity, and on each hit</span>
+<span class="c"># removes the part of the motion that points into the surface.</span>
+extends CharacterBody2D
+
+func _physics_process(delta: float) -&gt; void:
+    velocity = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down") * 250.0
+    move_and_slide()
+
+<span class="c"># By hand: Vector2.slide(n) returns v - (v . n) n.</span>
+<span class="c"># It does not check the sign, so check it yourself.</span>
+func slide_velocity(v: Vector2, n: Vector2) -&gt; Vector2:
+<span class="k">    if v.dot(n) &lt; 0.0:
+        return v.slide(n)</span>
+    return v</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// CharacterController.Move already slides along the colliders it hits.</span>
+<span class="c">// For your own movement code, the same rule in 2D:</span>
+Vector2 Slide(Vector2 v, Vector2 n)
+{
+    float into = Vector2.Dot(v, n);
+    if (into &gt;= 0f) return v;      <span class="c">// moving away or along: leave it</span>
+<span class="k">    return v - into * n;</span>
+}
+
+<span class="c">// In 3D, Vector3.ProjectOnPlane(v, n) gives v - (v . n) n for a unit n,</span>
+<span class="c">// also without the sign check.</span></code></pre>
+  </div>
+  <p>The "keep full speed" variant from the demo is a few more lines. It needs a dead zone, because a nearly head-on hit leaves a tiny slide vector whose direction is mostly rounding noise:</p>
+<pre><code>local function slideKeepSpeed(vx, vy, nx, ny)
+  local speed = math.sqrt(vx * vx + vy * vy)
+  local sx, sy = slide(vx, vy, nx, ny)
+  local len = math.sqrt(sx * sx + sy * sy)
+  if len &lt; 0.0001 then
+    return 0, 0
+  end
+  return sx * speed / len, sy * speed / len
+end</code></pre>
+  <p>The demo uses this exact dead zone, which is why 36° and 37° behave so differently: the slide part is less than 4 pixels per second there, well above 0.0001, so it gets blown up to 250. A practical game would use a much bigger dead zone, or only keep speed when the hit is shallow.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Zeroing the whole velocity on contact.</strong> This is the sticky wall. Any code that says "collided, so velocity = 0" or "collided, so go back to the old position" should be replaced with the slide.</li>
+    <li><strong>Forgetting the sign check.</strong> Removing the normal part when <code>v · n</code> is positive pulls a body that is leaving back onto the wall. Godot's <code>slide</code> and Unity's <code>ProjectOnPlane</code> do not check for you.</li>
+    <li><strong>A normal that is not length 1.</strong> The formula assumes a unit normal. With <code>n = (-2, 0)</code> in the worked example, <code>into</code> becomes -400 and the "slide" gives <code>(-600, -150)</code>: the ball is flung away from the wall. Normalise normals that you build from edge vectors.</li>
+    <li><strong>Keeping full speed head-on.</strong> As the demo shows, rescaling a tiny slide vector turns a near miss of the normal into a full-speed shot in a random-looking direction. Use a dead zone or blend towards the plain slide as the hit gets more direct.</li>
+    <li><strong>Corners.</strong> In a corner, sliding along one wall can push the body into the other. Fixing one contact at a time may need several passes, which is what <code>move_and_slide</code> does internally. One wall, as here, needs one pass.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> have <code>move_and_slide()</code>, which moves the body and slides it along what it hits, and Godot's vectors have a <code>slide(n)</code> method for doing it by hand. Unity's <code>CharacterController.Move</code> slides along colliders in the same way, and <code>Vector3.ProjectOnPlane</code> is the plain formula.</p>
+  <p>The player movement in id Software's Quake III Arena, whose source code was released, does this in a function called <code>PM_ClipVelocity</code>. It multiplies the removed part by a factor slightly above 1 (1.001), so the player ends up moving very slightly away from the surface instead of exactly along it, which keeps rounding errors from pushing the player back into the wall.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find the place in your own project where a moving object reacts to hitting a wall. If it zeroes the velocity or restores the old position, replace that with the <code>slide</code> function above, using the contact normal your collision test already reports.</p>
+  <p>Test it by holding a diagonal into a wall. You are done when the object keeps moving along the wall at a lower speed, and leaves the wall the moment you press away from it. For extra credit, print <code>v · n</code> at each contact and check it is negative whenever the slide runs.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A wall only blocks the part of the velocity that points into it. Stopping completely is the sticky-wall bug.</li>
+    <li><code>into = v · n</code> measures that part; <code>v - into * n</code> removes it and leaves the slide.</li>
+    <li>Only remove it when <code>into</code> is negative, and only with a unit-length normal.</li>
+    <li>Sliding is the same as a bounce with restitution 0.</li>
+    <li>Keeping full speed along the wall is a design choice; guard it against near head-on hits.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes moving and resolving one axis at a time against a tile map, which keeps boxes from snagging on the corners between neighbouring tiles.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Kasper Fauerby, <cite>Improved Collision Detection and Response</cite> (2003). A paper on sliding a moving ellipsoid along level geometry, built on the same projection.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Projections onto planes and the vector maths behind contact normals.</li>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> and <cite>Vector2</cite> class references. The <code>move_and_slide</code> and <code>slide</code> methods.</li>
+    <li>Unity documentation, <cite>CharacterController.Move</cite> and <cite>Vector3.ProjectOnPlane</cite> in the scripting reference.</li>
+    <li>id Software, <cite>Quake III Arena</cite> source code, file <code>bg_pmove.c</code>. The <code>PM_ClipVelocity</code> function.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;        // fixed timestep, seconds
+  var R = 14;               // ball radius, px
+  var ARROW = 0.4;          // px of arrow per px/s of velocity
+  var MAX_SPEED = 400;      // px/s
+  var RUN = 2.5;            // seconds simulated per throw
+  var PAUSE = 0.8;          // seconds to hold the end before replaying
+  var HEIGHT = 340;
+  var NUDGE = 10;           // px/s per key press
+  var KEY_RATE = 200;       // px/s per second while a key is held
+  var N = Math.round(RUN / STEP);
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) &&
+    !/(^|[#&])gdd-test\b/.test(window.location.hash);
+
+  var MODES = {
+    stop: { label: 'Stop dead', color: 'bad' },
+    slide: { label: 'Slide', color: 'topic' },
+    keep: { label: 'Slide, keep speed', color: 'warn' }
+  };
+  var ORDER = ['stop', 'slide', 'keep'];
+
+  var W = 0, P0 = null, S = null, n = null, t = null;
+  var v = { x: 200, y: -150 };
+  var sims = null, runTime = 0, dragging = false, handle = null;
+
+  var ui = DemoKit.controls('[data-demo="wall-slide"]');
+  var mode = ui.select({ label: 'Response', value: 'stop',
+    options: [
+      { value: 'stop', label: 'Stop dead (bug)' },
+      { value: 'slide', label: 'Slide: remove the part into the wall' },
+      { value: 'keep', label: 'Slide and keep full speed' }
+    ],
+    onChange: function () { changed(); } });
+  var tilt = ui.slider({ label: 'Wall tilt', min: -40, max: 40, step: 1, value: 0, unit: '°',
+    onInput: function () { layout(); changed(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { redraw(); } });
+  var all = ui.toggle({ label: 'Show all three responses', value: false, onChange: function () { redraw(); } });
+  var inR = ui.readout({ label: 'Velocity in' });
+  var dotR = ui.readout({ label: 'v · n' });
+  var outR = ui.readout({ label: 'Velocity out' });
+  ui.button({ label: 'Reset', onClick: reset });
+
+  function layout() {
+    if (!W) return;
+    var th = tilt.value * Math.PI / 180;
+    n = { x: -Math.cos(th), y: Math.sin(th) };   // unit normal, out of the wall
+    t = { x: Math.sin(th), y: Math.cos(th) };    // along the wall
+    P0 = { x: Math.round(W * 0.62), y: HEIGHT * 0.5 };
+    S = { x: P0.x - Math.min(160, W * 0.4), y: HEIGHT - 70 };
+  }
+
+  // The three responses. into = v . n, already known to be negative.
+  function respond(b, into, m) {
+    if (m === 'stop') {
+      b.vx = 0;
+      b.vy = 0;
+      return;
+    }
+    var speed = Math.hypot(b.vx, b.vy);
+    b.vx -= into * n.x;
+    b.vy -= into * n.y;
+    if (m === 'keep') {
+      var len = Math.hypot(b.vx, b.vy);
+      if (len < 0.0001) {
+        b.vx = 0;
+        b.vy = 0;
+      } else {
+        b.vx *= speed / len;
+        b.vy *= speed / len;
+      }
+    }
+  }
+
+  // Same step as the Lua: move, push out of the wall, fix the velocity.
+  function simulate(m) {
+    var b = { x: S.x, y: S.y, vx: v.x, vy: v.y };
+    var pts = [{ x: b.x, y: b.y, vx: b.vx, vy: b.vy }];
+    var contact = null;
+    for (var i = 1; i <= N; i++) {
+      b.x += b.vx * STEP;
+      b.y += b.vy * STEP;
+      var d = (b.x - P0.x) * n.x + (b.y - P0.y) * n.y;
+      if (d < R) {
+        b.x += n.x * (R - d);
+        b.y += n.y * (R - d);
+        var into = b.vx * n.x + b.vy * n.y;
+        if (into < 0) {
+          var vin = { x: b.vx, y: b.vy };
+          respond(b, into, m);
+          if (!contact) {
+            contact = { i: i, x: b.x, y: b.y, vin: vin, into: into, vout: { x: b.vx, y: b.vy } };
+          }
+        }
+      }
+      pts.push({ x: b.x, y: b.y, vx: b.vx, vy: b.vy });
+    }
+    return { pts: pts, contact: contact };
+  }
+
+  function restTime() {
+    var c = sims && sims[mode.value].contact;
+    return c ? Math.min(c.i * STEP + 0.6, RUN) : RUN * 0.5;
+  }
+
+  function changed(noDraw) {
+    if (!P0) return;
+    sims = { stop: simulate('stop'), slide: simulate('slide'), keep: simulate('keep') };
+    runTime = REDUCED ? restTime() : 0;
+    updateReadouts();
+    if (!noDraw) redraw();
+  }
+
+  function redraw() {
+    if (handle) handle.redraw();
+  }
+
+  function reset() {
+    v = { x: 200, y: -150 };
+    mode.set('stop');
+    tilt.set(0);
+    debug.set(true);
+    all.set(false);
+    layout();
+    changed();
+  }
+
+  function setVelocity(x, y, noDraw) {
+    var sp = Math.hypot(x, y);
+    if (sp > MAX_SPEED) {
+      x *= MAX_SPEED / sp;
+      y *= MAX_SPEED / sp;
+    }
+    v = { x: Math.round(x), y: Math.round(y) };
+    changed(noDraw);
+  }
+
+  function whole(x) {
+    var r = Math.round(x);
+    return String(r === 0 ? 0 : r);
+  }
+  function fmt(u) {
+    var sp = Math.hypot(u.x, u.y);
+    return '(' + whole(u.x) + ', ' + whole(u.y) + '), speed ' + (sp < 10 ? sp.toFixed(1) : sp.toFixed(0)) + ' px/s';
+  }
+
+  function updateReadouts() {
+    if (!sims) return;
+    inR.set(fmt(v));
+    var dot = v.x * n.x + v.y * n.y;
+    dotR.set(whole(dot) + (dot < 0 ? ' (into the wall)' : ' (away or along: no change)'));
+    var c = sims[mode.value].contact;
+    outR.set(c ? fmt(c.vout) : 'no contact in ' + RUN + ' s');
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color, width, dash) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    var ux = dx / len, uy = dy / len;
+    var head = Math.min(10, len * 0.5);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash ? [5, 4] : []);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * head, y2 - uy * head);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * head - uy * head * 0.5, y2 - uy * head + ux * head * 0.5);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.5, y2 - uy * head - ux * head * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function ballAt(sim, time) {
+    var f = Math.max(0, time / STEP);
+    var i = Math.min(Math.floor(f), N);
+    var k = Math.min(i + 1, N);
+    var a = i >= N ? 0 : f - i;
+    var p = sim.pts[i], q = sim.pts[k];
+    return { x: p.x + (q.x - p.x) * a, y: p.y + (q.y - p.y) * a, vx: p.vx, vy: p.vy };
+  }
+
+  function drawBall(ctx, sim, color, alpha, c, withArrow) {
+    var b = ballAt(sim, runTime);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (withArrow) arrow(ctx, b.x, b.y, b.x + b.vx * ARROW, b.y + b.vy * ARROW, c.ink, 2, false);
+    return b;
+  }
+
+  handle = DemoKit.canvas('#wall-slide', {
+    height: HEIGHT,
+    drag: true,
+    keys: true,
+    label: 'A ball is thrown at a wall that can be tilted. Drag or use the arrow keys to set its velocity. Depending on the chosen response, the ball stops on the wall, slides along it, or slides at full speed.',
+    onResize: function (s) {
+      W = s.width;
+      layout();
+      changed(true);
+    },
+    onDown: function (p) {
+      if (!S) return;
+      dragging = true;
+      setVelocity((p.x - S.x) / ARROW, (p.y - S.y) / ARROW, true);
+    },
+    onMove: function (p) {
+      if (!dragging || !S) return;
+      setVelocity((p.x - S.x) / ARROW, (p.y - S.y) / ARROW, true);
+    },
+    onUp: function () { dragging = false; },
+    onKey: function (key, down) {
+      if (!down || !S) return;
+      if (key === 'arrowleft') setVelocity(v.x - NUDGE, v.y, true);
+      else if (key === 'arrowright') setVelocity(v.x + NUDGE, v.y, true);
+      else if (key === 'arrowup') setVelocity(v.x, v.y - NUDGE, true);
+      else if (key === 'arrowdown') setVelocity(v.x, v.y + NUDGE, true);
+    },
+    update: function (dt, s) {
+      if (!sims) return;
+      var kx = 0, ky = 0;
+      if (s.keys.has('arrowleft')) kx -= 1;
+      if (s.keys.has('arrowright')) kx += 1;
+      if (s.keys.has('arrowup')) ky -= 1;
+      if (s.keys.has('arrowdown')) ky += 1;
+      if (kx !== 0 || ky !== 0) {
+        setVelocity(v.x + kx * KEY_RATE * dt, v.y + ky * KEY_RATE * dt, true);
+      }
+      runTime += dt;
+      if (runTime > RUN + PAUSE) runTime = 0;
+    },
+    draw: function (ctx, s) {
+      if (!sims) return;
+      var c = s.colors;
+      var far = 3000;
+      var sim = sims[mode.value];
+      var main = c[MODES[mode.value].color];
+
+      // The solid side of the wall.
+      ctx.fillStyle = c.surface2;
+      ctx.beginPath();
+      ctx.moveTo(P0.x + t.x * far, P0.y + t.y * far);
+      ctx.lineTo(P0.x - t.x * far, P0.y - t.y * far);
+      ctx.lineTo(P0.x - t.x * far - n.x * far, P0.y - t.y * far - n.y * far);
+      ctx.lineTo(P0.x + t.x * far - n.x * far, P0.y + t.y * far - n.y * far);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(P0.x + t.x * far, P0.y + t.y * far);
+      ctx.lineTo(P0.x - t.x * far, P0.y - t.y * far);
+      ctx.stroke();
+
+      ctx.font = FONT;
+      if (debug.value) {
+        // The wall normal, drawn low on the wall.
+        var qx = P0.x + t.x * 120, qy = P0.y + t.y * 120;
+        arrow(ctx, qx, qy, qx + n.x * 36, qy + n.y * 36, c.ink3, 1.5, false);
+        ctx.fillStyle = c.ink3;
+        ctx.textAlign = 'center';
+        ctx.fillText('n', qx + n.x * 46, qy + n.y * 46 + 4);
+
+        // Earlier positions of the main ball.
+        ctx.fillStyle = main;
+        ctx.globalAlpha = 0.45;
+        var upto = Math.min(Math.floor(runTime / STEP), N);
+        for (var i = 0; i <= upto; i += 6) {
+          ctx.beginPath();
+          ctx.arc(sim.pts[i].x, sim.pts[i].y, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Where the throw starts, and the velocity the reader controls.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(S.x, S.y, R, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      var tipX = S.x + v.x * ARROW, tipY = S.y + v.y * ARROW;
+      arrow(ctx, S.x, S.y, tipX, tipY, c.ink, 2.5, false);
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('v (drag)', S.x - 24, S.y + R + 18);
+
+      // The split at the contact. It is the same for every response.
+      var hit = sims.slide.contact;
+      if (debug.value && hit) {
+        var nx = n.x * hit.into, ny = n.y * hit.into;
+        arrow(ctx, hit.x, hit.y, hit.x + hit.vin.x * ARROW, hit.y + hit.vin.y * ARROW, c.ink3, 1.5, true);
+        arrow(ctx, hit.x, hit.y, hit.x + nx * ARROW, hit.y + ny * ARROW, c.bad, 2.5, false);
+        var gx = hit.vin.x - nx, gy = hit.vin.y - ny;
+        arrow(ctx, hit.x, hit.y, hit.x + gx * ARROW, hit.y + gy * ARROW, c.good, 2.5, false);
+        ctx.font = FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = c.bad;
+        ctx.fillText('into wall', hit.x + nx * ARROW * 0.6 - n.x * 14, hit.y + ny * ARROW * 0.6 - n.y * 14 + 4);
+        if (Math.hypot(gx, gy) * ARROW > 14) {
+          ctx.fillStyle = c.good;
+          ctx.fillText('along wall', hit.x + gx * ARROW + n.x * 40, hit.y + gy * ARROW + n.y * 40 + 4);
+        }
+      }
+
+      // The balls.
+      if (all.value) {
+        for (var j = 0; j < ORDER.length; j++) {
+          if (ORDER[j] === mode.value) continue;
+          drawBall(ctx, sims[ORDER[j]], c[MODES[ORDER[j]].color], 0.45, c, false);
+        }
+      }
+      var b = drawBall(ctx, sim, main, 1, c, debug.value);
+
+      // Labels, top left.
+      ctx.textAlign = 'left';
+      ctx.font = BOLD;
+      ctx.fillStyle = main;
+      ctx.fillText(MODES[mode.value].label, 12, 22);
+      ctx.font = FONT;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('speed now ' + Math.round(Math.hypot(b.vx, b.vy)) + ' px/s', 12, 40);
+      if (all.value) {
+        var y = 58;
+        for (var m = 0; m < ORDER.length; m++) {
+          if (ORDER[m] === mode.value) continue;
+          ctx.fillStyle = c[MODES[ORDER[m]].color];
+          ctx.fillText('faded: ' + MODES[ORDER[m]].label, 12, y);
+          y += 16;
+        }
+      }
+    }
+  });
+  changed();
+})();
+</script>
+</body>
+</html>

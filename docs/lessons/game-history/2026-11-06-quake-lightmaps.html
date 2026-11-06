@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quake's lightmaps: light and shadow baked into a grid of bytes · Game Dev Daily</title>
+<meta name="description" content="How Quake lit its world: a tool stored one brightness byte every 16 texels on each surface, and the game multiplied that grid over the textures.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Quake's lightmaps: light and shadow baked into a grid of bytes</h1>
+  <p class="lede">How Quake lit its world: a tool stored one brightness byte every 16 texels on each surface, and the game multiplied that grid over the textures.</p>
+</header>
+
+<section data-section="hook">
+  <p>In Quake a lamp throws a soft pool of light on the floor, and a pillar casts a shadow across it. The floor may be one large polygon, and the game does no lighting maths for that shadow while you play. The light was worked out before the level shipped and stored in a small grid of numbers.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: light that lives on the corners</h2>
+  <p>Quake (1996) drew its world in software, in 256 colours, on the processor of mid-1990s PCs such as the Pentium. Michael Abrash, who worked on the engine with John Carmack, writes that the game was meant to run on a machine with 8 MB of memory.</p>
+  <p>The early engine used <dfn>Gouraud shading</dfn>: work out the brightness at each corner (vertex) of a polygon and blend it across the inside. That ties light to geometry. A pool of light under a lamp needs a vertex under the lamp, and a sharp shadow edge needs many small polygons. Abrash also describes floors whose lighting "would shimmy and shift" as the player turned. More polygons meant a bigger level and a slower game.</p>
+
+  <h2>The trick: a separate grid of light for every surface</h2>
+  <p>Abrash credits Carmack with the fix: split lighting from geometry. Every wall, floor and ceiling polygon gets a <dfn>lightmap</dfn>, a grid of brightness values with one value every 16 <dfn>texels</dfn> (texture pixels) in each direction, about two feet in Quake's world. Each value is one byte of brightness, with no colour.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Three panels. Left: a brick texture tile that repeats. Middle: a five by four grid of dots of different brightness, the lightmap, one dot every 16 texels. Right: the bricks with a bright area and a dark area, the lit surface. A times sign sits between the first two panels and an equals sign between the last two.">
+      <text class="d-muted" x="100" y="22" text-anchor="middle">texture tile</text>
+      <rect class="d-box" x="40" y="36" width="120" height="120"/>
+      <path class="d-thin" d="M40 66 H160 M40 96 H160 M40 126 H160 M100 36 V66 M70 66 V96 M130 66 V96 M100 96 V126 M70 126 V156 M130 126 V156"/>
+      <text class="d-label" x="100" y="180" text-anchor="middle">repeats across the wall</text>
+      <text class="d-mono" x="100" y="202" text-anchor="middle">64 × 64 = 4,096 bytes</text>
+      <text class="d-text" x="200" y="104" text-anchor="middle" style="font-size:26px">×</text>
+
+      <text class="d-muted" x="320" y="22" text-anchor="middle">lightmap</text>
+      <rect class="d-box" x="260" y="36" width="120" height="120"/>
+      <g class="d-accent-fill">
+        <circle cx="260" cy="36" r="9" opacity="0.95"/><circle cx="290" cy="36" r="9" opacity="0.8"/><circle cx="320" cy="36" r="9" opacity="0.5"/><circle cx="350" cy="36" r="9" opacity="0.25"/><circle cx="380" cy="36" r="9" opacity="0.15"/>
+        <circle cx="260" cy="76" r="9" opacity="0.8"/><circle cx="290" cy="76" r="9" opacity="0.7"/><circle cx="320" cy="76" r="9" opacity="0.4"/><circle cx="350" cy="76" r="9" opacity="0.1"/><circle cx="380" cy="76" r="9" opacity="0.1"/>
+        <circle cx="260" cy="116" r="9" opacity="0.5"/><circle cx="290" cy="116" r="9" opacity="0.4"/><circle cx="320" cy="116" r="9" opacity="0.3"/><circle cx="350" cy="116" r="9" opacity="0.1"/><circle cx="380" cy="116" r="9" opacity="0.1"/>
+        <circle cx="260" cy="156" r="9" opacity="0.3"/><circle cx="290" cy="156" r="9" opacity="0.25"/><circle cx="320" cy="156" r="9" opacity="0.2"/><circle cx="350" cy="156" r="9" opacity="0.15"/><circle cx="380" cy="156" r="9" opacity="0.1"/>
+      </g>
+      <text class="d-label" x="320" y="186" text-anchor="middle">one byte every 16 texels</text>
+      <text class="d-mono" x="320" y="208" text-anchor="middle">17 × 11 = 187 bytes</text>
+      <text class="d-text" x="440" y="104" text-anchor="middle" style="font-size:26px">=</text>
+
+      <text class="d-muted" x="540" y="22" text-anchor="middle">lit surface</text>
+      <rect class="d-box" x="480" y="36" width="120" height="120"/>
+      <path class="d-thin" d="M480 66 H600 M480 96 H600 M480 126 H600 M540 36 V66 M510 66 V96 M570 66 V96 M540 96 V126 M510 126 V156 M570 126 V156"/>
+      <circle class="d-accent-soft" cx="500" cy="56" r="44" opacity="0.8"/>
+      <rect class="d-fill" x="545" y="80" width="55" height="76" opacity="0.85"/>
+      <text class="d-label" x="540" y="186" text-anchor="middle">built once, then cached</text>
+      <text class="d-mono" x="540" y="208" text-anchor="middle">256 × 160 = 40,960 bytes</text>
+      <text class="d-muted" x="320" y="240" text-anchor="middle">byte counts for the 256 by 160 texel floor in the demo below</text>
+    </svg>
+    <figcaption>The texture is shared and the lightmap is tiny. Only their product, the lit surface, is large, and the game builds it only for surfaces it is about to draw.</figcaption>
+  </figure>
+
+  <h3>Baking: done once, by a tool</h3>
+  <p><dfn>Baking</dfn> means calculating something slow ahead of time and saving the answer. In the released source, Quake's <code>light</code> tool does this for every sample point and every light:</p>
+  <ol>
+    <li>Trace a line from the light to the point. If geometry blocks it, the point is in shadow.</li>
+    <li>Otherwise add <code>light value − distance</code>, so brightness falls in a straight line to zero. The default light value is 300.</li>
+    <li>Scale that by <code>0.5 + 0.5 × cos</code> of the angle, so grazing light counts less.</li>
+  </ol>
+  <p>The sum is halved and capped at 255. An <code>-extra</code> option averages four samples per point to soften jagged shadow edges, filtering Abrash says Billy Zelsnack suggested.</p>
+
+  <h3>Drawing: the surface cache</h3>
+  <p>Before a surface is drawn, the engine tiles its texture into a buffer and multiplies each texel by the light there, blended from the four nearest lightmap values (<dfn>bilinear</dfn> blending). The lit <dfn>surface</dfn> is then drawn with no lighting work and kept in a cache while it stays in view. Abrash reports 2.25 cycles per lit texel, and 600 KB of cache being enough at 320 by 200.</p>
+
+  <h3>Flickering lights without re-baking</h3>
+  <p>A surface can carry up to four lightmaps, each tagged with a <dfn>light style</dfn>: a string of letters played at ten a second, where <code>a</code> is dark, <code>m</code> normal and <code>z</code> double. Style 1, the flicker, is <code>mmnmmommommnonmmonqnmmo</code>. The engine turns the current letter into a scale for that lightmap:</p>
+<pre><code>local function styleScale(style, time)
+  local k = math.floor(time * 10) % #style + 1
+  return (string.byte(style, k) - string.byte("a")) * 22 / 256
+end</code></pre>
+  <p>The bake stays fixed; only the scale moves. But each change forces the surfaces using it to be rebuilt, and Abrash warns that lighting changing everywhere at once defeats the cache.</p>
+
+  <div class="callout">
+    <p class="callout-title">The lesson for today</p>
+    <p>Bake what does not move. A phone or browser pays for every real-time light every frame; a baked lightmap costs one texture read per pixel however many lights went into it, and can be small because light changes slowly across a surface.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>A floor seen from above, lit by lamps hanging over it. Drag a lamp (or click the floor, press 1 to 3 to pick a lamp and use the arrow keys) and the lightmap is baked again. Set <strong>View</strong> to <strong>Lightmap only</strong> and turn on <strong>Show sample points</strong> to see the grid you are really storing. Then change <strong>Sample spacing</strong>: at 32 texels the shadows smear and light leaks under the pillars; at 4 they sharpen but you store about fourteen times as many bytes as at 16. Turn off <strong>Smooth between samples</strong> to see the raw grid.</p>
+
+  <figure class="demo wide" data-demo="quake-lightmap">
+    <canvas id="quake-lightmap"></canvas>
+    <figcaption>16 texels is Quake's spacing. With every lamp steady the lit surface is built once and reused: watch the rebuild count stay still. Give a lamp the flicker style and the surface must be rebuilt up to ten times a second, though the bake never runs. In this demo a stored value of 128 shows the texture at its own colour.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same bake and the same surface build as the demo, with the same numbers. <code>bake</code> runs once; <code>buildSurface</code> runs again only when the lighting changes; <code>love.draw</code> just draws the cached image. Any 64 by 64 texture tile will do.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPACING, W, H = 16, 256, 160   <span class="c">-- one sample every 16 texels; floor is 256 by 160</span>
+local LIGHT_HEIGHT = 48              <span class="c">-- lamps hang 48 units above the floor</span>
+local lights  = { { x = 60, y = 44, power = 300 }, { x = 204, y = 120, power = 300 } }
+local pillars = { { x = 112, y = 56, w = 24, h = 24 }, { x = 176, y = 24, w = 16, h = 40 },
+                  { x = 40, y = 104, w = 32, h = 12 } }
+local lightmap, cols, rows, texture, surface
+
+local function inShadow(L, sx, sy)   <span class="c">-- walk from lamp to sample in 1-texel steps</span>
+  local dx, dy = sx - L.x, sy - L.y
+  local steps = math.ceil(math.sqrt(dx * dx + dy * dy))
+  for k = 1, steps - 1 do
+    local px, py = L.x + dx * k / steps, L.y + dy * k / steps
+    for _, b in ipairs(pillars) do
+      if px &gt; b.x and px &lt; b.x + b.w and py &gt; b.y and py &lt; b.y + b.h then return true end
+    end
+  end
+  return false
+end
+
+local function bake()                <span class="c">-- Quake did this offline, once per level</span>
+  cols, rows = W / SPACING + 1, H / SPACING + 1
+  lightmap = {}
+  for j = 0, rows - 1 do
+    for i = 0, cols - 1 do
+      local sx, sy, sum = i * SPACING, j * SPACING, 0
+      for _, L in ipairs(lights) do
+        if not inShadow(L, sx, sy) then
+          local dx, dy = sx - L.x, sy - L.y
+          local dist = math.sqrt(dx * dx + dy * dy + LIGHT_HEIGHT * LIGHT_HEIGHT)
+          local angle = 0.5 + 0.5 * LIGHT_HEIGHT / dist
+<span class="k">          sum = sum + math.max(0, (L.power - dist) * angle)</span>
+        end
+      end
+<span class="k">      lightmap[j * cols + i + 1] = math.min(255, math.floor(sum * 0.5))  -- one byte</span>
+    end
+  end
+end
+
+local function sample(i, j) return lightmap[j * cols + i + 1] end
+
+local function lightAt(x, y)         <span class="c">-- blend the four nearest samples</span>
+  local fx, fy = x / SPACING, y / SPACING
+  local i = math.min(math.floor(fx), cols - 2)
+  local j = math.min(math.floor(fy), rows - 2)
+  local u, v = fx - i, fy - j
+  local top = sample(i, j) * (1 - u) + sample(i + 1, j) * u
+  local bottom = sample(i, j + 1) * (1 - u) + sample(i + 1, j + 1) * u
+  return top * (1 - v) + bottom * v
+end
+
+local function buildSurface()        <span class="c">-- the surface cache: texture times light</span>
+  local img = love.image.newImageData(W, H)
+  for y = 0, H - 1 do
+    for x = 0, W - 1 do
+      local r, g, b = texture:getPixel(x % 64, y % 64)
+<span class="k">      local k = math.min(2, lightAt(x + 0.5, y + 0.5) / 128)</span>
+      img:setPixel(x, y, math.min(1, r * k), math.min(1, g * k), math.min(1, b * k), 1)
+    end
+  end
+  surface = love.graphics.newImage(img)
+end
+
+function love.load()
+  texture = love.image.newImageData("bricks64.png")
+  bake()
+  buildSurface()
+end
+
+function love.draw()
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.draw(surface, 0, 0, 0, 3, 3)   <span class="c">-- no lighting maths per frame</span>
+end</code></pre>
+  </div>
+  <p>The bake casts a line from every lamp to every sample. The draw does no lighting at all. Rebuilding the surface costs one blend per texel, which is why it is cached. The demo also multiplies each lightmap by its style scale; for the steady style <code>m</code> that is 264/256, just over 1.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Samples inside walls.</strong> Some sample points fall inside solid geometry, come out black and bleed into the floor beside them. Quake's tool nudges them towards the middle of the face, and a comment there admits this does not always work. Try 32 texels and look at the pillar edges.</li>
+    <li><strong>Choosing the spacing.</strong> Coarse grids blur shadows; fine grids cost memory and bake time, growing with the square of the resolution.</li>
+    <li><strong>Moving things get no lightmap.</strong> Abrash describes Quake lighting each monster from how bright the floor is where it stands. Modern engines use baked light probes.</li>
+    <li><strong>Changing lights force rebuilds.</strong> Light styles and dynamic lights, such as a flying rocket's glow, invalidate cached surfaces. Keep them few.</li>
+    <li><strong>Seams.</strong> Each surface has its own grid, so neighbours can disagree along a shared edge.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Quake's <code>light</code> tool, the surface builder and the light style strings are all in id Software's released source. GLQuake, the OpenGL version, skipped the surface cache: it packs lightmaps into 128 by 128 textures and draws them as a second pass that multiplies the colour already on screen. Abrash writes that Quake 2 added radiosity to the preprocessor, letting light bounce. Unity, Unreal Engine and Godot all ship lightmap bakers today.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take a static room in your own project with two or three lights. Bake a lightmap for its floor at 16 texels per sample, with the code above or your engine's baker, and switch the real-time lights off. Add a key that halves the spacing and bakes again. You are done when you can say how many bytes each spacing stores and point at one place where the coarse version shows a shadow leak.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Gouraud shading tied light to vertices, so detailed light needed more polygons; Quake gave each surface its own light grid instead.</li>
+    <li>A tool traced every light to a sample every 16 texels and stored one byte per sample, shadows included.</li>
+    <li>At run time the texture was multiplied by the blended lightmap into a cached surface, with no per-pixel lighting while drawing.</li>
+    <li>Light styles scale whole lightmaps for flicker and pulses, at the cost of rebuilding surfaces.</li>
+    <li>The grid is coarse on purpose: light changes slowly, so a few hundred bytes can light a whole wall.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we leave the PC for the PlayStation and see how Crash Bandicoot fitted levels far larger than the console's memory by paging them in from the disc.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The mechanism, the numbers, the quotations and the light style strings were checked in this session against Abrash's chapters and id Software's released source code.</p>
+  <ul>
+    <li>Michael Abrash, <cite>Graphics Programming Black Book, Special Edition</cite> (1997), chapter 68, <a href="https://raw.githubusercontent.com/jagregory/abrash-black-book/master/src/chapter-68.md">Quake's Lighting Model</a>, on the Gouraud problems, surface-based lighting, the 16-texel grid and the surface cache.</li>
+    <li>Michael Abrash, same book, chapter 69, <a href="https://raw.githubusercontent.com/jagregory/abrash-black-book/master/src/chapter-69.md">Surface Caching and Quake's Triangle Models</a>, on two-pass lighting with the light map as a texture and how models are lit from the floor.</li>
+    <li>Michael Abrash, same book, chapter 70, <a href="https://raw.githubusercontent.com/jagregory/abrash-black-book/master/src/chapter-70.md">Quake: A Post-Mortem and a Glimpse into the Future</a>, on light map generation, GLQuake and Quake 2's radiosity.</li>
+    <li>id Software, Quake tools source: <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qutils/LIGHT/LTFACE.C">qutils/LIGHT/LTFACE.C</a> (<code>CalcPoints</code>, <code>SingleLightFace</code>, <code>LightFace</code>), <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qutils/LIGHT/LIGHT.C">LIGHT.C</a> (<code>scalecos</code>, <code>rangescale</code>) and <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qutils/LIGHT/ENTITIES.H">ENTITIES.H</a> (<code>DEFAULTLIGHTLEVEL</code>); <a href="https://raw.githubusercontent.com/id-Software/Quake-Tools/master/qcc/v101qc/world.qc">qcc/v101qc/world.qc</a> for the light style strings.</li>
+    <li>id Software, Quake engine source: <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/r_surf.c">WinQuake/r_surf.c</a> (<code>R_BuildLightMap</code>), <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/r_light.c">WinQuake/r_light.c</a> (<code>R_AnimateLight</code>), <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/gl_rsurf.c">WinQuake/gl_rsurf.c</a> (128 by 128 lightmap blocks and the blend) and <a href="https://raw.githubusercontent.com/id-Software/Quake/master/WinQuake/model.c">WinQuake/model.c</a> (the 256-texel surface limit).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The scene, in texels. Same numbers as the Lua. ----
+  var W = 256, H = 160, TILE = 64, LIGHT_HEIGHT = 48, MAX_LIGHTS = 3;
+  var STYLES = {
+    0: 'm',
+    1: 'mmnmmommommnonmmonqnmmo',
+    2: 'abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba'
+  };
+  var pillars = [
+    { x: 112, y: 56, w: 24, h: 24 },
+    { x: 176, y: 24, w: 16, h: 40 },
+    { x: 40, y: 104, w: 32, h: 12 }
+  ];
+  var lights = [
+    { x: 60, y: 44, power: 300, style: 0 },
+    { x: 204, y: 120, power: 300, style: 0 }
+  ];
+  var selected = 0;
+
+  // ---- A procedural brick tile, 64 by 64 texels, RGB bytes ----
+  var tex = new Uint8ClampedArray(TILE * TILE * 3);
+  (function () {
+    var rnd = DemoKit.rng(7), tints = [], i, x, y;
+    for (i = 0; i < 8; i += 1) tints.push(0.82 + rnd() * 0.3);
+    for (y = 0; y < TILE; y += 1) {
+      var row = Math.floor(y / 16);
+      var shift = row % 2 ? 16 : 0;
+      for (x = 0; x < TILE; x += 1) {
+        var bx = (x + shift) % TILE;
+        var o = (y * TILE + x) * 3;
+        var n = 0.9 + rnd() * 0.18;
+        if (y % 16 === 0 || bx % 32 === 0) {
+          tex[o] = 96 * n; tex[o + 1] = 92 * n; tex[o + 2] = 86 * n;
+        } else {
+          var t = tints[row * 2 + Math.floor(bx / 32)] * n;
+          tex[o] = 170 * t; tex[o + 1] = 112 * t; tex[o + 2] = 88 * t;
+        }
+      }
+    }
+  })();
+
+  // ---- The bake ----
+  var spacing = 16, cols = 0, rows = 0;
+  var maps = {};            // style -> Uint8Array of stored bytes
+  var rays = 0, bakeMs = 0, version = 0;
+
+  function insidePillar(px, py) {
+    for (var b = 0; b < pillars.length; b += 1) {
+      var p = pillars[b];
+      if (px > p.x && px < p.x + p.w && py > p.y && py < p.y + p.h) return true;
+    }
+    return false;
+  }
+
+  function inShadow(L, sx, sy) {
+    var dx = sx - L.x, dy = sy - L.y;
+    var steps = Math.ceil(Math.sqrt(dx * dx + dy * dy));
+    for (var k = 1; k < steps; k += 1) {
+      if (insidePillar(L.x + dx * k / steps, L.y + dy * k / steps)) return true;
+    }
+    return false;
+  }
+
+  function bake() {
+    var t0 = window.performance.now();
+    cols = W / spacing + 1;
+    rows = H / spacing + 1;
+    var sums = {}, i, j, l;
+    rays = 0;
+    for (l = 0; l < lights.length; l += 1) {
+      if (!sums[lights[l].style]) sums[lights[l].style] = new Float64Array(cols * rows);
+    }
+    for (j = 0; j < rows; j += 1) {
+      for (i = 0; i < cols; i += 1) {
+        var sx = i * spacing, sy = j * spacing, idx = j * cols + i;
+        for (l = 0; l < lights.length; l += 1) {
+          var L = lights[l];
+          rays += 1;
+          if (inShadow(L, sx, sy)) continue;
+          var dx = sx - L.x, dy = sy - L.y;
+          var dist = Math.sqrt(dx * dx + dy * dy + LIGHT_HEIGHT * LIGHT_HEIGHT);
+          var angle = 0.5 + 0.5 * LIGHT_HEIGHT / dist;
+          sums[L.style][idx] += Math.max(0, (L.power - dist) * angle);
+        }
+      }
+    }
+    maps = {};
+    Object.keys(sums).forEach(function (s) {
+      var src = sums[s], out = new Uint8Array(cols * rows);
+      for (var k = 0; k < out.length; k += 1) out[k] = Math.min(255, Math.floor(src[k] * 0.5));
+      maps[s] = out;
+    });
+    bakeMs = window.performance.now() - t0;
+    version += 1;
+  }
+
+  function styleScale(style, time) {
+    var str = STYLES[style];
+    var k = Math.floor(time * 10) % str.length;
+    return (str.charCodeAt(k) - 97) * 22 / 256;
+  }
+
+  // ---- The surface cache: texture times blended light ----
+  var surf = document.createElement('canvas');
+  surf.width = W; surf.height = H;
+  var sctx = surf.getContext('2d');
+  var img = sctx.createImageData(W, H);
+  var combined = new Float32Array(65 * 41);   // big enough for spacing 4
+  var cacheKey = '', rebuilds = 0;
+
+  function buildSurface(scales, view, smooth) {
+    var n = cols * rows, k, x, y;
+    var styles = Object.keys(maps);
+    for (k = 0; k < n; k += 1) {
+      var v = 0;
+      for (var s = 0; s < styles.length; s += 1) v += maps[styles[s]][k] * scales[styles[s]];
+      combined[k] = v;
+    }
+    var d = img.data;
+    for (y = 0; y < H; y += 1) {
+      var fy = (y + 0.5) / spacing;
+      var j = Math.min(Math.floor(fy), rows - 2), vv = fy - j;
+      for (x = 0; x < W; x += 1) {
+        var fx = (x + 0.5) / spacing, light;
+        if (smooth) {
+          var i = Math.min(Math.floor(fx), cols - 2), u = fx - i;
+          var top = combined[j * cols + i] * (1 - u) + combined[j * cols + i + 1] * u;
+          var bot = combined[(j + 1) * cols + i] * (1 - u) + combined[(j + 1) * cols + i + 1] * u;
+          light = top * (1 - vv) + bot * vv;
+        } else {
+          light = combined[Math.round(fy) * cols + Math.round(fx)];
+        }
+        var o = (y * W + x) * 4, t = ((y % TILE) * TILE + (x % TILE)) * 3;
+        if (view === 'light') {
+          var g = Math.min(255, light);
+          d[o] = g; d[o + 1] = g; d[o + 2] = g;
+        } else if (view === 'tex') {
+          d[o] = tex[t]; d[o + 1] = tex[t + 1]; d[o + 2] = tex[t + 2];
+        } else {
+          var m = Math.min(2, light / 128);
+          d[o] = tex[t] * m; d[o + 1] = tex[t + 1] * m; d[o + 2] = tex[t + 2] * m;
+        }
+        d[o + 3] = 255;
+      }
+    }
+    sctx.putImageData(img, 0, 0);
+    rebuilds += 1;
+  }
+
+  // ---- Controls ----
+  var handle = null;
+  function refresh() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="quake-lightmap"]');
+  var spacingSel = ui.select({
+    label: 'Sample spacing',
+    options: [{ value: '4', label: '4 texels' }, { value: '8', label: '8 texels' },
+              { value: '16', label: '16 texels (Quake)' }, { value: '32', label: '32 texels' }],
+    value: '16',
+    onChange: function (v) { spacing = parseInt(v, 10); bake(); refresh(); }
+  });
+  var viewSel = ui.select({
+    label: 'View',
+    options: [{ value: 'lit', label: 'Texture × lightmap' }, { value: 'light', label: 'Lightmap only' },
+              { value: 'tex', label: 'Texture only' }],
+    value: 'lit',
+    onChange: refresh
+  });
+  var smoothTog = ui.toggle({ label: 'Smooth between samples', value: true, onChange: refresh });
+  var pointsTog = ui.toggle({ label: 'Show sample points', value: false, onChange: refresh });
+  var styleSel = ui.select({
+    label: 'Style of the selected lamp',
+    options: [{ value: '0', label: 'Steady (style 0)' }, { value: '1', label: 'Flicker (style 1)' },
+              { value: '2', label: 'Slow pulse (style 2)' }],
+    value: '0',
+    onChange: function (v) { lights[selected].style = parseInt(v, 10); bake(); refresh(); }
+  });
+  var powerSl = ui.slider({
+    label: 'Light value of the selected lamp', min: 100, max: 500, step: 10, value: 300,
+    onInput: function (v) { lights[selected].power = v; bake(); refresh(); }
+  });
+  ui.button({
+    label: 'Add a lamp',
+    onClick: function () {
+      if (lights.length >= MAX_LIGHTS) return;
+      lights.push({ x: 150, y: 110, power: 300, style: 0 });
+      select(lights.length - 1); bake(); refresh();
+    }
+  });
+  ui.button({
+    label: 'Remove the selected lamp',
+    onClick: function () {
+      if (lights.length <= 1) return;
+      lights.splice(selected, 1);
+      select(Math.min(selected, lights.length - 1)); bake(); refresh();
+    }
+  });
+  var storeOut = ui.readout({ label: 'Stored lightmap' });
+  var cacheOut = ui.readout({ label: 'Lit surface (cached)' });
+  var bakeOut = ui.readout({ label: 'Last bake' });
+
+  function select(i) {
+    selected = i;
+    styleSel.set(String(lights[i].style));
+    powerSl.set(lights[i].power);
+  }
+
+  function moveLight(L, nx, ny) {
+    nx = DemoKit.clamp(nx, 2, W - 2);
+    ny = DemoKit.clamp(ny, 2, H - 2);
+    if (insidePillar(nx, ny)) return false;
+    if (nx === L.x && ny === L.y) return false;
+    L.x = nx; L.y = ny;
+    return true;
+  }
+
+  // ---- Layout and input ----
+  var lay = { ts: 1, ox: 0, oy: 8 };
+  function layout(s) {
+    var ts = Math.max(0.5, Math.min((s.width - 16) / W, (s.height - 56) / H));
+    lay = { ts: ts, ox: (s.width - W * ts) / 2, oy: 8 };
+  }
+  var dragging = false;
+
+  bake();
+
+  handle = DemoKit.canvas('#quake-lightmap', {
+    aspect: 1.4, minHeight: 250, maxHeight: 480,
+    drag: true, keys: true,
+    label: 'A floor of bricks seen from above, lit by up to three lamps, with three dark pillars casting shadows. Drag a lamp, or press 1 to 3 to pick one and use the arrow keys, and the lightmap is baked again.',
+    onResize: layout,
+    onDown: function (p) {
+      var best = -1, bestD = 18;
+      for (var i = 0; i < lights.length; i += 1) {
+        var d = Math.hypot(lay.ox + lights[i].x * lay.ts - p.x, lay.oy + lights[i].y * lay.ts - p.y);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) { select(best); dragging = true; }
+    },
+    onMove: function (p) {
+      if (!dragging || !p.down) return;
+      if (moveLight(lights[selected], Math.round((p.x - lay.ox) / lay.ts), Math.round((p.y - lay.oy) / lay.ts))) bake();
+    },
+    onUp: function () { dragging = false; },
+    onKey: function (key, down) {
+      if (!down) return;
+      if (key === '1' || key === '2' || key === '3') {
+        var i = parseInt(key, 10) - 1;
+        if (i < lights.length) select(i);
+        return;
+      }
+      var L = lights[selected], dx = 0, dy = 0;
+      if (key === 'arrowleft') dx = -4;
+      if (key === 'arrowright') dx = 4;
+      if (key === 'arrowup') dy = -4;
+      if (key === 'arrowdown') dy = 4;
+      if ((dx || dy) && moveLight(L, L.x + dx, L.y + dy)) bake();
+    },
+    update: function (dt, s) {
+      var vx = 0, vy = 0;
+      if (s.keys.has('arrowleft')) vx -= 1;
+      if (s.keys.has('arrowright')) vx += 1;
+      if (s.keys.has('arrowup')) vy -= 1;
+      if (s.keys.has('arrowdown')) vy += 1;
+      if (!vx && !vy) return;
+      var L = lights[selected];
+      if (moveLight(L, L.x + vx * 60 * dt, L.y + vy * 60 * dt)) bake();
+    },
+    draw: function (ctx, s) {
+      var col = s.colors;
+      layout(s);
+      var ts = lay.ts, ox = lay.ox, oy = lay.oy, i, j;
+
+      // rebuild the lit surface only when something it depends on changed
+      var scales = {}, keyParts = [version, viewSel.value, smoothTog.value];
+      Object.keys(maps).forEach(function (st) {
+        scales[st] = styleScale(st, s.time);
+        keyParts.push(st + ':' + scales[st]);
+      });
+      var key = keyParts.join('|');
+      if (key !== cacheKey) { buildSurface(scales, viewSel.value, smoothTog.value); cacheKey = key; }
+
+      ctx.fillStyle = col.surface2;
+      ctx.fillRect(0, 0, s.width, s.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(surf, ox, oy, W * ts, H * ts);
+      ctx.strokeStyle = col.ink2;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox, oy, W * ts, H * ts);
+
+      // pillars
+      for (i = 0; i < pillars.length; i += 1) {
+        var p = pillars[i];
+        ctx.fillStyle = col.ink2;
+        ctx.fillRect(ox + p.x * ts, oy + p.y * ts, p.w * ts, p.h * ts);
+        ctx.strokeStyle = col.ink;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ox + p.x * ts, oy + p.y * ts, p.w * ts, p.h * ts);
+      }
+
+      // sample points
+      if (pointsTog.value) {
+        var r = Math.max(1.2, Math.min(3, spacing * ts * 0.12));
+        ctx.fillStyle = col.topic;
+        ctx.strokeStyle = col.surface;
+        ctx.lineWidth = 1;
+        for (j = 0; j < rows; j += 1) {
+          for (i = 0; i < cols; i += 1) {
+            ctx.beginPath();
+            ctx.arc(ox + i * spacing * ts, oy + j * spacing * ts, r, 0, Math.PI * 2);
+            ctx.fill();
+            if (r > 2) ctx.stroke();
+          }
+        }
+      }
+
+      // lamps
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (i = 0; i < lights.length; i += 1) {
+        var L = lights[i], lx = ox + L.x * ts, ly = oy + L.y * ts;
+        if (i === selected) {
+          ctx.beginPath();
+          ctx.arc(lx, ly, 13, 0, Math.PI * 2);
+          ctx.strokeStyle = col.topic;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(lx, ly, 9, 0, Math.PI * 2);
+        ctx.fillStyle = col.warn;
+        ctx.fill();
+        ctx.strokeStyle = col.ink;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = col.bg;
+        ctx.fillText(String(i + 1), lx, ly + 0.5);
+      }
+
+      // caption under the floor (bottom-left, clear of the pause button)
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = col.ink2;
+      ctx.fillText(cols + ' × ' + rows + ' samples, ' + spacing + ' texels apart', ox, oy + H * ts + 8);
+
+      var nMaps = Object.keys(maps).length, n = cols * rows;
+      storeOut.set(cols + ' × ' + rows + ' = ' + n + ' bytes' +
+        (nMaps > 1 ? ' × ' + nMaps + ' styles = ' + n * nMaps + ' bytes' : ''));
+      cacheOut.set(W + ' × ' + H + ' = ' + W * H + ' bytes, built ' + rebuilds + ' times');
+      bakeOut.set(rays + ' lamp-to-sample lines, ' + bakeMs.toFixed(1) + ' ms');
+    }
+  });
+})();
+</script>
+</body>
+</html>

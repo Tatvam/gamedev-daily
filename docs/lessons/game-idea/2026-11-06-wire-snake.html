@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wire Snake: the route you crawl is the circuit you build · Game Dev Daily</title>
+<meta name="description" content="A grid puzzle where a snake made of wire crawls from a battery to a lamp on a fixed reel, never crossing itself or water. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Wire Snake: the route you crawl is the circuit you build</h1>
+  <p class="lede">A grid puzzle where a snake made of wire crawls from a battery to a lamp on a fixed reel, never crossing itself or water. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a snake made of copper wire, and your tail is plugged into a battery. Every tile you crawl over stays wired behind you. Reach the lamp before the reel runs out, without crossing yourself or dipping into a puddle, and the room lights up.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: plan, crawl, back up</h2>
+  <p>Wire Snake is a turn-based puzzle on a seven by seven grid. One tile is the <dfn>battery</dfn>, where the wire starts. One tile is the <dfn>lamp</dfn>, where it must end. Walls block the way, and so does water, because a live wire must stay dry. The level also gives you a <dfn>reel</dfn>: the number of tiles of wire you may lay, shown as a bar at the top.</p>
+  <p>Each press of a direction moves the snake's head one tile and lays one tile of wire. Your own body is now an obstacle, as in Snake, but nothing moves unless you move it. Pressing back toward the tile you came from pulls the wire back in.</p>
+  <p>Every ten seconds the player crawls a few tiles, sees that the route is going to run out of wire or box itself in, and backs up. Every minute they light a lamp. Every session the circuits add <dfn>bulbs</dfn>, small lamps that must be wired in along the way, so the order of the route starts to matter.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: plan a route around the water, crawl one tile at a time laying wire, and back up when the reel or the space runs out. It leads back to plan. Beside it, two longer loops: every minute a lamp lit, and every session bulbs in series and tighter reels.">
+      <defs>
+        <marker id="ws-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Plan</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">which way round?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Crawl</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">one tile, one wire</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Back up</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">reel it in, retry</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ws-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ws-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ws-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a lamp lit, with</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">wire left to spare</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">bulbs in series,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">tighter reels</text>
+    </svg>
+    <figcaption>The short loop is a conversation with your own body. The wire you laid a moment ago is the wall you have to plan around now.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>One tile per move.</strong> The head moves up, down, left or right onto floor. Water, walls, the board edge and the wire itself all refuse the move.</li>
+    <li><strong>Backing up is free.</strong> Moving onto the tile just behind the head reels in the last tile of wire. There is no move counter and no penalty.</li>
+    <li><strong>The reel is fixed.</strong> When every tile on the reel is laid, the head cannot go further.</li>
+    <li><strong>Bulbs are in series.</strong> The lamp only accepts the wire once every bulb is on it, because current has to pass through each one to get there.</li>
+    <li><strong>The goal.</strong> The head reaches the lamp. Wire left on the reel is a bonus, not a requirement.</li>
+  </ul>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 236" role="img" aria-label="A small board, five tiles wide and three tall. The wire runs from the battery in the top left, along the top row, then down the fourth column, then right into the lamp, going around two water tiles in the middle row. Six tiles of an eight tile reel are used.">
+      <rect class="d-fill" x="60" y="10" width="240" height="144"/>
+      <rect class="d-accent-soft" x="108" y="58" width="96" height="48"/>
+      <text class="d-muted" x="156" y="88" text-anchor="middle">water</text>
+      <path class="d-stroke d-thin" d="M60 58 H300 M60 106 H300 M108 10 V154 M156 10 V154 M204 10 V154 M252 10 V154"/>
+      <rect class="d-box" x="70" y="20" width="28" height="28" rx="4"/>
+      <text class="d-text" x="84" y="39" text-anchor="middle">+</text>
+      <path class="d-accent" style="stroke-width:7;stroke-linecap:round;stroke-linejoin:round" d="M98 34 H228 V130 H262"/>
+      <circle class="d-box" cx="276" cy="130" r="14"/>
+      <text class="d-label" x="84" y="178" text-anchor="middle">battery</text>
+      <text class="d-label" x="276" y="178" text-anchor="middle">lamp</text>
+      <text class="d-muted" x="180" y="204" text-anchor="middle">The direct row is wet, so the wire goes over.</text>
+      <text class="d-muted" x="180" y="224" text-anchor="middle">6 of 8 tiles used: 2 to spare.</text>
+    </svg>
+    <figcaption>The board as the player reads it: the wire is both your trail and your next obstacle.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the careful electrician who runs one cable through a flooded cellar. The constraint is the reel. In Snake your length grows and you try to survive. Here your length is a budget and you try to spend it well. A route that works in space can still fail in length, and a short route can fail because it walls off a bulb you still need.</p>
+  <p>That second failure is where the puzzle lives. In circuit 3 of the demo the gap below the battery points straight at the lamp. Take it first and there is not enough wire left to fetch both bulbs. The real route climbs to the top bulb, sweeps round to the left bulb, and only then comes down.</p>
+  <p>The hardest part to build is the level design. Each reel in the prototype is exactly the length of the shortest route, found by a depth first search that tries every route that does not cross itself. The demo runs the same search after each move and tells you when your current wire can no longer reach the lamp.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Circuit 1 teaches the reel: the way under the puddle is too long. Circuit 2 adds a bulb. On circuit 3, try the obvious gap below the battery first, then watch the message bar tell you why it cannot work.</p>
+
+  <figure class="demo wide" data-demo="wire-snake">
+    <canvas id="wire-snake"></canvas>
+    <figcaption>Controls: click the canvas, then use the <kbd>arrow keys</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to crawl. <kbd>Z</kbd> or <kbd>Backspace</kbd> pulls the wire back one tile, <kbd>R</kbd> restarts the circuit, and <kbd>Enter</kbd> opens the next circuit after the lamp lights. With a mouse or on a phone, drag the head along the grid, tap a wired tile to pull the wire back to it, or use the buttons.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: one function that tries to move the head, and either lays a tile of wire, reels one in, or says why it refused. The wire is a list of tiles starting at the battery, and <code>onWire</code> is a lookup table so the crossing check is one line. Drawing is left out. Bind the arrow keys to <code>step(0, -1)</code>, <code>step(0, 1)</code>, <code>step(-1, 0)</code> and <code>step(1, 0)</code>, and <code>backspace</code> to <code>retract()</code> in <code>love.keypressed</code>. The wire starts as one tile on the battery, which sits in row 2, column 2 of circuit 1.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local N = 7
+local level = { reel = 8, map = { ".......", ".B.~...", "...~...", "...~.L.",
+                                   "...~...", ".......", "......." } }
+local function tile(r, c) return level.map[r]:sub(c, c) end
+local function key(r, c) return (r - 1) * N + c end
+local wire, lit = { { r = 2, c = 2 } }, false   <span class="c">-- wire[1] is the battery</span>
+local onWire = { [key(2, 2)] = true }
+
+local function bulbsDone()
+  for r = 1, N do
+    for c = 1, N do
+      if tile(r, c) == "o" and not onWire[key(r, c)] then return false end
+    end
+  end
+  return true
+end
+
+local function retract()
+  if #wire &lt;= 1 then return end
+  local h = table.remove(wire)
+  onWire[key(h.r, h.c)] = nil
+  lit = false
+end
+
+local function step(dr, dc)                <span class="c">-- returns why it refused, or nil</span>
+  if lit then return "lit" end
+  local h, prev = wire[#wire], wire[#wire - 1]
+  local r, c = h.r + dr, h.c + dc
+  if prev and prev.r == r and prev.c == c then retract() return nil end
+  if r &lt; 1 or r &gt; N or c &lt; 1 or c &gt; N then return "edge" end
+  local t = tile(r, c)
+  if t == "#" then return "wall" end
+  if t == "~" then return "water" end
+<span class="k">  if onWire[key(r, c)] then return "crossing" end
+  if #wire - 1 &gt;= level.reel then return "reel empty" end</span>
+  if t == "L" and not bulbsDone() then return "bulbs first" end
+  wire[#wire + 1] = { r = r, c = c }
+  onWire[key(r, c)] = true
+  if t == "L" then lit = true end
+end</code></pre>
+  </div>
+  <p>The two highlighted lines are the whole game: your body blocks you, and your length is limited. Everything else is bookkeeping. Backing up is tested first, so it works even when the reel is empty.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Trial and error instead of planning.</strong> If a circuit has dozens of shortest routes, any wiggle wins and nobody plans. If it has one route through an open field, players find it by luck. Count the solutions with a solver: the prototype's circuits have between three and eight.</li>
+    <li><strong>Learning too late that it was hopeless.</strong> Running out of wire on tile eleven because of a mistake on tile two feels unfair. Show the reel at all times and say as soon as no route is left, as the demo does.</li>
+    <li><strong>Backing up feels like a chore.</strong> If undoing ten tiles takes ten presses, players restart instead. Let them tap any wired tile to cut back to it.</li>
+    <li><strong>Slack that is not really slack.</strong> On a grid, every route between two tiles has a length of the same parity, odd or even, like the colours of a chessboard. A reel of 9 for a shortest route of 8 gives no extra freedom at all. Add slack in steps of two.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>A body that becomes your obstacle is the idea behind the Snake family, which many people first played on Nokia phones in the late 1990s. There the threat is time: you move whether you like it or not. Line-drawing puzzles take the opposite stance. In <cite>The Witness</cite> (Thekla, 2016) you trace a line from a start to an end that cannot cross itself, and in <cite>Flow Free</cite> (Big Duck Games) you join pairs of coloured dots with pipes that cannot cross. <cite>Snakebird</cite> (Noumenon Games, 2015) is a turn-based puzzle game about snakes, built around gravity.</p>
+  <p>Wire Snake sits between the two: a snake you steer tile by tile, judged like a line puzzle. Its own rule is the reel, a length budget, together with bulbs that force an order. A length budget has very likely appeared in some path puzzle before; I have not surveyed them all.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with circuits 1 and 3 typed in, coloured rectangles for tiles, a thick line through the wire and a bar for the reel. Skip the solver, the drag controls and the animation. Keep retract on a key: without it, every mistake means a restart.</p>
+  <p>Give it to a friend with only the controls. The one question: <strong>when the reel runs out on circuit 3, do they back up part of the way and try a different branch, or press restart?</strong> Backing up means they are reasoning about the route, which is the game. Restarting means backing up is not discoverable, or the circuit is too long to reason about.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the demo's rules, fifteen hand-made circuits with reels checked by a solver, tap-to-cut retract, and a satisfying moment when current runs down the wire and the lamp comes on.</li>
+    <li><strong>One-month version:</strong> a house of rooms, each a circuit, where lit rooms open the next; a level editor that runs the solver as you paint water; and a star for each tile of wire left over.</li>
+    <li><strong>Cut first:</strong> extra components such as switches and two-way junctions. The reel and bulbs already carry a full game.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: make the wire bare, so two parts of it may not lie side by side or they short out, and the snake can no longer double back in a narrow corridor.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The chapter on puzzles, especially on making the goal clear and progress visible.</li>
+    <li>Jesper Juul, <cite>The Art of Failure: An Essay on the Pain of Playing Video Games</cite> (MIT Press, 2013). On why some failures feel fair and others feel cheap.</li>
+    <li>Stephen Lavelle, <cite>PuzzleScript</cite>. A free tool for turn-based grid puzzles, quick for sketching many circuits before building them in LÖVE.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var N = 7, HUD = 52, FOOT = 40, SLIDE = 0.08;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var COPPER = '#c4702e', COPPER_DARK = '#6e3812', WATER = '#3f8fd0', GLOW = '#f5c542';
+  // B battery, L lamp, o bulb, ~ water, # wall. Each reel is the shortest route, found by search.
+  var LEVELS = [
+    { name: 'First light', reel: 8, hint: 'Go around the puddle. The reel holds exactly 8 tiles.',
+      map: ['.......', '.B.~...', '...~...', '...~.L.', '...~...', '.......', '.......'] },
+    { name: 'Bulb on the way', reel: 11, hint: 'Wire the bulb in before the lamp.',
+      map: ['...o...', '.......', '.~~.~~.', '.~...~.', 'B~.L.~.', '.~...~.', '.~~~~~.'] },
+    { name: 'Two bulbs', reel: 17, hint: 'Both bulbs, then the lamp, with 17 tiles of wire.',
+      map: ['...o...', '.~...~.', '.~.~.~.', 'o~.B.~.', '.~~.~~.', '.......', '~~.L...'] }
+  ];
+  var DIRS = { arrowleft: [0, -1], a: [0, -1], arrowright: [0, 1], d: [0, 1],
+               arrowup: [-1, 0], w: [-1, 0], arrowdown: [1, 0], s: [1, 0] };
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var level, map, wire, on, lit, message, msgColor, anim, bump, lamp, bulbs;
+  var L = null, handle = null, picker = null, dragging = false, nextOnUp = false;
+
+  function tile(r, c) { return map[r].charAt(c); }
+  function key(r, c) { return r * N + c; }
+  function head() { return wire[wire.length - 1]; }
+  function used() { return wire.length - 1; }
+  function say(text, color) { message = text; msgColor = color || 'ink2'; }
+  function bulbsLeft() {
+    var n = 0;
+    for (var i = 0; i < bulbs.length; i++) if (!on[key(bulbs[i].r, bulbs[i].c)]) n++;
+    return n;
+  }
+
+  function load(lv) {
+    level = lv; map = LEVELS[lv].map; wire = []; on = {}; bulbs = [];
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var t = tile(r, c);
+      if (t === 'B') { wire.push({ r: r, c: c }); on[key(r, c)] = true; }
+      if (t === 'L') lamp = { r: r, c: c };
+      if (t === 'o') bulbs.push({ r: r, c: c });
+    }
+    lit = false; anim = null; bump = null; dragging = false; nextOnUp = false;
+    say(LEVELS[lv].hint);
+    if (picker) picker.set(String(lv));
+  }
+
+  function retract() {
+    if (wire.length <= 1) { say('The wire is already all on the reel.', 'ink3'); return false; }
+    var h = wire.pop();
+    delete on[key(h.r, h.c)];
+    lit = false; anim = null;
+    say(LEVELS[level].hint);
+    return true;
+  }
+  function cutTo(index) {
+    while (wire.length - 1 > index) retract();
+    say('Wire pulled back to that tile.');
+  }
+
+  function refuse(r, c, text) {
+    say(text, 'warn');
+    bump = { r: r, c: c, t: 0 };
+    return false;
+  }
+
+  // Depth first search: can the current wire still reach the lamp? null if the search is too big.
+  function reachable() {
+    var seen = {}, nodes = 0, aborted = false, k;
+    for (k in on) seen[k] = true;
+    function dfs(r, c, left, need) {
+      if (++nodes > 60000) { aborted = true; return false; }
+      if (Math.abs(r - lamp.r) + Math.abs(c - lamp.c) > left) return false;
+      for (var d = 0; d < 4; d++) {
+        var nr = r + [0, 0, 1, -1][d], nc = c + [1, -1, 0, 0][d];
+        if (nr < 0 || nr >= N || nc < 0 || nc >= N) continue;
+        var t = tile(nr, nc), kk = key(nr, nc);
+        if (t === '#' || t === '~' || seen[kk]) continue;
+        if (t === 'L') { if (need === 0) return true; continue; }
+        seen[kk] = true;
+        var ok = dfs(nr, nc, left - 1, need - (t === 'o' ? 1 : 0));
+        delete seen[kk];
+        if (ok) return true;
+        if (aborted) return false;
+      }
+      return false;
+    }
+    var h = head(), res = dfs(h.r, h.c, LEVELS[level].reel - used(), bulbsLeft());
+    return aborted ? null : res;
+  }
+
+  function step(dr, dc) {
+    if (lit) { say('The lamp is lit. Enter or tap for the next circuit.', 'good'); return false; }
+    var h = head(), prev = wire[wire.length - 2], r = h.r + dr, c = h.c + dc;
+    if (prev && prev.r === r && prev.c === c) return retract();
+    if (r < 0 || r >= N || c < 0 || c >= N) return refuse(h.r, h.c, 'That is the edge of the board.');
+    var t = tile(r, c);
+    if (t === '#') return refuse(r, c, 'A wall is in the way.');
+    if (t === '~') return refuse(r, c, 'Water! A live wire must stay dry.');
+    if (on[key(r, c)]) return refuse(r, c, 'The wire cannot cross itself. Back up with Z.');
+    if (used() >= LEVELS[level].reel) return refuse(r, c, 'The reel is empty. Back up and find a shorter way.');
+    if (t === 'L' && bulbsLeft() > 0) return refuse(r, c, 'The lamp needs every bulb wired in first.');
+    wire.push({ r: r, c: c }); on[key(r, c)] = true;
+    anim = reduced ? null : { fr: h.r, fc: h.c, t: 0 };
+    bump = null;
+    if (t === 'L') {
+      lit = true;
+      var spare = LEVELS[level].reel - used();
+      say('Lit! ' + (spare ? spare + ' tiles of wire to spare.' : 'Not a tile of wire wasted.'), 'good');
+      return true;
+    }
+    if (reachable() === false) say('No route to the lamp is left with this wire. Back up.', 'bad');
+    else if (t === 'o') say('Bulb wired in. ' + (bulbsLeft() ? bulbsLeft() + ' to go.' : 'Now the lamp.'), 'good');
+    else say(LEVELS[level].hint);
+    return true;
+  }
+
+  function nextCircuit() { load((level + 1) % LEVELS.length); }
+
+  function layout(s) {
+    var t = Math.floor(Math.min((s.width - 16) / N, (s.height - HUD - FOOT) / N));
+    t = Math.max(30, Math.min(64, t));
+    return { t: t, x: Math.round((s.width - N * t) / 2), y: Math.round(HUD + (s.height - HUD - FOOT - N * t) / 2) };
+  }
+  function cellAt(p) {
+    if (!L) return null;
+    var c = Math.floor((p.x - L.x) / L.t), r = Math.floor((p.y - L.y) / L.t);
+    if (r < 0 || r >= N || c < 0 || c >= N) return null;
+    return { r: r, c: c };
+  }
+
+  // The head chases a target cell one tile at a time, along the axis with the bigger gap first.
+  function chase(cell) {
+    for (var i = 0; i < 2 * N && cell; i++) {
+      var h = head(), dr = cell.r - h.r, dc = cell.c - h.c;
+      if (!dr && !dc) return;
+      var sr = dr > 0 ? 1 : dr < 0 ? -1 : 0, sc = dc > 0 ? 1 : dc < 0 ? -1 : 0;
+      var first = Math.abs(dr) >= Math.abs(dc) ? [sr, 0] : [0, sc];
+      var second = first[0] ? [0, sc] : [sr, 0];
+      if (step(first[0], first[1])) continue;
+      if ((second[0] || second[1]) && !lit && step(second[0], second[1])) continue;
+      return;
+    }
+  }
+
+  function center(r, c) { return [L.x + (c + 0.5) * L.t, L.y + (r + 0.5) * L.t]; }
+  function text(ctx, str, x, y, color, font, align, maxW) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left';
+    if (maxW) ctx.fillText(str, x, y, maxW); else ctx.fillText(str, x, y);
+  }
+  function circle(ctx, x, y, rad) { ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); }
+
+  function draw(ctx, s) {
+    var c = s.colors, t, r, k, p, i;
+    L = layout(s); t = L.t;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+
+    for (r = 0; r < N; r++) for (k = 0; k < N; k++) {
+      var x = L.x + k * t, y = L.y + r * t, ch = tile(r, k);
+      if (ch === '#') {
+        ctx.fillStyle = c.ink3; ctx.fillRect(x, y, t, t);
+      } else if (ch === '~') {
+        ctx.fillStyle = WATER; ctx.fillRect(x, y, t, t);
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5; ctx.beginPath();
+        for (var w = 0.35; w < 0.9; w += 0.3) {
+          ctx.moveTo(x + t * 0.2, y + t * w);
+          ctx.quadraticCurveTo(x + t * 0.35, y + t * (w - 0.08), x + t * 0.5, y + t * w);
+          ctx.quadraticCurveTo(x + t * 0.65, y + t * (w + 0.08), x + t * 0.8, y + t * w);
+        }
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = c.surface; ctx.fillRect(x, y, t, t);
+      }
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, t - 1, t - 1);
+    }
+
+    // Bulbs and lamp under the wire, so the wire visibly runs through them.
+    for (i = 0; i < bulbs.length; i++) {
+      p = center(bulbs[i].r, bulbs[i].c);
+      var wired = on[key(bulbs[i].r, bulbs[i].c)];
+      if (lit) { ctx.fillStyle = GLOW; circle(ctx, p[0], p[1], t * 0.42); ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1; }
+      circle(ctx, p[0], p[1], t * 0.3);
+      ctx.fillStyle = lit ? GLOW : c.surface; ctx.fill();
+      ctx.strokeStyle = wired ? c.good : c.ink2; ctx.lineWidth = wired ? 3 : 2; ctx.stroke();
+    }
+    p = center(lamp.r, lamp.c);
+    if (lit) {
+      var glow = 0.35 + (reduced ? 0 : 0.1 * Math.sin(s.time * 4));
+      ctx.globalAlpha = glow; ctx.fillStyle = GLOW; circle(ctx, p[0], p[1], t * 0.75); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    circle(ctx, p[0], p[1], t * 0.4);
+    ctx.fillStyle = lit ? GLOW : c.surface; ctx.fill();
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p[0] - t * 0.14, p[1] + t * 0.08);
+    ctx.lineTo(p[0] - t * 0.07, p[1] - t * 0.1); ctx.lineTo(p[0], p[1] + t * 0.08);
+    ctx.lineTo(p[0] + t * 0.07, p[1] - t * 0.1); ctx.lineTo(p[0] + t * 0.14, p[1] + t * 0.08);
+    ctx.strokeStyle = lit ? '#7a4a00' : c.ink2; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // The wire: a thick copper line through the centres, with the last segment animated.
+    var pts = [];
+    for (i = 0; i < wire.length; i++) pts.push(center(wire[i].r, wire[i].c));
+    if (anim && pts.length > 1) {
+      var e = anim.t * (2 - anim.t), from = center(anim.fr, anim.fc), to = pts[pts.length - 1];
+      pts[pts.length - 1] = [from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e];
+    }
+    if (pts.length > 1) {
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (var pass = 0; pass < 2; pass++) {
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+        for (i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.strokeStyle = pass ? COPPER : COPPER_DARK; ctx.lineWidth = pass ? t * 0.22 : t * 0.22 + 4; ctx.stroke();
+      }
+      if (lit) {
+        ctx.setLineDash([t * 0.15, t * 0.35]); ctx.lineDashOffset = reduced ? 0 : -s.time * t * 2;
+        ctx.strokeStyle = GLOW; ctx.lineWidth = t * 0.09; ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+
+    // Battery on top of the tail.
+    p = center(wire[0].r, wire[0].c);
+    ctx.fillStyle = c.topic; ctx.fillRect(p[0] - t * 0.32, p[1] - t * 0.22, t * 0.64, t * 0.44);
+    ctx.fillRect(p[0] + t * 0.32, p[1] - t * 0.08, t * 0.08, t * 0.16);
+    ctx.textBaseline = 'middle';
+    text(ctx, '+', p[0], p[1] + 1, '#ffffff', '700 ' + Math.round(t * 0.36) + 'px', 'center');
+
+    // The snake's head, looking the way it last moved.
+    if (wire.length > 1 && !lit) {
+      var hp = pts[pts.length - 1], a = wire[wire.length - 2], b = head();
+      var fx = b.c - a.c, fy = b.r - a.r;
+      circle(ctx, hp[0], hp[1], t * 0.24); ctx.fillStyle = COPPER; ctx.fill();
+      ctx.strokeStyle = COPPER_DARK; ctx.lineWidth = 2; ctx.stroke();
+      for (var eye = -1; eye <= 1; eye += 2) {
+        var ex = hp[0] + fx * t * 0.09 - fy * eye * t * 0.1, ey = hp[1] + fy * t * 0.09 + fx * eye * t * 0.1;
+        circle(ctx, ex, ey, t * 0.05); ctx.fillStyle = '#ffffff'; ctx.fill();
+        circle(ctx, ex + fx * t * 0.02, ey + fy * t * 0.02, t * 0.025); ctx.fillStyle = '#1d1b18'; ctx.fill();
+      }
+    }
+
+    // A refused move flashes the tile that said no.
+    if (bump && bump.t < 1) {
+      var bx = L.x + bump.c * t, by = L.y + bump.r * t;
+      ctx.globalAlpha = 1 - bump.t; ctx.strokeStyle = c.bad; ctx.lineWidth = 3;
+      ctx.strokeRect(bx + 2, by + 2, t - 4, t - 4); ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5; ctx.strokeRect(L.x, L.y, N * t, N * t);
+
+    // HUD: circuit name, bulbs, and the reel bar.
+    ctx.textBaseline = 'alphabetic';
+    var reel = LEVELS[level].reel, left = reel - used();
+    text(ctx, 'Circuit ' + (level + 1) + ': ' + LEVELS[level].name, 8, 19, c.ink, '600 13px', 'left', s.width - 120);
+    text(ctx, bulbs.length ? 'Bulbs ' + (bulbs.length - bulbsLeft()) + '/' + bulbs.length : 'No bulbs', s.width - 8, 19,
+      bulbsLeft() ? c.ink2 : c.good, '600 13px', 'right');
+    text(ctx, 'Reel', 8, 41, c.ink2, '12px');
+    var barX = 42, barW = Math.min(200, s.width - 150);
+    ctx.fillStyle = c.surface; ctx.fillRect(barX, 31, barW, 12);
+    ctx.fillStyle = left === 0 && !lit ? c.warn : COPPER; ctx.fillRect(barX, 31, barW * left / reel, 12);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.strokeRect(barX + 0.5, 31.5, barW - 1, 11);
+    text(ctx, left + ' of ' + reel + ' left', barX + barW + 8, 41, c.ink2, '12px');
+    text(ctx, message, 8, s.height - 16, c[msgColor] || c.ink2, '12px', 'left', s.width - 100);
+
+    if (lit && !anim) {
+      var pw = Math.min(300, s.width - 20), px = s.width / 2 - pw / 2, py = L.y + N * t / 2 - 28;
+      ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(px, py, pw, 56); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.good; ctx.lineWidth = 2; ctx.strokeRect(px, py, pw, 56);
+      text(ctx, 'The lamp is lit with ' + used() + ' tiles of wire', s.width / 2, py + 23, c.good, '600 14px', 'center', pw - 12);
+      text(ctx, level < LEVELS.length - 1 ? 'Enter or tap for the next circuit' : 'All circuits lit. Enter or tap for circuit 1',
+        s.width / 2, py + 43, c.ink2, '12px', 'center', pw - 12);
+    }
+  }
+
+  function update(dt) {
+    if (anim) { anim.t += dt / SLIDE; if (anim.t >= 1) anim = null; }
+    if (bump && bump.t < 1) bump.t = Math.min(1, bump.t + dt / 0.35);
+  }
+
+  function wake() { if (!handle) return; if (!reduced) handle.play(); handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="wire-snake"]');
+  picker = ui.select({
+    label: 'Circuit',
+    options: LEVELS.map(function (lv, i) { return { value: String(i), label: (i + 1) + ': ' + lv.name }; }),
+    value: '0',
+    onChange: function (v) { load(Number(v)); wake(); }
+  });
+  ui.button({ label: 'Left', onClick: function () { step(0, -1); wake(); } });
+  ui.button({ label: 'Up', onClick: function () { step(-1, 0); wake(); } });
+  ui.button({ label: 'Down', onClick: function () { step(1, 0); wake(); } });
+  ui.button({ label: 'Right', onClick: function () { step(0, 1); wake(); } });
+  ui.button({ label: 'Back (Z)', onClick: function () { retract(); wake(); } });
+  ui.button({ label: 'Restart (R)', onClick: function () { load(level); wake(); } });
+
+  load(0);
+
+  handle = DemoKit.canvas('#wire-snake', {
+    aspect: 640 / 500,
+    minHeight: 420,
+    maxHeight: 540,
+    keys: true,
+    drag: true,
+    label: 'Wire Snake prototype. A seven by seven grid with a battery, a lamp, water and bulbs. A snake made of wire crawls from the battery and leaves wire behind it. Reach the lamp without crossing the wire or entering water, within the length of the reel.',
+    update: update,
+    draw: draw,
+    onDown: function (p) {
+      if (lit) { nextOnUp = true; return; }
+      var cell = cellAt(p);
+      if (!cell) return;
+      dragging = true;
+      for (var i = 0; i < wire.length - 1; i++) {
+        if (wire[i].r === cell.r && wire[i].c === cell.c) { cutTo(i); wake(); return; }
+      }
+      chase(cell); wake();
+    },
+    onMove: function (p) {
+      if (!dragging || !p.down) return;
+      var cell = cellAt(p);
+      if (cell) { chase(cell); wake(); }
+    },
+    onUp: function () {
+      dragging = false;
+      if (nextOnUp) { nextOnUp = false; nextCircuit(); }
+      wake();
+    },
+    onKey: function (k, isDown) {
+      if (!isDown) return;
+      if (DIRS[k]) step(DIRS[k][0], DIRS[k][1]);
+      else if (k === 'enter') { if (lit) nextCircuit(); }
+      else if (k === 'z' || k === 'backspace') retract();
+      else if (k === 'r') load(level);
+      else return;
+      wake();
+    }
+  });
+})();
+</script>
+</body>
+</html>

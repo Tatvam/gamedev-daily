@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Normal maps: bumps that are only in the lighting · Game Dev Daily</title>
+<meta name="description" content="A normal map stores a tilted normal in each texel's colour. Decode it with rgb × 2 − 1, light with it, and a flat quad shades like a bumpy wall.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Normal maps: bumps that are only in the lighting</h1>
+  <p class="lede">A normal map stores a tilted normal in each texel's colour. Decode it with rgb × 2 − 1, light with it, and a flat quad shades like a bumpy wall.</p>
+</header>
+
+<section data-section="hook">
+  <p>Walk a torch along a brick wall in a game and every brick catches the light on the edge facing you and goes dark on the edge facing away. Yet the wall is often two triangles. The bricks exist only in a texture that tells the lighting which way each pixel would face if the bricks were real.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Lighting only sees the normal</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. In the last three lessons the lighting part of that function took the surface normal N, the direction to the light L and the direction to the eye V, and returned a brightness from N·L and N·H.</p>
+  <p>Notice what is missing: the shape of the surface. The lighting only asks which way the pixel faces. Hand it a different normal and the pixel shades as if the surface faced that way, even though the triangle is flat.</p>
+  <p>A <dfn>normal map</dfn> is a texture that stores one such normal per texel. The shader reads it and uses the result instead of the mesh's own normal. Jim Blinn described the underlying idea, <dfn>bump mapping</dfn>, in 1978: perturb the normal, keep the geometry.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Two cross-sections of the same flat surface. On the left, labelled the mesh, five normals all point straight up. On the right, labelled with a normal map, a dashed outline of a raised brick sits over the flat line. The normals over the flat mortar point up, the normal on the left bevel tilts left, the normal on top of the brick points up and the normal on the right bevel tilts right, as if the brick were real.">
+      <defs>
+        <marker id="nm-ak" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-text" d="M0 0 L8 4 L0 8 Z"/></marker>
+        <marker id="nm-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-accent-fill" d="M0 0 L8 4 L0 8 Z"/></marker>
+      </defs>
+      <text class="d-text" x="160" y="28" text-anchor="middle">The mesh: one flat quad</text>
+      <rect class="d-fill" x="30" y="180" width="260" height="16"/>
+      <path class="d-stroke" d="M30 180 H290"/>
+      <path class="d-stroke" d="M50 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-stroke" d="M105 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-stroke" d="M160 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-stroke" d="M215 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-stroke" d="M270 180 V122" marker-end="url(#nm-ak)"/>
+      <text class="d-muted" x="160" y="222" text-anchor="middle">every normal is (0, 0, 1)</text>
+
+      <text class="d-text" x="480" y="28" text-anchor="middle">With a normal map</text>
+      <rect class="d-fill" x="350" y="180" width="260" height="16"/>
+      <path class="d-stroke" d="M350 180 H610"/>
+      <path class="d-dash" d="M350 180 H380 C395 180 405 150 420 150 H540 C555 150 565 180 580 180 H610" fill="none"/>
+      <text class="d-muted" x="508" y="172" text-anchor="middle">brick</text>
+      <path class="d-stroke" d="M365 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-accent" d="M400 180 L365.6 130.9" marker-end="url(#nm-ah)"/>
+      <path class="d-stroke" d="M455 180 V122" marker-end="url(#nm-ak)"/>
+      <path class="d-accent" d="M560 180 L594.4 130.9" marker-end="url(#nm-ah)"/>
+      <path class="d-stroke" d="M598 180 V122" marker-end="url(#nm-ak)"/>
+      <text class="d-label" x="372" y="104" text-anchor="middle">tilted</text>
+      <text class="d-label" x="590" y="104" text-anchor="middle">tilted</text>
+      <text class="d-muted" x="480" y="222" text-anchor="middle">same flat surface, normals from the texture</text>
+      <text class="d-muted" x="480" y="242" text-anchor="middle">the outline stays flat</text>
+    </svg>
+    <figcaption>Identical geometry. On the right the normals tilt as if a brick stood there, so the bevel facing a light brightens and the other darkens.</figcaption>
+  </figure>
+
+  <h3>Storing a vector in a colour</h3>
+  <p>A unit normal has components from −1 to 1. A texture channel holds 0 to 1. So the tool that makes the map stores <code>rgb = n × 0.5 + 0.5</code>, and the shader undoes it:</p>
+<pre><code>nx = r * 2 - 1      -- red:   tilt along the texture's u direction
+ny = g * 2 - 1      -- green: tilt along the texture's v direction
+nz = b * 2 - 1      -- blue:  how much the normal points straight out</code></pre>
+  <p>A flat texel stores (0, 0, 1), which becomes (0.5, 0.5, 1.0), or about (128, 128, 255) in 8 bits. That pale violet is why normal maps look the way they do. Edges facing right are pinker, edges facing up are greener.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 196" role="img" aria-label="Three colour swatches. A flat normal 0, 0, 1 is stored as 128, 128, 255, a pale violet. A normal tilted 35 degrees to the left is stored as 55, 128, 232, a darker blue. A normal tilted 35 degrees upwards is stored as 128, 201, 232, a light cyan.">
+      <rect x="12" y="14" width="44" height="44" rx="4" class="d-thin" style="fill: rgb(128,128,255)"/>
+      <text class="d-text" x="70" y="32">flat: n = (0, 0, 1)</text>
+      <text class="d-mono" x="70" y="52">stored (128, 128, 255)</text>
+      <rect x="12" y="76" width="44" height="44" rx="4" class="d-thin" style="fill: rgb(55,128,232)"/>
+      <text class="d-text" x="70" y="94">35° left: n = (−0.57, 0, 0.82)</text>
+      <text class="d-mono" x="70" y="114">stored (55, 128, 232)</text>
+      <rect x="12" y="138" width="44" height="44" rx="4" class="d-thin" style="fill: rgb(128,201,232)"/>
+      <text class="d-text" x="70" y="156">35° up: n = (0, 0.57, 0.82)</text>
+      <text class="d-mono" x="70" y="176">stored (128, 201, 232)</text>
+    </svg>
+    <figcaption>Each channel is one component of the normal, moved from −1..1 into 0..1.</figcaption>
+  </figure>
+
+  <h3>Tangent space: "up" is relative to the surface</h3>
+  <p>The stored normal is not in world directions. Blue means "out of this surface", red "along the texture's u axis", green "along its v axis". This frame is <dfn>tangent space</dfn>, with axes <dfn>tangent</dfn> T, <dfn>bitangent</dfn> B and normal N. Because it is relative, one brick texture works on a wall, a floor or a curved pillar.</p>
+  <p>On a mesh, each vertex carries T and N, and B is their cross product. The shader turns the decoded normal into world space with <code>T × nx + B × ny + N × nz</code>. The demo's quad faces the camera with u right and v up, so T, B and N are just x, y and z.</p>
+
+  <h3>Strength</h3>
+  <p>Engines give normal maps a <dfn>strength</dfn>. One common way to apply it: scale x and y, then normalise. At 0 the surface is flat; above 1 the bumps look deeper than baked.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which way is green?</p>
+    <p><strong>OpenGL style</strong> (Y+) stores "facing up the image" as more green; Godot, Unity and Blender expect it. <strong>DirectX style</strong> (Y−) stores it the other way; Unreal Engine expects that. In the wrong convention, top and bottom edges look lit from the wrong side while side edges look right. The fix is <code>g = 1 - g</code>. The demo works with y up and <code>gl_FragCoord</code>'s (0, 0) at the bottom-left; the LÖVE tab flips y because its <code>screen_coords</code> start at the top-left.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag on the canvas, or use the arrow keys, to move the light over a flat quad. Turn off <em>Use normal map</em>: same geometry, same light, no bricks. Turn it back on and slide <em>Strength</em> from 0 to 3.</p>
+  <p>Step through the stages to see each value the shader works with. Then tick <em>Flip green</em> and move the light above and below a brick: the top and bottom bevels swap, the side bevels do not.</p>
+
+  <figure class="demo wide" data-demo="normal-map">
+    <canvas id="normal-map-wall"></canvas>
+    <figcaption>The quad never changes shape; only the normal fed to the lighting does. Lower the light for stronger relief.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>With no image files, the shader bakes its own normal map: it samples a height function on either side of each pixel, turns the slope into a normal and rounds it to 8 bits, as a texture would. In a game those lines become one texture read, shown in the comment. The mouse moves the light; <kbd>[</kbd> <kbd>]</kbd> set the strength, <kbd>m</kbd> toggles the map, <kbd>f</kbd> flips green, <kbd>up</kbd> / <kbd>down</kbd> move the light's height.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local strength = 1.0     <span class="c">-- normal map strength: scales the tilt</span>
+local height = 0.2       <span class="c">-- light height above the wall, in window heights</span>
+local useMap = 1         <span class="c">-- 1 = use the normal map, 0 = flat normal</span>
+local flipY = 0          <span class="c">-- 1 = read green upside down (DirectX-style map)</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform vec3 u_light;        // light position: x, y from the centre, z above the wall
+uniform float u_strength;
+uniform float u_useMap;
+uniform float u_flipY;
+const float ROWS = 5.0;      // brick rows across the window height
+const float DEPTH = 0.08;    // brick height used when baking, in brick heights
+
+float edgeDist(vec2 p) {     // distance to the nearest brick edge
+  p.x += mod(floor(p.y), 2.0);
+  vec2 c = vec2(mod(p.x, 2.0), fract(p.y));
+  return min(min(c.x, 2.0 - c.x), min(c.y, 1.0 - c.y));
+}
+float height(vec2 p) { return smoothstep(0.04, 0.2, edgeDist(p)); }
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 q = (screen_coords - 0.5 * u_resolution) / u_resolution.y;
+  q.y = -q.y;                                // LÖVE's y grows downwards: make it grow up
+  vec2 p = q * ROWS;
+
+  // bake the normal map from the height map. With a real normal map image:
+  // vec3 stored = Texel(tex, texture_coords).rgb;
+  float e = 0.01;
+  float hx = height(p + vec2(e, 0.0)) - height(p - vec2(e, 0.0));
+  float hy = height(p + vec2(0.0, e)) - height(p - vec2(0.0, e));
+  vec3 baked = normalize(vec3(-DEPTH * hx / (2.0 * e), -DEPTH * hy / (2.0 * e), 1.0));
+  vec3 stored = floor((baked * 0.5 + 0.5) * 255.0 + 0.5) / 255.0;
+
+  vec3 n = stored * 2.0 - 1.0;                  // 1. decode
+  n.y = mix(n.y, -n.y, u_flipY);                // 2. green convention
+  n.xy *= u_strength;                           // 3. strength
+  n = normalize(mix(vec3(0.0, 0.0, 1.0), n, u_useMap));
+
+  vec3 l = normalize(u_light - vec3(q, 0.0));   // point light, as two lessons ago
+  float ndotl = dot(n, l);
+  vec3 h = normalize(l + vec3(0.0, 0.0, 1.0));
+  float spec = pow(max(dot(n, h), 0.0), 40.0) * step(0.0, ndotl);
+  vec3 albedo = mix(vec3(0.62, 0.6, 0.55), vec3(0.72, 0.33, 0.24),
+                    smoothstep(0.02, 0.05, edgeDist(p)));
+  vec3 col = albedo * (max(ndotl, 0.0) + 0.08) + vec3(0.35 * spec);
+  return vec4(col, 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "]" then strength = math.min(strength + 0.25, 3) end
+  if key == "[" then strength = math.max(strength - 0.25, 0) end
+  if key == "m" then useMap = 1 - useMap end
+  if key == "f" then flipY = 1 - flipY end
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("up") then height = math.min(height + 0.5 * dt, 1) end
+  if love.keyboard.isDown("down") then height = math.max(height - 0.5 * dt, 0.05) end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local mx, my = love.mouse.getPosition()
+  local lx = (mx - 0.5 * w) / h
+  local ly = -(my - 0.5 * h) / h               <span class="c">-- flip: screen y goes down</span>
+  shader:send("u_resolution", { love.graphics.getPixelDimensions() })
+  shader:send("u_light", { lx, ly, height })
+<span class="k">  shader:send("u_strength", strength)
+  shader:send("u_useMap", useMap)</span>
+  shader:send("u_flipY", flipY)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+  love.graphics.print("strength " .. strength, 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec3 u_light;      // light position: x, y in canvas heights from the centre, z = height above the wall
+uniform vec2 u_lightPos;   // where the light marker is drawn, device pixels, origin bottom-left
+uniform float u_strength;  // normal map strength: scales the tilt (x and y) of the decoded normal
+uniform float u_useMap;    // 1 = use the normal map, 0 = use the flat normal of the quad
+uniform float u_flipY;     // 1 = read the green channel upside down (a DirectX-style map)
+uniform float u_stage;     // 0 brick UV ... 4 final colour
+
+const float ROWS = 5.0;                  // brick rows across the canvas height
+const float DEPTH = 0.08;                // brick height used when baking, in brick heights
+const vec3 FLAT = vec3(0.0, 0.0, 1.0);   // the quad's own normal: straight out of the screen
+const vec3 V = vec3(0.0, 0.0, 1.0);      // towards the eye
+const vec3 BRICK = vec3(0.72, 0.33, 0.24);
+const vec3 MORTAR = vec3(0.62, 0.6, 0.55);
+
+// distance from p to the nearest brick edge; bricks are 2 wide and 1 tall, odd rows shifted by 1
+float edgeDist(vec2 p) {
+  p.x += mod(floor(p.y), 2.0);
+  vec2 c = vec2(mod(p.x, 2.0), fract(p.y));
+  return min(min(c.x, 2.0 - c.x), min(c.y, 1.0 - c.y));
+}
+
+// the height map: 0 in the mortar, 1 on top of a brick, with a rounded bevel between
+float height(vec2 p) {
+  return smoothstep(0.04, 0.2, edgeDist(p));
+}
+
+void main() {
+  vec2 q = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;  // y up, in canvas heights
+  vec2 p = q * ROWS;                                                 // in brick heights
+
+  // bake: the normal map a tool would store, made here from the height map
+  float e = 0.01;
+  float hx = height(p + vec2(e, 0.0)) - height(p - vec2(e, 0.0));
+  float hy = height(p + vec2(0.0, e)) - height(p - vec2(0.0, e));
+  vec3 baked = normalize(vec3(-DEPTH * hx / (2.0 * e), -DEPTH * hy / (2.0 * e), 1.0));
+  vec3 stored = floor((baked * 0.5 + 0.5) * 255.0 + 0.5) / 255.0;    // 8 bits per channel
+
+  // 1. decode: colour 0..1 back to a vector -1..1
+  vec3 n = stored * 2.0 - 1.0;
+  // 2. green is "up the texture"; a DirectX-style map stores it the other way
+  n.y = mix(n.y, -n.y, u_flipY);
+  // 3. strength scales the tilt, then the vector is made unit length again
+  n.xy *= u_strength;
+  n = normalize(mix(FLAT, n, u_useMap));
+
+  // 4. light with the new normal: a point light, Lambert diffuse and a Blinn-Phong highlight
+  vec3 l = normalize(u_light - vec3(q, 0.0));
+  float ndotl = dot(n, l);
+  float diffuse = max(ndotl, 0.0);
+  vec3 h = normalize(l + V);
+  float spec = pow(max(dot(n, h), 0.0), 40.0) * step(0.0, ndotl);
+  vec3 albedo = mix(MORTAR, BRICK, smoothstep(0.02, 0.05, edgeDist(p)));
+  vec3 col = albedo * (diffuse + 0.08) + vec3(0.35 * spec);
+
+  // the stages: brick UVs, height map, stored normal map, diffuse, final
+  vec2 b = p;
+  b.x += mod(floor(b.y), 2.0);
+  vec2 uv = vec2(mod(b.x, 2.0) * 0.5, fract(b.y));
+  if (u_stage &lt; 3.5) col = vec3(diffuse);
+  if (u_stage &lt; 2.5) col = stored;
+  if (u_stage &lt; 1.5) col = vec3(height(p));
+  if (u_stage &lt; 0.5) col = vec3(uv, 0.0);
+
+  // the light marker
+  float lw = max(1.0, u_resolution.y / 300.0);
+  float d = length(gl_FragCoord.xy - u_lightPos);
+  vec3 sun = vec3(1.0, 0.82, 0.25);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));
+  col = mix(col, sun, 1.0 - smoothstep(6.0 * lw, 7.0 * lw, d));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a spatial shader on any mesh with UVs and tangents (a PlaneMesh, a BoxMesh).
+// Godot decodes the map and applies tangent space for you.
+shader_type spatial;
+
+uniform sampler2D albedo_tex : source_color;
+uniform sampler2D normal_tex : hint_normal;     // an OpenGL-style (Y+) normal map
+uniform float strength : hint_range(0.0, 3.0) = 1.0;
+
+void fragment() {
+    ALBEDO = texture(albedo_tex, UV).rgb;
+<span class="k">    NORMAL_MAP = texture(normal_tex, UV).rgb;    // the stored colour, 0 to 1
+    NORMAL_MAP_DEPTH = strength;</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, surface shader. Import the texture with Texture Type "Normal map".
+Shader "GameDevDaily/NormalMapped"
+{
+    Properties
+    {
+        _MainTex ("Albedo", 2D) = "white" {}
+        _BumpMap ("Normal map", 2D) = "bump" {}
+        _Strength ("Strength", Range(0, 3)) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        CGPROGRAM
+        #pragma surface surf Lambert
+
+        sampler2D _MainTex;
+        sampler2D _BumpMap;
+        float _Strength;
+
+        struct Input
+        {
+            float2 uv_MainTex;
+            float2 uv_BumpMap;
+        };
+
+        void surf (Input IN, inout SurfaceOutput o)
+        {
+            o.Albedo = tex2D(_MainTex, IN.uv_MainTex).rgb;
+<span class="k">            float3 n = UnpackNormal(tex2D(_BumpMap, IN.uv_BumpMap));  // decode
+            n.xy *= _Strength;
+            o.Normal = normalize(n);                                 // tangent space</span>
+        }
+        ENDCG
+    }
+    FallBack "Diffuse"
+}</code></pre>
+  </div>
+  <p>In both engines you give the tangent-space normal and the engine applies the mesh's tangent frame. In URP Shader Graph, use a <em>Sample Texture 2D</em> node with its Type set to Normal, through a <em>Normal Strength</em> node, into the Fragment block's <em>Normal (Tangent Space)</em> input.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Importing the map as a colour texture.</strong> sRGB textures are converted to linear when sampled, which bends every vector. Mark normal maps as data: Texture Type "Normal map" in Unity, <code>hint_normal</code> in Godot, "Non-Color" in Blender.</li>
+    <li><strong>The wrong green convention.</strong> If bumps look like dents only on their top and bottom edges, flip green.</li>
+    <li><strong>Skipping the normalise.</strong> Filtering and mipmaps average vectors, and averages are shorter than 1; strength changes the length too. Normalise, or N·L comes out too dark.</li>
+    <li><strong>Tangents that do not match the baker.</strong> A map baked with one tangent frame and lit with another shows seams, especially on mirrored UVs. MikkTSpace is the common standard; Blender and Unity both use it.</li>
+    <li><strong>Expecting a new silhouette.</strong> Only the shading changes. The outline, cast shadows and grazing views stay flat.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>In a game a normal map costs one texture read per pixel, a multiply-add to decode, a few more for the tangent rotation, and a normalise. That is cheap even on a phone, and far cheaper than the triangles it replaces. The real cost is memory and bandwidth: a second texture the size of the albedo. Two-channel formats such as BC5 store only x and y and rebuild z as <code>sqrt(1 - x² - y²)</code>; Unity's <code>UnpackNormal</code> does that for you. The demo costs more than a game would, because it bakes the map every frame. It asks for <code>highp</code> because its small height differences turn to noise at the 16-bit precision <code>mediump</code> often means on phones.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Normal maps are on almost every surface in modern 3D games. Doom 3 (id Software, 2004) was an early, famous example, using them across its characters and levels, baked from far more detailed models. That is still the usual workflow: model in high detail, then bake the detail onto a low-polygon mesh as a normal map. Godot's StandardMaterial3D and Unity's Standard shader both have a normal map slot with a strength value.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>In <code>height</code>, add a small <code>smoothstep</code> dome at each brick's centre. The stud should catch a highlight that slides with the mouse.</li>
+    <li>Rebuild z from x and y, as a two-channel map would: <code>n.z = sqrt(max(1.0 - dot(n.xy, n.xy), 0.0))</code>. At strength 1 it should look almost identical.</li>
+    <li>Allow negative strength. At −1 the bricks should look sunk into the wall. Work out why before you try it.</li>
+  </ol>
+  <p>You are done when the studs shine and you can explain what a negative strength does to each component of the normal.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Lighting reads only the normal, so changing the normal per pixel fakes detail the mesh does not have.</li>
+    <li>A normal map stores <code>n × 0.5 + 0.5</code>; decode it with <code>rgb × 2 − 1</code>. Flat is (128, 128, 255).</li>
+    <li>The stored normal is in tangent space: red along u, green along v, blue out of the surface. The mesh's T, B and N turn it into world space.</li>
+    <li>Treat the texture as data, not colour, check its green convention, and normalise after filtering and scaling.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes lighting 2D sprites, where the same normal map trick lets a flat character in a 2D game react to a torch passing by.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>James F. Blinn, <cite>Simulation of Wrinkled Surfaces</cite>, SIGGRAPH 1978.</li>
+    <li>Jonathan Cohen, Marc Olano and Dinesh Manocha, <cite>Appearance-Preserving Simplification</cite>, SIGGRAPH 1998.</li>
+    <li>Morten S. Mikkelsen, <cite>Simulation of Wrinkled Surfaces Revisited</cite>, 2008 (the origin of MikkTSpace).</li>
+    <li>Tomas Akenine-Möller, Eric Haines, Naty Hoffman and others, <cite>Real-Time Rendering</cite>, the section on bump and normal mapping.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot Engine documentation, <cite>Spatial shaders</cite> (<code>NORMAL_MAP</code> and <code>NORMAL_MAP_DEPTH</code>) and <cite>Standard Material 3D</cite>.</li>
+    <li>Unity documentation, <cite>Normal map (Bump mapping)</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec3 u_light;      // light position: x, y in canvas heights from the centre, z = height above the wall",
+    "uniform vec2 u_lightPos;   // where the light marker is drawn, device pixels, origin bottom-left",
+    "uniform float u_strength;  // normal map strength: scales the tilt (x and y) of the decoded normal",
+    "uniform float u_useMap;    // 1 = use the normal map, 0 = use the flat normal of the quad",
+    "uniform float u_flipY;     // 1 = read the green channel upside down (a DirectX-style map)",
+    "uniform float u_stage;     // 0 brick UV ... 4 final colour",
+    "",
+    "const float ROWS = 5.0;                  // brick rows across the canvas height",
+    "const float DEPTH = 0.08;                // brick height used when baking, in brick heights",
+    "const vec3 FLAT = vec3(0.0, 0.0, 1.0);   // the quad's own normal: straight out of the screen",
+    "const vec3 V = vec3(0.0, 0.0, 1.0);      // towards the eye",
+    "const vec3 BRICK = vec3(0.72, 0.33, 0.24);",
+    "const vec3 MORTAR = vec3(0.62, 0.6, 0.55);",
+    "",
+    "// distance from p to the nearest brick edge; bricks are 2 wide and 1 tall, odd rows shifted by 1",
+    "float edgeDist(vec2 p) {",
+    "  p.x += mod(floor(p.y), 2.0);",
+    "  vec2 c = vec2(mod(p.x, 2.0), fract(p.y));",
+    "  return min(min(c.x, 2.0 - c.x), min(c.y, 1.0 - c.y));",
+    "}",
+    "",
+    "// the height map: 0 in the mortar, 1 on top of a brick, with a rounded bevel between",
+    "float height(vec2 p) {",
+    "  return smoothstep(0.04, 0.2, edgeDist(p));",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 q = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;  // y up, in canvas heights",
+    "  vec2 p = q * ROWS;                                                 // in brick heights",
+    "",
+    "  // bake: the normal map a tool would store, made here from the height map",
+    "  float e = 0.01;",
+    "  float hx = height(p + vec2(e, 0.0)) - height(p - vec2(e, 0.0));",
+    "  float hy = height(p + vec2(0.0, e)) - height(p - vec2(0.0, e));",
+    "  vec3 baked = normalize(vec3(-DEPTH * hx / (2.0 * e), -DEPTH * hy / (2.0 * e), 1.0));",
+    "  vec3 stored = floor((baked * 0.5 + 0.5) * 255.0 + 0.5) / 255.0;    // 8 bits per channel",
+    "",
+    "  // 1. decode: colour 0..1 back to a vector -1..1",
+    "  vec3 n = stored * 2.0 - 1.0;",
+    "  // 2. green is \"up the texture\"; a DirectX-style map stores it the other way",
+    "  n.y = mix(n.y, -n.y, u_flipY);",
+    "  // 3. strength scales the tilt, then the vector is made unit length again",
+    "  n.xy *= u_strength;",
+    "  n = normalize(mix(FLAT, n, u_useMap));",
+    "",
+    "  // 4. light with the new normal: a point light, Lambert diffuse and a Blinn-Phong highlight",
+    "  vec3 l = normalize(u_light - vec3(q, 0.0));",
+    "  float ndotl = dot(n, l);",
+    "  float diffuse = max(ndotl, 0.0);",
+    "  vec3 h = normalize(l + V);",
+    "  float spec = pow(max(dot(n, h), 0.0), 40.0) * step(0.0, ndotl);",
+    "  vec3 albedo = mix(MORTAR, BRICK, smoothstep(0.02, 0.05, edgeDist(p)));",
+    "  vec3 col = albedo * (diffuse + 0.08) + vec3(0.35 * spec);",
+    "",
+    "  // the stages: brick UVs, height map, stored normal map, diffuse, final",
+    "  vec2 b = p;",
+    "  b.x += mod(floor(b.y), 2.0);",
+    "  vec2 uv = vec2(mod(b.x, 2.0) * 0.5, fract(b.y));",
+    "  if (u_stage < 3.5) col = vec3(diffuse);",
+    "  if (u_stage < 2.5) col = stored;",
+    "  if (u_stage < 1.5) col = vec3(height(p));",
+    "  if (u_stage < 0.5) col = vec3(uv, 0.0);",
+    "",
+    "  // the light marker",
+    "  float lw = max(1.0, u_resolution.y / 300.0);",
+    "  float d = length(gl_FragCoord.xy - u_lightPos);",
+    "  vec3 sun = vec3(1.0, 0.82, 0.25);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));",
+    "  col = mix(col, sun, 1.0 - smoothstep(6.0 * lw, 7.0 * lw, d));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var DEPTH = 0.08, BEVEL = 0.16;          // the same as in the shader: smoothstep(0.04, 0.2, ...)
+  var light = { x: 0.3, y: 0.15 };         // light position over the wall, in canvas heights, y up
+  var handle = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="normal-map"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Brick UVs (u red, v green)' },
+      { value: '1', label: '2. Height map the normal map is baked from' },
+      { value: '2', label: '3. Normal map as stored: n × 0.5 + 0.5' },
+      { value: '3', label: '4. Diffuse: max(N·L, 0) with the decoded normal' },
+      { value: '4', label: '5. Final: albedo × (diffuse + ambient) + highlight' }
+    ],
+    value: '4',
+    onChange: redraw
+  });
+  var useMap = ui.toggle({ label: 'Use normal map', value: true, onChange: redraw });
+  var flip = ui.toggle({ label: 'Flip green (read as DirectX-style)', value: false, onChange: redraw });
+  var strength = ui.slider({ label: 'Strength', min: 0, max: 3, step: 0.05, value: 1, onInput: redraw });
+  var height = ui.slider({ label: 'Light height', min: 0.05, max: 1, step: 0.01, value: 0.2, onInput: redraw });
+  var readout = ui.readout({ label: 'Steepest bevel' });
+
+  // The steepest slope of the baked height map is DEPTH × 1.5 / BEVEL (smoothstep's peak slope).
+  // Scaling x and y by the strength multiplies that slope, so the tilt is atan(slope × strength).
+  function updateReadout() {
+    var k = useMap.value ? strength.value : 0;
+    var tilt = Math.atan(DEPTH * 1.5 / BEVEL * k) * 180 / Math.PI;
+    var text = 'normal tilted ' + tilt.toFixed(1) + '° from flat';
+    if (!useMap.value) text += ' (map off: every normal is (0, 0, 1))';
+    else text += ' at strength ' + strength.value.toFixed(2);
+    readout.set(text);
+  }
+
+  // Limits that keep the marker on the canvas, in canvas heights.
+  function limits(s) {
+    var aspect = s.height > 0 ? s.width / s.height : 1;
+    return { x: 0.5 * aspect, y: 0.5 };
+  }
+
+  function moveLight(p, s) {
+    if (!s.width || !s.height) return;
+    var lim = limits(s);
+    light.x = DemoKit.clamp((p.x - 0.5 * s.width) / s.height, -lim.x, lim.x);
+    light.y = DemoKit.clamp((0.5 * s.height - p.y) / s.height, -lim.y, lim.y);
+    redraw();
+  }
+
+  handle = DemoKit.shader('#normal-map-wall', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader drawing a flat brick wall lit by a point light. Drag on the canvas or use the arrow keys to move the light. A toggle turns the normal map on and off, another flips its green channel, and sliders set the normal map strength and the light height. The Stage menu shows the brick UVs, the height map, the stored normal map and the diffuse term.',
+    uniforms: {
+      u_light: function () { return [light.x, light.y, height.value]; },
+      u_lightPos: function (s) {
+        var W = s.width * s.dpr, H = s.height * s.dpr;
+        return [0.5 * W + light.x * H, 0.5 * H + light.y * H];
+      },
+      u_strength: function () { return strength.value; },
+      u_useMap: function () { return useMap.value ? 1 : 0; },
+      u_flipY: function () { return flip.value ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onDown: moveLight,
+    onMove: function (p, s) { if (p.down) moveLight(p, s); },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var lim = limits(s), step = 0.04;
+      if (key === 'arrowleft') light.x = Math.max(-lim.x, light.x - step);
+      else if (key === 'arrowright') light.x = Math.min(lim.x, light.x + step);
+      else if (key === 'arrowup') light.y = Math.min(lim.y, light.y + step);
+      else if (key === 'arrowdown') light.y = Math.max(-lim.y, light.y - step);
+      else return;
+      redraw();
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

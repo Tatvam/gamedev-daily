@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coroutines in Unity, await in Godot · Game Dev Daily</title>
+<meta name="description" content="How a function can pause and continue on a later frame, who resumes it, when in the frame, and what happens when its owner is destroyed.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-06">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Coroutines in Unity, await in Godot</h1>
+  <p class="lede">How a function can pause and continue on a later frame, who resumes it, when in the frame, and what happens when its owner is destroyed.</p>
+</header>
+
+<section data-section="hook">
+  <p>You pull a lever. A lamp lights, half a second later a door slides open, it waits, then slides shut. Four steps that take three and a half seconds, but <code>update</code> only gets one frame at a time. So the four steps end up spread across a timer variable, a step counter and an <code>if</code> ladder, and nobody can read the sequence any more.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The sequence, chopped into frames</h2>
+  <p>Here is the door written the usual way, as a small state machine inside <code>update</code>:</p>
+<pre><code>local step, timer = "idle", 0
+
+function love.update(dt)
+  timer = timer + dt
+  if step == "lamp" and timer &gt;= 0.5 then
+    step, timer = "opening", 0
+  elseif step == "opening" then
+    door.open = math.min(timer / 1.0, 1)
+    if timer &gt;= 1.0 then step, timer = "holding", 0 end
+  elseif step == "holding" and timer &gt;= 1.0 then
+    step, timer = "closing", 0
+  end   <span class="c">-- ...and closing, and turning the lamp off</span>
+end</code></pre>
+  <p>It works, but the order of events is no longer visible from top to bottom.</p>
+
+  <h2>A function that can pause</h2>
+  <p>A <dfn>coroutine</dfn> is a function that can stop part way through, hand control back to whoever called it, and later carry on from the same line. Stopping is called <dfn>yielding</dfn> (Godot calls it <dfn>awaiting</dfn>); carrying on is <dfn>resuming</dfn>. While it is paused, its local variables and its whole call stack are kept, so a loop counter in a helper function is still there next frame.</p>
+  <p>With that, the door reads like the design note:</p>
+<pre><code>local function useSwitch()
+  lamp.on = true
+  wait(0.5)            <span class="c">-- pause here; resume in half a second</span>
+  slide(0, 1, 1.0)     <span class="c">-- this helper pauses once per frame</span>
+  wait(1.0)
+  slide(1, 0, 1.0)
+  lamp.on = false
+end</code></pre>
+  <p>A coroutine cannot resume itself. Something outside it has to keep a list of paused coroutines and, every frame, check what each one is waiting for and resume the ones that are ready. That something is the <dfn>scheduler</dfn>. In LÖVE you write it yourself in about fifteen lines (see the code below). Godot and Unity each have one built in.</p>
+
+  <h2>Who resumes it, and when in the frame</h2>
+  <p>Two ordering facts matter. First, <strong>starting</strong> a coroutine runs it immediately, inside the call that started it, up to its first pause. Unity's <code>StartCoroutine</code> does this, and so does calling a Godot function that contains <code>await</code>. Second, each engine resumes paused code at a fixed point in its frame, and the two engines chose different points.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 256" role="img" aria-label="Timeline of one frame in each engine. Unity: Update, then coroutines waiting on yield return null or WaitForSeconds resume, then LateUpdate, then rendering. Godot 4: code awaiting process_frame resumes first, then every node's _process runs, then code awaiting a scene tree timer resumes, then rendering.">
+      <defs>
+        <marker id="co-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="12" y="70">Unity</text>
+      <rect class="d-box" x="90" y="44" width="100" height="44" rx="6"/>
+      <rect class="d-accent-soft" x="200" y="44" width="200" height="44" rx="6"/>
+      <rect class="d-box" x="410" y="44" width="110" height="44" rx="6"/>
+      <rect class="d-fill" x="530" y="44" width="98" height="44" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="140" y="70">Update</text>
+        <text class="d-mono" x="300" y="62">yield return null</text>
+        <text class="d-mono" x="300" y="80">WaitForSeconds</text>
+        <text class="d-text" x="465" y="70">LateUpdate</text>
+        <text class="d-text" x="579" y="70">render</text>
+        <text class="d-muted" x="300" y="108">after every Update, before LateUpdate</text>
+      </g>
+
+      <text class="d-label" x="12" y="166">Godot 4</text>
+      <rect class="d-accent-soft" x="90" y="140" width="160" height="44" rx="6"/>
+      <rect class="d-box" x="260" y="140" width="110" height="44" rx="6"/>
+      <rect class="d-accent-soft" x="380" y="140" width="140" height="44" rx="6"/>
+      <rect class="d-fill" x="530" y="140" width="98" height="44" rx="6"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="170" y="158">process_frame</text>
+        <text class="d-text" x="170" y="176">await resumes</text>
+        <text class="d-text" x="315" y="166">_process</text>
+        <text class="d-mono" x="450" y="158">timer timeout</text>
+        <text class="d-text" x="450" y="176">await resumes</text>
+        <text class="d-text" x="579" y="166">render</text>
+        <text class="d-muted" x="170" y="204">before any _process</text>
+        <text class="d-muted" x="450" y="204">after every _process</text>
+      </g>
+
+      <path class="d-stroke" d="M90 226 H624" marker-end="url(#co-arrow)"/>
+      <text class="d-muted" x="90" y="248">one frame, left to right (physics steps left out)</text>
+    </svg>
+    <figcaption>Shaded boxes are where paused code wakes up. Unity resumes coroutines after all <code>Update</code> calls. In Godot, code awaiting the scene tree's <code>process_frame</code> signal wakes just before <code>_process</code>, while a timer made with <code>create_timer</code> fires after all nodes have processed.</figcaption>
+  </figure>
+
+  <p>This is why "wait one frame" is not quite the same in both. In Unity, code after <code>yield return null</code> sees this frame's <code>Update</code> results. In Godot, code after <code>await get_tree().process_frame</code> runs before this frame's <code>_process</code>.</p>
+
+  <h2>Who owns a paused coroutine</h2>
+  <p>A paused coroutine holds a call stack, so something must own it and decide when it dies.</p>
+  <p><strong>Unity</strong> ties each coroutine to the <code>MonoBehaviour</code> that called <code>StartCoroutine</code>. It stops when that GameObject is deactivated or destroyed, or when you call <code>StopCoroutine</code> with the returned <code>Coroutine</code> handle, or <code>StopAllCoroutines</code>. Disabling only the component (<code>enabled = false</code>) does not stop it. Unity 6 adds a second style, <code>async</code> methods that <code>await Awaitable.NextFrameAsync()</code> or <code>Awaitable.WaitForSecondsAsync(seconds)</code>; these are not tied to the object in the same way, which is what <code>destroyCancellationToken</code> is for. Awaitable is not in 2022 LTS.</p>
+  <p><strong>Godot 4</strong> gives you no handle. The paused function waits on a signal. If its object is freed before the signal arrives, the rest of the function never runs; when the signal comes from something that outlives the node, such as a scene tree timer, a debug build prints an error saying the instance is gone. To cancel a sequence on purpose, check a flag or a counter after each <code>await</code>.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>Unity's coroutines are values you can stop from outside, at the cost of extra bookkeeping (handles, and the enabled versus active difference). Godot's <code>await</code> works on any signal with no extra types, but cancelling is your job.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>This is a tiny scheduler running the <code>useSwitch</code> coroutine at 10 frames per second. Press the switch, then press <strong>Next frame</strong> and watch the shaded line: that is where the function is paused. During a slide, a hollow marker also stays on the line that called <code>slide</code>, because the whole call stack is kept.</p>
+  <p>Then try the two ways it breaks. Turn off <strong>Ignore presses while the lamp is on</strong> and press twice: two coroutines write <code>door.open</code> every frame and the door jumps. Or press <strong>Destroy switch</strong> while the door is moving: its coroutine dies with it and the door is left half open.</p>
+
+  <figure class="demo" data-demo="coroutine">
+    <canvas id="coroutine"></canvas>
+    <figcaption>Press Play (bottom right) to run frames continuously. On the canvas: Space or Enter presses the switch, N or the right arrow steps one frame. The model uses a fixed 0.1 second frame and leaves out real engine details such as physics steps, time scale and nested coroutine handles.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Lua has coroutines built into the language: <code>coroutine.create</code>, <code>coroutine.resume</code> and <code>coroutine.yield</code>. A value passed to <code>yield</code> comes out of <code>resume</code>, and the other way round. Here a coroutine yields how many seconds it wants to sleep, and the scheduler passes <code>dt</code> back in. This is a complete LÖVE program; Space presses the switch.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local door = { open = 0 }        <span class="c">-- 0 closed, 1 fully open</span>
+local lamp = { on = false }
+local tasks = {}                 <span class="c">-- paused coroutines</span>
+
+local function wait(secs) coroutine.yield(secs) end
+local function nextFrame() return coroutine.yield(0) end   <span class="c">-- returns dt</span>
+
+local function slide(a, b, secs)
+  local t = 0
+  while t &lt; secs do
+    t = t + nextFrame()
+    local k = math.min(t / secs, 1)
+    door.open = a + (b - a) * k
+  end
+end
+
+local function useSwitch()
+  lamp.on = true
+  wait(0.5)
+  slide(0, 1, 1.0)
+  wait(1.0)
+  slide(1, 0, 1.0)
+  lamp.on = false
+end
+
+local function start(fn)
+  local task = { co = coroutine.create(fn), wait = 0 }
+<span class="k">  local ok, secs = coroutine.resume(task.co)   <span class="c">-- runs now, up to the first yield</span></span>
+  assert(ok, secs)
+  if coroutine.status(task.co) ~= "dead" then
+    task.wait = secs
+    tasks[#tasks + 1] = task
+  end
+end
+
+function love.keypressed(key)
+  if key == "space" and not lamp.on then start(useSwitch) end
+end
+
+function love.update(dt)
+  local running = tasks
+  tasks = {}                     <span class="c">-- coroutines started this frame land here</span>
+  for _, task in ipairs(running) do
+    task.wait = task.wait - dt
+    if task.wait &lt;= 0 then
+<span class="k">      local ok, secs = coroutine.resume(task.co, dt)   <span class="c">-- continue after its yield</span></span>
+      assert(ok, secs)
+      task.wait = secs
+    end
+    if coroutine.status(task.co) ~= "dead" then tasks[#tasks + 1] = task end
+  end
+end
+
+function love.draw()
+  if lamp.on then love.graphics.setColor(1, 0.8, 0.2) else love.graphics.setColor(0.4, 0.4, 0.4) end
+  love.graphics.circle("fill", 60, 60, 10)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.rectangle("line", 300, 300, 120, 180)
+  love.graphics.setColor(0.6, 0.4, 0.2)
+  love.graphics.rectangle("fill", 300, 300 - door.open * 180, 120, 180)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># switch_door.gd. Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Enter or Space (the ui_accept action) presses the switch.</span>
+extends Node2D
+
+var door_open := 0.0   <span class="c"># 0 closed, 1 fully open</span>
+var lamp_on := false
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event.is_action_pressed("ui_accept") and not lamp_on:
+<span class="k">        use_switch()   <span class="c"># no await: runs to its first await, then returns here</span></span>
+
+func use_switch() -&gt; void:
+    lamp_on = true
+    queue_redraw()
+<span class="k">    await get_tree().create_timer(0.5).timeout</span>
+    await slide(0.0, 1.0, 1.0)
+    await get_tree().create_timer(1.0).timeout
+    await slide(1.0, 0.0, 1.0)
+    lamp_on = false
+    queue_redraw()
+
+func slide(a: float, b: float, secs: float) -&gt; void:
+    var t := 0.0
+    while t &lt; secs:
+<span class="k">        await get_tree().process_frame   <span class="c"># wakes just before _process</span></span>
+        t += get_process_delta_time()
+        door_open = a + (b - a) * minf(t / secs, 1.0)
+        queue_redraw()
+
+func _draw() -&gt; void:
+    draw_circle(Vector2(60, 60), 10, Color(1, 0.8, 0.2) if lamp_on else Color(0.4, 0.4, 0.4))
+    draw_rect(Rect2(300, 300, 120, 180), Color(1, 1, 1), false)
+    draw_rect(Rect2(300, 300 - door_open * 180, 120, 180), Color(0.6, 0.4, 0.2))</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// SwitchDoor.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Create a Cube, add this script, press Play, then press Space. The cube is the door.</span>
+using System.Collections;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class SwitchDoor : MonoBehaviour
+{
+    float doorOpen;      <span class="c">// 0 closed, 1 fully open</span>
+    Coroutine running;   <span class="c">// null while idle; also lets you StopCoroutine(running)</span>
+
+    void Update()
+    {
+        var kb = Keyboard.current;
+        if (kb != null &amp;&amp; kb.spaceKey.wasPressedThisFrame &amp;&amp; running == null)
+<span class="k">            running = StartCoroutine(UseSwitch());   <span class="c">// runs to the first yield now</span></span>
+    }
+
+    IEnumerator UseSwitch()
+    {
+        Debug.Log("lamp on");
+<span class="k">        yield return new WaitForSeconds(0.5f);</span>
+        yield return StartCoroutine(Slide(0f, 1f, 1f));
+        yield return new WaitForSeconds(1f);
+        yield return StartCoroutine(Slide(1f, 0f, 1f));
+        Debug.Log("lamp off");
+        running = null;
+    }
+
+    IEnumerator Slide(float a, float b, float secs)
+    {
+        float t = 0f;
+        while (t &lt; secs)
+        {
+<span class="k">            yield return null;   <span class="c">// next frame, after every Update</span></span>
+            t += Time.deltaTime;
+            doorOpen = a + (b - a) * Mathf.Min(t / secs, 1f);
+            transform.position = new Vector3(0f, doorOpen * 2f, 0f);
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Lua scheduler swaps in a fresh list each frame, so a coroutine started during the loop does not also get resumed in the same frame. Both engine versions use a "running" check for the same job as <code>not lamp.on</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Starting the same sequence twice.</strong> Each start makes a new, independent coroutine. Two of them write the same field every frame, and the last one to run wins. Guard with a flag, or keep the handle and stop the old one first.</li>
+    <li><strong>Disabled is not deactivated (Unity).</strong> <code>enabled = false</code> leaves coroutines running; <code>SetActive(false)</code> and <code>Destroy</code> stop them. Calling <code>StartCoroutine</code> on an inactive GameObject fails with an error.</li>
+    <li><strong>Timers that ignore pause (Godot).</strong> <code>create_timer</code> has a <code>process_always</code> parameter that defaults to <code>true</code>, so the timer keeps counting while the tree is paused. Pass <code>false</code> for gameplay waits.</li>
+    <li><strong>Forgetting <code>await</code> (Godot).</strong> Calling a function that awaits, without <code>await</code>, returns at its first pause. The lines after the call run before the sequence has finished.</li>
+    <li><strong>Waits round up to a frame.</strong> A wait ends on the first frame at or after its time, so each wait can overshoot by up to one frame. Ten chained waits drift. For timing that must be exact, keep one running clock and compare against it.</li>
+    <li><strong>Garbage per wait (Unity).</strong> <code>new WaitForSeconds(...)</code> allocates an object each time. In a coroutine that loops forever, create it once and reuse it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Coroutines are a common way to script cutscenes, tutorial prompts, dialogue sequences and timed spawns, anywhere a designer thinks in steps rather than in frames. Coroutines have been part of the Lua language itself since version 5.0, so Lua scripts get them without any engine support. Godot 3 offered the same idea with a <code>yield</code> function; Godot 4 replaced it with the <code>await</code> keyword. Unity's coroutines are built on C# iterators (<code>IEnumerator</code> and <code>yield return</code>).</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take one timed sequence in your project that lives in <code>update</code> as a timer and a step variable, for example a spawn wave or a "ready, set, go" countdown, and rewrite it as a single coroutine. You are done when the function reads top to bottom like the design, and pressing the trigger twice quickly does not run two copies. Bonus: free or destroy the owner half way through and check nothing errors and nothing is left half done that matters.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A coroutine is a function that can pause and later continue from the same line, keeping its locals and call stack.</li>
+    <li>Starting one runs it immediately up to its first pause; after that a scheduler resumes it once per frame when its wait is over.</li>
+    <li>Unity resumes <code>yield return null</code> after every <code>Update</code>; Godot resumes <code>await get_tree().process_frame</code> just before <code>_process</code>.</li>
+    <li>The owner decides the coroutine's life: in Unity the GameObject that started it, in Godot the object whose function is paused. Cancelling is explicit in Unity and up to you in Godot.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at the command pattern: wrapping each action in an object so undo, redo and replays come from one idea.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite><a href="https://raw.githubusercontent.com/godotengine/godot-docs/master/tutorials/scripting/gdscript/gdscript_basics.rst">GDScript reference</a></cite>, section "Awaiting signals or coroutines".</li>
+    <li>Godot Engine class reference, <cite><a href="https://raw.githubusercontent.com/godotengine/godot/master/doc/classes/SceneTree.xml">SceneTree</a></cite>: the <code>process_frame</code> signal and <code>create_timer</code>.</li>
+    <li>Unity Technologies, <cite><a href="https://raw.githubusercontent.com/Unity-Technologies/UnityCsReference/master/Runtime/Export/Scripting/Awaitable.DelayedCall.cs">UnityCsReference: Awaitable.DelayedCall.cs</a></cite>, the source of <code>NextFrameAsync</code> and <code>WaitForSecondsAsync</code>.</li>
+    <li>Unity Manual, <cite>Coroutines</cite> and <cite>Order of execution for event functions</cite>.</li>
+    <li>Roberto Ierusalimschy, <cite>Programming in Lua</cite>, chapter on coroutines.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP_MS = 100;          // one model frame = 0.1 s
+  var MAX_TASKS = 3;
+  var SCENE_H = 124;
+  var LISTING = [
+    'function useSwitch()',
+    '  lamp.on = true',
+    '  wait(0.5)',
+    '  slide(0, 1, 1.0)',
+    '  wait(1.0)',
+    '  slide(1, 0, 1.0)',
+    '  lamp.on = false',
+    'end',
+    '',
+    'function slide(a, b, secs)',
+    '  local t = 0',
+    '  while t < secs do',
+    '    t = t + nextFrame()',
+    '    local k = math.min(t / secs, 1)',
+    '    door.open = a + (b - a) * k',
+    '  end',
+    'end'
+  ];
+  var LONGEST = 35;
+
+  var door = { open: 0 };
+  var lamp = { on: false };
+  var switchPresent, tasks, nextId, frame, acc, handle;
+
+  // The coroutine, as a generator. Each yield reports how long to sleep (ms) and the
+  // listing line it is paused on. The value sent back in is the frame's dt in ms.
+  function* slide(task, a, b, secs, callLine) {
+    var t = 0;
+    task.call = callLine;
+    while (t < secs) {
+      var dt = yield { wait: 0, line: 13 };
+      t += dt;
+      var k = Math.min(t / secs, 1);
+      door.open = a + (b - a) * k;
+    }
+    task.call = 0;
+  }
+
+  function* useSwitch(task) {
+    lamp.on = true;
+    yield { wait: 500, line: 3 };
+    yield* slide(task, 0, 1, 1000, 4);
+    yield { wait: 1000, line: 5 };
+    yield* slide(task, 1, 0, 1000, 6);
+    lamp.on = false;
+  }
+
+  var ui = DemoKit.controls('[data-demo="coroutine"]');
+  ui.button({ label: 'Press switch', onClick: function () { pressSwitch(); refresh(); } });
+  ui.button({ label: 'Next frame', onClick: function () { stepFrame(); refresh(); } });
+  ui.button({ label: 'Destroy switch', onClick: function () { destroySwitch(); refresh(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); refresh(); } });
+  var guard = ui.toggle({ label: 'Ignore presses while the lamp is on', value: true });
+  var logOut = ui.readout({ label: 'What happened' });
+
+  function say(text) { logOut.set(text); }
+  function secs(ms) { return (ms / 1000).toFixed(1) + ' s'; }
+
+  function reset() {
+    door.open = 0;
+    lamp.on = false;
+    switchPresent = true;
+    tasks = [];
+    nextId = 1;
+    frame = 0;
+    acc = 0;
+    say('Press the switch to start the coroutine.');
+  }
+
+  function pressSwitch() {
+    if (!switchPresent) { say('There is no switch any more. Press Reset.'); return; }
+    if (guard.value && lamp.on) { say('Ignored: the lamp is on, so a sequence is already running.'); return; }
+    if (tasks.length >= MAX_TASKS) { say('This demo keeps at most ' + MAX_TASKS + ' coroutines at once.'); return; }
+    var task = { id: nextId, wait: 0, line: 1, call: 0, gen: null };
+    nextId += 1;
+    task.gen = useSwitch(task);
+    var r = task.gen.next();
+    task.wait = r.value.wait;
+    task.line = r.value.line;
+    tasks.push(task);
+    say('#' + task.id + ' started and ran lines 1 to 3 at once, inside the key press. Paused at line 3, sleeping ' + secs(task.wait) + '.');
+  }
+
+  function stepFrame() {
+    frame += 1;
+    var notes = [];
+    var running = tasks;
+    tasks = [];
+    for (var i = 0; i < running.length; i++) {
+      var task = running[i];
+      task.wait -= STEP_MS;
+      if (task.wait > 0) {
+        notes.push('#' + task.id + ' still sleeping, ' + secs(task.wait) + ' left');
+        tasks.push(task);
+        continue;
+      }
+      var from = task.line;
+      var r = task.gen.next(STEP_MS);
+      if (r.done) {
+        notes.push('#' + task.id + ' resumed at line ' + from + ', ran to the end and finished');
+        continue;
+      }
+      task.wait = r.value.wait;
+      task.line = r.value.line;
+      notes.push('#' + task.id + ' resumed at line ' + from + ', paused again at line ' + task.line);
+      tasks.push(task);
+    }
+    say('Frame ' + frame + ': ' + (notes.length ? notes.join('; ') : 'nothing is waiting') + '.');
+  }
+
+  function destroySwitch() {
+    if (!switchPresent) { say('The switch is already gone. Press Reset.'); return; }
+    switchPresent = false;
+    var n = tasks.length;
+    tasks = [];
+    lamp.on = false;
+    if (n) {
+      say('Switch destroyed, and its ' + (n === 1 ? 'coroutine' : n + ' coroutines') + ' with it. No line after the pause will run, so the door stays at ' + door.open.toFixed(2) + '.');
+    } else {
+      say('Switch destroyed. Nothing was running, so nothing was lost.');
+    }
+  }
+
+  function refresh() { if (handle) handle.redraw(); }
+
+  function wrap(ctx, text, x, y, maxW, lineH) {
+    var words = text.split(' ');
+    var line = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, x, y);
+        line = words[i];
+        y += lineH;
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, y);
+    return y + lineH;
+  }
+
+  function drawScene(ctx, w, c) {
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, w, SCENE_H);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, w - 1, SCENE_H - 1);
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('frame ' + frame + ', ' + (frame * STEP_MS / 1000).toFixed(1) + ' s', 10, 15);
+
+    // floor
+    ctx.fillStyle = c.line;
+    ctx.fillRect(0, 100, w, 3);
+
+    // switch and its lamp (both belong to the switch object)
+    var sx = 34;
+    if (switchPresent) {
+      ctx.fillStyle = lamp.on ? c.warn : c.surface;
+      ctx.beginPath();
+      ctx.arc(sx, 40, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(sx - 12, 56, 24, 34);
+      ctx.strokeRect(sx - 12, 56, 24, 34);
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(sx - 3, lamp.on ? 74 : 62, 6, 12);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('switch', sx, 113);
+    } else {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.strokeRect(sx - 12, 56, 24, 34);
+      ctx.setLineDash([]);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.bad;
+      ctx.fillText('destroyed', sx + 6, 113);
+    }
+
+    // doorway and door
+    var dw = 70, top = 22, dh = 78;
+    var dx = Math.max(110, Math.min(w * 0.6, w - dw - 30));
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(dx, top, dw, dh);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(dx, top, dw, dh);
+    ctx.clip();
+    ctx.fillStyle = c.topic;
+    var y = top - door.open * dh;
+    ctx.fillRect(dx, y, dw, dh);
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(dx + 8, y + dh - 12, dw - 16, 3);
+    ctx.restore();
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(dx - 1.5, top - 1.5, dw + 3, dh + 1.5);
+    ctx.textAlign = 'center';
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('door.open = ' + door.open.toFixed(2), dx + dw / 2, 113);
+  }
+
+  function drawListing(ctx, w, c, top) {
+    ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+    var charW = ctx.measureText('M').width || 7.8;
+    var fs = Math.max(9, Math.min(13, 13 * (w - 84) / (LONGEST * charW)));
+    var lh = Math.round(fs * 1.4);
+    var gutter = 8, numX = 66, codeX = 74, pillW = 15;
+    var i, j, task, yy;
+
+    // highlights first, so the text sits on top
+    for (j = 0; j < tasks.length; j++) {
+      task = tasks[j];
+      yy = top + (task.line - 1) * lh;
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(numX - 14, yy, w - numX + 8, lh);
+      ctx.globalAlpha = 1;
+      if (task.call) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.25;
+        ctx.strokeRect(numX - 13.5, top + (task.call - 1) * lh + 0.5, w - numX + 7, lh - 1);
+      }
+    }
+
+    ctx.font = fs + 'px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textBaseline = 'middle';
+    for (i = 0; i < LISTING.length; i++) {
+      yy = top + i * lh + lh / 2;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText(String(i + 1), numX - 2, yy);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.fillText(LISTING[i], codeX, yy);
+    }
+
+    // one marker per coroutine: filled = paused here, hollow = waiting for a call to return
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    for (j = 0; j < tasks.length; j++) {
+      task = tasks[j];
+      var px = gutter + j * (pillW + 2);
+      yy = top + (task.line - 1) * lh;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(px, yy + 1.5, pillW, lh - 3);
+      ctx.fillStyle = c.bg;
+      ctx.fillText(String(task.id), px + pillW / 2, yy + lh / 2);
+      if (task.call) {
+        yy = top + (task.call - 1) * lh;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(px + 0.75, yy + 2.25, pillW - 1.5, lh - 4.5);
+        ctx.fillStyle = c.topic;
+        ctx.fillText(String(task.id), px + pillW / 2, yy + lh / 2);
+      }
+    }
+    return top + LISTING.length * lh;
+  }
+
+  function drawScheduler(ctx, w, c, top) {
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    var y = wrap(ctx, 'Waiting list, owned by the switch', 10, top + 8, w - 20, 16);
+    ctx.font = '12px system-ui, sans-serif';
+    if (!tasks.length) {
+      ctx.fillStyle = c.ink3;
+      y = wrap(ctx, switchPresent ? 'empty' : 'empty: the switch took its coroutine with it', 10, y, w - 100, 16);
+    }
+    for (var j = 0; j < tasks.length; j++) {
+      var task = tasks[j];
+      var when = task.wait > 0 ? 'wakes in ' + secs(task.wait) : 'wakes next frame';
+      var where = task.call ? 'line ' + task.line + ' (in slide, called from ' + task.call + ')' : 'line ' + task.line;
+      ctx.fillStyle = c.ink;
+      y = wrap(ctx, '#' + task.id + ' at ' + where + ', ' + when, 10, y, w - 100, 16);
+    }
+    if (tasks.length > 1) {
+      ctx.fillStyle = c.bad;
+      wrap(ctx, 'Several coroutines write door.open each frame. The last to run wins.', 10, y + 2, w - 100, 16);
+    }
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#coroutine', {
+    height: 580,
+    keys: true,
+    label: 'A switch, a lamp and a sliding door above a Lua listing of the useSwitch coroutine. A marker shows the line where each running coroutine is paused, and a list below shows what each one waits for.',
+    update: function (dt) {
+      acc += dt;
+      while (acc >= STEP_MS / 1000) {
+        acc -= STEP_MS / 1000;
+        stepFrame();
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      drawScene(ctx, s.width, c);
+      var bottom = drawListing(ctx, s.width, c, SCENE_H + 12);
+      drawScheduler(ctx, s.width, c, bottom + 10);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'enter') pressSwitch();
+      else if (key === 'n' || key === 'arrowright') stepFrame();
+    }
+  });
+  handle.pause();
+  handle.redraw();
+})();
+</script>
+</body>
+</html>
