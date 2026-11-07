@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravity Painter: down is free, every other way costs paint · Game Dev Daily</title>
+<meta name="description" content="A grid puzzle where you paint cells with a direction of gravity, then drop a ball that falls whichever way the paint under it points. Prototype and Lua.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-07">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Gravity Painter: down is free, every other way costs paint</h1>
+  <p class="lede">A grid puzzle where you paint cells with a direction of gravity, then drop a ball that falls whichever way the paint under it points. Prototype and Lua.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hold a brush loaded with gravity. Paint a cell orange and anything in it falls left; paint it violet and it falls up. With three drops of paint, get the ball past the spikes and into the cup.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: paint, drop, read the trail</h2>
+  <p>Gravity Painter is a puzzle on a seven by seven grid with a ball, a <dfn>cup</dfn> (the goal), walls and spikes. Before the ball moves, you paint cells left, up or right. Each painted cell costs one unit of the level's <dfn>paint supply</dfn>, a small fixed budget.</p>
+  <p>Then you press Drop. Each step, the ball moves one cell the way the paint under it points. A cell with no paint pulls it down. That gives the game its one line of advice: <strong>down is free, every other way costs paint.</strong></p>
+  <p>Every ten seconds the player paints a stroke and drops the ball. Every minute they read the trail it left, see where it went wrong, and fix a cell. Every session brings levels where the obvious route runs out of paint and the cheap one uses free falls.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: paint a few cells, drop the ball, and read the trail it leaves. It leads back to paint. Beside it, two longer loops: every minute a ball in the cup, and every session levels that reward letting ordinary gravity do the work.">
+      <defs>
+        <marker id="gp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Paint</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">a cell or two</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Drop</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">watch it fall</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Read the trail</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">where did it go?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#gp-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#gp-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#gp-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a ball in the cup</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">within the paint</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">levels where free</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">falls are the trick</text>
+    </svg>
+    <figcaption>The short loop is an experiment. The trail from the last drop is the evidence for the next stroke.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Blocked means rest.</strong> If the next cell is a wall or the edge, the ball stops and the run is over.</li>
+    <li><strong>Spikes pop, the cup wins.</strong> Entering a spike cell ends the run. Entering the cup clears the level.</li>
+    <li><strong>Paint is a budget.</strong> Painting a bare cell costs one unit, recolouring costs nothing, erasing gives the unit back. Any open cell takes paint, even the ball's starting cell.</li>
+    <li><strong>Loops end the run.</strong> A ball that returns to a cell it visited would circle forever, so the run stops.</li>
+  </ul>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 250" role="img" aria-label="A side view of five cells in a column with a sideways corridor. The ball falls down an unpainted shaft, passes through one cell painted left, turns, slides through two more left-painted cells and drops into the cup. The spike below the shaft is never reached.">
+      <rect class="d-fill" x="60" y="10" width="240" height="192"/>
+      <rect class="d-accent-soft" x="108" y="106" width="144" height="48"/>
+      <path class="d-stroke d-thin" d="M60 58 H300 M60 106 H300 M60 154 H300 M108 10 V202 M156 10 V202 M204 10 V202 M252 10 V202"/>
+      <rect class="d-box" x="60" y="58" width="144" height="48"/>
+      <rect class="d-box" x="252" y="58" width="48" height="48"/>
+      <rect class="d-box" x="60" y="154" width="144" height="48"/>
+      <rect class="d-box" x="252" y="154" width="48" height="48"/>
+      <text class="d-text" x="84" y="136" text-anchor="middle">cup</text>
+      <path class="d-bad" d="M210 196 L218 182 L226 196 L234 182 L242 196"/>
+      <text class="d-text" x="132" y="135" text-anchor="middle">&#8592;</text>
+      <text class="d-text" x="180" y="135" text-anchor="middle">&#8592;</text>
+      <text class="d-text" x="228" y="135" text-anchor="middle">&#8592;</text>
+      <circle class="d-accent-fill" cx="228" cy="34" r="12"/>
+      <path class="d-accent d-dash" d="M228 48 V128 H96"/>
+      <text class="d-muted" x="180" y="224" text-anchor="middle">Unpainted shaft: falls for free.</text>
+      <text class="d-muted" x="180" y="244" text-anchor="middle">Three cells of left paint carry it home.</text>
+    </svg>
+    <figcaption>Level 2 of the demo in miniature. Paint works in mid-air: the ball turns the moment it falls into a painted cell.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the painter who rewrites the laws of the world instead of pushing the ball. You never touch it. The constraint is the paint supply, and because down is free, the puzzle is about economy: where can ordinary gravity carry the ball for nothing, and where must you pay?</p>
+  <p>Two surprises carry the early levels. Paint works in mid-air, so one stroke can turn a ball halfway down a shaft. And up paint only lifts while there is paint: paint one cell up with open air above it, and the ball rises, falls back, and rises again. Climbing means painting the whole column and a sideways stroke at the top.</p>
+  <p>The hardest part to build is the levels. The rules are tiny, so a level's quality depends on how many paint plans solve it. I checked each demo level with a small search that tries every plan within the budget, painting only cells on the ball's current path, since paint anywhere else cannot change the run.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Level 1 teaches that paint turns the ball. Level 2 has exactly one solution: drop once and look at where the ball passes. On level 3, paint the ball's cell up and drop it to see the loop, then climb for real with six paint.</p>
+
+  <figure class="demo wide" data-demo="gravity-painter">
+    <canvas id="gravity-painter"></canvas>
+    <figcaption>Controls: with a mouse or touch, pick a brush from the swatches under the grid (left, up, right, or down, which erases), then tap or drag over cells; tapping your own colour erases it. Press Drop to let go. With a keyboard, click the canvas, move the cursor with the <kbd>arrow keys</kbd>, and press <kbd>A</kbd>, <kbd>W</kbd> or <kbd>D</kbd> to paint left, up or right, or <kbd>S</kbd> to erase. <kbd>Space</kbd> drops, <kbd>R</kbd> clears the level, <kbd>Enter</kbd> opens the next level after a win. The dashed line is your previous drop.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: painting with a budget, and one step of the fall, using level 2 of the demo. Call <code>setPaint(row, col, "l")</code> from your mouse code (<code>nil</code> erases) and <code>drop()</code> from <code>love.keypressed</code>. Drawing is left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local N, STEP = 7, 0.14                <span class="c">-- seconds per cell</span>
+local level = { supply = 3, map = { "...S...", ".......", "###.###", "G......",
+                                    "###.###", "...^...", "^^^^^^^" } }
+local DIR = { l = { 0, -1 }, r = { 0, 1 }, u = { -1, 0 } }
+local paint, used = {}, 0              <span class="c">-- paint[key] is "l", "r" or "u"</span>
+local ball, seen, running, timer, result = { r = 1, c = 4 }, {}, false, 0, nil
+local function tile(r, c) return level.map[r]:sub(c, c) end
+local function key(r, c) return (r - 1) * N + c end
+
+local function setPaint(r, c, dir)     <span class="c">-- dir = nil erases</span>
+  local t, k = tile(r, c), key(r, c)
+  if t ~= "." and t ~= "S" then return false end
+  local cost = (dir and 1 or 0) - (paint[k] and 1 or 0)
+  if used + cost &gt; level.supply then return false end
+  paint[k], used = dir, used + cost
+  return true
+end
+
+local function fall()                  <span class="c">-- one cell; returns how the run ended, or nil</span>
+<span class="k">  local d = DIR[paint[key(ball.r, ball.c)]] or { 1, 0 }   -- no paint means down</span>
+  local r, c = ball.r + d[1], ball.c + d[2]
+  if r &lt; 1 or r &gt; N or c &lt; 1 or c &gt; N or tile(r, c) == "#" then return "rest" end
+  ball = { r = r, c = c }
+  if tile(r, c) == "G" then return "goal" end
+  if tile(r, c) == "^" then return "spikes" end
+  if seen[key(r, c)] then return "loop" end
+  seen[key(r, c)] = true
+end
+local function drop()
+  ball, seen = { r = 1, c = 4 }, { [key(1, 4)] = true }
+  running, timer, result = true, 0, nil
+end
+function love.update(dt)
+  timer = timer + dt
+  while running and timer &gt;= STEP do
+    timer = timer - STEP
+    result = fall()
+    running = (result == nil)
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted line is the game. With no paint, <code>DIR[nil]</code> is <code>nil</code> (reading a nil key is allowed in Lua), so the <code>or</code> falls back to down. The cost line covers painting (1), recolouring (0) and erasing (-1) at once.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Paint everything, think nothing.</strong> With a generous supply, the player paints arrows straight to the cup and the puzzle disappears. Keep the supply at, or one above, the smallest number that solves the level, found by a solver. Level 2 of the demo has one solution at three paint; level 3 has four at six.</li>
+    <li><strong>Trial and error instead of planning.</strong> Dropping is free, so players may paint at random. The trail turns that into learning for a while; if testers still guess after several levels, add a drop counter and a star for solving in one.</li>
+    <li><strong>Loops that feel like bugs.</strong> A ball bobbing between two cells looks broken unless the game says what happened. Name it on screen, as the demo does, and teach it on purpose in an early level.</li>
+    <li><strong>Colour alone.</strong> Draw an arrow on every painted cell so colour-blind players can read the board, and keep the trail thin enough not to hide it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Gravity puzzles where the player tilts or flips the whole world are a well-explored area. In <cite>VVVVVV</cite> (Terry Cavanagh, 2010) the player flips gravity instead of jumping, and many puzzle games rotate the whole level so everything falls a new way. Arrow tiles that redirect a moving object are another common family: <cite>ChuChu Rocket!</cite> (Sonic Team, 1999) has players place arrows on the floor to steer running mice. <cite>Lemmings</cite> (DMA Design, 1991) shares the idea of setting up the world for characters you do not control directly.</p>
+  <p>Gravity Painter sits between those: gravity is set cell by cell, and ordinary gravity is the free default you pay to override. I have not surveyed every grid puzzle, and some game has likely used painted gravity before; the paint budget is the part to build and test.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with levels 2 and 3 typed in, coloured squares for paint, a circle for the ball, and a dotted line through the last run's cells. Skip animation and drag painting.</p>
+  <p>Give it to a friend with only the controls and the rule "no paint means down". The one question: <strong>on level 2, after the ball first hits the spikes, does your friend paint a cell the ball passed through in mid-air, or only cells where it came to rest?</strong> If they find the mid-air stroke within a few drops, the rule is readable and the trail is doing its job. If they never try it, the game needs a level that teaches it more gently before this one.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the demo's rules, twelve hand-made levels whose supplies come from a solver, the trail of the last drop, and a satisfying sound when the ball drops into the cup.</li>
+    <li><strong>One-month version:</strong> two balls sharing one painted grid with different cups, paint that fades after the ball passes, and a level editor that runs the solver as you place walls.</li>
+    <li><strong>Cut first:</strong> extra paint types such as sticky or bouncy paint. Three directions and free down already make a full puzzle language.</li>
+    <li><strong>Hardest part:</strong> the levels, not the code. Budget a solver from day one.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: give the ball momentum, so on an unpainted cell it keeps going the way it last moved instead of falling, and paint becomes a set of turns rather than a field of gravity.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The chapter on puzzles, on making the goal clear and progress visible.</li>
+    <li>Scott Kim, essays and talks on puzzle design, on what separates a puzzle from a toy.</li>
+    <li>Stephen Lavelle, <cite>PuzzleScript</cite>. A free tool for turn-based grid puzzles, quick for sketching many levels before building them in LÖVE.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var N = 7, HUD = 64, FOOT = 52, STEP = 0.14;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var PAINT = { l: '#d8692e', u: '#8457cf', r: '#178f7c' };
+  var DIR = { l: [0, -1], r: [0, 1], u: [-1, 0] };
+  var NAMES = { l: 'left', u: 'up', r: 'right' };
+  var BRUSHES = ['l', 'u', 'r', 'e'];
+  // S ball, G cup, ^ spikes, # wall. Each supply was checked by a search over every paint plan.
+  var LEVELS = [
+    { name: 'Sideways', supply: 4, hint: 'The ball rests on the shelf. Paint it right so it rolls off above the cup.',
+      map: ['.......', '.S.....', '.......', '.###...', '.......', '.......', '^^^^G^^'] },
+    { name: 'Mid-air', supply: 3, hint: 'Drop it once and watch where it falls. Paint works in mid-air.',
+      map: ['...S...', '.......', '###.###', 'G......', '###.###', '...^...', '^^^^^^^'] },
+    { name: 'Climb', supply: 6, hint: 'The cup is high on the left. Up paint lifts only while there is paint.',
+      map: ['G......', '##.....', '.......', '...S...', '...#...', '^^^^^^^', '#######'] }
+  ];
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var level, map, start, paint, used, ball, seen, path, ghost, running, timer, result, anim;
+  var brush = 'r', cursor = { r: 0, c: 0 }, showCursor = false, message = '', msgColor = 'ink2', flash = null;
+  var L = null, handle = null, picker = null, stroke = null, nextOnUp = false;
+
+  function tile(r, c) { return map[r].charAt(c); }
+  function key(r, c) { return r * N + c; }
+  function supply() { return LEVELS[level].supply; }
+  function say(text, color) { message = text; msgColor = color || 'ink2'; }
+
+  function resetBall() {
+    ball = { r: start.r, c: start.c }; seen = {}; seen[key(start.r, start.c)] = true;
+    path = [ball]; running = false; timer = 0; result = null; anim = null;
+  }
+
+  function load(lv) {
+    level = lv; map = LEVELS[lv].map; paint = {}; used = 0; ghost = null; stroke = null; nextOnUp = false;
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (tile(r, c) === 'S') start = { r: r, c: c };
+    cursor = { r: start.r, c: start.c };
+    resetBall();
+    say(LEVELS[lv].hint);
+    if (picker) picker.set(String(lv));
+  }
+
+  function flashCell(r, c) { if (!reduced) flash = { r: r, c: c, t: 0 }; }
+
+  // Same rule as the Lua: painting a bare cell costs 1, recolouring 0, erasing gives 1 back.
+  function setPaint(r, c, dir, quiet) {
+    if (result === 'goal') return false;
+    var t = tile(r, c), k = key(r, c), old = paint[k] || null;
+    if (t !== '.' && t !== 'S') {
+      if (!quiet) { flashCell(r, c); say('Only open cells take paint.', 'warn'); }
+      return false;
+    }
+    if (old === dir) return false;
+    var cost = (dir ? 1 : 0) - (old ? 1 : 0);
+    if (used + cost > supply()) {
+      flashCell(r, c); say('Out of paint. Erase a cell with the down brush (S) to get some back.', 'warn');
+      return false;
+    }
+    if (dir) paint[k] = dir; else delete paint[k];
+    used += cost;
+    if (path.length > 1) ghost = path.slice();
+    resetBall();
+    var left = supply() - used;
+    say(dir ? 'Painted ' + NAMES[dir] + '. ' + left + ' paint left. Drop to test.'
+            : 'Erased: that cell pulls down again. ' + left + ' paint left.');
+    return true;
+  }
+
+  // One cell of the fall. Returns how the run ended, or null if it goes on.
+  function fall() {
+    var d = DIR[paint[key(ball.r, ball.c)]] || [1, 0];
+    var r = ball.r + d[0], c = ball.c + d[1];
+    if (r < 0 || r >= N || c < 0 || c >= N || tile(r, c) === '#') return 'rest';
+    anim = reduced ? null : { fr: ball.r, fc: ball.c, t: 0 };
+    ball = { r: r, c: c }; path.push(ball);
+    if (tile(r, c) === 'G') return 'goal';
+    if (tile(r, c) === '^') return 'spikes';
+    if (seen[key(r, c)]) return 'loop';
+    seen[key(r, c)] = true;
+    return null;
+  }
+
+  function finish(what) {
+    running = false; result = what; ghost = null;
+    if (what === 'goal') say('In the cup with ' + used + ' of ' + supply() + ' paint.', 'good');
+    else if (what === 'spikes') say('Popped on the spikes. Paint a cell on its path to turn it.', 'bad');
+    else if (what === 'loop') say('Caught in a loop: it would bounce here forever.', 'warn');
+    else say('The ball came to rest: the way its gravity points is blocked.', 'warn');
+  }
+
+  function drop() {
+    if (result === 'goal') { nextLevel(); return; }
+    if (running) return;
+    if (path.length > 1) ghost = path.slice();
+    resetBall();
+    if (reduced) {
+      var what = null, n = 0;
+      while (!what && n++ < 200) what = fall();
+      finish(what || 'loop');
+    } else {
+      running = true; say('Falling...');
+    }
+  }
+
+  function nextLevel() { load((level + 1) % LEVELS.length); }
+
+  function update(dt) {
+    if (anim) { anim.t += dt / STEP; if (anim.t >= 1) anim = null; }
+    if (flash && flash.t < 1) flash.t = Math.min(1, flash.t + dt / 0.4);
+    if (!running) return;
+    timer += dt;
+    while (running && timer >= STEP) {
+      timer -= STEP;
+      var what = fall();
+      if (what) finish(what);
+    }
+  }
+
+  function layout(s) {
+    var t = Math.floor(Math.min((s.width - 16) / N, (s.height - HUD - FOOT - 8) / N));
+    t = Math.max(28, Math.min(60, t));
+    return { t: t, x: Math.round((s.width - N * t) / 2), y: Math.round(HUD + (s.height - HUD - FOOT - N * t) / 2) };
+  }
+  function cellAt(p) {
+    if (!L) return null;
+    var c = Math.floor((p.x - L.x) / L.t), r = Math.floor((p.y - L.y) / L.t);
+    if (r < 0 || r >= N || c < 0 || c >= N) return null;
+    return { r: r, c: c };
+  }
+  function swatchRect(i, s) { return { x: 8 + i * 50, y: s.height - FOOT + 8, w: 44, h: 36 }; }
+  function swatchAt(p, s) {
+    for (var i = 0; i < BRUSHES.length; i++) {
+      var q = swatchRect(i, s);
+      if (p.x >= q.x && p.x <= q.x + q.w && p.y >= q.y && p.y <= q.y + q.h) return BRUSHES[i];
+    }
+    return null;
+  }
+
+  function arrow(ctx, x, y, size, dir, color) {
+    var a = { l: Math.PI, r: 0, u: -Math.PI / 2, d: Math.PI / 2 }[dir];
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.4, 0); ctx.lineTo(size * 0.3, 0);
+    ctx.moveTo(size * 0.05, -size * 0.25); ctx.lineTo(size * 0.35, 0); ctx.lineTo(size * 0.05, size * 0.25);
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(2, size * 0.12); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.stroke(); ctx.restore();
+  }
+  function text(ctx, str, x, y, color, font, align, maxW) {
+    ctx.font = font + ' ' + FONT; ctx.fillStyle = color; ctx.textAlign = align || 'left';
+    if (maxW) ctx.fillText(str, x, y, maxW); else ctx.fillText(str, x, y);
+  }
+  // The message line wraps onto a second line on narrow screens.
+  function wrap(ctx, str, x, y, maxW, color) {
+    ctx.font = '12px ' + FONT;
+    var words = str.split(' '), line = '', lines = [];
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (line && ctx.measureText(test).width > maxW) { lines.push(line); line = words[i]; } else line = test;
+    }
+    lines.push(line);
+    for (i = 0; i < lines.length && i < 2; i++) text(ctx, lines[i], x, y + i * 16, color, '12px', 'left', maxW);
+  }
+  function center(cell) { return [L.x + (cell.c + 0.5) * L.t, L.y + (cell.r + 0.5) * L.t]; }
+  function trail(ctx, cells, color, width, dash) {
+    if (!cells || cells.length < 2) return;
+    ctx.beginPath();
+    for (var i = 0; i < cells.length; i++) {
+      var p = center(cells[i]);
+      if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+    }
+    ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, t, r, k, i, p;
+    L = layout(s); t = L.t;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, 0, s.width, s.height);
+
+    for (r = 0; r < N; r++) for (k = 0; k < N; k++) {
+      var x = L.x + k * t, y = L.y + r * t, ch = tile(r, k), pd = paint[key(r, k)];
+      if (ch === '#') { ctx.fillStyle = c.ink3; ctx.fillRect(x, y, t, t); continue; }
+      ctx.fillStyle = pd ? PAINT[pd] : c.surface; ctx.fillRect(x, y, t, t);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, t - 1, t - 1);
+      if (pd) arrow(ctx, x + t / 2, y + t / 2, t * 0.7, pd, '#ffffff');
+      if (ch === '^') {
+        ctx.beginPath();
+        for (i = 0; i < 3; i++) {
+          ctx.moveTo(x + t * (0.1 + i * 0.27), y + t * 0.85);
+          ctx.lineTo(x + t * (0.235 + i * 0.27), y + t * 0.35);
+          ctx.lineTo(x + t * (0.37 + i * 0.27), y + t * 0.85);
+        }
+        ctx.fillStyle = c.bad; ctx.fill();
+      }
+      if (ch === 'G') {
+        ctx.beginPath();
+        ctx.moveTo(x + t * 0.2, y + t * 0.3); ctx.lineTo(x + t * 0.3, y + t * 0.8);
+        ctx.lineTo(x + t * 0.7, y + t * 0.8); ctx.lineTo(x + t * 0.8, y + t * 0.3);
+        ctx.strokeStyle = c.good; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke();
+      }
+    }
+    // Where the ball starts, so the reader can see it after a run.
+    p = center(start);
+    ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(p[0], p[1], t * 0.3, 0, Math.PI * 2);
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+
+    trail(ctx, ghost, c.ink3, 2, [4, 5]);
+    trail(ctx, path, c.ink2, 3, []);
+
+    // The ball, sliding from its previous cell while it animates.
+    p = center(ball);
+    if (anim) {
+      var e = Math.min(1, anim.t), q = center({ r: anim.fr, c: anim.fc });
+      p = [q[0] + (p[0] - q[0]) * e, q[1] + (p[1] - q[1]) * e];
+    }
+    if (result === 'spikes') {
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2; ctx.beginPath();
+      for (i = 0; i < 6; i++) {
+        var a = i * Math.PI / 3;
+        ctx.moveTo(p[0] + Math.cos(a) * t * 0.12, p[1] + Math.sin(a) * t * 0.12);
+        ctx.lineTo(p[0] + Math.cos(a) * t * 0.3, p[1] + Math.sin(a) * t * 0.3);
+      }
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(p[0], p[1], t * 0.26, 0, Math.PI * 2);
+      ctx.fillStyle = c.ink; ctx.fill();
+      ctx.beginPath(); ctx.arc(p[0] - t * 0.08, p[1] - t * 0.08, t * 0.07, 0, Math.PI * 2);
+      ctx.fillStyle = c.surface; ctx.fill();
+    }
+
+    if (showCursor) {
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 3;
+      ctx.strokeRect(L.x + cursor.c * t + 2, L.y + cursor.r * t + 2, t - 4, t - 4);
+    }
+    if (flash && flash.t < 1) {
+      ctx.globalAlpha = 1 - flash.t; ctx.strokeStyle = c.bad; ctx.lineWidth = 3;
+      ctx.strokeRect(L.x + flash.c * t + 2, L.y + flash.r * t + 2, t - 4, t - 4); ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5; ctx.strokeRect(L.x, L.y, N * t, N * t);
+
+    // HUD: level name, paint supply as pips, and the message line.
+    ctx.textBaseline = 'alphabetic';
+    var n = supply(), pip = 12, px = s.width - 8 - n * (pip + 4);
+    text(ctx, 'Level ' + (level + 1) + ': ' + LEVELS[level].name, 8, 19, c.ink, '600 13px', 'left', px - 60);
+    text(ctx, 'Paint', px - 6, 19, c.ink2, '12px', 'right');
+    for (i = 0; i < n; i++) {
+      ctx.fillStyle = i < n - used ? c.topic : c.surface;
+      ctx.fillRect(px + i * (pip + 4), 8, pip, pip);
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.strokeRect(px + i * (pip + 4) + 0.5, 8.5, pip - 1, pip - 1);
+    }
+    wrap(ctx, message, 8, 40, s.width - 16, c[msgColor] || c.ink2);
+
+    // Brush swatches. The Pause button lives in the bottom-right corner, so they stay left.
+    for (i = 0; i < BRUSHES.length; i++) {
+      var b = BRUSHES[i], sw = swatchRect(i, s);
+      ctx.fillStyle = b === 'e' ? c.surface : PAINT[b]; ctx.fillRect(sw.x, sw.y, sw.w, sw.h);
+      arrow(ctx, sw.x + sw.w / 2, sw.y + sw.h / 2, 24, b === 'e' ? 'd' : b, b === 'e' ? c.ink2 : '#ffffff');
+      if (b === 'e') { ctx.setLineDash([3, 3]); ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.strokeRect(sw.x + 0.5, sw.y + 0.5, sw.w - 1, sw.h - 1); ctx.setLineDash([]); }
+      if (b === brush) { ctx.strokeStyle = c.ink; ctx.lineWidth = 3; ctx.strokeRect(sw.x - 2, sw.y - 2, sw.w + 4, sw.h + 4); }
+    }
+
+    if (result === 'goal' && !anim) {
+      var pw = Math.min(300, s.width - 20), bx = s.width / 2 - pw / 2, by = L.y + N * t / 2 - 28;
+      ctx.globalAlpha = 0.94; ctx.fillStyle = c.surface; ctx.fillRect(bx, by, pw, 56); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.good; ctx.lineWidth = 2; ctx.strokeRect(bx, by, pw, 56);
+      text(ctx, 'In the cup with ' + used + ' of ' + n + ' paint', s.width / 2, by + 23, c.good, '600 14px', 'center', pw - 12);
+      text(ctx, level < LEVELS.length - 1 ? 'Enter or tap for the next level' : 'All levels done. Enter or tap for level 1',
+        s.width / 2, by + 43, c.ink2, '12px', 'center', pw - 12);
+    }
+  }
+
+  function wake() { if (!handle) return; if (!reduced) handle.play(); handle.redraw(); }
+  function pickBrush(b) {
+    brush = b;
+    say(b === 'e' ? 'Down brush: erases paint, giving it back.' : 'Brush: ' + NAMES[b] + '. Tap or drag over cells.');
+  }
+
+  var ui = DemoKit.controls('[data-demo="gravity-painter"]');
+  picker = ui.select({
+    label: 'Level',
+    options: LEVELS.map(function (lv, i) { return { value: String(i), label: (i + 1) + ': ' + lv.name }; }),
+    value: '0',
+    onChange: function (v) { load(Number(v)); wake(); }
+  });
+  ui.button({ label: 'Drop (Space)', onClick: function () { drop(); wake(); } });
+  ui.button({ label: 'Restart (R)', onClick: function () { load(level); wake(); } });
+
+  load(0);
+
+  handle = DemoKit.canvas('#gravity-painter', {
+    aspect: 640 / 540,
+    minHeight: 440,
+    maxHeight: 560,
+    keys: true,
+    drag: true,
+    label: 'Gravity Painter prototype. A seven by seven grid with a ball, a cup, walls and spikes. Paint cells left, up or right with a limited supply, then drop the ball, which moves the way the paint under it points and falls down where there is no paint.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) {
+      if (result === 'goal') { nextOnUp = true; return; }
+      var b = swatchAt(p, s);
+      if (b) { pickBrush(b); wake(); return; }
+      var cell = cellAt(p);
+      if (!cell) return;
+      showCursor = false; cursor = cell;
+      var k = key(cell.r, cell.c), want = brush === 'e' ? null : brush;
+      if (want && paint[k] === want) want = null;   // tapping your own colour erases it
+      stroke = { dir: want, last: k };
+      setPaint(cell.r, cell.c, want, false);
+      wake();
+    },
+    onMove: function (p) {
+      if (!stroke || !p.down) return;
+      var cell = cellAt(p);
+      if (!cell) return;
+      var k = key(cell.r, cell.c);
+      if (k === stroke.last) return;
+      stroke.last = k; cursor = cell;
+      setPaint(cell.r, cell.c, stroke.dir, true);
+      wake();
+    },
+    onUp: function () {
+      stroke = null;
+      if (nextOnUp) { nextOnUp = false; nextLevel(); }
+      wake();
+    },
+    onKey: function (k, isDown) {
+      if (!isDown) return;
+      var moves = { arrowleft: [0, -1], arrowright: [0, 1], arrowup: [-1, 0], arrowdown: [1, 0] };
+      var paints = { a: 'l', w: 'u', d: 'r', s: null };
+      if (moves[k]) {
+        showCursor = true;
+        cursor = { r: Math.max(0, Math.min(N - 1, cursor.r + moves[k][0])), c: Math.max(0, Math.min(N - 1, cursor.c + moves[k][1])) };
+      } else if (k in paints) {
+        showCursor = true;
+        if (paints[k]) brush = paints[k]; else brush = 'e';
+        setPaint(cursor.r, cursor.c, paints[k], false);
+      } else if (k === 'space') drop();
+      else if (k === 'enter') { if (result === 'goal') nextLevel(); else drop(); }
+      else if (k === 'r') load(level);
+      else return;
+      wake();
+    }
+  });
+})();
+</script>
+</body>
+</html>

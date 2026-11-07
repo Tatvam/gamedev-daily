@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The command pattern: undo, redo and replay from one idea · Game Dev Daily</title>
+<meta name="description" content="Wrap each player action in a command object that can execute and undo itself, and get undo, redo, replays and key remapping from one history list.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-07">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The command pattern: undo, redo and replay from one idea</h1>
+  <p class="lede">Wrap each player action in a command object that can execute and undo itself, and get undo, redo, replays and key remapping from one history list.</p>
+</header>
+
+<section data-section="hook">
+  <p>You add undo to a grid puzzle. It works until a player walks into a wall and presses undo: the piece jumps back a square it never left. Then someone asks for a replay, and the game has no record of what the player did.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Turn the action into a value</h2>
+  <p>The usual first version changes the game the moment a key arrives:</p>
+<pre><code>if key == "left" then piece.x = piece.x - 1 end</code></pre>
+  <p>The action happens and is gone. Nothing remembers it, so nothing can take it back or do it again.</p>
+  <p>A <dfn>command</dfn> is a small object that describes one action and knows how to carry it out. Instead of moving the piece, the input code builds a command such as "move by (-1, 0)" and hands it on. Its method <code>execute</code> does the work. Because the action is now a value, you can store it, inspect it and run it again. Everything else in this lesson comes from keeping those values around.</p>
+
+  <h2>Undo: store what you need, not the reverse</h2>
+  <p>Give each command a second method, <code>undo</code>, that puts the world back the way <code>execute</code> found it. The important question is what <code>undo</code> needs to know. The tempting answer is "do the opposite":</p>
+<pre><code>function cmd.undo()          <span class="c">-- tempting, and wrong</span>
+  newMove(-dx, -dy).execute()
+end</code></pre>
+  <p>This breaks whenever <code>execute</code> did not do exactly what was asked. A move into a wall changes nothing, but its opposite does. The reliable rule: <code>execute</code> records the state it is about to change, and <code>undo</code> restores that record.</p>
+<pre><code>function cmd.execute()
+  cmd.fromX, cmd.fromY = piece.x, piece.y   <span class="c">-- remember first</span>
+  <span class="c">-- ...then try to move</span>
+end
+function cmd.undo()
+  piece.x, piece.y = cmd.fromX, cmd.fromY
+end</code></pre>
+  <p>This answers the ownership question. The piece still owns its position. The command owns a copy of the old position, and only for as long as the command lives in the history.</p>
+
+  <h2>The history and the cursor</h2>
+  <p>Commands go into an ordered list, the <dfn>history</dfn>, with a number called the <dfn>cursor</dfn>: how many commands, counted from the start, are applied right now.</p>
+  <ul>
+    <li><strong>Run</strong> a new command: execute it, put it just after the cursor, move the cursor forward one.</li>
+    <li><strong>Undo</strong>: call <code>undo</code> on the command at the cursor, then move the cursor back one. The command stays in the list.</li>
+    <li><strong>Redo</strong>: move the cursor forward one and call <code>execute</code> on that command again.</li>
+  </ul>
+  <p>Commands after the cursor can be redone. If the player undoes twice and then makes a new move, those two no longer describe a possible future, so the new command deletes them first. That is why editors lose your redo steps when you type after undoing.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="A key press is looked up in a key map, which builds a Move command holding execute, undo and the old position. Run adds it to the history. The history holds five commands; the cursor sits after the third. Undo calls undo on command three and moves the cursor left. Redo calls execute on command four and moves the cursor right. Replay resets to the start and executes commands one to three in order.">
+      <defs>
+        <marker id="cmd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-text" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-box" x="12" y="24" width="96" height="48" rx="6"/>
+      <text class="d-text" x="60" y="44" text-anchor="middle">key press</text>
+      <text class="d-mono" x="60" y="62" text-anchor="middle">"left"</text>
+      <path class="d-stroke" d="M108 48 H138" marker-end="url(#cmd-arrow)"/>
+
+      <rect class="d-box" x="140" y="24" width="140" height="48" rx="6"/>
+      <text class="d-text" x="210" y="44" text-anchor="middle">keymap</text>
+      <text class="d-mono" x="210" y="62" text-anchor="middle">left = {-1, 0}</text>
+      <path class="d-stroke" d="M280 48 H310" marker-end="url(#cmd-arrow)"/>
+
+      <rect class="d-accent-soft" x="312" y="16" width="172" height="66" rx="6"/>
+      <text class="d-label" x="398" y="35" text-anchor="middle">Move command</text>
+      <text class="d-mono" x="398" y="53" text-anchor="middle">execute()  undo()</text>
+      <text class="d-mono" x="398" y="71" text-anchor="middle">fromX, fromY</text>
+      <path class="d-stroke" d="M484 48 H514" marker-end="url(#cmd-arrow)"/>
+
+      <rect class="d-box" x="516" y="24" width="110" height="48" rx="6"/>
+      <text class="d-text" x="571" y="53" text-anchor="middle">run(cmd)</text>
+      <path class="d-stroke" d="M571 72 V128" marker-end="url(#cmd-arrow)"/>
+
+      <text class="d-muted" x="12" y="160">history</text>
+      <rect class="d-accent-soft" x="80" y="134" width="92" height="42" rx="5"/>
+      <rect class="d-accent-soft" x="180" y="134" width="92" height="42" rx="5"/>
+      <rect class="d-accent-soft" x="280" y="134" width="92" height="42" rx="5"/>
+      <rect class="d-fill" x="390" y="134" width="92" height="42" rx="5"/>
+      <rect class="d-fill" x="490" y="134" width="92" height="42" rx="5"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="126" y="160">1 right</text>
+        <text class="d-mono" x="226" y="160">2 down</text>
+        <text class="d-mono" x="326" y="160">3 left</text>
+        <text class="d-muted" x="436" y="160">4 up</text>
+        <text class="d-muted" x="536" y="160">5 up</text>
+      </g>
+      <path class="d-accent" d="M381 112 V196"/>
+      <text class="d-label" x="381" y="106" text-anchor="middle">cursor = 3</text>
+      <text class="d-muted" x="486" y="124" text-anchor="middle">can be redone</text>
+
+      <path class="d-stroke" d="M372 212 H296" marker-end="url(#cmd-arrow)"/>
+      <text class="d-text" x="372" y="230" text-anchor="end">Undo: 3.undo()</text>
+      <path class="d-stroke" d="M390 212 H466" marker-end="url(#cmd-arrow)"/>
+      <text class="d-text" x="390" y="230">Redo: 4.execute()</text>
+      <text class="d-muted" x="12" y="254">Replay: reset to START, then execute 1, 2, 3 in order</text>
+    </svg>
+    <figcaption>The key map turns a key into a command; <code>run</code> executes it and stores it. Shaded commands are applied; grey ones are only there to be redone. Running a new command now would delete 4 and 5 first.</figcaption>
+  </figure>
+
+  <h2>Replay and remapping come free</h2>
+  <p>A <dfn>replay</dfn> is the history played again: reset the world to its starting state, then execute the applied commands in order. It only works if every command is <dfn>deterministic</dfn>: given the same state, it does the same thing. A command that rolls a random number inside <code>execute</code> will roll differently on the second run, so store the roll in the command.</p>
+  <p><dfn>Remapping</dfn> is the other end. Only the key map knows which key makes which command, so changing controls means changing one table. The commands and the history never hear about keys.</p>
+
+  <h2>What the engines give you</h2>
+  <p><strong>Godot 4</strong> ships a general undo history as the <code>UndoRedo</code> class. You call <code>create_action</code>, register a do step and an undo step with <code>add_do_method</code> and <code>add_undo_method</code> (each takes a <code>Callable</code>, so you bind the values you need), then <code>commit_action</code>, which runs the do step. <code>undo()</code> and <code>redo()</code> move through the history, and the <code>max_steps</code> property limits its length. You still decide what to store: bind the old value when you create the action. It extends <code>Object</code>, not <code>RefCounted</code>, so free it yourself, and it has no replay.</p>
+  <p><strong>Unity</strong> has an <code>Undo</code> class, but it lives in the <code>UnityEditor</code> namespace and only works in the editor, not in a built game. For gameplay you write the command list yourself in plain C#.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade-off</p>
+    <p>The alternative to commands is <dfn>snapshots</dfn>: save a copy of the whole state after each action and restore a copy to undo. Snapshots are simple and cannot get undo wrong, but cost memory per step. Commands are tiny and replay well, but every <code>undo</code> must be written correctly. Small states suit snapshots; large worlds suit commands.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Move the piece with the buttons, the arrow keys on the canvas, or by tapping a neighbouring square. Bump into a wall, then try <strong>Undo</strong>, <strong>Redo</strong> and <strong>Replay</strong> and watch the cursor line in the history. Undo twice and make a new move: the grey redo entries disappear.</p>
+  <p>Then turn on <strong>Undo by moving the opposite way</strong>, walk into a wall and undo. A dashed square shows where the piece should have gone back to.</p>
+
+  <figure class="demo" data-demo="commands">
+    <canvas id="commands"></canvas>
+    <figcaption>Keys on the canvas: arrows (or W A S D after remapping) move, Z undoes, Y redoes, R replays. Replay runs one command every 0.3 seconds from the start square S. The model leaves out what real games add: merging small commands, saving the history to disk, and commands that create or destroy objects.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version is the demo with the drawing simplified: the same walls, the same start square, the same 0.3 second replay. A command is a table with two functions that close over <code>dx</code> and <code>dy</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local COLS, ROWS = 7, 5
+local START = { x = 1, y = 1 }
+local WALLS = { ["3,1"] = true, ["3,2"] = true, ["3,3"] = true,
+                ["5,3"] = true, ["5,4"] = true, ["5,5"] = true }
+local piece = { x = START.x, y = START.y }
+local history = {}   <span class="c">-- every command, in order</span>
+local cursor = 0     <span class="c">-- how many of them are applied now</span>
+
+local function blocked(x, y)
+  return x &lt; 1 or x &gt; COLS or y &lt; 1 or y &gt; ROWS or WALLS[x .. "," .. y]
+end
+
+local function newMove(dx, dy)
+  local cmd = {}
+  function cmd.execute()
+<span class="k">    cmd.fromX, cmd.fromY = piece.x, piece.y   <span class="c">-- what undo will need</span></span>
+    if not blocked(piece.x + dx, piece.y + dy) then
+      piece.x, piece.y = piece.x + dx, piece.y + dy
+    end
+  end
+  function cmd.undo()
+<span class="k">    piece.x, piece.y = cmd.fromX, cmd.fromY</span>
+  end
+  return cmd
+end
+
+local function run(cmd)
+<span class="k">  for i = #history, cursor + 1, -1 do history[i] = nil end   <span class="c">-- drop redo tail</span></span>
+  cmd.execute()
+  cursor = cursor + 1
+  history[cursor] = cmd
+end
+
+local function undo()
+  if cursor &gt; 0 then history[cursor].undo(); cursor = cursor - 1 end
+end
+
+local function redo()
+  if cursor &lt; #history then cursor = cursor + 1; history[cursor].execute() end
+end
+
+local replaying, replayIndex, replayTimer = false, 0, 0
+local function replay()
+  piece.x, piece.y = START.x, START.y
+  replaying, replayIndex, replayTimer = cursor &gt; 0, 0, 0
+end
+
+<span class="c">-- Remapping means editing this table and nothing else.</span>
+local keymap = { up = {0, -1}, down = {0, 1}, left = {-1, 0}, right = {1, 0} }
+
+function love.keypressed(key)
+  if replaying then return end
+  local dir = keymap[key]
+  if dir then run(newMove(dir[1], dir[2]))
+  elseif key == "z" then undo()
+  elseif key == "y" then redo()
+  elseif key == "r" then replay() end
+end
+
+function love.update(dt)
+  if not replaying then return end
+  replayTimer = replayTimer + dt
+  if replayTimer &gt;= 0.3 then
+    replayTimer = replayTimer - 0.3
+    replayIndex = replayIndex + 1
+<span class="k">    history[replayIndex].execute()</span>
+    replaying = replayIndex &lt; cursor
+  end
+end
+
+function love.draw()
+  local size = 48
+  for y = 1, ROWS do
+    for x = 1, COLS do
+      local mode = WALLS[x .. "," .. y] and "fill" or "line"
+      love.graphics.rectangle(mode, x * size, y * size, size - 2, size - 2)
+    end
+  end
+  love.graphics.circle("fill", (piece.x + 0.5) * size - 1, (piece.y + 0.5) * size - 1, size * 0.3)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># grid_undo.gd. Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Arrows move, Z undoes, Y redoes. Uses the built-in UndoRedo class.</span>
+extends Node2D
+
+const CELL := 48
+const COLS := 7
+const ROWS := 5
+const WALLS := [Vector2i(3, 1), Vector2i(3, 2), Vector2i(3, 3),
+                Vector2i(5, 3), Vector2i(5, 4), Vector2i(5, 5)]
+
+var piece := Vector2i(1, 1)
+var undo_redo := UndoRedo.new()
+var keymap := {
+    KEY_UP: Vector2i(0, -1), KEY_DOWN: Vector2i(0, 1),
+    KEY_LEFT: Vector2i(-1, 0), KEY_RIGHT: Vector2i(1, 0),
+}
+
+func _exit_tree() -&gt; void:
+    undo_redo.free()   <span class="c"># UndoRedo is an Object, not RefCounted</span>
+
+func set_piece(cell: Vector2i) -&gt; void:
+    piece = cell
+    queue_redraw()
+
+func blocked(cell: Vector2i) -&gt; bool:
+    return cell.x &lt; 1 or cell.x &gt; COLS or cell.y &lt; 1 or cell.y &gt; ROWS or cell in WALLS
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    var key := event as InputEventKey
+    if key == null or not key.pressed or key.echo:
+        return
+    if keymap.has(key.keycode):
+        var to: Vector2i = piece + keymap[key.keycode]
+        if blocked(to):
+            to = piece
+        undo_redo.create_action("Move")
+        undo_redo.add_do_method(set_piece.bind(to))
+<span class="k">        undo_redo.add_undo_method(set_piece.bind(piece))   <span class="c"># old value, bound now</span></span>
+        undo_redo.commit_action()   <span class="c"># runs the do method</span>
+    elif key.keycode == KEY_Z:
+        undo_redo.undo()
+    elif key.keycode == KEY_Y:
+        undo_redo.redo()
+
+func _draw() -&gt; void:
+    for y in range(1, ROWS + 1):
+        for x in range(1, COLS + 1):
+            var wall := Vector2i(x, y) in WALLS
+            draw_rect(Rect2(x * CELL, y * CELL, CELL - 2, CELL - 2),
+                    Color(0.5, 0.5, 0.5) if wall else Color(0.2, 0.2, 0.2))
+    draw_rect(Rect2(piece.x * CELL + 8, piece.y * CELL + 8, CELL - 18, CELL - 18),
+            Color(0.3, 0.6, 1.0))</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// GridPiece.cs. Unity 6 or 2022 LTS with the Input System package.</span>
+<span class="c">// Create a Cube, add this script, press Play. Arrows move, Z undoes, Y redoes.</span>
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public interface ICommand { void Execute(); void Undo(); }
+
+public class MoveCommand : ICommand
+{
+    readonly GridPiece piece;
+    readonly Vector2Int dir;
+    Vector2Int from;
+
+    public MoveCommand(GridPiece piece, Vector2Int dir) { this.piece = piece; this.dir = dir; }
+<span class="k">    public void Execute() { from = piece.cell; piece.TryMove(dir); }</span>
+<span class="k">    public void Undo() { piece.cell = from; }</span>
+}
+
+public class GridPiece : MonoBehaviour
+{
+    public Vector2Int cell = new Vector2Int(1, 1);
+    readonly List&lt;ICommand&gt; history = new List&lt;ICommand&gt;();
+    int cursor;   <span class="c">// how many commands are applied now</span>
+
+    static readonly HashSet&lt;Vector2Int&gt; walls = new HashSet&lt;Vector2Int&gt; {
+        new Vector2Int(3, 1), new Vector2Int(3, 2), new Vector2Int(3, 3),
+        new Vector2Int(5, 3), new Vector2Int(5, 4), new Vector2Int(5, 5) };
+
+    public void TryMove(Vector2Int dir)
+    {
+        var to = cell + dir;
+        if (to.x &gt;= 1 &amp;&amp; to.x &lt;= 7 &amp;&amp; to.y &gt;= 1 &amp;&amp; to.y &lt;= 5 &amp;&amp; !walls.Contains(to)) cell = to;
+    }
+
+    void Run(ICommand cmd)
+    {
+<span class="k">        history.RemoveRange(cursor, history.Count - cursor);   <span class="c">// drop redo tail</span></span>
+        cmd.Execute();
+        history.Add(cmd);
+        cursor++;
+    }
+
+    void Update()
+    {
+        var kb = Keyboard.current;
+        if (kb == null) return;
+        if (kb.upArrowKey.wasPressedThisFrame) Run(new MoveCommand(this, new Vector2Int(0, -1)));
+        if (kb.downArrowKey.wasPressedThisFrame) Run(new MoveCommand(this, new Vector2Int(0, 1)));
+        if (kb.leftArrowKey.wasPressedThisFrame) Run(new MoveCommand(this, new Vector2Int(-1, 0)));
+        if (kb.rightArrowKey.wasPressedThisFrame) Run(new MoveCommand(this, new Vector2Int(1, 0)));
+        if (kb.zKey.wasPressedThisFrame &amp;&amp; cursor &gt; 0) { cursor--; history[cursor].Undo(); }
+        if (kb.yKey.wasPressedThisFrame &amp;&amp; cursor &lt; history.Count) { history[cursor].Execute(); cursor++; }
+        transform.position = new Vector3(cell.x, -cell.y, 0f);   <span class="c">// grid y grows downwards</span>
+    }
+}</code></pre>
+  </div>
+  <p>The C# list counts from 0, so "the command at the cursor" is <code>history[cursor - 1]</code>; that is why undo decrements first and redo increments last. In Godot the old position is captured by <code>bind</code> at the moment the action is created, which plays the same role as <code>fromX</code> and <code>fromY</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Undoing by reversing the input.</strong> Blocked, clamped or random actions do not reverse cleanly. Record the old state in <code>execute</code> and restore it in <code>undo</code>.</li>
+    <li><strong>Commands that hold freed objects.</strong> A command referencing an enemy breaks once that enemy is freed. To undo "destroy", keep the object alive while the command can be undone, or store a stable ID and recreate it. Godot's <code>add_do_reference</code> and <code>add_undo_reference</code> exist for this case.</li>
+    <li><strong>Non-deterministic commands.</strong> Random numbers, frame time or input read inside <code>execute</code> make replays drift. Decide the value once and store it in the command.</li>
+    <li><strong>History that grows forever.</strong> Cap it (Godot's <code>max_steps</code>, or drop the oldest entry yourself). Once old commands are gone, a replay can no longer start from the beginning, so keep a snapshot of the state at the new oldest point.</li>
+    <li><strong>Recording moves that did nothing.</strong> The demo records bumps into walls so you can see the bug. Many puzzle games skip them so undo never wastes a press.</li>
+    <li><strong>Input during replay.</strong> If new commands can be run while a replay is playing, they land in the middle of the history. Block input or finish the replay first, as the Lua code does.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Grid puzzle games are the clearest case: Baba Is You lets the player undo every move back to the start of a level. Level editors depend on undo in the same way, and both engines' own editors keep an undo history; in Godot 4, editor plugins add to it through <code>EditorUndoRedoManager</code>.</p>
+  <p>Real-time strategy games are the large-scale example. The Age of Empires developers described a networking model in which each machine sends player commands rather than the state of every unit, and every machine runs the same commands on the same turn. Command-based replay files follow from the same idea, though how any particular game stores its replays is not something this lesson has checked.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one discrete action in your project, such as placing a tile, moving a unit one square or buying an item. Wrap it in a command with <code>execute</code> and <code>undo</code>, route input through a history with a cursor, and bind undo and redo to two keys. You are done when three actions, three undos and three redos leave the game exactly as it was after the third action, and undoing a blocked action changes nothing.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A command turns an action into a value with <code>execute</code> and <code>undo</code>, so it can be stored, undone and run again.</li>
+    <li><code>execute</code> records the state it changes; <code>undo</code> restores that record. Never undo by running the opposite input.</li>
+    <li>A history list plus a cursor gives undo and redo. A new command deletes everything after the cursor.</li>
+    <li>Replay is "reset, then execute in order", which only works when commands are deterministic. Remapping is just a different key map.</li>
+    <li>Godot 4 provides <code>UndoRedo</code> for runtime use; in Unity the built-in <code>Undo</code> is editor only, so gameplay undo is your own list.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes object pooling: reusing a fixed set of objects instead of creating and destroying them, and what that saves.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Erich Gamma, Richard Helm, Ralph Johnson and John Vlissides, <cite>Design Patterns: Elements of Reusable Object-Oriented Software</cite> (1994), chapter "Command". The original description of the pattern, including undo.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Command". Covers input remapping and undo in a game setting.</li>
+    <li>Godot Engine class reference, <cite><a href="https://raw.githubusercontent.com/godotengine/godot/master/doc/classes/UndoRedo.xml">UndoRedo</a></cite>: <code>create_action</code>, <code>add_do_method</code>, <code>commit_action</code>, <code>max_steps</code>.</li>
+    <li>Unity Scripting API, <cite>Undo</cite> (in the <code>UnityEditor</code> namespace).</li>
+    <li>Paul Bettner and Mark Terrano, <cite>1500 Archers on a 28.8: Network Programming in Age of Empires and Beyond</cite> (2001). Describes sending commands between machines that run the same simulation.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 7, ROWS = 5;
+  var START = { x: 1, y: 1 };
+  var WALLS = { '3,1': true, '3,2': true, '3,3': true, '5,3': true, '5,4': true, '5,5': true };
+  var REPLAY_MS = 300;
+  var MAX = 60;
+  var NAMES = { up: 'up', down: 'down', left: 'left', right: 'right' };
+  var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  var KEYMAPS = {
+    arrows: { arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right' },
+    wasd: { w: 'up', s: 'down', a: 'left', d: 'right' }
+  };
+
+  var piece, history, cursor, replaying, replayIndex, replayTimer, ghost, wrongPiece, handle;
+
+  function blocked(x, y) {
+    return x < 1 || x > COLS || y < 1 || y > ROWS || !!WALLS[x + ',' + y];
+  }
+
+  function cell(x, y) { return '(' + x + ', ' + y + ')'; }
+
+  function newMove(dx, dy, name) {
+    var cmd = { name: name, fromX: 0, fromY: 0, toX: 0, toY: 0 };
+    cmd.execute = function () {
+      cmd.fromX = piece.x; cmd.fromY = piece.y;
+      if (!blocked(piece.x + dx, piece.y + dy)) {
+        piece.x += dx; piece.y += dy;
+      }
+      cmd.toX = piece.x; cmd.toY = piece.y;
+    };
+    cmd.undo = function () {
+      if (naive.value) {
+        // The tempting version: run the opposite move.
+        if (!blocked(piece.x - dx, piece.y - dy)) { piece.x -= dx; piece.y -= dy; }
+      } else {
+        piece.x = cmd.fromX; piece.y = cmd.fromY;
+      }
+    };
+    return cmd;
+  }
+
+  var ui = DemoKit.controls('[data-demo="commands"]');
+  ui.button({ label: 'Up', onClick: function () { move('up'); } });
+  ui.button({ label: 'Left', onClick: function () { move('left'); } });
+  ui.button({ label: 'Down', onClick: function () { move('down'); } });
+  ui.button({ label: 'Right', onClick: function () { move('right'); } });
+  ui.button({ label: 'Undo', onClick: function () { undo(); refresh(); } });
+  ui.button({ label: 'Redo', onClick: function () { redo(); refresh(); } });
+  ui.button({ label: 'Replay', onClick: function () { replay(); refresh(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); refresh(); } });
+  var naive = ui.toggle({ label: 'Undo by moving the opposite way', value: false });
+  var layout = ui.select({
+    label: 'Key map',
+    options: [{ value: 'arrows', label: 'Arrow keys' }, { value: 'wasd', label: 'W A S D' }],
+    value: 'arrows',
+    onChange: function (v) {
+      say('Remapped to ' + (v === 'wasd' ? 'W A S D' : 'arrow keys') + '. Only the key map changed; the commands and history are untouched.');
+      refresh();
+    }
+  });
+  var out = ui.readout({ label: 'What happened' });
+
+  function say(text) { out.set(text); }
+  function refresh() { if (handle) handle.redraw(); }
+
+  function reset() {
+    stopReplay();
+    piece = { x: START.x, y: START.y };
+    history = [];
+    cursor = 0;
+    ghost = null;
+    wrongPiece = false;
+    say('Move the piece. Each move becomes a command in the history.');
+  }
+
+  function busy() {
+    if (replaying) { say('Replaying. Input is ignored until it finishes.'); return true; }
+    return false;
+  }
+
+  function run(cmd) {
+    var dropped = history.length - cursor;
+    history.length = cursor;            // drop the redo tail
+    cmd.execute();
+    cursor += 1;
+    history[cursor - 1] = cmd;
+    return dropped;
+  }
+
+  function move(name) {
+    if (busy()) { refresh(); return; }
+    if (cursor >= MAX) {
+      say('This demo keeps at most ' + MAX + ' commands. Press Reset.');
+      refresh();
+      return;
+    }
+    ghost = null; wrongPiece = false;
+    var d = DIRS[name];
+    var cmd = newMove(d[0], d[1], NAMES[name]);
+    var dropped = run(cmd);
+    var text = 'Ran command ' + cursor + ': move ' + name + '. ';
+    if (cmd.fromX === cmd.toX && cmd.fromY === cmd.toY) {
+      text += 'Blocked, so the piece stayed at ' + cell(cmd.toX, cmd.toY) + ', but the command is still recorded.';
+    } else {
+      text += cell(cmd.fromX, cmd.fromY) + ' to ' + cell(cmd.toX, cmd.toY) + '.';
+    }
+    if (dropped > 0) text += ' It discarded ' + dropped + ' redo ' + (dropped === 1 ? 'entry' : 'entries') + '.';
+    say(text);
+    refresh();
+  }
+
+  function undo() {
+    if (busy()) return;
+    if (cursor === 0) { say('Nothing to undo: the cursor is at the start.'); return; }
+    var cmd = history[cursor - 1];
+    var bx = piece.x, by = piece.y;
+    cmd.undo();
+    cursor -= 1;
+    var ok = piece.x === cmd.fromX && piece.y === cmd.fromY;
+    if (ok) {
+      ghost = null; wrongPiece = false;
+      say('Undid command ' + (cursor + 1) + ' (' + cmd.name + '): piece restored to ' + cell(piece.x, piece.y) + '. Cursor is now ' + cursor + '.');
+    } else {
+      ghost = { x: cmd.fromX, y: cmd.fromY };
+      wrongPiece = true;
+      say('Wrong! The opposite move took the piece from ' + cell(bx, by) + ' to ' + cell(piece.x, piece.y) + ', but before command ' + (cursor + 1) + ' it was at ' + cell(cmd.fromX, cmd.fromY) + '.');
+    }
+  }
+
+  function redo() {
+    if (busy()) return;
+    if (cursor >= history.length) { say('Nothing to redo: no commands after the cursor.'); return; }
+    ghost = null; wrongPiece = false;
+    var cmd = history[cursor];
+    cmd.execute();
+    cursor += 1;
+    say('Redid command ' + cursor + ' (' + cmd.name + ') by executing it again. Cursor is now ' + cursor + '.');
+  }
+
+  var timer = 0;
+  function stopReplay() {
+    if (timer) { clearInterval(timer); timer = 0; }
+    replaying = false;
+    replayIndex = 0;
+  }
+
+  function replay() {
+    if (busy()) return;
+    if (cursor === 0) { say('Nothing to replay: no commands are applied.'); return; }
+    ghost = null; wrongPiece = false;
+    piece.x = START.x; piece.y = START.y;
+    replaying = true;
+    replayIndex = 0;
+    say('Replay: back to S, then executing commands 1 to ' + cursor + ' in order.');
+    timer = setInterval(function () {
+      replayIndex += 1;
+      history[replayIndex - 1].execute();
+      if (replayIndex >= cursor) {
+        var last = replayIndex;
+        stopReplay();
+        replayIndex = 0;
+        say('Replay finished after ' + last + ' commands at ' + cell(piece.x, piece.y) + '.');
+      }
+      refresh();
+    }, REPLAY_MS);
+  }
+
+  // ---------------------------------------------------------------- drawing
+
+  function geometry(s) {
+    var g = {};
+    g.wide = s.width >= 560;
+    if (g.wide) {
+      g.cell = Math.floor(Math.min(52, (s.width * 0.55 - 24) / COLS));
+      g.gx = 12;
+      g.gy = 32;
+      g.listX = g.gx + g.cell * COLS + 28;
+      g.listTop = 14;
+      g.listW = s.width - g.listX - 10;
+    } else {
+      g.cell = Math.floor(Math.min(46, (s.width - 24) / COLS));
+      g.gx = Math.floor((s.width - g.cell * COLS) / 2);
+      g.gy = 32;
+      g.listX = 12;
+      g.listTop = g.gy + g.cell * ROWS + 40;
+      g.listW = s.width - 24;
+    }
+    return g;
+  }
+
+  function drawBoard(ctx, s, g, c) {
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('Board, piece at ' + cell(piece.x, piece.y), g.gx, 16);
+
+    var x, y, px, py, k = g.cell;
+    for (y = 1; y <= ROWS; y++) {
+      for (x = 1; x <= COLS; x++) {
+        px = g.gx + (x - 1) * k;
+        py = g.gy + (y - 1) * k;
+        ctx.fillStyle = WALLS[x + ',' + y] ? c.ink3 : c.surface2;
+        ctx.fillRect(px + 1, py + 1, k - 2, k - 2);
+      }
+    }
+    // start square
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('S', g.gx + (START.x - 1) * k + 9, g.gy + (START.y - 1) * k + 10);
+
+    // ghost: where undo should have put the piece
+    if (ghost) {
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(g.gx + (ghost.x - 1) * k + 6, g.gy + (ghost.y - 1) * k + 6, k - 12, k - 12);
+      ctx.setLineDash([]);
+    }
+
+    // piece
+    var inset = Math.max(6, Math.round(k * 0.18));
+    px = g.gx + (piece.x - 1) * k + inset;
+    py = g.gy + (piece.y - 1) * k + inset;
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(px, py, k - inset * 2, k - inset * 2);
+    if (wrongPiece) {
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(px - 2, py - 2, k - inset * 2 + 4, k - inset * 2 + 4);
+    }
+
+    // key hint under the board
+    ctx.textAlign = 'left';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    var keys = layout.value === 'wasd' ? 'W A S D' : 'arrows';
+    ctx.fillText(keys + ' move, Z undo, Y redo, R replay', g.gx, g.gy + ROWS * k + 16);
+  }
+
+  function rowText(i, cmd) {
+    var n = (i + 1 < 10 ? ' ' : '') + (i + 1);
+    var name = (cmd.name + '     ').slice(0, 6);
+    var what = (cmd.fromX === cmd.toX && cmd.fromY === cmd.toY)
+      ? 'blocked'
+      : cell(cmd.fromX, cmd.fromY) + '→' + cell(cmd.toX, cmd.toY);
+    return n + ' ' + name + what;
+  }
+
+  function drawHistory(ctx, s, g, c) {
+    var rowH = 20;
+    var top = g.listTop;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('History: ' + history.length + ' commands, cursor = ' + cursor, g.listX, top + 2);
+
+    var listY = top + 16;
+    var fit = Math.max(3, Math.floor((s.height - listY - 8) / rowH));
+    var n = history.length;
+    if (n === 0) {
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Empty. Move the piece to record commands.', g.listX, listY + rowH / 2);
+      return;
+    }
+    var start = 0;
+    if (n > fit) {
+      var focus = replaying ? replayIndex : cursor;
+      start = Math.max(0, Math.min(focus - fit + 2, n - fit));
+    }
+    var end = Math.min(n, start + fit);
+
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+    for (var i = start; i < end; i++) {
+      var y = listY + (i - start) * rowH;
+      var applied = i < cursor;
+      if (replaying && i === replayIndex - 1) {
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(g.listX - 4, y, g.listW, rowH);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = applied ? c.ink : c.ink3;
+      var text = rowText(i, history[i]);
+      if (!applied) text += '  redo';
+      ctx.fillText(text, g.listX, y + rowH / 2);
+    }
+    // cursor line sits after the last applied command
+    if (cursor >= start && cursor <= end) {
+      var cy = listY + (cursor - start) * rowH;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(g.listX - 4, cy);
+      ctx.lineTo(g.listX + g.listW - 60, cy);
+      ctx.stroke();
+      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.fillStyle = c.topic;
+      ctx.textAlign = 'right';
+      ctx.fillText('cursor', g.listX + g.listW - 6, cy);
+      ctx.textAlign = 'left';
+    }
+    if (start > 0 || end < n) {
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('showing ' + (start + 1) + ' to ' + end, g.listX + g.listW - 6, top + 2);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  reset();
+
+  handle = DemoKit.canvas('#commands', {
+    height: 440,
+    animate: false,
+    keys: true,
+    label: 'A seven by five grid with walls and a piece, beside a list of the move commands recorded so far. A line in the list marks the cursor; entries after it can be redone.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var g = geometry(s);
+      drawBoard(ctx, s, g, c);
+      drawHistory(ctx, s, g, c);
+    },
+    onDown: function (p, s) {
+      var g = geometry(s);
+      var x = Math.floor((p.x - g.gx) / g.cell) + 1;
+      var y = Math.floor((p.y - g.gy) / g.cell) + 1;
+      if (x < 1 || x > COLS || y < 1 || y > ROWS) return;
+      var dx = x - piece.x, dy = y - piece.y;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) return;
+      move(dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up');
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var name = KEYMAPS[layout.value][key];
+      if (name) move(name);
+      else if (key === 'z') undo();
+      else if (key === 'y') redo();
+      else if (key === 'r') replay();
+    }
+  });
+})();
+</script>
+</body>
+</html>

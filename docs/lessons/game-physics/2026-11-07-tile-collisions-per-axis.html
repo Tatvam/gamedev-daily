@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tile collisions one axis at a time · Game Dev Daily</title>
+<meta name="description" content="Why a box snags on the seams between tiles when you resolve both axes at once, and how moving on x and then on y makes tile collisions reliable.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-07">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Tile collisions one axis at a time</h1>
+  <p class="lede">Why a box snags on the seams between tiles when you resolve both axes at once, and how moving on x and then on y makes tile collisions reliable.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character falls beside a tall wall while you hold towards it, and halfway down it stops, hanging on a flat wall. Press jump and it jumps off the wall as if it were a floor, again and again, until it has climbed the whole level.</p>
+  <p>The wall is a stack of separate tiles, and the collision code found an edge between two of them that should not exist.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The bug: pushing out of a seam</h2>
+  <p>A <dfn>tile map</dfn> is a grid of squares, each either empty or solid. Here a tile is 32 pixels wide. Every solid tile is its own box, so a tall wall is a stack of boxes. Where two solid tiles meet there is a <dfn>seam</dfn>: an edge buried inside the wall that nothing should ever touch.</p>
+  <p>A common first attempt moves the player on both axes, then pushes it out of every tile it overlaps, along the axis with the smaller overlap. That is the minimum translation vector from earlier lessons, applied one tile at a time:</p>
+<pre><code>box.x = box.x + box.vx * dt            -- move on both axes at once
+box.y = box.y + box.vy * dt
+for _, tile in ipairs(overlappingTiles(box)) do
+  local ox, oy = overlapX(box, tile), overlapY(box, tile)
+  if ox &lt; oy then pushOutX(box, tile) else pushOutY(box, tile) end
+end</code></pre>
+  <p>In words: whichever way the box sticks in least, push it back that way. For one lone box this is right. For a wall of tiles it goes wrong at the seams.</p>
+
+  <h3>One step by hand</h3>
+  <p>The player is a 22 by 22 pixel box, and screen <code>y</code> grows downwards. Its right edge is against a wall face at <code>x = 352</code>. Its bottom edge is at 126, just above the seam at 128 between two wall tiles. This step it moves 3 pixels right (180 pixels per second at 60 steps per second) and 4 pixels down (falling at 240 pixels per second).</p>
+  <ol>
+    <li>After the move, the right edge is at 355 and the bottom at 130. The box overlaps both wall tiles.</li>
+    <li>The lower tile: the box sticks into it 3 pixels on x but only 2 pixels on y (130 − 128). The y overlap is smaller, so the box is pushed <em>up</em> by 2, its fall speed is set to 0, and it counts as standing on the ground.</li>
+    <li>The upper tile: 3 pixels on x, 22 on y. The box is pushed left by 3.</li>
+  </ol>
+  <p>The box ends the step standing on the seam. Next step gravity gives it 30 pixels per second, it sinks half a pixel into the lower tile, half a pixel is less than 3, and it is pushed up again. It hangs there as long as you hold towards the wall.</p>
+  <p>The overlap test was right; the response picked a face that is buried. Looking at one tile at a time, it cannot know another tile sits on top.</p>
+
+  <h2>The fix: one axis at a time</h2>
+  <p>Split every step into two moves:</p>
+  <ol>
+    <li>Move on x only. If the box now overlaps a solid tile, push it back on x only, to the side it came from, and set <code>vx</code> to 0.</li>
+    <li>Then move on y only. If it overlaps a solid tile, push it back on y only and set <code>vy</code> to 0. If it was moving down, it has landed.</li>
+  </ol>
+  <p>Now there is no axis to choose wrongly. During the x move the box can only enter a tile through a side face, and the box was just on that side, so that face is never buried. The same holds for the y move.</p>
+  <p>Run the same numbers. Move x: the right edge goes to 355 while the box still spans 104 to 126 on y, so it overlaps only the upper tile. Push it back to 352. Move y: the bottom goes to 130, but the box now spans 330 to 352 on x, which is the empty column next to the wall. Nothing to hit. It keeps falling.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a box moves diagonally into a wall made of two stacked tiles, overlaps the lower tile slightly, and is pushed up out of the seam between them, so it ends up standing on the seam. Right: the same box moves on x first and is pushed left, then moves on y and passes the seam freely.">
+      <text class="d-text" x="16" y="24">Both axes at once</text>
+      <rect class="d-fill" x="210" y="40" width="70" height="80"/>
+      <rect class="d-fill" x="210" y="120" width="70" height="80"/>
+      <path class="d-stroke" d="M210 40 V200"/>
+      <path class="d-bad" d="M210 120 H280" stroke-dasharray="5 4"/>
+      <text class="d-label" x="245" y="84" text-anchor="middle">A</text>
+      <text class="d-label" x="245" y="166" text-anchor="middle">B</text>
+      <text class="d-muted" x="286" y="124">seam</text>
+      <rect class="d-thin" x="160" y="62" width="50" height="50" stroke-dasharray="4 4"/>
+      <rect class="d-stroke" x="172" y="76" width="50" height="50"/>
+      <path class="d-bad" d="M216 156 V140"/>
+      <path class="d-bad-fill" d="M216 132 L211.5 141 L220.5 141 Z"/>
+      <text class="d-text" x="16" y="226">B pushes it up: it stands on the seam.</text>
+      <text class="d-text" x="16" y="246">A pushes it left. Stuck, every step.</text>
+
+      <path class="d-thin" d="M335 12 V258"/>
+
+      <text class="d-text" x="352" y="24">One axis at a time</text>
+      <rect class="d-fill" x="566" y="40" width="70" height="80"/>
+      <rect class="d-fill" x="566" y="120" width="70" height="80"/>
+      <path class="d-stroke" d="M566 40 V200"/>
+      <path class="d-dash" d="M566 120 H636"/>
+      <text class="d-label" x="601" y="84" text-anchor="middle">A</text>
+      <text class="d-label" x="601" y="166" text-anchor="middle">B</text>
+      <rect class="d-thin" x="516" y="62" width="50" height="50" stroke-dasharray="4 4"/>
+      <path class="d-good" d="M510 70 H476"/>
+      <path class="d-good-fill" d="M470 70 L478 65.5 L478 74.5 Z"/>
+      <text class="d-label" x="410" y="66" text-anchor="middle">1. x: A</text>
+      <text class="d-label" x="410" y="82" text-anchor="middle">pushes left</text>
+      <rect class="d-stroke" x="516" y="76" width="50" height="50"/>
+      <path class="d-good" d="M541 134 V168"/>
+      <path class="d-good-fill" d="M541 176 L536.5 168 L545.5 168 Z"/>
+      <text class="d-label" x="430" y="150" text-anchor="middle">2. y: nothing</text>
+      <text class="d-label" x="430" y="166" text-anchor="middle">to hit, falls on</text>
+      <text class="d-text" x="352" y="226">Only real faces can push.</text>
+      <text class="d-text" x="352" y="246">The seam is never tested.</text>
+    </svg>
+    <figcaption>The same step, two ways (moves exaggerated). The dashed square is where the box started. On the left, the buried top face of tile B pushes the box up. On the right, the x move meets only the face of A, and the y move happens beside the wall, where there is nothing.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Correct physics, wrong game</p>
+    <p>For two separate boxes, the smallest overlap is the physically sensible push. A tile wall is one shape stored in pieces. Per-axis movement is not more realistic; it is a rule that only works on a grid, which is exactly why it suits tile games.</p>
+  </div>
+
+  <h3>Changing the loop order is not a fix</h3>
+  <p>The step by hand checked the bottom row of tiles first. Check the top row first and the fall above happens to work, but now a jump beside a wall stops dead when the top of the box reaches a seam, as if it had hit a ceiling. A different order moves the bug instead of removing it.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both panels run the same map, the same input and the same fixed timestep. The left resolves both axes at once, the right moves on x and then on y. The first script drops the box beside the right wall while holding right: on the left it hangs on a seam, on the right it slides to the floor.</p>
+  <p>Switch to <strong>Hold right and jump</strong> and watch the left box climb the wall. Then change the run speed: a faster run gives a bigger x overlap, so more seams catch. To steer, use the arrow keys on a panel (up or space jumps), or hold a finger or the mouse where the box should go.</p>
+
+  <figure class="demo wide" data-demo="tile-axes">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="tile-both"></canvas><span class="demo-label">Both axes at once</span></div>
+      <div class="demo-stage"><canvas id="tile-split"></canvas><span class="demo-label">One axis at a time</span></div>
+    </div>
+    <figcaption>Dashed red lines are hidden seams. Small arrows are the last step's pushes: green from a real face, red from a buried one. Faint squares are earlier positions; the line from the box is its velocity.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The right-hand panel as a LÖVE program, with the demo's map and numbers. <code>hitTile</code> returns the first solid tile the box overlaps; touching a tile is not overlapping it, which is what the <code>math.ceil(...) - 1</code> takes care of.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local TILE, STEP = 32, 1 / 60
+local GRAVITY, JUMP, RUN, MAX_FALL = 1800, 600, 180, 900   <span class="c">-- px/s² and px/s</span>
+local MAP = {
+  "############", "#..........#", "#..........#",
+  "#..........#", "#....###...#", "#..........#",
+  "#..........#", "#..........#", "############",
+}
+local box = { x = 300, y = 40, w = 22, h = 22, vx = 0, vy = 0, grounded = false }
+local accumulator = 0
+
+local function solid(col, row)          <span class="c">-- col and row start at 0</span>
+  local line = MAP[row + 1]
+  return line ~= nil and line:sub(col + 1, col + 1) == "#"
+end
+
+local function hitTile()                <span class="c">-- first solid tile the box overlaps</span>
+  for row = math.floor(box.y / TILE), math.ceil((box.y + box.h) / TILE) - 1 do
+    for col = math.floor(box.x / TILE), math.ceil((box.x + box.w) / TILE) - 1 do
+      if solid(col, row) then return col, row end
+    end
+  end
+  return nil
+end
+
+local function step(dt)
+  local dir = 0
+  if love.keyboard.isDown("left") then dir = dir - 1 end
+  if love.keyboard.isDown("right") then dir = dir + 1 end
+  box.vx = dir * RUN
+  if love.keyboard.isDown("space") and box.grounded then box.vy = -JUMP end
+  box.vy = math.min(box.vy + GRAVITY * dt, MAX_FALL)
+
+<span class="k">  box.x = box.x + box.vx * dt            -- 1. move on x only
+  local col = hitTile()</span>
+  if col then                            <span class="c">--    push out on x only</span>
+    if box.vx &gt; 0 then box.x = col * TILE - box.w else box.x = (col + 1) * TILE end
+    box.vx = 0
+  end
+
+<span class="k">  box.y = box.y + box.vy * dt            -- 2. then move on y only
+  box.grounded = false
+  local _, row = hitTile()</span>
+  if row then                            <span class="c">--    push out on y only</span>
+    if box.vy &gt; 0 then
+      box.y = row * TILE - box.h
+      box.grounded = true
+    else
+      box.y = (row + 1) * TILE
+    end
+    box.vy = 0
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for row = 0, #MAP - 1 do
+    for col = 0, #MAP[1] - 1 do
+      if solid(col, row) then love.graphics.rectangle("fill", col * TILE, row * TILE, TILE, TILE) end
+    end
+  end
+  love.graphics.rectangle("line", box.x, box.y, box.w, box.h)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># The same split with a CharacterBody2D: one move_and_collide call per axis.</span>
+extends CharacterBody2D
+
+const RUN := 180.0
+const JUMP := 600.0
+const GRAVITY := 1800.0
+var grounded := false
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.x = Input.get_axis("ui_left", "ui_right") * RUN
+    if Input.is_action_pressed("ui_accept") and grounded:
+        velocity.y = -JUMP
+    velocity.y = minf(velocity.y + GRAVITY * delta, 900.0)
+
+<span class="k">    if move_and_collide(Vector2(velocity.x * delta, 0.0)):   # 1. x only</span>
+        velocity.x = 0.0
+    grounded = false
+<span class="k">    var hit := move_and_collide(Vector2(0.0, velocity.y * delta))   # 2. y only</span>
+    if hit:
+        grounded = hit.get_normal().y &lt; 0.0
+        velocity.y = 0.0</code></pre>
+  </div>
+  <p>In Unity the usual route is different: a <code>TilemapCollider2D</code> combined with a <code>CompositeCollider2D</code> merges the tile shapes into one outline, so the seams are gone before any body touches them. The option that links the two has been renamed between Unity versions; look for "composite" on the tile map collider.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Moving more than a tile per step.</strong> Each axis move must be smaller than a tile, or the box can skip a tile: tunnelling again. The demo caps the fall at 900 pixels per second, 15 pixels per step. For more speed, split the move into smaller pieces.</li>
+    <li><strong>Counting touching as overlapping.</strong> A box on the floor has its bottom exactly on the tile top. If that counts as a hit, the x move pushes it sideways out of the floor. The <code>ceil(...) - 1</code> keeps the test strict.</li>
+    <li><strong>Pushing on the wrong side.</strong> Take the push direction from the velocity on that axis. A box that moved right came from the left, so it goes back to the tile's left face.</li>
+    <li><strong>Forgetting to clear <code>grounded</code>.</strong> Clear it before the y move and set it only when the y move lands, or the player can jump in mid-air after walking off a ledge.</li>
+    <li><strong>Corners depend on the order.</strong> Moving diagonally into an outer corner, x-first and y-first can disagree: one lands on the ledge, the other is stopped by its side. Pick one order and keep it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Maddy Thorson's article on the physics of TowerFall and Celeste describes moving actors on x and on y separately, in whole pixels, stopping each axis on its own when it meets something solid. That is this lesson with a step of one pixel.</p>
+  <p>General physics engines meet the same seams as ghost collisions: a body sliding over a floor of separate boxes catches on the edges between them. Box2D offers chain shapes, which join a surface's segments so their inner corners cannot push. Unity's composite collider merges the tiles into one shape instead.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build a wall five tiles tall in your tile map and let your character fall beside it while holding towards it, from several heights. If it ever stops mid-air, your code resolves both axes together.</p>
+  <p>Rewrite the movement as two moves, x first, each with its own push-out, as in the Lua above. You are done when the character slides down from every height, and holding towards the wall while pressing jump gives one normal jump instead of a climb.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A wall made of tiles has hidden seams between the tiles. Pushing a box out along the smallest overlap can push it out of a seam.</li>
+    <li>The symptom is a player that hangs on flat walls, can jump off them, and so climbs them.</li>
+    <li>Moving on x, resolving on x, then moving on y, resolving on y means a box can only meet faces it approached from open space.</li>
+    <li>Keep each axis move under one tile, and treat touching as not overlapping.</li>
+    <li>Changing the order of the tile loop moves the bug; it does not fix it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes walking on slopes, where the faces are no longer lined up with the axes and the character has to follow the angle of the ground.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Maddy Thorson, <cite>Celeste and TowerFall Physics</cite>. How those games move actors one axis and one pixel at a time against solid geometry.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite> (Morgan Kaufmann, 2005). Box overlap tests and grids.</li>
+    <li>Erin Catto, <cite>Box2D</cite> documentation, the section on chain shapes and ghost collisions.</li>
+    <li>Unity documentation, <cite>Tilemap Collider 2D</cite> and <cite>Composite Collider 2D</cite> manual pages.</li>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference. The <code>move_and_collide</code> and <code>move_and_slide</code> methods.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var TILE = 32;            // px
+  var STEP = 1 / 60;        // fixed timestep, seconds
+  var GRAVITY = 1800;       // px/s², down is +y
+  var JUMP = 600;           // px/s
+  var MAX_FALL = 900;       // px/s, 15 px per step, under one tile
+  var SIZE = 22;            // box size, px
+  var ARROW = 0.06;         // world px of arrow per px/s of velocity
+  var MAP = [
+    '############',
+    '#..........#',
+    '#..........#',
+    '#..........#',
+    '#....###...#',
+    '#..........#',
+    '#..........#',
+    '#..........#',
+    '############'
+  ];
+  var COLS = MAP[0].length, ROWS = MAP.length;
+  var WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
+  var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) &&
+    !/(^|[#&])gdd-test\b/.test(window.location.hash);
+
+  var SCRIPTS = {
+    wall: { x: 300, y: 40, steps: 180, input: function () { return { left: false, right: true, jump: false }; } },
+    climb: { x: 300, y: 234, steps: 330, input: function () { return { left: false, right: true, jump: true }; } },
+    steer: { x: 250, y: 234, steps: 0, input: null }
+  };
+  var MOVE_KEYS = ['arrowleft', 'arrowright', 'arrowup', 'a', 'd', 'w', 'space'];
+
+  var held = {};
+  var steer = null;           // world point the pointer is holding, or null
+  var hA = null, hB = null;
+
+  var ui = DemoKit.controls('[data-demo="tile-axes"]');
+  var mode = ui.select({ label: 'Input', value: 'wall',
+    options: [
+      { value: 'wall', label: 'Script: fall along a wall' },
+      { value: 'climb', label: 'Script: hold right and jump' },
+      { value: 'steer', label: 'You steer (keys or drag)' }
+    ],
+    onChange: function () { resetAll(); } });
+  var run = ui.slider({ label: 'Run speed', min: 60, max: 360, step: 30, value: 180, unit: ' px/s',
+    onInput: function () { if (mode.value !== 'steer') resetAll(); } });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true, onChange: function () { redrawAll(); } });
+  var snagA = ui.readout({ label: 'Snags, both axes at once' });
+  var snagB = ui.readout({ label: 'Snags, one axis at a time' });
+  ui.button({ label: 'Reset', onClick: function () { resetAll(); } });
+
+  function solid(c, r) {
+    var line = MAP[r];
+    return !!line && c >= 0 && c < COLS && line.charAt(c) === '#';
+  }
+
+  // Tile range the box overlaps. Touching an edge does not count.
+  function range(b) {
+    return {
+      r1: Math.floor(b.y / TILE), r2: Math.ceil((b.y + b.h) / TILE) - 1,
+      c1: Math.floor(b.x / TILE), c2: Math.ceil((b.x + b.w) / TILE) - 1
+    };
+  }
+
+  // First solid tile the box overlaps, like hitTile in the Lua.
+  function hitTile(b) {
+    var q = range(b);
+    for (var r = q.r1; r <= q.r2; r++) {
+      for (var c = q.c1; c <= q.c2; c++) {
+        if (solid(c, r)) return { c: c, r: r };
+      }
+    }
+    return null;
+  }
+
+  // Is there a solid tile directly under the box's feet?
+  function supported(b) {
+    var r = Math.floor((b.y + b.h) / TILE);
+    var q = range(b);
+    for (var c = q.c1; c <= q.c2; c++) if (solid(c, r)) return true;
+    return false;
+  }
+
+  function newSim(method) {
+    return { method: method, box: null, prevX: 0, prevY: 0, n: 0, acc: 0,
+      snags: 0, stuck: false, pushes: [], trail: [] };
+  }
+  var simA = newSim('both');
+  var simB = newSim('split');
+
+  function resetSim(sim) {
+    var sc = SCRIPTS[mode.value];
+    sim.box = { x: sc.x, y: sc.y, w: SIZE, h: SIZE, vx: 0, vy: 0, grounded: false };
+    sim.prevX = sim.box.x;
+    sim.prevY = sim.box.y;
+    sim.n = 0;
+    sim.acc = 0;
+    sim.snags = 0;
+    sim.stuck = false;
+    sim.pushes = [];
+    sim.trail = [];
+  }
+
+  function currentInput(sim) {
+    var sc = SCRIPTS[mode.value];
+    if (sc.input) return sc.input(sim.n);
+    var inp = {
+      left: !!(held.arrowleft || held.a),
+      right: !!(held.arrowright || held.d),
+      jump: !!(held.arrowup || held.w || held.space)
+    };
+    if (steer) {
+      var cx = sim.box.x + SIZE / 2;
+      if (steer.x < cx - 4) inp.left = true;
+      else if (steer.x > cx + 4) inp.right = true;
+      if (steer.y < sim.box.y - 40) inp.jump = true;
+    }
+    return inp;
+  }
+
+  // The bug: move on both axes, then push out of each tile along its smaller overlap.
+  // Tiles are checked from the bottom row up, left to right.
+  function stepBoth(b, pushes) {
+    b.x += b.vx * STEP;
+    b.y += b.vy * STEP;
+    b.grounded = false;
+    var q = range(b);
+    for (var r = q.r2; r >= q.r1; r--) {
+      for (var c = q.c1; c <= q.c2; c++) {
+        if (!solid(c, r)) continue;
+        var L = c * TILE, R = L + TILE, T = r * TILE, B = T + TILE;
+        if (!(b.x < R && b.x + b.w > L && b.y < B && b.y + b.h > T)) continue;
+        var pl = b.x + b.w - L, pr = R - b.x, pu = b.y + b.h - T, pd = B - b.y;
+        var midY = (Math.max(b.y, T) + Math.min(b.y + b.h, B)) / 2;
+        var midX = (Math.max(b.x, L) + Math.min(b.x + b.w, R)) / 2;
+        if (Math.min(pl, pr) < Math.min(pu, pd)) {
+          if (pl < pr) {
+            b.x -= pl;
+            pushes.push({ x: L, y: midY, nx: -1, ny: 0, axis: 'x', buried: solid(c - 1, r) });
+          } else {
+            b.x += pr;
+            pushes.push({ x: R, y: midY, nx: 1, ny: 0, axis: 'x', buried: solid(c + 1, r) });
+          }
+          b.vx = 0;
+        } else {
+          if (pu < pd) {
+            b.y -= pu;
+            b.grounded = true;
+            pushes.push({ x: midX, y: T, nx: 0, ny: -1, axis: 'y', buried: solid(c, r - 1) });
+          } else {
+            b.y += pd;
+            pushes.push({ x: midX, y: B, nx: 0, ny: 1, axis: 'y', buried: solid(c, r + 1) });
+          }
+          b.vy = 0;
+        }
+      }
+    }
+  }
+
+  // The fix, the same as step() in the Lua: x move and push, then y move and push.
+  function stepSplit(b, pushes) {
+    b.x += b.vx * STEP;
+    var h = hitTile(b);
+    if (h) {
+      var midY = (Math.max(b.y, h.r * TILE) + Math.min(b.y + b.h, (h.r + 1) * TILE)) / 2;
+      if (b.vx > 0) {
+        b.x = h.c * TILE - b.w;
+        pushes.push({ x: h.c * TILE, y: midY, nx: -1, ny: 0, axis: 'x', buried: solid(h.c - 1, h.r) });
+      } else {
+        b.x = (h.c + 1) * TILE;
+        pushes.push({ x: (h.c + 1) * TILE, y: midY, nx: 1, ny: 0, axis: 'x', buried: solid(h.c + 1, h.r) });
+      }
+      b.vx = 0;
+    }
+    b.y += b.vy * STEP;
+    b.grounded = false;
+    h = hitTile(b);
+    if (h) {
+      var midX = (Math.max(b.x, h.c * TILE) + Math.min(b.x + b.w, (h.c + 1) * TILE)) / 2;
+      if (b.vy > 0) {
+        b.y = h.r * TILE - b.h;
+        b.grounded = true;
+        pushes.push({ x: midX, y: h.r * TILE, nx: 0, ny: -1, axis: 'y', buried: solid(h.c, h.r - 1) });
+      } else {
+        b.y = (h.r + 1) * TILE;
+        pushes.push({ x: midX, y: (h.r + 1) * TILE, nx: 0, ny: 1, axis: 'y', buried: solid(h.c, h.r + 1) });
+      }
+      b.vy = 0;
+    }
+  }
+
+  function stepSim(sim) {
+    var b = sim.box;
+    sim.prevX = b.x;
+    sim.prevY = b.y;
+    var inp = currentInput(sim);
+    b.vx = ((inp.right ? 1 : 0) - (inp.left ? 1 : 0)) * run.value;
+    if (inp.jump && b.grounded) b.vy = -JUMP;
+    b.vy = Math.min(b.vy + GRAVITY * STEP, MAX_FALL);
+
+    var pushes = [];
+    if (sim.method === 'both') stepBoth(b, pushes);
+    else stepSplit(b, pushes);
+    sim.pushes = pushes;
+
+    // A snag: a buried face stopped the box sideways, or held it up with nothing under it.
+    var snag = false;
+    for (var i = 0; i < pushes.length; i++) {
+      var p = pushes[i];
+      if (p.buried && (p.axis === 'x' || !supported(b))) snag = true;
+    }
+    if (snag && !sim.stuck) sim.snags += 1;
+    sim.stuck = snag;
+
+    sim.n += 1;
+    if (sim.n % 4 === 0) {
+      sim.trail.push({ x: b.x, y: b.y });
+      if (sim.trail.length > 18) sim.trail.shift();
+    }
+    var sc = SCRIPTS[mode.value];
+    if (sc.steps && sim.n >= sc.steps) resetSim(sim);
+  }
+
+  function advance(sim, dt) {
+    sim.acc += dt;
+    var guard = 0;
+    while (sim.acc >= STEP && guard < 30) {
+      stepSim(sim);
+      sim.acc -= STEP;
+      guard += 1;
+    }
+    if (guard === 30) sim.acc = 0;
+    showSnags();
+  }
+
+  var shownA = '', shownB = '';
+  function snagText(sim) {
+    return sim.snags + (sim.stuck ? ' (stuck now)' : '');
+  }
+  function showSnags() {
+    var a = snagText(simA), b = snagText(simB);
+    if (a !== shownA) { snagA.set(a); shownA = a; }
+    if (b !== shownB) { snagB.set(b); shownB = b; }
+  }
+
+  function redrawAll() {
+    if (hA) hA.redraw();
+    if (hB) hB.redraw();
+  }
+
+  function resetAll() {
+    resetSim(simA);
+    resetSim(simB);
+    if (REDUCED && mode.value !== 'steer') {
+      // No animation: show a moment after the bug has happened instead of the start.
+      for (var i = 0; i < 100; i++) { stepSim(simA); stepSim(simB); }
+      simA.prevX = simA.box.x; simA.prevY = simA.box.y;
+      simB.prevX = simB.box.x; simB.prevY = simB.box.y;
+    }
+    showSnags();
+    redrawAll();
+  }
+
+  function view(s) {
+    var k = Math.min(s.width / WORLD_W, s.height / WORLD_H);
+    return { k: k, ox: (s.width - WORLD_W * k) / 2, oy: (s.height - WORLD_H * k) / 2 };
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color, width) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.hypot(dx, dy);
+    if (len < 3) return;
+    var ux = dx / len, uy = dy / len;
+    var head = Math.min(7, len * 0.5);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * head, y2 - uy * head);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * head - uy * head * 0.6, y2 - uy * head + ux * head * 0.6);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.6, y2 - uy * head - ux * head * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawSim(ctx, s, sim) {
+    var c = s.colors;
+    var v = view(s);
+    var k = v.k;
+    function X(wx) { return v.ox + wx * k; }
+    function Y(wy) { return v.oy + wy * k; }
+    var showDebug = debug.value;
+
+    // Tiles.
+    for (var r = 0; r < ROWS; r++) {
+      for (var col = 0; col < COLS; col++) {
+        if (solid(col, r)) {
+          ctx.fillStyle = c.ink3;
+          ctx.globalAlpha = 0.45;
+          ctx.fillRect(X(col * TILE), Y(r * TILE), TILE * k + 0.5, TILE * k + 0.5);
+          ctx.globalAlpha = 1;
+        } else if (showDebug) {
+          ctx.strokeStyle = c.line;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(X(col * TILE) + 0.5, Y(r * TILE) + 0.5, TILE * k - 1, TILE * k - 1);
+        }
+      }
+    }
+
+    // Hidden seams: edges shared by two solid tiles.
+    if (showDebug) {
+      ctx.strokeStyle = c.bad;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      for (r = 0; r < ROWS; r++) {
+        for (col = 0; col < COLS; col++) {
+          if (!solid(col, r)) continue;
+          if (solid(col + 1, r)) {
+            ctx.moveTo(X((col + 1) * TILE), Y(r * TILE));
+            ctx.lineTo(X((col + 1) * TILE), Y((r + 1) * TILE));
+          }
+          if (solid(col, r + 1)) {
+            ctx.moveTo(X(col * TILE), Y((r + 1) * TILE));
+            ctx.lineTo(X((col + 1) * TILE), Y((r + 1) * TILE));
+          }
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      // Earlier positions.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      for (var i = 0; i < sim.trail.length; i++) {
+        var t = sim.trail[i];
+        ctx.globalAlpha = 0.15 + 0.4 * (i / sim.trail.length);
+        ctx.strokeRect(X(t.x), Y(t.y), SIZE * k, SIZE * k);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // The box, interpolated between the last two steps.
+    var b = sim.box;
+    var a = DemoKit.clamp(sim.acc / STEP, 0, 1);
+    var bx = DemoKit.lerp(sim.prevX, b.x, a);
+    var by = DemoKit.lerp(sim.prevY, b.y, a);
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(X(bx), Y(by), SIZE * k, SIZE * k);
+    if (sim.stuck) {
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(X(bx) - 2, Y(by) - 2, SIZE * k + 4, SIZE * k + 4);
+      ctx.fillStyle = c.bad;
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      var labelY = Y(by) - 8;
+      if (labelY < 14) labelY = Y(by + SIZE) + 16;
+      ctx.fillText('stuck on a seam', DemoKit.clamp(X(bx + SIZE / 2), 50, s.width - 50), labelY);
+    }
+
+    if (showDebug) {
+      // Velocity.
+      var cx = X(bx + SIZE / 2), cy = Y(by + SIZE / 2);
+      arrow(ctx, cx, cy, cx + b.vx * ARROW * k, cy + b.vy * ARROW * k, c.ink, 1.5);
+      // Pushes of the last step.
+      for (var j = 0; j < sim.pushes.length; j++) {
+        var p = sim.pushes[j];
+        var px = X(p.x), py = Y(p.y);
+        arrow(ctx, px - p.nx * 2, py - p.ny * 2, px + p.nx * 14, py + p.ny * 14, p.buried ? c.bad : c.good, 2.5);
+      }
+    }
+  }
+
+  function toWorld(p, s) {
+    var v = view(s);
+    return { x: (p.x - v.ox) / v.k, y: (p.y - v.oy) / v.k };
+  }
+
+  function takeOver() {
+    if (mode.value !== 'steer') mode.set('steer');
+  }
+
+  function makeCanvas(id, sim, label) {
+    return DemoKit.canvas(id, {
+      aspect: 4 / 3,
+      maxHeight: 380,
+      drag: true,
+      keys: true,
+      label: label,
+      update: function (dt) { advance(sim, dt); },
+      draw: function (ctx, s) { drawSim(ctx, s, sim); },
+      onDown: function (p, s) { takeOver(); steer = toWorld(p, s); },
+      onMove: function (p, s) { if (p.down) steer = toWorld(p, s); },
+      onUp: function () { steer = null; },
+      onKey: function (key, isDown) {
+        held[key] = isDown;
+        if (isDown && MOVE_KEYS.indexOf(key) >= 0) takeOver();
+      }
+    });
+  }
+
+  resetSim(simA);
+  resetSim(simB);
+  hA = makeCanvas('#tile-both', simA,
+    'A box moving through a tile map, resolving both axes at once. Beside a wall it can get stuck on the seam between two wall tiles.');
+  hB = makeCanvas('#tile-split', simB,
+    'The same box and input, moving on x and then on y. It slides along walls and never stops on a seam.');
+  resetAll();
+})();
+</script>
+</body>
+</html>

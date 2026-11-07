@@ -35,7 +35,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Cubic Bezier curves** — How four points give more control and how curves are joined smoothly into a path. Demo: drag the handles of two joined curves with a toggle that keeps the joint smooth. (published 2026-11-04, cubic-bezier-paths)
 - [x] **Catmull-Rom splines** — How a curve can pass through every point you place. Demo: click to add points and adjust a tension slider to reshape the path. (published 2026-11-05, catmull-rom-splines)
 - [x] **Arc length and constant speed** — Why equal steps in t do not give equal distances and how a lookup table fixes it. Demo: two dots travel along one curve, one by t and one by distance, with a slider for table size. (published 2026-11-06, arc-length-constant-speed)
-- [ ] **2D transform matrices** — How one matrix stores translation, rotation and scale. Demo: sliders for each part transform a shape while the matrix values update.
+- [x] **2D transform matrices** — How one matrix stores translation, rotation and scale. Demo: sliders for each part transform a shape while the matrix values update. (published 2026-11-07, transform-matrices-2d)
 - [ ] **The order of transforms** — Why rotating and then moving differs from moving and then rotating. Demo: drag transform steps into a different order and see the shape land somewhere else.
 - [ ] **Transform hierarchies** — How child objects inherit the transforms of their parents. Demo: sliders rotate the shoulder, elbow and wrist of a robot arm.
 - [ ] **Local space and world space** — How to convert points between the space of an object and the world using a transform and its inverse. Demo: move the mouse over a rotated ship to read the position in both spaces.
