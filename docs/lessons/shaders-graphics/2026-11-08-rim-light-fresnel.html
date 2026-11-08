@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rim light and Fresnel: edges that glow · Game Dev Daily</title>
+<meta name="description" content="1 − N·V is near 0 where a surface faces you and near 1 at its edges. Raise it to a power for a rim light, or use Schlick's formula for Fresnel.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-08">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Rim light and Fresnel: edges that glow</h1>
+  <p class="lede">1 − N·V is near 0 where a surface faces you and near 1 at its edges. Raise it to a power for a rim light, or use Schlick's formula for Fresnel.</p>
+</header>
+
+<section data-section="hook">
+  <p>A dark character in a dark cave disappears into the background. A selected unit needs to stand out without a box drawn around it. A shield bubble should be almost clear in the middle but shine at its edges. One number fixes all three: how much the surface is turned away from the camera.</p>
+</section>
+
+<section data-section="concept">
+  <h2>How much does this pixel face the eye?</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Rim lighting needs two inputs: the surface normal N, and V, the unit vector from the surface <em>towards the eye</em>. It ignores the light.</p>
+  <p>Both vectors have length 1, so their dot product N·V is the cosine of the angle between them. That gives the <dfn>facing ratio</dfn>:</p>
+  <ul>
+    <li>In the middle of a ball, N points straight at you: N·V = 1.</li>
+    <li>Halfway out, the surface is tilted: N·V is somewhere between 0 and 1.</li>
+    <li>At the outline, the <dfn>silhouette</dfn>, the surface is side-on: N·V = 0.</li>
+  </ul>
+  <p>Flip it with <code>1 − N·V</code> and you have a mask that is 0 in the middle and 1 at the edges.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="A cross-section of a ball seen by an eye on the left. Three normals are drawn. At the point facing the eye, N points straight at it: N dot V is 1 and the rim is 0. Fifty degrees round, N dot V is 0.64 and the rim is 0.05. Eighty-five degrees round, near the silhouette, N dot V is 0.09 and the rim is 0.76. The parts of the ball near the top and bottom of the silhouette are highlighted as the glowing rim.">
+      <defs>
+        <marker id="rf-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-accent-fill" d="M0 0 L8 4 L0 8 Z"/></marker>
+        <marker id="rf-ak" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="d-text" d="M0 0 L8 4 L0 8 Z"/></marker>
+      </defs>
+      <circle class="d-box" cx="360" cy="140" r="80"/>
+      <path class="d-accent" style="stroke-width:6" fill="none" d="M320 70.7 A80 80 0 0 1 360 60"/>
+      <path class="d-accent" style="stroke-width:6" fill="none" d="M360 220 A80 80 0 0 1 320 209.3"/>
+
+      <circle class="d-stroke" cx="44" cy="140" r="10"/>
+      <circle class="d-accent-fill" cx="44" cy="140" r="4"/>
+      <text class="d-text" x="44" y="170" text-anchor="middle">eye</text>
+      <path class="d-stroke" d="M190 236 H100" marker-end="url(#rf-ak)"/>
+      <text class="d-muted" x="200" y="241">V points to the eye, the same for every point</text>
+
+      <path class="d-stroke" d="M280 140 H237" marker-end="url(#rf-ak)"/>
+      <text class="d-text" x="218" y="122" text-anchor="middle">N</text>
+      <text class="d-mono" x="214" y="164" text-anchor="middle">N·V = 1.00</text>
+      <text class="d-mono" x="214" y="181" text-anchor="middle">rim 0.00</text>
+
+      <path class="d-stroke" d="M308.6 78.7 L281.1 46" marker-end="url(#rf-ak)"/>
+      <text class="d-mono" x="268" y="44" text-anchor="end">N·V = 0.64</text>
+      <text class="d-mono" x="268" y="61" text-anchor="end">rim 0.05</text>
+
+      <path class="d-accent" d="M353 60.3 L349.3 18" marker-end="url(#rf-ah)"/>
+      <text class="d-mono" x="364" y="24">N·V = 0.09, rim 0.76</text>
+
+      <text class="d-text" x="462" y="120">rim = pow(1 − N·V, 3)</text>
+      <text class="d-muted" x="462" y="140">0 where the surface faces you,</text>
+      <text class="d-muted" x="462" y="158">1 where it is side-on</text>
+    </svg>
+    <figcaption>The eye is far to the left, so V is the same everywhere. Facing the eye there is no rim, at 50° round almost none. Only near the silhouette does the rim get bright.</figcaption>
+  </figure>
+
+  <h3>Shaping the rim with a power</h3>
+  <p>On its own, <code>1 − N·V</code> is a wide haze. As with shininess, a power squeezes it: only values near 1 survive. The exponent is the <dfn>rim power</dfn>. A small power gives a broad glow and a large one gives a thin line along the outline.</p>
+  <p>Four lines on top of the diffuse shader, each a stage in the demo:</p>
+<pre><code>ndotv  = clamp(N·V, 0, 1)                      -- 1. how much the pixel faces the eye
+edge   = 1 - ndotv                             -- 2. flip it: 0 in the middle, 1 at the outline
+rim    = pow(edge, power)                      -- 3. squeeze it into a thin band
+colour = albedo * (diffuse + ambient)
+       + rimColour * strength * rim            -- 4. add it on top</code></pre>
+  <p>The rim is <em>added</em> and ignores L, so it glows even where the light cannot reach. It reads as a light behind the character, outlining it against the dark.</p>
+
+  <h3>Fresnel: the physics behind the trick</h3>
+  <p>Rim light is an artistic fake. It copies something real. Look straight down into a lake and you see the bottom; look across it and you see the sky reflected. Every smooth surface reflects more light as you view it at a lower angle. This is the <dfn>Fresnel effect</dfn>, named after the physicist Augustin-Jean Fresnel.</p>
+  <p>The exact Fresnel equations are expensive. Real-time shaders use <dfn>Schlick's approximation</dfn>, published by Christophe Schlick in 1994:</p>
+<pre><code>F = F0 + (1 - F0) * pow(1 - N·V, 5)</code></pre>
+  <p><code>F0</code> is how much the surface reflects when you look at it head-on. It is about 0.02 for water and 0.04 for glass and most plastics, and between about 0.5 and 1 for metals. At the silhouette F reaches 1 for every material. So Schlick is a rim with the power fixed at 5 and a floor of F0. In a full shader F scales the reflected surroundings; the demo uses the rim colour instead.</p>
+
+  <div class="callout">
+    <p class="callout-title">Axes, the eye and colour space</p>
+    <p>The demo uses x right, y up, z out of the screen, with <code>gl_FragCoord</code>'s (0, 0) at the bottom-left, and V = (0, 0, 1). LÖVE's <code>screen_coords</code> start at the top-left with y down, so the LÖVE code flips y. Godot's <code>NORMAL</code> and <code>VIEW</code> are in view space; the Unity example uses world space. Either works if both vectors share one space. The demo adds colours without gamma conversion; engines convert colour pickers from sRGB to linear first, so the same numbers look slightly different there.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Step through the <em>Stage</em> menu. On stage 4, slide <em>Rim power</em> and watch the band thin; the graph shows the same curve. Then drag the sun (or use the arrow keys) and set <em>Light height</em> below 0. The diffuse light goes; the rim stays.</p>
+  <p>Turn on <em>Bumps</em>: the rim appears inside the ball too, wherever a bump turns away from you. Rim light is about facing, not outlines. Finally, switch to Schlick and try F0 = 0.04 (glass), then 0.9 (metal).</p>
+
+  <figure class="demo wide" data-demo="rim-fresnel">
+    <canvas id="rim-sphere"></canvas>
+    <canvas id="rim-graph"></canvas>
+    <figcaption>Top: the live shader. Bottom: the rim mask (accent) and N·V (dashed) for a smooth ball, plotted from its centre (0) to its outline (1). The vertical line marks where the mask passes half strength.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over the whole window. The mouse moves the light. Hold <kbd>up</kbd> or <kbd>down</kbd> to raise or lower it. Press <kbd>[</kbd> or <kbd>]</kbd> to change the rim power, <kbd>f</kbd> to switch to Schlick Fresnel, and <kbd>b</kbd> for bumps.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local RADIUS = 0.38                  <span class="c">-- sphere radius, as a fraction of the window height</span>
+local rimColor = { 0.25, 0.75, 1.0 }
+local rimPower = 3.0
+local rimStrength = 1.0
+local f0 = 0.04                      <span class="c">-- reflectance head-on, used by Schlick</span>
+local mode = 0                       <span class="c">-- 0 = rim light, 1 = Schlick Fresnel</span>
+local bumps = 0
+local height = 1.0                   <span class="c">-- light height above the screen, in sphere radii</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform vec3 u_light;
+uniform vec3 u_rimColor;
+uniform float u_rimPower;
+uniform float u_rimStrength;
+uniform float u_f0;
+uniform float u_mode;
+uniform float u_bumps;
+const float RADIUS = 0.38;
+const vec3 ALBEDO = vec3(0.8, 0.25, 0.2);
+const float AMBIENT = 0.1;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 p = (screen_coords - 0.5 * u_resolution) / u_resolution.y / RADIUS;
+  p.y = -p.y;                                  // LÖVE's y grows downwards: make it grow up
+  float aa = 1.5 / (u_resolution.y * RADIUS);
+  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+  vec2 tilt = vec2(cos(9.0 * p.x) * sin(9.0 * p.y), sin(9.0 * p.x) * cos(9.0 * p.y));
+  n = normalize(n - u_bumps * 0.6 * vec3(tilt, 0.0));
+  float diffuse = max(dot(n, u_light), 0.0);
+
+  float ndotv = clamp(dot(n, vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
+  float edge = 1.0 - ndotv;
+  float rim = pow(edge, u_rimPower);
+  float schlick = u_f0 + (1.0 - u_f0) * pow(edge, 5.0);
+  float amount = mix(rim, schlick, u_mode);
+
+  vec3 col = ALBEDO * (diffuse + AMBIENT) + u_rimColor * u_rimStrength * amount;
+  vec3 bg = vec3(0.1, 0.11, 0.14);
+  return vec4(mix(bg, col, mask), 1.0) * color;
+}
+]]
+
+local function normalize(x, y, z)
+  local len = math.sqrt(x * x + y * y + z * z)
+  if len &lt; 1e-6 then return 0, 0, 1 end
+  return x / len, y / len, z / len
+end
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "]" then rimPower = math.min(rimPower + 0.5, 8) end
+  if key == "[" then rimPower = math.max(rimPower - 0.5, 0.5) end
+  if key == "f" then mode = 1 - mode end
+  if key == "b" then bumps = 1 - bumps end
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("up") then height = height + dt end
+  if love.keyboard.isDown("down") then height = height - dt end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local mx, my = love.mouse.getPosition()
+  local lightX = (mx - 0.5 * w) / h / RADIUS
+  local lightY = -(my - 0.5 * h) / h / RADIUS  <span class="c">-- flip: screen y goes down</span>
+  local lx, ly, lz = normalize(lightX, lightY, height)
+  shader:send("u_light", { lx, ly, lz })
+  shader:send("u_resolution", { love.graphics.getPixelDimensions() })
+<span class="k">  shader:send("u_rimColor", rimColor)
+  shader:send("u_rimPower", rimPower)
+  shader:send("u_rimStrength", rimStrength)</span>
+  shader:send("u_f0", f0)
+  shader:send("u_mode", mode)
+  shader:send("u_bumps", bumps)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+  love.graphics.print("rim power " .. rimPower, 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform vec3 u_light;        // unit vector from the surface towards the light
+uniform vec2 u_lightPos;     // where the sun marker is drawn, device pixels, origin bottom-left
+uniform vec3 u_rimColor;     // colour of the rim
+uniform float u_rimPower;    // bigger means a thinner rim
+uniform float u_rimStrength; // how bright the rim is at the outline
+uniform float u_f0;          // Schlick: reflectance when the surface faces the eye
+uniform float u_mode;        // 0 = rim light, 1 = Schlick Fresnel
+uniform float u_stage;       // 0 normals ... 4 final colour
+uniform float u_bumps;       // 1 = tilt the normals with a bump pattern
+
+const float RADIUS = 0.38;               // sphere radius, as a fraction of the canvas height
+const vec3 ALBEDO = vec3(0.8, 0.25, 0.2); // surface colour
+const float AMBIENT = 0.1;
+const vec3 V = vec3(0.0, 0.0, 1.0);      // towards the eye: the camera looks straight at the screen
+
+void main() {
+  // the sphere, its normal and its Lambert diffuse, as in the earlier lessons
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y / RADIUS;
+  float aa = 1.5 / (u_resolution.y * RADIUS);
+  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));
+  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));
+  vec2 tilt = vec2(cos(9.0 * p.x) * sin(9.0 * p.y), sin(9.0 * p.x) * cos(9.0 * p.y));
+  n = normalize(n - u_bumps * 0.6 * vec3(tilt, 0.0));
+  float diffuse = max(dot(n, u_light), 0.0);
+
+  // 1. how much the pixel faces the eye
+  float ndotv = clamp(dot(n, V), 0.0, 1.0);
+  // 2. flip it: 0 in the middle, 1 at the outline
+  float edge = 1.0 - ndotv;
+  // 3. squeeze it with a power (rim light) or use Schlick's Fresnel
+  float rim = pow(edge, u_rimPower);
+  float schlick = u_f0 + (1.0 - u_f0) * pow(edge, 5.0);
+  float amount = mix(rim, schlick, u_mode);
+  // 4. add it on top of the diffuse colour
+  vec3 col = ALBEDO * (diffuse + AMBIENT) + u_rimColor * u_rimStrength * amount;
+
+  vec3 bg = vec3(0.1, 0.11, 0.14);
+  if (u_stage &lt; 3.5) col = vec3(amount);
+  if (u_stage &lt; 2.5) col = vec3(edge);
+  if (u_stage &lt; 1.5) col = vec3(ndotv);
+  if (u_stage &lt; 0.5) col = n * 0.5 + 0.5;
+  col = mix(bg, col, mask);
+
+  // the sun marker: filled when the light is in front, hollow when it is behind
+  float lw = max(1.0, u_resolution.y / 300.0);
+  float front = step(0.0, u_light.z);
+  float d = length(gl_FragCoord.xy - u_lightPos);
+  vec3 sun = vec3(1.0, 0.82, 0.25);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));
+  col = mix(col, sun, 1.0 - smoothstep(0.7 * lw, 1.5 * lw, abs(d - 6.5 * lw)));
+  col = mix(col, sun, front * (1.0 - smoothstep(4.5 * lw, 5.5 * lw, d)));
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a MeshInstance3D (try a SphereMesh). Lit by the scene's lights.
+shader_type spatial;
+
+uniform vec3 albedo : source_color = vec3(0.8, 0.25, 0.2);
+uniform vec3 rim_color : source_color = vec3(0.25, 0.75, 1.0);
+uniform float rim_power : hint_range(0.5, 8.0) = 3.0;
+uniform float rim_strength : hint_range(0.0, 2.0) = 1.0;
+
+void fragment() {
+    ALBEDO = albedo;
+    // NORMAL and VIEW are both in view space; VIEW points from the surface to the camera
+<span class="k">    float ndotv = clamp(dot(normalize(NORMAL), VIEW), 0.0, 1.0);
+    EMISSION = rim_color * rim_strength * pow(1.0 - ndotv, rim_power);</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, on any mesh with smooth normals. Uses the main directional light.
+Shader "GameDevDaily/RimLight"
+{
+    Properties
+    {
+        _Albedo ("Albedo", Color) = (0.8, 0.25, 0.2, 1)
+        _RimColor ("Rim colour", Color) = (0.25, 0.75, 1, 1)
+        _RimPower ("Rim power", Range(0.5, 8)) = 3
+        _RimStrength ("Rim strength", Range(0, 2)) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            Tags { "LightMode" = "ForwardBase" }
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            fixed4 _Albedo;
+            fixed4 _RimColor;
+            float _RimPower;
+            float _RimStrength;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float3 worldNormal : TEXCOORD0;
+                float3 worldPos : TEXCOORD1;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.worldNormal = UnityObjectToWorldNormal(v.normal);
+                o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float3 n = normalize(i.worldNormal);                     // re-normalise after interpolation
+                float3 v = normalize(_WorldSpaceCameraPos - i.worldPos); // towards the camera, per pixel
+                float diffuse = max(dot(n, normalize(_WorldSpaceLightPos0.xyz)), 0.0);
+<span class="k">                float rim = pow(1.0 - saturate(dot(n, v)), _RimPower);</span>
+                float3 col = _Albedo.rgb * (diffuse + 0.1) + _RimColor.rgb * _RimStrength * rim;
+                return fixed4(col, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>Godot's <code>EMISSION</code> is added on top of the engine's lighting, the same job as the <code>+</code> in the demo. In URP Shader Graph, multiply a <em>Fresnel Effect</em> node (its Power input is the rim power) by a colour and plug it into Emission.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the camera's forward vector as V.</strong> With a perspective camera the direction to the eye differs per pixel. One forward vector makes the rim lopsided on objects away from the screen centre. Compute V per pixel, as the Unity tab does.</li>
+    <li><strong>Forgetting to re-normalise N.</strong> Interpolated normals are shorter than 1 inside a triangle, so the rim shows the mesh's triangles. Normalise in the fragment shader.</li>
+    <li><strong>Flat faces.</strong> A cube face has one normal, so the whole face gets one rim value and pops on and off as it turns. A rim needs smooth normals.</li>
+    <li><strong>N and V in different spaces.</strong> A world-space N with a view-space V gives nonsense. Pick one space.</li>
+    <li><strong>pow of a negative number.</strong> Rounding can push N·V a hair above 1, which makes <code>1 − N·V</code> negative, and back faces give N·V below 0. Clamp N·V to 0 to 1 first; GLSL leaves <code>pow(x, y)</code> undefined for x &lt; 0.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One dot product, one subtraction and one <code>pow</code>. That is among the cheapest effects in this course and fine on any phone. With a fixed power of 5, as in Schlick, you can drop the <code>pow</code> for three multiplies: <code>e2 = e * e; e5 = e2 * e2 * e</code>. For a transparent shield the cost is the blending, not the rim: a big bubble shades every pixel it covers on top of what is behind it.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Rim light is a common way to pick out characters and selected objects against dark backgrounds, and to make shields shine at their edges. Godot's StandardMaterial3D has a Rim setting built in. Unity's manual uses rim lighting as an example surface shader, and Shader Graph has the Fresnel Effect node. Physically based materials, such as Unity's Standard shader and Godot's StandardMaterial3D, apply a Fresnel term to reflections for you, so water and polished floors reflect more as you look across them.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Make a shield: change the last lines so that the ball is transparent except for the rim. Return the rim colour with alpha <code>amount * mask</code>, and draw something behind it first.</li>
+    <li>Make the rim pulse: send <code>love.timer.getTime()</code> as a uniform and multiply the strength by <code>0.75 + 0.25 * sin(3.0 * u_time)</code>.</li>
+    <li>Make the rim appear only on the lit side by multiplying it by <code>smoothstep(-0.2, 0.4, dot(n, u_light))</code>.</li>
+  </ol>
+  <p>You are done when the shield is see-through in the middle, glows at its edge, pulses, and its glow follows the mouse.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>N·V says how much a pixel faces the eye: 1 head-on, 0 side-on. <code>1 − N·V</code> is a mask that is bright at the edges.</li>
+    <li><code>pow(1 − N·V, power)</code> is a rim light. A bigger power gives a thinner rim.</li>
+    <li>The rim ignores the light direction, so it outlines objects even on their dark side.</li>
+    <li>Schlick's Fresnel, <code>F0 + (1 − F0) × pow(1 − N·V, 5)</code>, is the physical version: every smooth surface reflects more at grazing angles.</li>
+    <li>V must point to the camera from each pixel, and N and V must be unit vectors in the same space.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes toon shading, where the smooth diffuse light is cut into a few flat bands, and a hard rim like this one often finishes the cartoon look.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christophe Schlick, <cite>An Inexpensive BRDF Model for Physically-based Rendering</cite>, Computer Graphics Forum (Eurographics), 1994.</li>
+    <li>Tomas Akenine-Möller, Eric Haines, Naty Hoffman and others, <cite>Real-Time Rendering</cite>, the section on Fresnel reflectance and its table of F0 values.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, on <code>pow</code>, <code>clamp</code> and <code>dot</code>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot Engine documentation, <cite>Spatial shaders</cite> (<code>NORMAL</code>, <code>VIEW</code> and <code>EMISSION</code>) and <cite>Standard Material 3D</cite>.</li>
+    <li>Unity documentation, <cite>Surface Shader examples</cite> and the Shader Graph <cite>Fresnel Effect Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec3 u_light;        // unit vector from the surface towards the light",
+    "uniform vec2 u_lightPos;     // where the sun marker is drawn, device pixels, origin bottom-left",
+    "uniform vec3 u_rimColor;     // colour of the rim",
+    "uniform float u_rimPower;    // bigger means a thinner rim",
+    "uniform float u_rimStrength; // how bright the rim is at the outline",
+    "uniform float u_f0;          // Schlick: reflectance when the surface faces the eye",
+    "uniform float u_mode;        // 0 = rim light, 1 = Schlick Fresnel",
+    "uniform float u_stage;       // 0 normals ... 4 final colour",
+    "uniform float u_bumps;       // 1 = tilt the normals with a bump pattern",
+    "",
+    "const float RADIUS = 0.38;               // sphere radius, as a fraction of the canvas height",
+    "const vec3 ALBEDO = vec3(0.8, 0.25, 0.2); // surface colour",
+    "const float AMBIENT = 0.1;",
+    "const vec3 V = vec3(0.0, 0.0, 1.0);      // towards the eye: the camera looks straight at the screen",
+    "",
+    "void main() {",
+    "  // the sphere, its normal and its Lambert diffuse, as in the earlier lessons",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y / RADIUS;",
+    "  float aa = 1.5 / (u_resolution.y * RADIUS);",
+    "  float mask = 1.0 - smoothstep(1.0 - aa, 1.0, length(p));",
+    "  vec3 n = vec3(p, sqrt(max(1.0 - dot(p, p), 0.0)));",
+    "  vec2 tilt = vec2(cos(9.0 * p.x) * sin(9.0 * p.y), sin(9.0 * p.x) * cos(9.0 * p.y));",
+    "  n = normalize(n - u_bumps * 0.6 * vec3(tilt, 0.0));",
+    "  float diffuse = max(dot(n, u_light), 0.0);",
+    "",
+    "  // 1. how much the pixel faces the eye",
+    "  float ndotv = clamp(dot(n, V), 0.0, 1.0);",
+    "  // 2. flip it: 0 in the middle, 1 at the outline",
+    "  float edge = 1.0 - ndotv;",
+    "  // 3. squeeze it with a power (rim light) or use Schlick's Fresnel",
+    "  float rim = pow(edge, u_rimPower);",
+    "  float schlick = u_f0 + (1.0 - u_f0) * pow(edge, 5.0);",
+    "  float amount = mix(rim, schlick, u_mode);",
+    "  // 4. add it on top of the diffuse colour",
+    "  vec3 col = ALBEDO * (diffuse + AMBIENT) + u_rimColor * u_rimStrength * amount;",
+    "",
+    "  vec3 bg = vec3(0.1, 0.11, 0.14);",
+    "  if (u_stage < 3.5) col = vec3(amount);",
+    "  if (u_stage < 2.5) col = vec3(edge);",
+    "  if (u_stage < 1.5) col = vec3(ndotv);",
+    "  if (u_stage < 0.5) col = n * 0.5 + 0.5;",
+    "  col = mix(bg, col, mask);",
+    "",
+    "  // the sun marker: filled when the light is in front, hollow when it is behind",
+    "  float lw = max(1.0, u_resolution.y / 300.0);",
+    "  float front = step(0.0, u_light.z);",
+    "  float d = length(gl_FragCoord.xy - u_lightPos);",
+    "  vec3 sun = vec3(1.0, 0.82, 0.25);",
+    "  col = mix(col, vec3(0.0), 1.0 - smoothstep(lw, 2.0 * lw, abs(d - 8.5 * lw)));",
+    "  col = mix(col, sun, 1.0 - smoothstep(0.7 * lw, 1.5 * lw, abs(d - 6.5 * lw)));",
+    "  col = mix(col, sun, front * (1.0 - smoothstep(4.5 * lw, 5.5 * lw, d)));",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var RADIUS = 0.38;                  // the same as in the shader
+  var light = { x: 0.6, y: 0.6 };     // light position over the screen, in sphere radii, y up
+  var handle = null;
+  var graph = null;
+
+  function redraw() {
+    updateReadout();
+    if (handle) handle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  var ui = DemoKit.controls('[data-demo="rim-fresnel"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Normal N as colour (N × 0.5 + 0.5)' },
+      { value: '1', label: '2. Facing ratio: N·V' },
+      { value: '2', label: '3. Flipped: 1 − N·V' },
+      { value: '3', label: '4. Rim mask: pow(1 − N·V, power), or Schlick' },
+      { value: '4', label: '5. Final: diffuse colour + rim colour × strength × mask' }
+    ],
+    value: '4',
+    onChange: redraw
+  });
+  var formula = ui.select({
+    label: 'Formula',
+    options: [
+      { value: '0', label: 'Rim light: pow(1 − N·V, power)' },
+      { value: '1', label: 'Schlick Fresnel: F0 + (1 − F0) × pow(1 − N·V, 5)' }
+    ],
+    value: '0',
+    onChange: redraw
+  });
+  var power = ui.slider({ label: 'Rim power (rim light only)', min: 0.5, max: 8, step: 0.1, value: 3, onInput: redraw });
+  var f0 = ui.slider({ label: 'F0 (Schlick only)', min: 0, max: 1, step: 0.01, value: 0.04, onInput: redraw });
+  var strength = ui.slider({ label: 'Rim strength', min: 0, max: 2, step: 0.05, value: 1, onInput: redraw });
+  var hue = ui.slider({ label: 'Rim colour (hue)', min: 0, max: 360, step: 1, value: 200, unit: '°', onInput: redraw });
+  var height = ui.slider({ label: 'Light height (below 0 is behind the ball)', min: -1, max: 3, step: 0.05, value: 1, onInput: redraw });
+  var bumps = ui.toggle({ label: 'Bumps', value: false, onChange: redraw });
+  var readout = ui.readout({ label: 'Half strength' });
+
+  // Hue in degrees to RGB, with saturation 0.75 and value 1. Hue 200 gives (0.25, 0.75, 1.0).
+  function rimColor() {
+    var h = ((hue.value % 360) + 360) % 360 / 60;
+    var c = 0.75, m = 0.25;
+    var x = c * (1 - Math.abs((h % 2) - 1));
+    var r = 0, g = 0, b = 0;
+    if (h < 1) { r = c; g = x; }
+    else if (h < 2) { r = x; g = c; }
+    else if (h < 3) { g = c; b = x; }
+    else if (h < 4) { g = x; b = c; }
+    else if (h < 5) { r = x; b = c; }
+    else { r = c; b = x; }
+    return [r + m, g + m, b + m];
+  }
+
+  // The mask for a facing ratio, exactly as the shader computes it.
+  function maskFor(ndotv) {
+    var e = 1 - DemoKit.clamp(ndotv, 0, 1);
+    if (formula.value === '1') return f0.value + (1 - f0.value) * Math.pow(e, 5);
+    return Math.pow(e, power.value);
+  }
+
+  // Where, on a smooth ball, the mask reaches 0.5. Returns null when it is 0.5 or more everywhere.
+  function halfPoint() {
+    var e;
+    if (formula.value === '1') {
+      if (f0.value >= 0.5) return null;
+      e = Math.pow((0.5 - f0.value) / (1 - f0.value), 1 / 5);
+    } else {
+      e = Math.pow(0.5, 1 / power.value);
+    }
+    var ndotv = 1 - e;
+    return { ndotv: ndotv, r: Math.sqrt(Math.max(0, 1 - ndotv * ndotv)), angle: Math.acos(ndotv) * 180 / Math.PI };
+  }
+
+  function updateReadout() {
+    var hp = halfPoint();
+    if (!hp) {
+      readout.set('F0 is 0.5 or more, so the mask is at least half strength everywhere: the whole ball reflects, as metal does');
+      return;
+    }
+    readout.set('the mask passes 0.5 where N·V = ' + hp.ndotv.toFixed(2) + ' (' + hp.angle.toFixed(0) +
+      '° from the eye), ' + Math.round(hp.r * 100) + '% of the way from the centre to the outline');
+  }
+
+  // L = normalise(light.x, light.y, height), with a fallback when it has no length.
+  function lightDir() {
+    var x = light.x, y = light.y, z = height.value;
+    var len = Math.sqrt(x * x + y * y + z * z);
+    if (len < 1e-6) return [0, 0, 1];
+    return [x / len, y / len, z / len];
+  }
+
+  function lightPos(s) {
+    var W = s.width * s.dpr, H = s.height * s.dpr;
+    return [0.5 * W + light.x * RADIUS * H, 0.5 * H + light.y * RADIUS * H];
+  }
+
+  function limits(s) {
+    var aspect = s.height > 0 ? s.width / s.height : 1;
+    return { x: 0.5 * aspect / RADIUS, y: 0.5 / RADIUS };
+  }
+
+  function moveLight(p, s) {
+    if (!s.width || !s.height) return;
+    var lim = limits(s);
+    light.x = DemoKit.clamp((p.x - 0.5 * s.width) / s.height / RADIUS, -lim.x, lim.x);
+    light.y = DemoKit.clamp((0.5 * s.height - p.y) / s.height / RADIUS, -lim.y, lim.y);
+    redraw();
+  }
+
+  handle = DemoKit.shader('#rim-sphere', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader drawing a red ball lit by a sun marker, with a coloured rim glowing at its edges. Drag on the canvas or use the arrow keys to move the light. The Stage menu shows the normals, N dot V, one minus N dot V and the rim mask. Sliders set the rim power, F0, strength and colour.',
+    uniforms: {
+      u_light: function () { return lightDir(); },
+      u_lightPos: function (s) { return lightPos(s); },
+      u_rimColor: function () { return rimColor(); },
+      u_rimPower: function () { return power.value; },
+      u_rimStrength: function () { return strength.value; },
+      u_f0: function () { return f0.value; },
+      u_mode: function () { return Number(formula.value); },
+      u_stage: function () { return Number(stage.value); },
+      u_bumps: function () { return bumps.value ? 1 : 0; }
+    },
+    onDown: moveLight,
+    onMove: function (p, s) { if (p.down) moveLight(p, s); },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var lim = limits(s), step = 0.1;
+      if (key === 'arrowleft') light.x = Math.max(-lim.x, light.x - step);
+      else if (key === 'arrowright') light.x = Math.min(lim.x, light.x + step);
+      else if (key === 'arrowup') light.y = Math.min(lim.y, light.y + step);
+      else if (key === 'arrowdown') light.y = Math.max(-lim.y, light.y - step);
+      else return;
+      redraw();
+    }
+  });
+
+  graph = DemoKit.canvas('#rim-graph', {
+    height: 220,
+    animate: false,
+    label: 'A graph across a smooth ball, from its centre on the left to its outline on the right. A dashed curve shows N dot V falling from 1 to 0. A solid curve shows the rim mask rising from near 0 to 1, and a vertical line marks where the mask reaches one half.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 44, right = 16, top = 14, bottom = 40;
+      var w = Math.max(10, s.width - left - right);
+      var h = Math.max(10, s.height - top - bottom);
+      function X(r) { return left + r * w; }
+      function Y(v) { return top + (1 - v) * h; }
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = c.line;
+      ctx.beginPath();
+      ctx.moveTo(X(0), Y(0.5)); ctx.lineTo(X(1), Y(0.5));
+      ctx.moveTo(X(0.5), Y(0)); ctx.lineTo(X(0.5), Y(1));
+      ctx.stroke();
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.moveTo(X(0), Y(1)); ctx.lineTo(X(0), Y(0)); ctx.lineTo(X(1), Y(0));
+      ctx.stroke();
+
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('1', X(0) - 6, Y(1));
+      ctx.fillText('0.5', X(0) - 6, Y(0.5));
+      ctx.fillText('0', X(0) - 6, Y(0));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('centre', X(0), Y(0) + 5);
+      ctx.fillText('outline', X(1) - 18, Y(0) + 5);
+      ctx.fillText('distance across the ball', X(0.5), Y(0) + 5);
+
+      var N = 200, i, r, nv;
+      // N·V on a smooth ball: sqrt(1 - r²)
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      for (i = 0; i <= N; i++) {
+        r = i / N;
+        nv = Math.sqrt(Math.max(0, 1 - r * r));
+        if (i === 0) ctx.moveTo(X(r), Y(nv)); else ctx.lineTo(X(r), Y(nv));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // the mask the shader uses
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (i = 0; i <= N; i++) {
+        r = i / N;
+        nv = Math.sqrt(Math.max(0, 1 - r * r));
+        var m = maskFor(nv);
+        if (i === 0) ctx.moveTo(X(r), Y(m)); else ctx.lineTo(X(r), Y(m));
+      }
+      ctx.stroke();
+
+      var hp = halfPoint();
+      if (hp) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(X(hp.r), Y(0)); ctx.lineTo(X(hp.r), Y(1));
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('N·V', X(0.04), Y(1) + 12);
+      var m0 = maskFor(1);                       // the mask at the centre of the ball
+      ctx.fillStyle = c.topic;
+      ctx.fillText(formula.value === '1' ? 'Fresnel F' : 'rim mask', X(0.04), m0 > 0.8 ? Y(m0) + 30 : Y(m0) - 12);
+    }
+  });
+
+  updateReadout();
+})();
+</script>
+</body>
+</html>

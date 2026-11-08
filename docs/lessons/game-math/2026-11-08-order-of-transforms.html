@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The order of transforms: why does my ship orbit the corner of the screen? · Game Dev Daily</title>
+<meta name="description" content="Why rotating then moving puts a ship somewhere else than moving then rotating, and how multiplying matrices in the right order fixes it.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-08">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-s { color: var(--t-game-physics); font-weight: 650; }
+  .v-r { color: var(--t-game-math); font-weight: 650; }
+  .v-m { color: var(--warn); font-weight: 650; }
+  .v-p { color: var(--t-game-idea); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The order of transforms: why does my ship orbit the corner of the screen?</h1>
+  <p class="lede">Why rotating then moving puts a ship somewhere else than moving then rotating, and how multiplying matrices in the right order fixes it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You press the turn key and, instead of spinning on the spot, your ship swings in a huge circle around the top-left corner of the screen. Or you make it twice as big and it also jumps twice as far from the corner. The numbers are right. The order is wrong.</p>
+  <p>This lesson shows why the order of the steps decides where the ship lands.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every step happens around the origin</h2>
+  <p>As in the last lesson, y points <strong>down</strong>, as on a screen and in LÖVE, so a positive angle turns <strong>clockwise</strong>. The <dfn>origin</dfn> is the point (0, 0) of the world.</p>
+  <p>We have three kinds of step. Each one is a small transform of its own:</p>
+  <ul>
+    <li><span class="v-s">Scale</span> multiplies every x by sx and every y by sy. It stretches <em>away from the origin</em>.</li>
+    <li><span class="v-r">Rotate</span> turns every point by an angle. It turns <em>around the origin</em>.</li>
+    <li><span class="v-m">Move</span> adds (tx, ty) to every point. It does not care where the origin is.</li>
+  </ul>
+  <p>So scale and rotate only act "on the spot" while the ship sits on the origin. Once it has moved away, a rotation swings it around the origin like a stone on a string, and a scale pushes it further out.</p>
+
+  <h3>One point, two orders</h3>
+  <p>Take the nose of the ship, <span class="v-p">(1, 0)</span>. Turn it 90 degrees and move it by (4, 0). A 90 degree turn with y down sends (x, y) to (−y, x).</p>
+  <ul>
+    <li><span class="v-r">Rotate</span>, then <span class="v-m">move</span>: (1, 0) turns to (0, 1), then moves to <strong>(4, 1)</strong>. The ship's centre (0, 0) stays put while turning, then moves to (4, 0).</li>
+    <li><span class="v-m">Move</span>, then <span class="v-r">rotate</span>: (1, 0) moves to (5, 0), then turns around the origin to <strong>(0, 5)</strong>. The centre goes (0, 0) to (4, 0) to (0, 4): it has swung a quarter circle.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Two panels. Left, rotate 90 degrees then move by (4, 0): the ship turns on the spot at the origin, then slides right to (4, 0), with its nose at (4, 1). Right, move by (4, 0) then rotate 90 degrees: the ship slides to (4, 0), then swings along a quarter circle around the origin down to (0, 4), with its nose at (0, 5).">
+      <text class="d-text" x="20" y="20">Rotate 90°, then move (4, 0)</text>
+      <text class="d-text" x="340" y="20">Move (4, 0), then rotate 90°</text>
+
+      <!-- Left panel: origin (50, 70), 22 px per unit -->
+      <path class="d-thin" d="M17 70 H200 M50 37 V196"/>
+      <text class="d-muted" x="196" y="64" text-anchor="end">x →</text>
+      <text class="d-muted" x="56" y="194">y ↓</text>
+      <path class="d-dash" d="M72 70 L28 92 L39 70 L28 48 Z"/>
+      <path style="stroke: var(--t-game-math); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3" d="M50 92 L28 48 L50 59 L72 48 Z"/>
+      <path style="stroke: var(--warn); stroke-width: 2.5; fill: none" d="M54 70 H126"/>
+      <path style="fill: var(--warn)" d="M136 70 L125 64 L125 76 Z"/>
+      <path class="d-fill" d="M138 92 L116 48 L138 59 L160 48 Z"/>
+      <path class="d-stroke" d="M138 92 L116 48 L138 59 L160 48 Z"/>
+      <circle cx="138" cy="70" r="3.5" style="fill: var(--ink)"/>
+      <circle cx="138" cy="92" r="4.5" style="fill: var(--t-game-idea)"/>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="148" y="110">nose (4, 1)</text>
+      <text class="d-muted" x="20" y="222">turns on the spot,</text>
+      <text class="d-muted" x="20" y="238">then moves</text>
+
+      <!-- Right panel: origin (370, 70), 22 px per unit -->
+      <path class="d-thin" d="M337 70 H620 M370 37 V196"/>
+      <text class="d-muted" x="616" y="64" text-anchor="end">x →</text>
+      <text class="d-muted" x="378" y="46">y ↓</text>
+      <path class="d-dash" d="M392 70 L348 92 L359 70 L348 48 Z"/>
+      <path style="stroke: var(--warn); stroke-width: 2.5; fill: none" d="M374 70 H446"/>
+      <path style="fill: var(--warn)" d="M456 70 L445 64 L445 76 Z"/>
+      <path style="stroke: var(--warn); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3" d="M480 70 L436 92 L447 70 L436 48 Z"/>
+      <path style="stroke: var(--t-game-math); stroke-width: 2.5; fill: none; stroke-dasharray: 6 4" d="M458 70 A88 88 0 0 1 376 158"/>
+      <path style="fill: var(--t-game-math)" d="M370 158 L381 152 L381 164 Z"/>
+      <path class="d-fill" d="M370 180 L348 136 L370 147 L392 136 Z"/>
+      <path class="d-stroke" d="M370 180 L348 136 L370 147 L392 136 Z"/>
+      <circle cx="370" cy="158" r="3.5" style="fill: var(--ink)"/>
+      <circle cx="370" cy="180" r="4.5" style="fill: var(--t-game-idea)"/>
+      <text class="d-mono" style="fill: var(--t-game-idea); font-weight: 650" x="382" y="200">nose (0, 5)</text>
+      <text class="d-label" style="fill: var(--t-game-math)" x="470" y="140">swings around (0, 0)</text>
+      <text class="d-muted" x="340" y="222">moves away first, so the turn</text>
+      <text class="d-muted" x="340" y="238">swings it around the origin</text>
+    </svg>
+    <figcaption>Same two steps, same numbers, different order. The grey dashed ship is where it starts, the dashed coloured ship is after the first step, the solid ship is the result. The small dark dot is the ship's centre.</figcaption>
+  </figure>
+
+  <p>Scale behaves the same: scale by 2 after moving to (4, 0) and the centre lands on (8, 0). And stretching by (2, 1) before turning makes the ship long along its nose; turning first stretches it along the <em>world</em> x, so it comes out fat.</p>
+
+  <h3>Combining steps is matrix multiplication</h3>
+  <p>Each step is a matrix, like the ones from last time. Doing one step after another is one new matrix, their <dfn>product</dfn>. The rule from last lesson does the work: the columns of a matrix are where the x arrow, the y arrow and the origin land. So to do B first and then A, push B's three columns through A. The first two are arrows (directions, no move), the third is a position:</p>
+<pre><code>A × B:   a  = A.a × B.a + A.c × B.b        c  = A.a × B.c + A.c × B.d
+         b  = A.b × B.a + A.d × B.b        d  = A.b × B.c + A.d × B.d
+         tx = A.a × B.tx + A.c × B.ty + A.tx
+         ty = A.b × B.tx + A.d × B.ty + A.ty</code></pre>
+  <p>Notice the direction: <strong>A × B means B first, then A</strong>. The point sits on the right, A × B × p, so the matrix next to it touches it first. Matrices are read from right to left.</p>
+  <p>Worked example. Rotate 90°, R, has columns (0, 1), (−1, 0) and (0, 0). Move (4, 0), T, has columns (1, 0), (0, 1) and (4, 0).</p>
+  <ul>
+    <li>T × R, rotate first: push R's columns through T. The arrows are not moved: (0, 1) and (−1, 0). The origin (0, 0) moves to (4, 0). Nose: 0 × 1 + (−1) × 0 + 4 = 4 and 1 × 1 + 0 × 0 + 0 = 1, so <strong>(4, 1)</strong>.</li>
+    <li>R × T, move first: push T's columns through R. The arrows turn to (0, 1) and (−1, 0). The origin column (4, 0) turns to (0, 4). Nose: 0 + 0 + 0 = 0 and 1 + 0 + 4 = 5, so <strong>(0, 5)</strong>.</li>
+  </ul>
+  <p>Same answers as the step-by-step version. So T × R is not R × T: matrix multiplication does not let you swap the two sides.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 110" role="img" aria-label="The matrix M equals Move times Rotate times Scale, written left to right, while an arrow underneath shows the point being touched by Scale first, then Rotate, then Move, right to left.">
+      <text class="d-mono" x="20" y="40" style="font-size: 15px">M =</text>
+      <text class="d-mono" x="70" y="40" style="font-size: 15px; fill: var(--warn); font-weight: 650">Move</text>
+      <text class="d-mono" x="118" y="40" style="font-size: 15px">×</text>
+      <text class="d-mono" x="136" y="40" style="font-size: 15px; fill: var(--t-game-math); font-weight: 650">Rotate</text>
+      <text class="d-mono" x="202" y="40" style="font-size: 15px">×</text>
+      <text class="d-mono" x="220" y="40" style="font-size: 15px; fill: var(--t-game-physics); font-weight: 650">Scale</text>
+      <text class="d-mono" x="274" y="40" style="font-size: 15px">× p</text>
+      <path class="d-stroke" d="M300 60 V72 H80 V60"/>
+      <path class="d-stroke" d="M80 56 L75 64 M80 56 L85 64"/>
+      <text class="d-muted" x="170" y="94" text-anchor="middle">p meets Scale first, then Rotate, then Move</text>
+    </svg>
+    <figcaption>The usual order for an object: scale, then rotate, then move. Written as matrices it reads backwards.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">The usual order</p>
+    <p>For placing an object, <span class="v-s">scale</span>, then <span class="v-r">rotate</span>, then <span class="v-m">move</span>. Scale and rotate while the ship still sits on the origin, so they happen on the spot. Move last, so the position you asked for is exactly where it ends up.</p>
+  </div>
+
+  <p>Two moves, two rotations, or a rotation and a <em>uniform</em> scale (same number for x and y) can swap safely. A move paired with anything else cannot. Sometimes you want the "wrong" order on purpose. To turn a door around its hinge at (2, 1), move the hinge to the origin, rotate, and move it back: <code>T(2, 1) × R × T(−2, −1)</code>. That is the pivot trick from the rotation lesson, written as matrices.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The three cards at the top are the steps, in the order they happen. <strong>Drag a card</strong> left or right to change the order, or use the <strong>Order</strong> list. Drag on the grid to place the orange <span class="v-m">move target</span>. Keyboard: arrow keys move the target, Q and E turn by 15 degrees.</p>
+  <p>The ship lands on the target only when <span class="v-m">Move</span> is last. Pick <strong>Move → Rotate → Scale</strong> for the swapped order from the code below, then press <strong>Play steps</strong>: the rotation draws an arc around (0, 0), and the scale pushes the ship away from it.</p>
+  <figure class="demo" data-demo="transform-order">
+    <canvas id="transform-order"></canvas>
+    <figcaption>One grid square is one unit and y points down, so positive angles turn clockwise. The dashed lines trace the ship's centre, in the colour of the step that moved it. The grey dashed outline at (0, 0) is the ship as drawn, and the other dashed outline shows the usual order for comparison. The purple dot is the nose (1, 0).</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Three small functions make the steps, <code>multiply</code> combines two, and <code>combine</code> takes a list of steps in the order they happen. Note that each new step goes on the <em>left</em>. The numbers match the demo's starting values: the usual order puts the nose at (4, 2), the swapped order at (0, 5).</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- y grows downwards, so a positive angle turns clockwise.</span>
+<span class="c">-- A transform keeps the top two rows of the matrix: a c tx / b d ty.</span>
+local function makeScale(sx, sy) return { a = sx, b = 0, c = 0, d = sy, tx = 0, ty = 0 } end
+local function makeMove(tx, ty)  return { a = 1, b = 0, c = 0, d = 1, tx = tx, ty = ty } end
+local function makeRotate(angle)
+  local cosA, sinA = math.cos(angle), math.sin(angle)
+  return { a = cosA, b = sinA, c = -sinA, d = cosA, tx = 0, ty = 0 }
+end
+
+<span class="c">-- multiply(A, B) means "B first, then A".</span>
+local function multiply(A, B)
+  return {
+    a = A.a * B.a + A.c * B.b,  c = A.a * B.c + A.c * B.d,
+    b = A.b * B.a + A.d * B.b,  d = A.b * B.c + A.d * B.d,
+    tx = A.a * B.tx + A.c * B.ty + A.tx,
+    ty = A.b * B.tx + A.d * B.ty + A.ty,
+  }
+end
+
+<span class="c">-- steps are listed in the order they happen to the ship</span>
+local function combine(steps)
+  local m = makeScale(1, 1)                  <span class="c">-- identity: changes nothing</span>
+  for _, step in ipairs(steps) do
+<span class="k">    m = multiply(step, m)                    -- the newest step goes on the left</span>
+  end
+  return m
+end
+
+local function transformPoint(m, x, y)
+  return m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty
+end
+
+local scale, rotate, move = makeScale(2, 1), makeRotate(math.rad(90)), makeMove(4, 0)
+local usual   = combine({ scale, rotate, move })   <span class="c">-- nose lands on (4, 2)</span>
+local swapped = combine({ move, rotate, scale })   <span class="c">-- nose lands on (0, 5)</span>
+
+local UNIT, ORIGIN_X, ORIGIN_Y = 40, 200, 150
+local SHIP = { {1, 0}, {-1, 1}, {-0.5, 0}, {-1, -1} }   <span class="c">-- nose, wing, notch, wing</span>
+
+local function drawShip(m)
+  local points = {}
+  for _, p in ipairs(SHIP) do
+    local x, y = transformPoint(m, p[1], p[2])
+    table.insert(points, ORIGIN_X + x * UNIT)
+    table.insert(points, ORIGIN_Y + y * UNIT)
+  end
+  love.graphics.polygon("line", points)
+end
+
+function love.draw()
+  drawShip(usual)
+  drawShip(swapped)
+end</code></pre>
+  </div>
+  <p>LÖVE's own drawing transform works the same way, which surprises many people: the calls are written move, rotate, scale, but the shape feels them in the reverse order, because each call goes on the right of the current transform.</p>
+<pre><code>love.graphics.push()
+love.graphics.translate(x, y)   <span class="c">-- happens to the shape last</span>
+love.graphics.rotate(angle)
+love.graphics.scale(2, 1)       <span class="c">-- happens to the shape first</span>
+drawShipAtOrigin()              <span class="c">-- your own function that draws around (0, 0)</span>
+love.graphics.pop()</code></pre>
+  <p>Built-in versions: Godot's <code>Transform2D</code> and Unity's <code>Matrix4x4</code> both multiply with <code>*</code>, and in both <code>A * B</code> applies B first. Unity's <code>Matrix4x4.TRS</code> builds the usual order, scale then rotate then move, in one call.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reading the product left to right.</strong> <code>Move × Rotate × Scale</code> scales first. When an engine call surprises you, test it on (1, 0) with a 90 degree turn and a move of (4, 0).</li>
+    <li><strong>Rotating or scaling after the move.</strong> The ship orbits the corner of the screen, or jumps away when it grows. Put the move last, or use move, rotate, move back for a pivot.</li>
+    <li><strong>Non-uniform scale after a rotation slants the shape.</strong> Set the order to Rotate → Scale → Move, the angle to 45 and scale x to 2: the ship comes out slanted (<dfn>sheared</dfn>). That shape cannot be described by one scale, one angle and one position any more, so reading them back from the matrix gives nonsense.</li>
+    <li><strong>Wrapping angles is safe.</strong> Rotations of 450 and −270 degrees give the same matrix as 90, so wrapping the angle never changes the result, apart from rounding.</li>
+    <li><strong>Combining per point.</strong> Multiplying is associative: (A × B) × C equals A × (B × C). So combine the steps once per object per frame, then apply the one matrix to every point, not three matrices to each point.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot and Unity, like most engines, store an object's transform in the usual order, scale then rotate then move, which is why the position you type into the editor is exactly where the object's origin appears. Unity's <code>Matrix4x4.TRS</code> is named after that order, written right to left as translate, rotate, scale.</p>
+  <p>You meet the order yourself when drawing with <code>love.graphics.translate</code> and <code>rotate</code>, turning a door or turret around a hinge, zooming a camera around the mouse instead of the screen corner, and making orbits, which the swapped order gives for free.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a sign that swings on a hinge. Draw a rectangle from (−1, 0) to (1, 2) around its own origin, and hang it from a hinge at local (0, 0). Build its matrix with <code>combine({ rotate, move })</code>, where the angle is <code>0.4 * math.sin(time)</code> and the move puts the hinge at the screen point you want.</p>
+  <p>Then move the hinge to the sign's top-left corner, (−1, 0), using the pivot trick: <code>combine({ makeMove(1, 0), rotate, makeMove(-1, 0), move })</code>. You are done when the first version swings from its top middle, the second from its corner, and swapping <code>rotate</code> and <code>move</code> makes the sign fly in a wide arc instead.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Scale and rotate always work around the origin, so they only act "on the spot" while the object is still at (0, 0).</li>
+    <li>The usual order for placing an object is scale, then rotate, then move.</li>
+    <li>Combining steps is matrix multiplication, and A × B means B first, then A. Written as matrices, the usual order is Move × Rotate × Scale.</li>
+    <li>Swapping the order of a move with anything else changes the result. Use that on purpose to rotate around a pivot or to orbit.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we chain transforms from parent to child, so a robot's hand follows its elbow, which follows its shoulder.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapters on matrices and combining transformations.</li>
+    <li>Grant Sanderson (3Blue1Brown), <cite>Essence of Linear Algebra</cite>, the video "Matrix multiplication as composition", which shows why order matters with the same "follow the arrows" picture.</li>
+    <li>LÖVE wiki, <cite>love.graphics.translate</cite>, <cite>love.graphics.rotate</cite> and <cite>love.graphics.push</cite>.</li>
+    <li>Godot Engine documentation, <cite>Matrices and transforms</cite>.</li>
+    <li>Unity Scripting API, <cite>Matrix4x4.TRS</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World positions in grid units, y pointing down. The ship as drawn: nose, wing, notch, wing.
+  var SHIP = [[1, 0], [-1, 1], [-0.5, 0], [-1, -1]];
+  var NAMES = { S: 'Scale', R: 'Rotate', M: 'Move' };
+  var ORDERS = ['SRM', 'SMR', 'RSM', 'RMS', 'MSR', 'MRS'];
+  var order = ['S', 'R', 'M'];
+  var st = { sx: 2, sy: 1, angle: 90, tx: 4, ty: 0, progress: 3 };
+  var L = { cx: 180, cy: 260, U: 22, top: 56, cardW: 100, cardH: 36, cardX0: 8, gap: 10 };
+  var cardDrag = null;     // { kind, offset, x }
+  var moveDrag = false;
+  var playing = false;
+  var lastT = 0;
+  var handle = null;
+  var outCache = {};
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) &&
+    !/(^|[#&])gdd-test\b/.test(window.location.hash);
+
+  function redraw() { if (handle) handle.redraw(); }
+  function orderLabel(o) {
+    return o.split('').map(function (k) { return NAMES[k]; }).join(' → ');
+  }
+
+  var ui = DemoKit.controls('[data-demo="transform-order"]');
+  var selOrder = ui.select({ label: 'Order', value: 'SRM',
+    options: ORDERS.map(function (o) { return { value: o, label: orderLabel(o) }; }),
+    onChange: function (v) { order = v.split(''); redraw(); } });
+  var sProg = ui.slider({ label: 'Steps applied', min: 0, max: 3, step: 0.05, value: st.progress,
+    onInput: function (v) { playing = false; st.progress = v; redraw(); } });
+  ui.button({ label: 'Play steps', onClick: play });
+  var sSx = ui.slider({ label: 'Scale x', min: 0.5, max: 2, step: 0.25, value: st.sx,
+    onInput: function (v) { st.sx = v; redraw(); } });
+  var sSy = ui.slider({ label: 'Scale y', min: 0.5, max: 2, step: 0.25, value: st.sy,
+    onInput: function (v) { st.sy = v; redraw(); } });
+  var sAng = ui.slider({ label: 'Angle', min: -180, max: 180, step: 15, value: st.angle, unit: '°',
+    onInput: function (v) { st.angle = v; redraw(); } });
+  var sTx = ui.slider({ label: 'Move x', min: -4, max: 4, step: 0.5, value: st.tx,
+    onInput: function (v) { st.tx = v; redraw(); } });
+  var sTy = ui.slider({ label: 'Move y', min: -4, max: 4, step: 0.5, value: st.ty,
+    onInput: function (v) { st.ty = v; redraw(); } });
+  var tUsual = ui.toggle({ label: 'Show the usual order', value: true, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    order = ['S', 'R', 'M'];
+    st.sx = 2; st.sy = 1; st.angle = 90; st.tx = 4; st.ty = 0; st.progress = 3;
+    playing = false;
+    sync();
+    redraw();
+  } });
+  var outWritten = ui.readout({ label: 'Written as matrices' });
+  var outNose = ui.readout({ label: 'Nose (1, 0), step by step' });
+  var outMat = ui.readout({ label: 'Combined matrix' });
+
+  function sync() {
+    selOrder.set(order.join(''));
+    sProg.set(st.progress);
+    sSx.set(st.sx); sSy.set(st.sy); sAng.set(st.angle); sTx.set(st.tx); sTy.set(st.ty);
+  }
+
+  function play() {
+    if (reduced) { st.progress = 3; sProg.set(3); redraw(); return; }
+    st.progress = 0;
+    sProg.set(0);
+    playing = true;
+    lastT = 0;
+    requestAnimationFrame(tick);
+  }
+  function tick(t) {
+    if (!playing) return;
+    var dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 0;
+    lastT = t;
+    st.progress = Math.min(3, st.progress + dt * 0.8);
+    sProg.set(Math.round(st.progress * 20) / 20);
+    redraw();
+    if (st.progress >= 3) { playing = false; return; }
+    requestAnimationFrame(tick);
+  }
+
+  // --- maths -------------------------------------------------------------------------------
+  function identity() { return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }; }
+  function stepMatrix(kind, f) {
+    if (kind === 'S') {
+      return { a: 1 + (st.sx - 1) * f, b: 0, c: 0, d: 1 + (st.sy - 1) * f, tx: 0, ty: 0 };
+    }
+    if (kind === 'R') {
+      var r = st.angle * f * Math.PI / 180, co = Math.cos(r), si = Math.sin(r);
+      return { a: co, b: si, c: -si, d: co, tx: 0, ty: 0 };
+    }
+    return { a: 1, b: 0, c: 0, d: 1, tx: st.tx * f, ty: st.ty * f };
+  }
+  // multiply(A, B): B first, then A.
+  function multiply(A, B) {
+    return {
+      a: A.a * B.a + A.c * B.b, c: A.a * B.c + A.c * B.d,
+      b: A.b * B.a + A.d * B.b, d: A.b * B.c + A.d * B.d,
+      tx: A.a * B.tx + A.c * B.ty + A.tx,
+      ty: A.b * B.tx + A.d * B.ty + A.ty
+    };
+  }
+  function apply(m, x, y) { return { x: m.a * x + m.c * y + m.tx, y: m.b * x + m.d * y + m.ty }; }
+  function compose(ord, progress) {
+    var m = identity();
+    for (var i = 0; i < 3; i++) {
+      var f = DemoKit.clamp(progress - i, 0, 1);
+      if (f > 0) m = multiply(stepMatrix(ord[i], f), m);
+    }
+    return m;
+  }
+
+  // --- formatting --------------------------------------------------------------------------
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+  function num(n) {
+    n = Math.round(n * 100) / 100;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n) : String(n);
+  }
+  function pair(x, y) { return '(' + num(x) + ', ' + num(y) + ')'; }
+  function wrap180(d) {
+    d = ((d % 360) + 360) % 360;
+    return d > 180 ? d - 360 : d;
+  }
+
+  // --- layout ------------------------------------------------------------------------------
+  function layout(s) {
+    L.top = 56;
+    L.gap = s.width < 400 ? 22 : 30;
+    L.cardW = Math.min(120, Math.floor((s.width - 16 - 2 * L.gap) / 3));
+    L.cardX0 = Math.round((s.width - (3 * L.cardW + 2 * L.gap)) / 2);
+    var gh = s.height - L.top;
+    L.U = Math.max(14, Math.floor(Math.min(s.width / 15, gh / 15)));
+    L.cx = Math.round(s.width / 2 - L.U);
+    L.cy = Math.round(L.top + gh * 0.42);
+  }
+  function slotX(i) { return L.cardX0 + i * (L.cardW + L.gap); }
+  function toScreen(x, y) { return { x: L.cx + x * L.U, y: L.cy + y * L.U }; }
+  function toWorld(p) { return { x: (p.x - L.cx) / L.U, y: (p.y - L.cy) / L.U }; }
+  function inGrid(p, s) { return p.x > 4 && p.x < s.width - 4 && p.y > L.top + 4 && p.y < s.height - 4; }
+
+  // --- drawing helpers ---------------------------------------------------------------------
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var CARD = '600 14px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 13px ui-monospace, Menlo, Consolas, monospace';
+
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  function shipPath(ctx, m) {
+    ctx.beginPath();
+    for (var i = 0; i < SHIP.length; i++) {
+      var w = apply(m, SHIP[i][0], SHIP[i][1]);
+      var q = toScreen(w.x, w.y);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.closePath();
+  }
+  function label(ctx, text, x, y, color, bg, align) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    var left = align === 'left' ? x : (align === 'right' ? x - w : x - w / 2);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(left - 3, y - 11, w + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, left, y);
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function drawCard(ctx, s, kind, x, idx, color, active, lifted) {
+    var c = s.colors, y = 8;
+    ctx.fillStyle = c.surface;
+    roundRect(ctx, x, y, L.cardW, L.cardH, 7);
+    ctx.fill();
+    if (active) {
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lifted ? 3.5 : 2;
+    ctx.stroke();
+    ctx.font = CARD;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText((idx + 1) + '  ' + NAMES[kind], x + L.cardW / 2, y + 23);
+    ctx.textAlign = 'left';
+  }
+
+  // --- canvas ------------------------------------------------------------------------------
+  handle = DemoKit.canvas('#transform-order', {
+    height: 500,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Three step cards, Scale, Rotate and Move, sit above a grid with y pointing down. The ship is scaled, rotated and moved in the order of the cards. Drag a card to reorder the steps, drag on the grid to set the move target. Arrow keys move the target, Q and E turn.',
+    onResize: function (s) { layout(s); },
+    onDown: function (p, s) {
+      layout(s);
+      if (p.y < L.top - 4) {
+        for (var i = 0; i < 3; i++) {
+          var x = slotX(i);
+          if (p.x >= x && p.x <= x + L.cardW) {
+            cardDrag = { kind: order[i], offset: p.x - x, x: x };
+            redraw();
+            return;
+          }
+        }
+        return;
+      }
+      moveDrag = true;
+      dragMove(p);
+    },
+    onMove: function (p, s) {
+      if (!p.down) return;
+      if (cardDrag) {
+        var span = 3 * L.cardW + 2 * L.gap;
+        cardDrag.x = DemoKit.clamp(p.x - cardDrag.offset, L.cardX0, L.cardX0 + span - L.cardW);
+        var centre = cardDrag.x + L.cardW / 2 - L.cardX0;
+        var slot = DemoKit.clamp(Math.floor(centre / (L.cardW + L.gap)), 0, 2);
+        var cur = order.indexOf(cardDrag.kind);
+        if (slot !== cur) {
+          order.splice(cur, 1);
+          order.splice(slot, 0, cardDrag.kind);
+          selOrder.set(order.join(''));
+        }
+        redraw();
+      } else if (moveDrag) {
+        dragMove(p);
+      }
+    },
+    onUp: function () {
+      cardDrag = null;
+      moveDrag = false;
+      redraw();
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') st.tx += 1;
+      else if (key === 'arrowleft') st.tx -= 1;
+      else if (key === 'arrowdown') st.ty += 1;
+      else if (key === 'arrowup') st.ty -= 1;
+      else if (key === 'e') st.angle = wrap180(st.angle + 15);
+      else if (key === 'q') st.angle = wrap180(st.angle - 15);
+      else return;
+      st.tx = DemoKit.clamp(st.tx, -4, 4);
+      st.ty = DemoKit.clamp(st.ty, -4, 4);
+      sync();
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var COL = {
+        S: cssVar('--t-game-physics', '#1f6fd6'),
+        R: cssVar('--t-game-math', '#2a7d35'),
+        M: c.warn
+      };
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      layout(s);
+      var U = L.U, cx = L.cx, cy = L.cy, i, k;
+
+      // Grid and axes, below the card strip.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, L.top, s.width, s.height - L.top);
+      ctx.clip();
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      var nx0 = Math.ceil(cx / U) + 1, nx1 = Math.ceil((s.width - cx) / U) + 1;
+      var ny0 = Math.ceil((cy - L.top) / U) + 1, ny1 = Math.ceil((s.height - cy) / U) + 1;
+      for (i = -nx0; i <= nx1; i++) line(ctx, cx + i * U + 0.5, L.top, cx + i * U + 0.5, s.height);
+      for (i = -ny0; i <= ny1; i++) line(ctx, 0, cy + i * U + 0.5, s.width, cy + i * U + 0.5);
+      ctx.strokeStyle = c.ink3;
+      line(ctx, 0, cy + 0.5, s.width, cy + 0.5);
+      line(ctx, cx + 0.5, L.top, cx + 0.5, s.height);
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      var every = U >= 24 ? 1 : 2;
+      for (i = -nx0; i <= nx1; i++) {
+        if (i !== 0 && i % every === 0) ctx.fillText(String(i).replace('-', '−'), cx + i * U, cy + 14);
+      }
+      ctx.textAlign = 'right';
+      for (i = -ny0; i <= ny1; i++) {
+        if (i !== 0 && i % every === 0) ctx.fillText(String(i).replace('-', '−'), cx - 4, cy + i * U + 4);
+      }
+      ctx.fillText('x →', s.width - 8, cy - 6);
+      ctx.textAlign = 'left';
+      ctx.fillText('y ↓', cx + 6, L.top + 14);
+
+      // The ship as drawn, at the origin.
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      shipPath(ctx, identity());
+      ctx.stroke();
+
+      // The usual order, for comparison.
+      var key = order.join('');
+      var usual = compose(['S', 'R', 'M'], 3);
+      if (tUsual.value && key !== 'SRM') {
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 4]);
+        shipPath(ctx, usual);
+        ctx.stroke();
+        var up = toScreen(usual.tx, usual.ty);
+        ctx.setLineDash([]);
+        ctx.font = SMALL;
+        ctx.fillStyle = c.ink2;
+        ctx.textAlign = 'center';
+        ctx.fillText('usual order', up.x, up.y - 2.2 * U * Math.max(st.sx, st.sy) / 2 - 6);
+        ctx.textAlign = 'left';
+      }
+
+      // Ghosts after each full step, and the path of the ship's centre through each step.
+      for (i = 0; i < 3; i++) {
+        if (st.progress <= i) break;
+        var before = compose(order, i);
+        var fEnd = Math.min(1, st.progress - i);
+        ctx.strokeStyle = COL[order[i]];
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        for (k = 0; k <= 32; k++) {
+          var m = multiply(stepMatrix(order[i], fEnd * k / 32), before);
+          var q = toScreen(m.tx, m.ty);
+          if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+        }
+        ctx.stroke();
+        if (i < 2 && st.progress >= i + 1) {
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.globalAlpha = 0.75;
+          shipPath(ctx, compose(order, i + 1));
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+      ctx.setLineDash([]);
+
+      // Move target.
+      var T = toScreen(st.tx, st.ty);
+      ctx.strokeStyle = COL.M;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(T.x, T.y, 9, 0, Math.PI * 2); ctx.stroke();
+      line(ctx, T.x - 14, T.y, T.x - 5, T.y); line(ctx, T.x + 5, T.y, T.x + 14, T.y);
+      line(ctx, T.x, T.y - 14, T.x, T.y - 5); line(ctx, T.x, T.y + 5, T.x, T.y + 14);
+      var tLeft = T.x > 150;
+      var moveLabelY = T.y + 26;
+      label(ctx, 'move ' + pair(st.tx, st.ty), T.x + (tLeft ? -16 : 16), moveLabelY, COL.M, c.surface,
+        tLeft ? 'right' : 'left');
+
+      // The ship now.
+      var cur = compose(order, st.progress);
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = c.ink;
+      shipPath(ctx, cur);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      shipPath(ctx, cur);
+      ctx.stroke();
+      var C = toScreen(cur.tx, cur.ty);
+      ctx.fillStyle = c.ink;
+      ctx.beginPath(); ctx.arc(C.x, C.y, 4, 0, Math.PI * 2); ctx.fill();
+      var nose = apply(cur, 1, 0);
+      var N = toScreen(nose.x, nose.y);
+      ctx.fillStyle = purple;
+      ctx.beginPath(); ctx.arc(N.x, N.y, 5.5, 0, Math.PI * 2); ctx.fill();
+      var nRight = N.x < s.width - 140;
+      var noseLabelY = N.y + 20;
+      if (Math.abs(N.x - T.x) < 170 && Math.abs(noseLabelY - moveLabelY) < 18) noseLabelY = moveLabelY + 18;
+      label(ctx, 'nose ' + pair(nose.x, nose.y), N.x + (nRight ? 12 : -12), noseLabelY, purple, c.surface,
+        nRight ? 'left' : 'right');
+      ctx.restore();
+
+      // Off-screen marker.
+      if (!inGrid(C, s)) {
+        var ex = DemoKit.clamp(C.x, 20, s.width - 20), ey = DemoKit.clamp(C.y, L.top + 20, s.height - 20);
+        var ang = Math.atan2(C.y - ey, C.x - ex);
+        ctx.fillStyle = c.bad;
+        ctx.beginPath();
+        ctx.moveTo(ex + Math.cos(ang) * 12, ey + Math.sin(ang) * 12);
+        ctx.lineTo(ex + Math.cos(ang + 2.5) * 10, ey + Math.sin(ang + 2.5) * 10);
+        ctx.lineTo(ex + Math.cos(ang - 2.5) * 10, ey + Math.sin(ang - 2.5) * 10);
+        ctx.closePath();
+        ctx.fill();
+        var offText = 'ship off screen at ' + pair(cur.tx, cur.ty);
+        ctx.font = LABEL;
+        var ow = ctx.measureText(offText).width;
+        var lx = DemoKit.clamp(ex - ow / 2, 8, s.width - ow - 8);
+        var ly = ey > s.height / 2 ? ey - 18 : ey + 26;
+        label(ctx, offText, lx, ly, c.bad, c.surface, 'left');
+      }
+
+      // Step cards. Arrows between the slots show the direction of time.
+      ctx.strokeStyle = c.ink3;
+      ctx.fillStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      for (i = 0; i < 2; i++) {
+        var ax = slotX(i) + L.cardW + 4, bx = slotX(i + 1) - 4, ay = 8 + L.cardH / 2;
+        line(ctx, ax, ay, bx - 5, ay);
+        ctx.beginPath(); ctx.moveTo(bx, ay); ctx.lineTo(bx - 7, ay - 4); ctx.lineTo(bx - 7, ay + 4); ctx.closePath(); ctx.fill();
+      }
+      for (i = 0; i < 3; i++) {
+        if (cardDrag && order[i] === cardDrag.kind) continue;
+        var activeStep = st.progress > i && st.progress < i + 1;
+        drawCard(ctx, s, order[i], slotX(i), i, COL[order[i]], activeStep || st.progress >= 3, false);
+      }
+      if (cardDrag) {
+        var di = order.indexOf(cardDrag.kind);
+        drawCard(ctx, s, cardDrag.kind, cardDrag.x, di, COL[cardDrag.kind], true, true);
+      }
+
+      // Readouts.
+      var rev = order.slice().reverse().map(function (kk) { return NAMES[kk]; });
+      setOut(outWritten, 'w', 'M = ' + rev.join(' × ') + ', read right to left: ' + NAMES[order[0]] + ' happens first');
+      var steps = ['(1, 0)'];
+      for (i = 1; i <= 3; i++) {
+        var pi = apply(compose(order, i), 1, 0);
+        steps.push(NAMES[order[i - 1]].toLowerCase() + ' ' + pair(pi.x, pi.y));
+      }
+      setOut(outNose, 'n', steps.join(' → '));
+      var full = compose(order, 3);
+      setOut(outMat, 'm', 'a ' + num(full.a) + ', c ' + num(full.c) + ', tx ' + num(full.tx) +
+        ' / b ' + num(full.b) + ', d ' + num(full.d) + ', ty ' + num(full.ty));
+    }
+  });
+
+  function dragMove(p) {
+    var w = toWorld(p);
+    st.tx = DemoKit.clamp(Math.round(w.x * 2) / 2, -4, 4);
+    st.ty = DemoKit.clamp(Math.round(w.y * 2) / 2, -4, 4);
+    sTx.set(st.tx); sTy.set(st.ty);
+    redraw();
+  }
+})();
+</script>
+</body>
+</html>

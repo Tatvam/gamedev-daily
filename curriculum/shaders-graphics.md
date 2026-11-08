@@ -36,7 +36,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Blinn-Phong specular** — How the half vector creates highlights and how shininess controls their size. Demo: sliders for shininess and specular strength change a lit sphere. (published 2026-11-05, blinn-phong-specular)
 - [x] **Normal maps** — How a texture of stored normals fakes fine surface detail on flat geometry. Demo: a generated bump pattern is lit by a draggable light with a strength slider. (published 2026-11-06, normal-maps)
 - [x] **Lighting 2D sprites** — How normal maps let flat sprites react to lights in a 2D game. Demo: drag a coloured light around a sprite generated in code with a toggle for the normal map. (published 2026-11-07, lighting-2d-sprites)
-- [ ] **Rim light and Fresnel** — How surfaces that face away from the viewer can glow at their edges. Demo: sliders for rim power and colour light the edge of a sphere.
+- [x] **Rim light and Fresnel** — How surfaces that face away from the viewer can glow at their edges. Demo: sliders for rim power and colour light the edge of a sphere. (published 2026-11-08, rim-light-fresnel)
 - [ ] **Toon shading** — How quantising light into bands produces a cartoon look. Demo: a band count slider and an edge softness slider restyle a lit sphere, with a toggle for a hard specular spot.
 - [ ] **Outlines for 3D shapes** — How outlines can be drawn from the view angle or from edges in depth and normals, and how the inverted hull method does the same with geometry. Demo: toggle between a view angle outline and an edge detection outline on a shaded shape with a thickness slider.
 

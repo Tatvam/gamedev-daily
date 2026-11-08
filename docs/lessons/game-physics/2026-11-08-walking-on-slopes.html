@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slopes · Game Dev Daily</title>
+<meta name="description" content="How to walk a character along an angled floor at a steady speed, stop it creeping downhill, and refuse slopes steeper than a maximum angle.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-08">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Slopes</h1>
+  <p class="lede">How to walk a character along an angled floor at a steady speed, stop it creeping downhill, and refuse slopes steeper than a maximum angle.</p>
+</header>
+
+<section data-section="hook">
+  <p>You let go of the stick on a gentle hill and the hero slowly slides down it. Hold right instead and the same hero runs up a cliff that was meant to block the way, faster than on flat ground, then skips back down in little hops.</p>
+  <p>All of this comes from treating a slope as flat ground or as a wall. It is neither, and it needs two rules of its own.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two common ways to get slopes wrong</h2>
+  <p><strong>Move on x, push up.</strong> The character moves sideways at its run speed and any overlap with the ground is fixed by lifting it straight up. On a slope every step sideways also becomes a lift, so the character climbs anything, and the steeper the slope, the faster it goes. On the way down it walks off the surface and falls back onto it: the hopping.</p>
+  <p><strong>Gravity, then slide.</strong> This is the method from <a href="2026-11-06-sliding-along-walls.html">sliding along walls</a>: push out along the contact normal and remove the velocity that points into the surface. That is right for a box on an icy ramp. For a character it is wrong: gravity has a part that runs along the slope, the slide keeps exactly that part, and a standing character creeps downhill.</p>
+  <p>Measured in the demo on its default 30 degree hill (run speed 160 px/s, gravity 1800 px/s², 60 steps per second), with speeds taken along the surface:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Method</th><th class="num">Uphill</th><th class="num">Downhill</th><th>Standing still</th><th>60° slope</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Move on x, push up</td><td class="num">185 px/s</td><td class="num">163 to 219 px/s, hopping</td><td>stays</td><td>climbs at 320 px/s</td></tr>
+      <tr><td>Gravity, then slide</td><td class="num">165 px/s</td><td class="num">205 px/s</td><td>creeps down at 20 px/s</td><td>climbs at 216 px/s</td></tr>
+      <tr><td>Along the floor, with a limit</td><td class="num">160 px/s</td><td class="num">160 px/s</td><td>stays</td><td>stops at the foot</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>The floor normal tells you the angle</h2>
+  <p>When the character touches the ground, the collision test gives you a <dfn>contact normal</dfn>: a vector of length 1 that points out of the surface. Everything we need comes from it.</p>
+  <p>The angle of a slope is the angle between its normal and straight up. The dot product of two unit vectors is the cosine of the angle between them, so:</p>
+<pre><code>cos(slopeAngle) = n · up</code></pre>
+  <p>In words: the more the normal points up, the flatter the floor. In LÖVE y points down the screen, so up is <code>(0, -1)</code> and the dot product is just <code>-n.y</code>. A flat floor, <code>n = (0, -1)</code>, gives 1: the cosine of 0 degrees.</p>
+  <p>To decide if a surface is a floor, compare it with the steepest slope you want the character to walk on, the <dfn>maximum walkable angle</dfn>:</p>
+<pre><code>isFloor = -n.y &gt;= cos(maxAngle)</code></pre>
+  <p>In words: the surface is a floor if its normal lies inside a cone around up. Comparing cosines saves an inverse cosine per contact, but note the flip: a <em>bigger</em> cosine means a <em>flatter</em> slope.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="A slope rising to the right at angle theta. From a contact point on it, three arrows: straight up, the normal tilted back by the same angle theta, and the tangent along the surface. A shaded cone 45 degrees either side of up marks the normals that count as floor.">
+      <path class="d-fill" d="M144 260 L456 80 L456 260 Z"/>
+      <path class="d-stroke" d="M144 260 L456 80"/>
+      <path class="d-dash" d="M144 260 H270"/>
+      <path class="d-thin" d="M194 260 A50 50 0 0 0 187.3 235"/>
+      <text class="d-text" x="206" y="250">θ</text>
+      <path class="d-accent-soft" d="M300 170 L215.1 85.1 A120 120 0 0 1 384.9 85.1 Z"/>
+      <path class="d-thin" d="M300 170 V60"/>
+      <path class="d-thin" d="M294 70 L300 60 L306 70"/>
+      <text class="d-label" x="300" y="40" text-anchor="middle">up (0, −1)</text>
+      <path class="d-accent" d="M300 170 L245 74.7"/>
+      <path class="d-accent" d="M241.6 86.3 L245 74.7 L252 80.3"/>
+      <text class="d-label" x="236" y="66" text-anchor="end">normal n</text>
+      <path class="d-thin" d="M300 130 A40 40 0 0 0 280 135.4"/>
+      <text class="d-text" x="284" y="118" text-anchor="middle">θ</text>
+      <path class="d-accent" d="M300 170 L395.3 115"/>
+      <path class="d-accent" d="M383.5 115.4 L395.3 115 L389.2 125.3"/>
+      <text class="d-label" x="404" y="146">tangent t</text>
+      <text class="d-muted" x="392" y="66">walkable: within</text>
+      <text class="d-muted" x="392" y="82">45° of up</text>
+      <circle class="d-accent-fill" cx="300" cy="170" r="4"/>
+      <text class="d-mono" x="472" y="186">cos θ = −n.y</text>
+      <text class="d-mono" x="472" y="212">floor if</text>
+      <text class="d-mono" x="472" y="230">−n.y ≥ cos 45°</text>
+      <text class="d-mono" x="472" y="256">t = (−n.y, n.x)</text>
+    </svg>
+    <figcaption>The normal leans back from up by the same angle θ that the slope rises from the ground. If the normal falls inside the shaded cone, the surface is a floor. The tangent runs along the floor and is the direction to walk.</figcaption>
+  </figure>
+
+  <h2>Rule 1: on a floor, walk along the tangent</h2>
+  <p>The <dfn>tangent</dfn> is the direction along the surface. In 2D you get it by turning the normal a quarter turn:</p>
+<pre><code>t = (-n.y, n.x)</code></pre>
+  <p>In words: swap the two parts and negate one, and the vector lies along the floor, pointing right. On flat ground <code>n = (0, -1)</code> gives <code>t = (1, 0)</code>. On a 30 degree hill rising to the right, <code>n = (-0.5, -0.866)</code> gives <code>t = (0.866, -0.5)</code>: right and up.</p>
+  <p>Set the velocity to <code>t * input * SPEED</code>. One step of 1/60 s moves the character 2.31 pixels right and 1.33 up: 2.67 pixels along the slope, exactly 160 pixels per second. The push-up method moves 2.67 right and 1.54 up, 3.08 pixels per step, which is the 185 in the table.</p>
+  <p>Real people slow down uphill. Most games do not, because a run speed that changes with the ground feels like slipping controls. If you want hills to slow the player, scale the speed on purpose instead of getting it as a side effect.</p>
+
+  <h2>Rule 2: on a floor, switch gravity off</h2>
+  <p>The part of gravity along the slope is what made the slide method creep. A real person is held in place by friction, which you could model as in <a href="2026-11-05-contact-friction.html">contact friction</a>. For a character there is a simpler, exact answer: while it stands on a floor its velocity comes only from the input, and gravity is not added at all. Gravity starts again the moment the floor is gone.</p>
+  <p>This is where the physically correct answer and the good game answer part ways. A character is not a box. It should stand where the player left it.</p>
+
+  <h2>Steep slopes act as walls</h2>
+  <p>A surface that fails the floor test is too steep to stand on, so gravity stays on. But a push out along its real normal has an upward part, and a player holding right could still inch up. So treat a steep slope as a vertical wall: push out sideways only and remove only the sideways velocity into it. Gravity then wins, and the character slides to the foot.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Start with a maximum walkable angle of 45 degrees, the default in both Godot and Unity, then tune it while playing. Draw the normal and the cone while you tune.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both panels share the hill, the input and the fixed timestep. The left runs a broken method, the right runs both rules. A script walks each character to the middle of a slope, waits, and moves on. Watch the speed while they wait, and the trail dots on the way down.</p>
+  <p>Then raise the slope angle past 45 degrees: the right character stops at the foot, the left walks straight up. Lower the maximum walkable angle to turn the same hill into a wall. To steer, use the arrow keys (or A and D) on a panel, or hold a finger or the mouse on the side to walk towards.</p>
+
+  <figure class="demo wide" data-demo="slopes">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="slope-broken"></canvas><span class="demo-label" id="slope-broken-label">Move on x, push up</span></div>
+      <div class="demo-stage"><canvas id="slope-fixed"></canvas><span class="demo-label">Along the floor, with a limit</span></div>
+    </div>
+    <figcaption>Green ground is walkable, red is too steep (right panel only). The arrow from the contact point is the normal, the wedge is the walkable cone, the dashed line is the tangent and the arrow from the centre is the velocity. Dots are earlier positions.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The right-hand panel as a LÖVE program, with the demo's numbers. The character is a circle of radius 10 and the ground is a list of segments. <code>findContacts</code> is the closest-point test from <a href="2026-10-24-circle-box-collision.html">circle against box</a>, done for segments, and also reports surfaces up to 2 pixels away so a character resting exactly on the floor stays grounded.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED, GRAVITY, MAX_FALL = 160, 1800, 540   <span class="c">-- px/s, px/s², px/s (y points down)</span>
+local R, SKIN = 10, 2                              <span class="c">-- circle radius, contact margin</span>
+local COS_MAX = math.cos(math.rad(45))             <span class="c">-- steepest walkable slope</span>
+local STEP, accumulator = 1 / 60, 0
+local ground = {}   <span class="c">-- your level: segments { ax = , ay = , bx = , by = }</span>
+local player = { x = 40, y = 240, vx = 0, vy = 0, grounded = false, gnx = 0, gny = -1 }
+
+local function isFloor(nx, ny)
+<span class="k">  return -ny &gt;= COS_MAX                    -- n . up, with up = (0, -1)</span>
+end
+
+local function findContacts(p)
+  local list = {}
+  for _, s in ipairs(ground) do
+    local dx, dy = s.bx - s.ax, s.by - s.ay
+    local t = ((p.x - s.ax) * dx + (p.y - s.ay) * dy) / (dx * dx + dy * dy)
+    t = math.max(0, math.min(1, t))
+    local ex, ey = p.x - (s.ax + t * dx), p.y - (s.ay + t * dy)
+    local d = math.sqrt(ex * ex + ey * ey)
+    if d &gt; 0 and d &lt; R + SKIN then
+      list[#list + 1] = { nx = ex / d, ny = ey / d, depth = R - d }
+    end
+  end
+  return list
+end
+
+local function stepPlayer(p, input, dt)    <span class="c">-- input is -1, 0 or 1</span>
+  if p.grounded then                       <span class="c">-- rules 1 and 2: along the floor, no gravity</span>
+<span class="k">    p.vx = -p.gny * input * SPEED
+    p.vy =  p.gnx * input * SPEED</span>
+  else
+    p.vx = input * SPEED
+    p.vy = math.min(p.vy + GRAVITY * dt, MAX_FALL)
+  end
+  p.x, p.y = p.x + p.vx * dt, p.y + p.vy * dt
+
+  p.grounded = false
+  local best = -math.huge
+  for _, c in ipairs(findContacts(p)) do
+    local nx, ny, depth = c.nx, c.ny, c.depth
+    if isFloor(nx, ny) then
+      p.grounded = true
+      if depth &gt; best then                 <span class="c">-- keep the floor we press into most</span>
+        best, p.gnx, p.gny = depth, nx, ny
+      end
+    elseif ny &lt; 0 then                     <span class="c">-- too steep: act like a vertical wall</span>
+<span class="k">      depth = depth / math.abs(nx)
+      nx, ny = (nx &gt; 0) and 1 or -1, 0</span>
+    end
+    if depth &gt; 0 then                      <span class="c">-- push out of the surface</span>
+      p.x, p.y = p.x + nx * depth, p.y + ny * depth
+    end
+    local into = p.vx * nx + p.vy * ny     <span class="c">-- remove velocity into the surface</span>
+    if into &lt; 0 then
+      p.vx, p.vy = p.vx - into * nx, p.vy - into * ny
+    end
+  end
+end
+
+function love.update(dt)
+  local input = 0
+  if love.keyboard.isDown("left") then input = input - 1 end
+  if love.keyboard.isDown("right") then input = input + 1 end
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    stepPlayer(player, input, STEP)
+    accumulator = accumulator - STEP
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: CharacterBody2D has both rules built into move_and_slide().</span>
+extends CharacterBody2D
+
+const SPEED := 160.0
+const GRAVITY := 1800.0
+
+func _ready() -&gt; void:
+    floor_max_angle = deg_to_rad(45.0)   <span class="c"># steepest walkable slope (45 is the default)</span>
+<span class="k">    floor_stop_on_slope = true           # rule 2: no creeping down when idle
+    floor_constant_speed = true          # rule 1: same speed up and down hills</span>
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.x = Input.get_axis("ui_left", "ui_right") * SPEED
+    if not is_on_floor():
+        velocity.y += GRAVITY * delta
+    move_and_slide()
+    <span class="c"># After the move: is_on_floor(), get_floor_normal() and</span>
+    <span class="c"># rad_to_deg(get_floor_angle()) tell you what you are standing on.</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity's CharacterController (3D) has a slope limit in degrees.</span>
+using UnityEngine;
+
+public class SlopeWalker : MonoBehaviour
+{
+    public float speed = 5f;
+    public float gravity = 20f;
+    CharacterController controller;
+    float fallSpeed;
+
+    void Start()
+    {
+        controller = GetComponent&lt;CharacterController&gt;();
+<span class="k">        controller.slopeLimit = 45f;   // steepest walkable slope</span>
+    }
+
+    void Update()
+    {
+        Vector3 move = transform.forward * Input.GetAxis("Vertical") * speed;
+        if (controller.isGrounded) fallSpeed = -1f;   // small push keeps contact
+        else fallSpeed -= gravity * Time.deltaTime;
+        move.y = fallSpeed;
+        controller.Move(move * Time.deltaTime);
+    }
+
+    void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        float slopeAngle = Vector3.Angle(hit.normal, Vector3.up);   // same test as isFloor
+    }
+}</code></pre>
+  </div>
+  <p>In Godot, <code>floor_stop_on_slope</code> is on by default and <code>floor_constant_speed</code> is off. Unity's <code>CharacterController</code> is not a Rigidbody and is usually moved from <code>Update</code>. A <code>Rigidbody</code> character has no slope limit; you write the floor test yourself from the contact normals.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Grounded for one frame, airborne the next.</strong> A character moving exactly along the floor never overlaps it, so an overlap test says "in the air" every other step. Count contacts within a small margin, like <code>SKIN</code>.</li>
+    <li><strong>Mixing up the y axis.</strong> With y pointing up (Unity, most maths books) the test is <code>n.y &gt;= cos(maxAngle)</code>. Get the sign wrong and ceilings become floors. Writing <code>&lt;=</code> instead of <code>&gt;=</code> makes only steep slopes walkable.</li>
+    <li><strong>Launching off the top of a slope.</strong> Over the crest of a steep hill the floor drops away faster than gravity can follow, and the character flies for a moment. The right panel still does this. Ground snapping, later in this series, fixes it.</li>
+    <li><strong>Picking the wrong floor in a corner.</strong> Where two floors meet, the character touches both. Keep the one it presses into most; taking the first in the list makes the speed stutter at the corner.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Both engines expose the two rules as settings. Godot's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> have <code>floor_max_angle</code>, 45 degrees by default, along with <code>floor_stop_on_slope</code> and <code>floor_constant_speed</code>. Unity's <code>CharacterController</code> has <code>slopeLimit</code>, also 45 degrees by default.</p>
+  <p>Some games make slopes change the speed on purpose. Fans who have studied the classic Sonic the Hedgehog games describe one speed along the ground plus a slope factor that adds speed downhill and removes it uphill: a design choice built on top of rule 1, not a side effect of collision code.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build a 30 degree ramp and a 60 degree ramp in your project and print the character's speed each step. Stand on the 30 degree ramp for five seconds, walk up and down it, then try to climb the 60 degree one.</p>
+  <p>You are done when the character stays put while standing, prints the same speed uphill, downhill and on the flat, and stops at the foot of the steep ramp.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The contact normal holds the slope angle: <code>cos(angle) = n · up</code>, which is <code>-n.y</code> when y points down.</li>
+    <li>A surface is a floor when <code>-n.y &gt;= cos(maxAngle)</code>. Compare cosines, and remember that bigger means flatter.</li>
+    <li>On a floor, set the velocity along the tangent <code>(-n.y, n.x)</code> and do not add gravity. The character keeps its speed and stands still when idle.</li>
+    <li>Treat slopes steeper than the limit as vertical walls, so gravity slides the character down instead of input pushing it up.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next come one-way platforms, which the character can jump up through from below but still land on from above.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference: the floor properties <code>floor_max_angle</code>, <code>floor_stop_on_slope</code> and <code>floor_constant_speed</code>.</li>
+    <li>Unity documentation, <cite>CharacterController</cite> scripting reference: <code>slopeLimit</code> and <code>Move</code>.</li>
+    <li>Sonic Retro community, <cite>Sonic Physics Guide</cite>: a fan-written study of how the classic Sonic games handle ground speed and slopes.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units are pixels in a 400 by 300 world, y pointing down, scaled to fit each canvas.
+  var W = 400, H = 300, BASE = 250;
+  var R = 10, SKIN = 2;
+  var SPEED = 160, GRAVITY = 1800, MAX_FALL = 540;
+  var STEP = 1 / 60;
+  var TRAIL = 40;
+
+  var segs = [];        // { ax, ay, bx, by, wall }
+  var geo = null;
+
+  function buildHill(deg) {
+    var th = deg * Math.PI / 180;
+    var run = 90;
+    var h = run * Math.tan(th);
+    if (h > 120) { h = 120; run = h / Math.tan(th); }
+    var a = 70, top = BASE - h;
+    function seg(ax, ay, bx, by, wall) { return { ax: ax, ay: ay, bx: bx, by: by, wall: !!wall }; }
+    segs = [
+      seg(0, 0, 0, BASE, true),
+      seg(0, BASE, a, BASE),
+      seg(a, BASE, a + run, top),
+      seg(a + run, top, W - a - run, top),
+      seg(W - a - run, top, W - a, BASE),
+      seg(W - a, BASE, W, BASE),
+      seg(W, BASE, W, 0, true)
+    ];
+    geo = { a: a, run: run, top: top, deg: deg };
+  }
+
+  // Every segment within SKIN of the circle: normal, depth and closest point.
+  function findContacts(b) {
+    var list = [];
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      var dx = s.bx - s.ax, dy = s.by - s.ay;
+      var t = ((b.x - s.ax) * dx + (b.y - s.ay) * dy) / (dx * dx + dy * dy);
+      t = Math.max(0, Math.min(1, t));
+      var cx = s.ax + t * dx, cy = s.ay + t * dy;
+      var ex = b.x - cx, ey = b.y - cy;
+      var d = Math.sqrt(ex * ex + ey * ey);
+      if (d > 1e-6 && d < R + SKIN) {
+        list.push({ nx: ex / d, ny: ey / d, depth: R - d, px: cx, py: cy });
+      }
+    }
+    return list;
+  }
+
+  function deepest(b) {
+    var cs = findContacts(b), best = null;
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i].depth > 0 && (!best || cs[i].depth > best.depth)) best = cs[i];
+    }
+    return best;
+  }
+
+  // Broken method 1: move on x, then lift straight up out of the ground.
+  function stepPushUp(b, input) {
+    b.vx = input * SPEED;
+    b.vy = Math.min(b.vy + GRAVITY * STEP, MAX_FALL);
+    b.x += b.vx * STEP;
+    b.y += b.vy * STEP;
+    for (var pass = 0; pass < 4; pass++) {
+      var c = deepest(b);
+      if (!c) break;
+      if (c.ny < -0.05) {
+        b.y -= c.depth / (-c.ny);
+        if (b.vy > 0) b.vy = 0;
+      } else {
+        b.x += c.nx * c.depth;
+        b.y += c.ny * c.depth;
+      }
+    }
+  }
+
+  // Broken method 2: gravity always, push out along the normal, remove velocity into it.
+  function stepSlide(b, input) {
+    b.vx = input * SPEED;
+    b.vy = Math.min(b.vy + GRAVITY * STEP, MAX_FALL);
+    b.x += b.vx * STEP;
+    b.y += b.vy * STEP;
+    for (var pass = 0; pass < 4; pass++) {
+      var c = deepest(b);
+      if (!c) break;
+      b.x += c.nx * c.depth;
+      b.y += c.ny * c.depth;
+      var into = b.vx * c.nx + b.vy * c.ny;
+      if (into < 0) { b.vx -= into * c.nx; b.vy -= into * c.ny; }
+    }
+  }
+
+  // The lesson's method, line for line the same as the Lua stepPlayer.
+  function stepFixed(b, input, cosMax) {
+    if (b.grounded) {
+      b.vx = -b.gny * input * SPEED;
+      b.vy = b.gnx * input * SPEED;
+    } else {
+      b.vx = input * SPEED;
+      b.vy = Math.min(b.vy + GRAVITY * STEP, MAX_FALL);
+    }
+    b.x += b.vx * STEP;
+    b.y += b.vy * STEP;
+
+    b.grounded = false;
+    var best = -Infinity;
+    var cs = findContacts(b);
+    for (var i = 0; i < cs.length; i++) {
+      var nx = cs[i].nx, ny = cs[i].ny, depth = cs[i].depth;
+      if (-ny >= cosMax) {
+        b.grounded = true;
+        if (depth > best) { best = depth; b.gnx = nx; b.gny = ny; }
+      } else if (ny < 0) {
+        depth = depth / Math.abs(nx);
+        nx = nx > 0 ? 1 : -1;
+        ny = 0;
+      }
+      if (depth > 0) { b.x += nx * depth; b.y += ny * depth; }
+      var into = b.vx * nx + b.vy * ny;
+      if (into < 0) { b.vx -= into * nx; b.vy -= into * ny; }
+    }
+  }
+
+  // ---- Controls ------------------------------------------------------------------------
+
+  var ui = DemoKit.controls('[data-demo="slopes"]');
+  var method = ui.select({
+    label: 'Left panel',
+    options: [
+      { value: 'pushup', label: 'Move on x, push up' },
+      { value: 'slide', label: 'Gravity, then slide' }
+    ],
+    value: 'pushup',
+    onChange: function () { updateLabel(); resetAll(); }
+  });
+  var mode = ui.select({
+    label: 'Input',
+    options: [
+      { value: 'script', label: 'Script: walk and stop on slopes' },
+      { value: 'manual', label: 'Keyboard or touch only' }
+    ],
+    value: 'script',
+    onChange: function () { resetAll(); }
+  });
+  var slope = ui.slider({ label: 'Slope angle', min: 10, max: 75, step: 1, value: 30, unit: '°',
+    onInput: function () { resetAll(); } });
+  var maxAngle = ui.slider({ label: 'Max walkable angle (right)', min: 10, max: 80, step: 1, value: 45, unit: '°' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Reset', onClick: function () { resetAll(); } });
+
+  var labelEl = document.getElementById('slope-broken-label');
+  function updateLabel() {
+    labelEl.textContent = method.value === 'pushup' ? 'Move on x, push up' : 'Gravity, then slide';
+  }
+
+  // ---- Simulations ----------------------------------------------------------------------
+
+  var held = {};
+  var steerX = null;
+  var hBroken = null, hFixed = null;
+
+  function makeSim(kind) {
+    return { kind: kind, body: null, acc: 0, alpha: 0, trail: [], count: 0, script: null, speed: 0 };
+  }
+  var simBroken = makeSim('broken');
+  var simFixed = makeSim('fixed');
+
+  function resetSim(sim) {
+    sim.body = { x: 40, y: BASE - R, px: 40, py: BASE - R, vx: 0, vy: 0, grounded: true, gnx: 0, gny: -1 };
+    sim.acc = 0;
+    sim.alpha = 0;
+    sim.trail = [];
+    sim.count = 0;
+    sim.speed = 0;
+    sim.script = { leg: 0, wait: -1, time: 0 };
+  }
+
+  function resetAll() {
+    buildHill(slope.value);
+    held = {};
+    steerX = null;
+    resetSim(simBroken);
+    resetSim(simFixed);
+    if (hBroken) hBroken.redraw();
+    if (hFixed) hFixed.redraw();
+  }
+
+  function takeOver() {
+    if (mode.value !== 'manual') { mode.set('manual'); }
+  }
+
+  // The script: walk to a spot, wait, walk on. Each leg gives up after a few seconds,
+  // so a character that cannot climb does not stand still forever.
+  function legs() {
+    return [
+      { x: geo.a + geo.run / 2, wait: 2.5 },
+      { x: W - 40, wait: 1.0 },
+      { x: W - geo.a - geo.run / 2, wait: 2.5 },
+      { x: 40, wait: 1.0 }
+    ];
+  }
+
+  function scriptInput(sim) {
+    var sc = sim.script, b = sim.body, list = legs();
+    var leg = list[sc.leg];
+    sc.time += STEP;
+    if (sc.wait >= 0) {
+      sc.wait -= STEP;
+      if (sc.wait < 0) { sc.leg = (sc.leg + 1) % list.length; sc.time = 0; }
+      return 0;
+    }
+    var dx = leg.x - b.x;
+    if (Math.abs(dx) < 2 || sc.time > 3.5) { sc.wait = leg.wait; return 0; }
+    return dx > 0 ? 1 : -1;
+  }
+
+  function manualInput(sim) {
+    var input = 0;
+    if (held.arrowleft || held.a) input -= 1;
+    if (held.arrowright || held.d) input += 1;
+    if (input === 0 && steerX !== null) {
+      var dx = steerX - sim.body.x;
+      if (Math.abs(dx) > 3) input = dx > 0 ? 1 : -1;
+    }
+    return input;
+  }
+
+  function stepSim(sim) {
+    var b = sim.body;
+    var input = mode.value === 'script' ? scriptInput(sim) : manualInput(sim);
+    b.px = b.x;
+    b.py = b.y;
+    if (sim.kind === 'fixed') {
+      stepFixed(b, input, Math.cos(maxAngle.value * Math.PI / 180));
+    } else if (method.value === 'pushup') {
+      stepPushUp(b, input);
+    } else {
+      stepSlide(b, input);
+    }
+    // Keep the body inside the world even if something goes wrong.
+    b.x = DemoKit.clamp(b.x, R, W - R);
+    if (b.y > BASE - R + 1) { b.y = BASE - R; if (b.vy > 0) b.vy = 0; }
+    sim.speed = Math.sqrt((b.x - b.px) * (b.x - b.px) + (b.y - b.py) * (b.y - b.py)) / STEP;
+    sim.count += 1;
+    if (sim.count % 3 === 0) {
+      sim.trail.push({ x: b.x, y: b.y });
+      if (sim.trail.length > TRAIL) sim.trail.shift();
+    }
+  }
+
+  function advance(sim, dt) {
+    sim.acc += Math.min(dt, 0.25);
+    var guard = 0;
+    while (sim.acc >= STEP && guard < 30) {
+      stepSim(sim);
+      sim.acc -= STEP;
+      guard += 1;
+    }
+    if (guard === 30) sim.acc = 0;
+    sim.alpha = DemoKit.clamp(sim.acc / STEP, 0, 1);
+  }
+
+  // ---- Drawing --------------------------------------------------------------------------
+
+  function view(s) {
+    var k = Math.min(s.width / W, s.height / H);
+    return { k: k, ox: (s.width - W * k) / 2, oy: (s.height - H * k) / 2 };
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, head) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.5) return;
+    var ux = dx / len, uy = dy / len;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.moveTo(x2 - ux * head - uy * head * 0.6, y2 - uy * head + ux * head * 0.6);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x2 - ux * head + uy * head * 0.6, y2 - uy * head - ux * head * 0.6);
+    ctx.stroke();
+  }
+
+  function slopeDeg(nx, ny) {
+    return Math.round(Math.acos(DemoKit.clamp(-ny, -1, 1)) * 180 / Math.PI);
+  }
+
+  function drawSim(ctx, s, sim) {
+    var c = s.colors;
+    var v = view(s), k = v.k;
+    function X(wx) { return v.ox + wx * k; }
+    function Y(wy) { return v.oy + wy * k; }
+    var fixed = sim.kind === 'fixed';
+    var cosMax = Math.cos(maxAngle.value * Math.PI / 180);
+    var showDebug = debug.value;
+
+    // Ground fill.
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(H));
+    for (var i = 1; i < segs.length - 1; i++) {
+      ctx.lineTo(X(segs[i].ax), Y(segs[i].ay));
+      ctx.lineTo(X(segs[i].bx), Y(segs[i].by));
+    }
+    ctx.lineTo(X(W), Y(H));
+    ctx.closePath();
+    ctx.fill();
+
+    // Ground lines. On the right, coloured by the floor test.
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    for (var j = 0; j < segs.length; j++) {
+      var sg = segs[j];
+      if (sg.wall) continue;
+      var sdx = sg.bx - sg.ax, sdy = sg.by - sg.ay, sl = Math.sqrt(sdx * sdx + sdy * sdy);
+      var floorNy = -Math.abs(sdx) / sl;          // the up-facing normal's y
+      ctx.strokeStyle = fixed ? (-floorNy >= cosMax - 1e-9 ? c.good : c.bad) : c.ink2;
+      ctx.beginPath();
+      ctx.moveTo(X(sg.ax), Y(sg.ay));
+      ctx.lineTo(X(sg.bx), Y(sg.by));
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+
+    // World edges.
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(X(0) + 0.5, Y(0) + 0.5, W * k - 1, H * k - 1);
+
+    // Slope angle label beside the up ramp.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText(geo.deg + '°', X(geo.a + geo.run * 0.5 + 8), Y(BASE - 6));
+
+    var b = sim.body;
+    var bx = DemoKit.lerp(b.px, b.x, sim.alpha);
+    var by = DemoKit.lerp(b.py, b.y, sim.alpha);
+
+    // Trail.
+    if (showDebug) {
+      ctx.fillStyle = c.ink3;
+      for (var t = 0; t < sim.trail.length; t++) {
+        ctx.globalAlpha = 0.25 + 0.6 * t / sim.trail.length;
+        ctx.beginPath();
+        ctx.arc(X(sim.trail[t].x), Y(sim.trail[t].y), Math.max(1.5, 2 * k), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Contact used for the readout and the debug drawing.
+    var cs = findContacts(b), contact = null;
+    for (var q = 0; q < cs.length; q++) {
+      if (cs[q].ny < 0 && (!contact || cs[q].depth > contact.depth)) contact = cs[q];
+    }
+    var state;
+    if (!contact) state = 'in the air';
+    else if (!fixed) state = 'on a ' + slopeDeg(contact.nx, contact.ny) + '° slope';
+    else if (b.grounded) state = 'floor, ' + slopeDeg(b.gnx, b.gny) + '°';
+    else state = 'too steep, ' + slopeDeg(contact.nx, contact.ny) + '°';
+
+    if (showDebug && contact) {
+      var cx = X(contact.px), cy = Y(contact.py);
+      var isFloor = -contact.ny >= cosMax;
+      if (fixed) {
+        // Walkable cone around up.
+        var ang = maxAngle.value * Math.PI / 180, cl = 34 * k;
+        ctx.fillStyle = c.good;
+        ctx.globalAlpha = 0.14;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, cl, -Math.PI / 2 - ang, -Math.PI / 2 + ang);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // Tangent along the floor.
+        if (b.grounded) {
+          var tx = -b.gny, ty = b.gnx, tl = 40 * k;
+          ctx.strokeStyle = c.ink2;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(cx - tx * tl, cy - ty * tl);
+          ctx.lineTo(cx + tx * tl, cy + ty * tl);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.strokeStyle = fixed ? (isFloor ? c.good : c.bad) : c.ink2;
+      ctx.lineWidth = 2;
+      arrow(ctx, cx, cy, cx + contact.nx * 30 * k, cy + contact.ny * 30 * k, 6);
+    }
+
+    // The character.
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.arc(X(bx), Y(by), R * k, 0, Math.PI * 2);
+    ctx.fill();
+    var face = b.vx < -1 ? -1 : 1;
+    ctx.fillStyle = c.surface;
+    ctx.beginPath();
+    ctx.arc(X(bx + face * 4), Y(by - 3), Math.max(1.5, 2.2 * k), 0, Math.PI * 2);
+    ctx.fill();
+
+    // Velocity arrow: 0.2 seconds of motion.
+    if (showDebug) {
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 2;
+      arrow(ctx, X(bx), Y(by), X(bx + b.vx * 0.2), Y(by + b.vy * 0.2), 6);
+    }
+
+    // Readouts, below the panel label.
+    ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('speed ' + Math.round(sim.speed) + ' px/s', 10, 40);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(state, 10, 56);
+  }
+
+  function makeCanvas(id, sim, label) {
+    function toWorldX(p, s) { var v = view(s); return (p.x - v.ox) / v.k; }
+    return DemoKit.canvas(id, {
+      aspect: 4 / 3,
+      maxHeight: 380,
+      drag: true,
+      keys: true,
+      label: label,
+      update: function (dt) { advance(sim, dt); },
+      draw: function (ctx, s) { drawSim(ctx, s, sim); },
+      onDown: function (p, s) { takeOver(); steerX = toWorldX(p, s); },
+      onMove: function (p, s) { if (p.down) steerX = toWorldX(p, s); },
+      onUp: function () { steerX = null; },
+      onKey: function (key, isDown) {
+        held[key] = isDown;
+        if (isDown && ['arrowleft', 'arrowright', 'a', 'd'].indexOf(key) >= 0) takeOver();
+      }
+    });
+  }
+
+  updateLabel();
+  resetAll();
+  hBroken = makeCanvas('#slope-broken', simBroken,
+    'A round character walking over a hill using a broken slope method. Depending on the method it climbs any slope, hops on the way down, or creeps downhill while standing still.');
+  hFixed = makeCanvas('#slope-fixed', simFixed,
+    'The same character and input, walking along the floor tangent with gravity off on floors and a maximum walkable angle. It keeps a steady speed, stands still when idle, and cannot climb slopes steeper than the limit.');
+})();
+</script>
+</body>
+</html>
