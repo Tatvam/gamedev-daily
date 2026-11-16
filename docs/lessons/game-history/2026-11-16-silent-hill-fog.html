@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silent Hill's fog: hiding the edge of the world · Game Dev Daily</title>
+<meta name="description" content="How Silent Hill's fog hid the PlayStation's short draw distance, and how to choose a fog density that makes distant objects fade in instead of popping.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-16">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Silent Hill's fog: hiding the edge of the world</h1>
+  <p class="lede">How Silent Hill's fog hid the PlayStation's short draw distance, and how to choose a fog density that makes distant objects fade in instead of popping.</p>
+</header>
+
+<section data-section="hook">
+  <p>In many 3D games of the late 1990s, a building suddenly appears at the far end of a street as you walk towards it. One frame it is not there, the next it is. Silent Hill's town has the same limit, but you rarely see it happen. The street ahead fades into grey fog, and shapes come out of it slowly.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: every polygon costs, and the far ones cost the most</h2>
+  <p>Silent Hill (Konami, 1999) was made for the original PlayStation. Where Resident Evil used fixed painted backgrounds, Silent Hill built its town in real-time 3D with a moving camera, so the console had to draw the visible town again every frame.</p>
+  <p>Sony's published peak figures for the PlayStation are about 360,000 flat polygons per second, or 180,000 with textures and lighting, and real games reached well below those peaks. Its graphics chip has no depth buffer, so games sorted polygons into order themselves. A long street holds many polygons, and each one costs time to transform, sort and draw.</p>
+  <p>The usual answer is a <dfn>draw distance</dfn>, also called the far clip plane: a distance beyond which the game draws nothing. A short draw distance keeps the frame rate up. Its side effect is <dfn>pop-in</dfn>: an object crossing that line switches from absent to fully drawn in one frame.</p>
+
+  <h2>The trick: fade to the fog colour before the cut</h2>
+  <p><dfn>Distance fog</dfn> blends each object's colour towards one fixed fog colour, more strongly the further away it is. If the fog is thick enough that an object is almost pure fog colour by the time it reaches the draw distance, and the empty background behind everything is painted in the same fog colour, then the moment of pop-in is invisible. The object appears, but it appears as grey on grey.</p>
+  <p>Silent Hill used heavy fog in its outdoor daytime areas and deep darkness, lit only by the hero's torch, in its night and nightmare areas. Darkness is the same trick with black fog. Retrospectives and the game's Wikipedia article say the fog and darkness hid the console's limits and also created the atmosphere. How much was necessity and how much was choice is told differently in different places, and I could not check the developers' own words, so treat "it was only a workaround" as often repeated, not confirmed.</p>
+
+  <h3>How strong should the fog be?</h3>
+  <p>A common fog formula is <dfn>exponential fog</dfn>. The share of the object's own colour that survives at distance <code>d</code> is:</p>
+<pre><code>visibility = math.exp(-density * d)   -- 1 = clear, 0 = pure fog</code></pre>
+  <p>Exponential fog never quite reaches zero, so the question is how little is little enough. A useful working rule: if an object keeps under about 2% of its own colour when it appears, nobody notices it arrive. Since e<sup>−3.9</sup> ≈ 0.02, that gives a density of at least 3.9 divided by the draw distance. For a 40 m draw distance, a density of 0.10 per metre leaves e<sup>−4</sup> ≈ 1.8%.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 256" role="img" aria-label="A graph of visibility against distance. The curve starts at 100 percent next to the camera and falls towards zero. A vertical line marks the draw distance at 40 metres, where only 1.8 percent is left. Past the line is a shaded region labelled nothing is drawn. Below the axis, boxes fade from strong to faint before the line, and dashed outlines after it are labelled skipped.">
+      <text class="d-label" x="60" y="18">visibility = e^(−density × distance), density 0.10</text>
+      <text class="d-text" x="420" y="38" text-anchor="middle">draw distance 40 m</text>
+
+      <rect class="d-fill" x="420" y="46" width="190" height="144"/>
+      <text class="d-muted" x="515" y="112" text-anchor="middle">nothing is drawn</text>
+
+      <path class="d-thin" d="M60 44 V190 H610"/>
+      <text class="d-muted" x="52" y="54" text-anchor="end">100%</text>
+      <text class="d-muted" x="52" y="194" text-anchor="end">0%</text>
+
+      <path class="d-accent" d="M60 50 L105 105.1 L150 138.5 L195 158.8 L240 171.1 L285 178.5 L330 183 L375 185.8 L420 187.4 L465 188.4 L510 189.1 L555 189.5 L600 189.7"/>
+      <text class="d-text" x="410" y="168" text-anchor="end">1.8% left at the edge</text>
+
+      <path class="d-stroke" d="M420 44 V232"/>
+
+      <rect class="d-accent-fill" x="76" y="202" width="22" height="24" opacity="0.74"/>
+      <rect class="d-accent-fill" x="166" y="202" width="22" height="24" opacity="0.27"/>
+      <rect class="d-accent-fill" x="256" y="202" width="22" height="24" opacity="0.10"/>
+      <rect class="d-accent-fill" x="346" y="202" width="22" height="24" opacity="0.04"/>
+      <rect class="d-dash" x="436" y="202" width="22" height="24"/>
+      <rect class="d-dash" x="526" y="202" width="22" height="24"/>
+      <text class="d-muted" x="222" y="248" text-anchor="middle">drawn, fading into the fog</text>
+      <text class="d-muted" x="492" y="248" text-anchor="middle">skipped</text>
+    </svg>
+    <figcaption>With density 0.10 and a 40 m draw distance, an object has already faded to under 2% of its own colour when it reaches the line where drawing stops, so the cut cannot be seen.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Pick the draw distance your frame budget allows, then set the fog so that almost nothing is left at that distance: density ≥ 3.9 ÷ draw distance. Paint the background in the fog colour.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>You walk down a street of abstract walls. The small map in the corner is a top view: filled walls are drawn, outlines are walls the game skips. Turn <strong>Fog</strong> off and watch the far end of the street: walls jump into place, outlined in red when they arrive, and the ground stops in a hard edge. Turn the fog back on and nothing seems to arrive at all. Then drag <strong>Fog density</strong> down to 0.04: the walls pop in again, softly but visibly. Finally raise <strong>Draw distance</strong> to 100 m: many more walls are drawn, but the fog hides almost all of them.</p>
+
+  <figure class="demo wide" data-demo="silent-fog">
+    <canvas id="silent-fog"></canvas>
+    <figcaption>The readout shows how much of its own colour a wall keeps at the moment it is first drawn. Under 2% counts as hidden. With motion reduced, press Play or use <strong>Step 5 m</strong>.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's street with the same numbers: walls 5 m either side, a pair every 5 m, the eye 1.6 m up, a 40 m draw distance and density 0.10. The demo's foggy ground is left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local FOG = {0.62, 0.64, 0.66}  <span class="c">-- fog colour, also the background colour</span>
+local drawDistance = 40         <span class="c">-- metres: walls further away are not drawn</span>
+local density = 0.10            <span class="c">-- fog thickness per metre</span>
+local CAM_H, NEAR, WALK, STREET = 1.6, 0.5, 4, 240
+local camZ = 0
+local walls = {}
+
+function love.load()
+  love.graphics.setBackgroundColor(FOG[1], FOG[2], FOG[3])
+  for i = 0, 95 do
+    local x = 5
+    if i % 2 == 0 then x = -5 end
+    walls[#walls + 1] = { x = x, z = math.floor(i / 2) * 5, len = 3.5,
+                          h = 4 + (i * 7) % 5, shade = 0.2 + (i % 3) * 0.1 }
+  end
+end
+
+local function visibility(d)       <span class="c">-- 1 = clear, 0 = lost in the fog</span>
+<span class="k">  return math.exp(-density * d)</span>
+end
+
+local function project(x, y, z)    <span class="c">-- a point in metres to screen pixels</span>
+  local w, h = love.graphics.getDimensions()
+  local f = w * 0.55
+  return w / 2 + x / z * f, h * 0.42 + (CAM_H - y) / z * f
+end
+
+function love.update(dt)
+  camZ = (camZ + WALK * dt) % STREET  <span class="c">-- the street repeats every 240 m</span>
+end
+
+function love.draw()
+  local list = {}
+  for i = 1, #walls do
+    local d = walls[i].z - camZ
+    if d &lt; -6 then d = d + STREET end   <span class="c">-- walls passed come round again</span>
+<span class="k">    if d &lt; drawDistance and d + walls[i].len &gt; NEAR then</span>
+      list[#list + 1] = { wall = walls[i], d = d }
+    end
+  end
+  table.sort(list, function(a, b) return a.d &gt; b.d end)  <span class="c">-- far walls first</span>
+
+  for _, item in ipairs(list) do
+    local wall, d = item.wall, item.d
+    local z0, z1 = math.max(d, NEAR), d + wall.len
+    local ax, ay = project(wall.x, 0, z0)
+    local _, by = project(wall.x, wall.h, z0)
+    local cx, cy = project(wall.x, wall.h, z1)
+    local _, dy = project(wall.x, 0, z1)
+    local v = visibility(math.max(d, 0))
+<span class="k">    local r = FOG[1] + (wall.shade - FOG[1]) * v</span>
+    local g = FOG[2] + (wall.shade - FOG[2]) * v
+    local b = FOG[3] + (wall.shade - FOG[3]) * v
+    love.graphics.setColor(r, g, b)
+    love.graphics.polygon("fill", ax, ay, ax, by, cx, cy, cx, dy)
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted <code>if</code> is the draw distance, and it is what saves the time. The fog only hides where it starts to say no: set <code>density</code> to 0 and walls pop in at 40 m.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A background that is not the fog colour.</strong> If the sky differs from the fog colour, faded objects show up as shapes against it and the edge of the world shows as a line.</li>
+    <li><strong>Fog too thin for the draw distance.</strong> Exponential fog never reaches zero. Check the visibility at the draw distance, not just how the scene looks up close. Linear fog, which reaches full strength at a chosen end distance, makes the guarantee exact if you set that end at or before the draw distance.</li>
+    <li><strong>Changing one setting without the other.</strong> Lowering the draw distance without thickening the fog brings pop-in back. Raising it without thinning the fog spends time on objects nobody can see.</li>
+    <li><strong>Fog per vertex on large polygons.</strong> Older hardware worked out fog at each polygon's corners and blended across it, so a long wall fades in a straight line instead of the true curve. Splitting big polygons hides this.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Silent Hill is the best known case. Turok: Dinosaur Hunter (1997) on the Nintendo 64 is another game famous for thick distance fog. On the PlayStation, the geometry coprocessor (the GTE) has depth cueing instructions that blend a colour towards a programmer-chosen "far colour" by an amount set from depth, which is one way games of the time produced fog. I could not confirm exactly how Silent Hill built its fog layers, so this page rebuilds the general technique rather than the game's own code.</p>
+  <p>Modern engines all offer distance fog: Unity has linear, exponential and squared exponential fog in its render settings, Godot's Environment resource has a fog section, and Unreal has Exponential Height Fog. On phones and in browser games, a short draw distance hidden by haze is still a cheap way to keep a large outdoor scene at a steady frame rate.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua in LÖVE. Add keys that raise and lower <code>drawDistance</code> by 5 m, and make <code>density</code> follow it automatically with <code>density = 3.9 / drawDistance</code>. Print the number of walls drawn each frame. You are done when you can move the draw distance between 15 m and 80 m while walking and never see a wall pop in. Then try linear fog that is full at exactly <code>drawDistance</code>.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A draw distance saves time by skipping far objects, but objects then pop into view.</li>
+    <li>Distance fog blends objects towards a fog colour with distance; if they are nearly pure fog when they cross the draw distance, the pop cannot be seen.</li>
+    <li>For exponential fog, a density of about 3.9 divided by the draw distance leaves under 2% at the edge.</li>
+    <li>The background must be the fog colour, and fog and draw distance must change together.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes Shadow of the Colossus on the PlayStation 2: simplified distant terrain and a bloom effect that imitates bright light.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>This page was written without live verification: a web search found the works below, but their pages could not be opened, so none are linked. The PlayStation figures are widely documented. Check the developers' own statements in these works before quoting a cause for the fog.</p>
+  <ul>
+    <li>Keiichiro Toyama, interview in <cite>PlayStation Magazine</cite> (1999), archived in English translation on the fan site Silent Hill Memories. Toyama directed the game.</li>
+    <li><cite>Silent Hill (video game)</cite>, Wikipedia, the development section and the sources it cites.</li>
+    <li>Hardcore Gaming 101, <cite>Silent Hill</cite>, a retrospective of the game.</li>
+    <li>Martin Korth (nocash), <cite>PlayStation Specifications</cite> (psx-spx), for the GTE depth cueing instructions and the graphics chip.</li>
+    <li>Unity, <cite>Lighting window: Environment, Fog</cite>, in the Unity manual, for the three standard fog modes.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Same names and numbers as the Lua ----
+  var CAM_H = 1.6, NEAR = 0.5, WALK = 4, STREET = 240;
+  var walls = [];
+  for (var i = 0; i <= 95; i += 1) {
+    walls.push({ x: i % 2 === 0 ? -5 : 5, z: Math.floor(i / 2) * 5, len: 3.5,
+                 h: 4 + (i * 7) % 5, shade: i % 3 });
+  }
+  var camZ = 0;
+  var handle = null;
+
+  var ui = DemoKit.controls('[data-demo="silent-fog"]');
+  var fogT = ui.toggle({ label: 'Fog', value: true, onChange: refresh });
+  var distS = ui.slider({ label: 'Draw distance', min: 10, max: 120, step: 5, value: 40, unit: ' m', onInput: refresh });
+  var densS = ui.slider({ label: 'Fog density', min: 0, max: 0.3, step: 0.01, value: 0.1, unit: ' per m', onInput: refresh });
+  var walkT = ui.toggle({ label: 'Walk', value: true });
+  ui.button({ label: 'Step 5 m', onClick: function () { move(5); refresh(); } });
+  var edgeR = ui.readout({ label: 'A wall appears with' });
+  var drawnR = ui.readout({ label: 'Walls drawn' });
+
+  function move(m) {
+    camZ = (camZ + m) % STREET;
+  }
+
+  function density() {
+    return fogT.value ? densS.value : 0;
+  }
+
+  function edgeVisibility() {
+    return Math.exp(-density() * distS.value);
+  }
+
+  function refresh() {
+    var v = edgeVisibility();
+    edgeR.set((v * 100).toFixed(1) + '% of its colour, ' + (v < 0.02 ? 'hidden by fog' : 'visible pop-in'));
+    if (handle) handle.redraw();
+  }
+
+  // Distance from the camera to a wall's near end, with the street repeating every 240 m.
+  function rel(z) {
+    var r = z - camZ;
+    if (r < -6) r += STREET;
+    if (r >= STREET - 6) r -= STREET;
+    return r;
+  }
+
+  var lastDrawn = -1;
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height;
+    var D = distS.value, k = density(), fogOn = fogT.value;
+    var fogCol = c.surface2;
+    var hy = Math.round(h * 0.42), f = w * 0.55, cx = w / 2;
+    var popping = edgeVisibility() >= 0.02;
+
+    function px(x, z) { return cx + x / z * f; }
+    function py(y, z) { return hy + (CAM_H - y) / z * f; }
+    function fogOver(vis, path) {
+      if (!fogOn || vis >= 1) return;
+      ctx.globalAlpha = 1 - vis;
+      ctx.fillStyle = fogCol;
+      path();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Background: the fog colour when fog is on, an empty sky when it is off
+    ctx.fillStyle = fogOn ? fogCol : c.surface;
+    ctx.fillRect(0, 0, w, h);
+
+    // Ground, in bands from far to near, only up to the draw distance
+    var N = 48;
+    for (var b = N - 1; b >= 0; b -= 1) {
+      var zN = NEAR + (D - NEAR) * Math.pow(b / N, 1.6);
+      var zF = NEAR + (D - NEAR) * Math.pow((b + 1) / N, 1.6);
+      var y0 = Math.min(h, py(0, zN)), y1 = py(0, zF);
+      if (y1 >= h) continue;
+      var bandPath = function () { ctx.beginPath(); ctx.rect(0, y1, w, y0 - y1 + 0.5); };
+      ctx.fillStyle = c.line;
+      bandPath();
+      ctx.fill();
+      ctx.fillStyle = c.ink3;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.moveTo(px(-3, zN), py(0, zN));
+      ctx.lineTo(px(3, zN), py(0, zN));
+      ctx.lineTo(px(3, zF), y1);
+      ctx.lineTo(px(-3, zF), y1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      fogOver(Math.exp(-k * (zN + zF) / 2), bandPath);
+    }
+
+    // Centre-line dashes every 6 m, so the walk is visible on the ground
+    for (var m = 0; m < STREET; m += 6) {
+      var dz = rel(m);
+      if (dz < NEAR || dz + 2 > D) continue;
+      var dashPath = function () {
+        ctx.beginPath();
+        ctx.moveTo(px(-0.1, dz), py(0, dz));
+        ctx.lineTo(px(0.1, dz), py(0, dz));
+        ctx.lineTo(px(0.1, dz + 2), py(0, dz + 2));
+        ctx.lineTo(px(-0.1, dz + 2), py(0, dz + 2));
+        ctx.closePath();
+      };
+      ctx.fillStyle = c.surface;
+      dashPath();
+      ctx.fill();
+      fogOver(Math.exp(-k * dz), dashPath);
+    }
+
+    // Walls: skip those past the draw distance, sort the rest far to near
+    var list = [];
+    for (var j = 0; j < walls.length; j += 1) {
+      var r = rel(walls[j].z);
+      if (r >= D || r + walls[j].len <= NEAR) continue;
+      list.push({ wall: walls[j], r: r });
+    }
+    list.sort(function (a, bb) { return bb.r - a.r; });
+    var shades = [c.ink3, c.ink2, c.topic];
+    list.forEach(function (item) {
+      var wl = item.wall;
+      var z0 = Math.max(item.r, NEAR), z1 = item.r + wl.len;
+      var wallPath = function () {
+        ctx.beginPath();
+        ctx.moveTo(px(wl.x, z0), py(0, z0));
+        ctx.lineTo(px(wl.x, z0), py(wl.h, z0));
+        ctx.lineTo(px(wl.x, z1), py(wl.h, z1));
+        ctx.lineTo(px(wl.x, z1), py(0, z1));
+        ctx.closePath();
+      };
+      ctx.fillStyle = shades[wl.shade];
+      wallPath();
+      ctx.fill();
+      fogOver(Math.exp(-k * Math.max(item.r, 0)), wallPath);
+      // A wall in its first 3 m after appearing, while the pop is visible
+      if (popping && item.r > D - 3) {
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 2;
+        wallPath();
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    });
+
+    if (list.length !== lastDrawn) {
+      lastDrawn = list.length;
+      drawnR.set(list.length + ' of ' + walls.length);
+    }
+
+    // Top view map: what exists and what is skipped
+    var mw = Math.min(120, Math.round(w * 0.3)), mh = Math.min(130, Math.round(h * 0.4));
+    var mx = 8, my = 8, ahead = 126, behind = 6;
+    function mapY(z) { return my + mh - 6 - (z + behind) / (ahead + behind) * (mh - 12); }
+    function mapX(x) { return mx + mw / 2 + x / 8 * (mw / 2 - 6); }
+    ctx.fillStyle = c.surface;
+    ctx.globalAlpha = 0.92;
+    ctx.fillRect(mx, my, mw, mh);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.line;
+    ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mx, my, mw, mh);
+    ctx.clip();
+    for (var q = 0; q < walls.length; q += 1) {
+      var wq = walls[q], rq = rel(wq.z);
+      if (rq > ahead) continue;
+      var yTop = mapY(rq + wq.len), yBot = mapY(rq);
+      var xq = mapX(wq.x) - 2;
+      if (rq < D && rq + wq.len > NEAR) {
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(xq, yTop, 4, yBot - yTop);
+      } else {
+        ctx.strokeStyle = c.ink3;
+        ctx.strokeRect(xq + 0.5, yTop + 0.5, 3, yBot - yTop - 1);
+      }
+    }
+    var ly = mapY(D);
+    ctx.strokeStyle = c.ink;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mx + 4, ly);
+    ctx.lineTo(mx + mw - 4, ly);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    var camY = mapY(0);
+    ctx.fillStyle = c.ink;
+    ctx.beginPath();
+    ctx.moveTo(mapX(0), camY - 6);
+    ctx.lineTo(mapX(0) + 5, camY + 4);
+    ctx.lineTo(mapX(0) - 5, camY + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('top view', mx, my + mh + 15);
+  }
+
+  refresh();
+  handle = DemoKit.canvas('#silent-fog', {
+    height: 360,
+    label: 'A first-person view down a street of walls fading into fog, with a small top view map showing which walls are drawn and which lie past the draw distance.',
+    update: function (dt) {
+      if (walkT.value) move(WALK * dt);
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

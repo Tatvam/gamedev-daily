@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One-way platforms · Game Dev Daily</title>
+<meta name="description" content="How to let a body jump up through a platform, land on it from above and drop through on demand, by checking where its feet were before the step.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-16">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>One-way platforms</h1>
+  <p class="lede">How to let a body jump up through a platform, land on it from above and drop through on demand, by checking where its feet were before the step.</p>
+</header>
+
+<section data-section="hook">
+  <p>You jump at a ledge from underneath. Either your head bumps into it, or you pass into it and, at the top of the jump, the game yanks you up onto it as if a hand grabbed you. Then you press down to hop off, and nothing happens.</p>
+  <p>All three bugs come from asking the wrong question. This lesson asks the right one, and it is one line of code.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A platform that only has a top</h2>
+  <p>A <dfn>one-way platform</dfn> (also called a jump-through or pass-through platform) blocks a body from above but lets it pass from below and from the sides. Nothing in the real world behaves like this. It is a game rule, so the goal is not realism: the goal is a rule that feels fair and never surprises the player.</p>
+  <p>The easiest way to think about it: a one-way platform is not a box. It is a single line, its <dfn>top</dfn>, and only the body's <dfn>feet</dfn>, the bottom edge of its box, can collide with that line. In the code below y points down the screen, as in LÖVE, so a larger y is lower.</p>
+
+  <h3>First try: make it solid</h3>
+  <p>Give the platform an ordinary box collider. Landing works, but jumping from below hits the underside and stops. That is the head bump.</p>
+
+  <h3>Second try: only collide while falling</h3>
+  <p>Ignore the platform while the body moves up (<code>vy &lt; 0</code>), and while it falls, push any overlap out through the top. Now the body passes up through. But if the jump peaks while the body is still inside the platform, the next step is a falling step with an overlap, and the push-out lifts the body to the top: about 20 pixels in one step with the demo's numbers. That is the pop.</p>
+  <p>The same rule also breaks dropping through. Move the body down into the platform and it is falling and overlapping, so it snaps straight back up.</p>
+
+  <h2>The rule: where were the feet before this step?</h2>
+  <p>Overlap tells you where the body is. You need to know whether it came from above, so remember the feet before you move and test three things.</p>
+<pre><code>box.vy &gt;= 0</code></pre>
+  <p>In words: the body is moving down or standing still. Rising bodies never land.</p>
+<pre><code>oldBottom &lt;= top</code></pre>
+  <p>In words: before this step the feet were on or above the top of the platform.</p>
+<pre><code>newBottom &gt;= top</code></pre>
+  <p>In words: after this step the feet are on or below the top. Together with the line before, the feet crossed the top during this step.</p>
+  <p>If all three hold and the body overlaps the platform on x, it lands: put the feet on the top and set <code>vy</code> to 0. In every other case the platform does nothing at all. It never pushes sideways and never pushes down.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Three cases side by side, each with a platform, a dashed box for the position before the step and a solid box for the position after it. Left: the box moves up into the platform and is ignored. Middle: the feet were above the top and are now below it, so the box lands. Right: the feet were already below the top before the step, so the box is ignored and keeps falling.">
+      <g>
+        <rect class="d-accent-soft" x="15" y="120" width="180" height="12"/>
+        <path class="d-accent" d="M15 120 H195"/>
+        <text class="d-muted" x="15" y="112">top</text>
+        <rect class="d-dash" x="62" y="118" width="36" height="48"/>
+        <rect class="d-box" x="112" y="88" width="36" height="48"/>
+        <path class="d-stroke" d="M130 82 V52"/>
+        <path class="d-stroke" d="M124 60 L130 50 L136 60"/>
+        <text class="d-label" x="105" y="196" text-anchor="middle">Moving up</text>
+        <text class="d-text" x="105" y="216" text-anchor="middle">pass through</text>
+        <text class="d-mono" x="105" y="238" text-anchor="middle">vy &lt; 0</text>
+      </g>
+      <g>
+        <rect class="d-accent-soft" x="230" y="120" width="180" height="12"/>
+        <path class="d-accent" d="M230 120 H410"/>
+        <text class="d-muted" x="230" y="112">top</text>
+        <rect class="d-dash" x="262" y="58" width="36" height="48"/>
+        <rect class="d-box" x="312" y="80" width="36" height="48"/>
+        <path class="d-good" d="M352 128 V122"/>
+        <path class="d-good" d="M348 125 L352 120 L356 125"/>
+        <path class="d-stroke" d="M330 50 V74"/>
+        <path class="d-stroke" d="M324 66 L330 76 L336 66"/>
+        <text class="d-muted" x="300" y="46" text-anchor="end">old feet above</text>
+        <text class="d-label" x="320" y="196" text-anchor="middle">Came from above</text>
+        <text class="d-text" x="320" y="216" text-anchor="middle">land: feet onto the top</text>
+        <text class="d-mono" x="320" y="238" text-anchor="middle">old ≤ top ≤ new</text>
+      </g>
+      <g>
+        <rect class="d-accent-soft" x="445" y="120" width="180" height="12"/>
+        <path class="d-accent" d="M445 120 H625"/>
+        <text class="d-muted" x="445" y="112">top</text>
+        <rect class="d-dash" x="492" y="78" width="36" height="48"/>
+        <rect class="d-box" x="542" y="96" width="36" height="48"/>
+        <path class="d-stroke" d="M560 60 V90"/>
+        <path class="d-stroke" d="M554 82 L560 92 L566 82"/>
+        <text class="d-label" x="535" y="196" text-anchor="middle">Already inside</text>
+        <text class="d-text" x="535" y="216" text-anchor="middle">ignore: keep falling</text>
+        <text class="d-mono" x="535" y="238" text-anchor="middle">old &gt; top</text>
+      </g>
+    </svg>
+    <figcaption>Dashed: the box before the step. Solid: the box after it. Only the middle case lands, because only there the feet crossed the top line on the way down. The falling-only rule would also land the right-hand case, which is the pop.</figcaption>
+  </figure>
+
+  <p>Because the test is "did the feet cross the line during the step", not "do they overlap now", it also cannot tunnel: a fast fall that moves the feet 30 pixels past a 10 pixel thick platform still crossed its top.</p>
+
+  <h3>One step by hand</h3>
+  <p>The demo uses gravity 1800 px/s² and 60 steps per second. A box 24 pixels tall stands on platform B, whose top is at y = 175, so the box's y is 151 and <code>vy</code> is 0.</p>
+  <ol>
+    <li>Gravity: <code>vy = 0 + 1800 × (1/60) = 30</code> px/s, downwards.</li>
+    <li><code>oldBottom = 151 + 24 = 175</code>. Move: <code>y = 151 + 30 × (1/60) = 151.5</code>, so <code>newBottom = 175.5</code>.</li>
+    <li>30 ≥ 0, 175 ≤ 175 and 175.5 ≥ 175: land. y goes back to 151 and <code>vy</code> to 0.</li>
+  </ol>
+  <p>So standing on a one-way platform is simply landing on it again every step.</p>
+
+  <h3>Dropping through</h3>
+  <p>Now the drop-through is free. When the player presses down while standing on a one-way platform, move the body down by one pixel. The feet are at 176, below the top at 175, so on the next step <code>oldBottom &lt;= top</code> is false and the platform ignores the body, which falls away under gravity. The same rule that stops the pop also makes the drop work.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Decide a one-way collision with where the body <em>was</em>, never with where it <em>is</em>. Overlap is the symptom; the previous position is the cause.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both panels get the same input. The left runs a broken rule you choose, the right runs the feet-were-above rule. A script plays four scenes; watch the left box pop onto platforms it never cleared and refuse to drop. A platform is filled while the rule would let the box land on it and dashed while the box would pass through.</p>
+  <p>To take over, click a panel and use the arrow keys (or WASD and space), or hold a finger on a panel to walk towards it and use the Jump and Drop buttons. Change the jump height to make the pop bigger or make it go away.</p>
+
+  <figure class="demo wide" data-demo="oneway">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="oneway-broken"></canvas><span class="demo-label" id="oneway-broken-label">Falling only</span></div>
+      <div class="demo-stage"><canvas id="oneway-fixed"></canvas><span class="demo-label">Feet were above the top</span></div>
+    </div>
+    <figcaption>The text in each panel is the rule's decision for the nearest platform. Dots are earlier feet positions, the arrow is the velocity, the short line is the feet, and a red line marks a pop.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The right-hand panel as a LÖVE program, in the demo's 400 by 300 world with the same platforms and numbers. <code>landsOn</code> is the whole rule; everything else is the usual fixed-step platformer loop.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local GRAVITY, RUN = 1800, 150               <span class="c">-- px/s² and px/s</span>
+local JUMP = math.sqrt(2 * GRAVITY * 90)     <span class="c">-- launch speed for a 90 px jump</span>
+local FLOOR = 280                            <span class="c">-- y of the solid ground; y points down</span>
+local platforms = {                          <span class="c">-- one-way: only the top counts</span>
+  { x = 30,  w = 120, top = 210 },           <span class="c">-- A</span>
+  { x = 230, w = 140, top = 175 },           <span class="c">-- B</span>
+  { x = 120, w = 160, top = 105 },           <span class="c">-- C</span>
+}
+local box = { x = 40, y = FLOOR - 24, w = 16, h = 24, vy = 0, on = nil }
+local accumulator = 0
+local jumpPressed, dropPressed = false, false
+
+function love.keypressed(key)
+  if key == "space" or key == "up" then jumpPressed = true end
+  if key == "down" then dropPressed = true end
+end
+
+<span class="c">-- Falling, feet were on or above the top, feet are now on or below it.</span>
+local function landsOn(p, oldBottom, newBottom)
+  local overX = box.x &lt; p.x + p.w and box.x + box.w &gt; p.x
+<span class="k">  return overX and box.vy &gt;= 0 and oldBottom &lt;= p.top and newBottom &gt;= p.top</span>
+end
+
+local function step(dt)
+  local dir = 0
+  if love.keyboard.isDown("left") then dir = dir - 1 end
+  if love.keyboard.isDown("right") then dir = dir + 1 end
+  <span class="c">-- one-way platforms never block sideways</span>
+  box.x = math.max(0, math.min(box.x + dir * RUN * dt, 400 - box.w))
+
+  if jumpPressed and box.on then
+    box.vy = -JUMP
+  elseif dropPressed and box.on and box.on ~= "floor" then
+<span class="k">    box.y = box.y + 1                        -- feet 1 px below the top: the rule lets go</span>
+  end
+  jumpPressed, dropPressed = false, false
+
+  box.vy = box.vy + GRAVITY * dt
+<span class="k">  local oldBottom = box.y + box.h            -- remember the feet before moving</span>
+  box.y = box.y + box.vy * dt
+  local newBottom = box.y + box.h
+
+  local landing = nil                        <span class="c">-- highest platform crossed this step</span>
+  for _, p in ipairs(platforms) do
+    if landsOn(p, oldBottom, newBottom) and (landing == nil or p.top &lt; landing.top) then
+      landing = p
+    end
+  end
+  box.on = nil
+  if landing then
+    box.y, box.vy, box.on = landing.top - box.h, 0, landing
+  elseif newBottom &gt;= FLOOR then
+    box.y, box.vy, box.on = FLOOR - box.h, 0, "floor"
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", 0, FLOOR, 400, 300 - FLOOR)
+  for _, p in ipairs(platforms) do
+    love.graphics.rectangle("fill", p.x, p.top, p.w, 10)
+  end
+  love.graphics.rectangle("line", box.x, box.y, box.w, box.h)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Platforms: StaticBody2D nodes on collision layer 2, each with a</span>
+<span class="c"># CollisionShape2D that has One Way Collision ticked. Godot applies the</span>
+<span class="c"># landing rule itself. Keep the solid ground on a different layer.</span>
+extends CharacterBody2D
+
+const RUN := 150.0
+const GRAVITY := 1800.0
+var jump_speed := sqrt(2.0 * GRAVITY * 90.0)
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.x = Input.get_axis("ui_left", "ui_right") * RUN
+    velocity.y += GRAVITY * delta
+    if is_on_floor() and Input.is_action_just_pressed("ui_accept"):
+        velocity.y = -jump_speed
+    elif is_on_floor() and Input.is_action_just_pressed("ui_down"):
+        drop_through()
+    move_and_slide()
+
+func drop_through() -&gt; void:
+<span class="k">    set_collision_mask_value(2, false)   # stop seeing every platform</span>
+    await get_tree().create_timer(0.25).timeout
+    set_collision_mask_value(2, true)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Platforms: a Collider2D with "Used By Effector" ticked, plus a</span>
+<span class="c">// PlatformEffector2D with "Use One Way" ticked. The effector applies</span>
+<span class="c">// the landing rule. This script adds dropping through.</span>
+using System.Collections;
+using UnityEngine;
+
+public class DropThrough : MonoBehaviour
+{
+    public Collider2D body;      <span class="c">// the player's own collider</span>
+    Collider2D platform;         <span class="c">// the one-way platform under the player</span>
+
+    void OnCollisionEnter2D(Collision2D hit)
+    {
+        if (hit.collider.GetComponent&lt;PlatformEffector2D&gt;() != null) platform = hit.collider;
+    }
+
+    void OnCollisionExit2D(Collision2D hit)
+    {
+        if (hit.collider == platform) platform = null;
+    }
+
+    void Update()
+    {
+        if (platform != null &amp;&amp; Input.GetKeyDown(KeyCode.DownArrow))
+            StartCoroutine(Drop(platform));
+    }
+
+    IEnumerator Drop(Collider2D p)
+    {
+<span class="k">        Physics2D.IgnoreCollision(body, p, true);    // only this platform</span>
+        yield return new WaitForSeconds(0.25f);
+        Physics2D.IgnoreCollision(body, p, false);
+    }
+}</code></pre>
+  </div>
+  <p>Both engines run the landing rule for you, so the engine code is about the drop. The Godot version switches off a whole layer for a quarter of a second, which has the timer problem from the pitfalls. The Unity version ignores only the platform the player stood on.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Deciding with the current overlap.</strong> Any rule that looks only at where the body is now pops bodies onto platforms they never cleared, whatever direction check you add.</li>
+    <li><strong>Testing the centre instead of the feet.</strong> Comparing the box's centre or top with the platform's top lets the box land with its legs inside the platform. Compare the bottom edge.</li>
+    <li><strong>Drop-through by timer.</strong> Ignoring all platforms for a fixed time is easy, but a body falling from rest covers ½ × 1800 × 0.25² ≈ 56 pixels in a quarter of a second, so it also falls through a platform 40 pixels lower. Ignore only the platform the body stood on, or use the one-pixel nudge.</li>
+    <li><strong>Rounding.</strong> The rule compares <code>oldBottom &lt;= top</code> exactly, which is safe with whole-number positions. If snapping can leave the feet a hair below the top, a standing body falls through. Add a tolerance such as 0.01 pixels and keep the drop nudge larger. Some games use a few pixels on purpose, so a jump that nearly made it still lands: a feel decision, not physics.</li>
+    <li><strong>Moving platforms.</strong> If the platform moves, compare the feet with where its top was before the step as well. A rising platform otherwise passes up over the feet and the body falls through it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot has the rule built in: <code>CollisionShape2D</code> and <code>CollisionPolygon2D</code> have a <code>one_way_collision</code> property, plus a <code>one_way_collision_margin</code> that makes the shape count as thicker, which helps fast bodies. Unity has <code>PlatformEffector2D</code>: tick "Use One Way" on the effector and "Used By Effector" on the collider. Its surface arc sets how wide the blocking side is.</p>
+  <p>Many platformers use these platforms. Fans of Super Mario World call them semisolid platforms. In the Super Smash Bros. series, fighters can drop through the floating platforms by pressing down, and in Terraria the player can drop through placed platforms the same way.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Put a one-way platform in your project 100 pixels above the ground, with a jump that peaks about 85 pixels up. Jump straight up into it twenty times from different spots. Every jump must fall back to the ground: if the character ever ends up on top, you have the pop. Then stand on the platform, press down, and check that the character drops through it but still lands on a second platform 40 pixels lower. You are done when both checks pass.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A one-way platform is a line, its top, and only the body's feet test against it.</li>
+    <li>Land when the body is falling and the feet crossed the top this step: <code>oldBottom &lt;= top</code> and <code>newBottom &gt;= top</code>.</li>
+    <li>Checking only the direction of motion pops bodies onto platforms they never cleared and breaks dropping through.</li>
+    <li>Drop through by moving the feet one pixel below the top, or by ignoring only that one platform for a moment.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes stacking: why a tower of boxes jitters or sinks, and how running the solver several times per step makes it stand still.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CollisionShape2D</cite> class reference: the <code>one_way_collision</code> and <code>one_way_collision_margin</code> properties.</li>
+    <li>Unity Manual, <cite>Platform Effector 2D</cite>: one-way settings, surface arc and the "Used By Effector" option.</li>
+    <li>Rodrigo Monteiro, <cite>The guide to implementing 2D platformers</cite> (2012). Compares tile-based and box-based ways of building platformer collision.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units are pixels in a 400 by 300 world, y pointing down, scaled to fit each canvas.
+  var W = 400, H = 300;
+  var FLOOR = 280;          // y of the solid ground
+  var STEP = 1 / 60;        // fixed timestep
+  var MAX_FRAME = 0.25;
+  var GRAVITY = 1800;       // px/s²
+  var RUN = 150;            // px/s
+  var BOX_W = 16, BOX_H = 24;
+  var SLAB = 10;            // drawn thickness of a platform (and its depth in solid mode)
+  var PLATFORMS = [
+    { name: 'A', x: 30, w: 120, top: 210 },
+    { name: 'B', x: 230, w: 140, top: 175 },
+    { name: 'C', x: 120, w: 160, top: 105 }
+  ];
+  function platform(name) {
+    for (var i = 0; i < PLATFORMS.length; i++) if (PLATFORMS[i].name === name) return PLATFORMS[i];
+    return null;
+  }
+
+  // The script: each scene places both boxes, then feeds the same inputs to both.
+  var SCENES = [
+    { title: 'jump up into B from below', x: 200, on: 'floor', dir: 1, walkUntil: 0.6, jumpAt: 0.8, length: 2.4 },
+    { title: 'drop down through B', x: 290, on: 'B', dir: 0, walkUntil: 0, dropAt: 0.8, length: 2.2 },
+    { title: 'jump from A towards C', x: 124, on: 'A', dir: 0, walkUntil: 0, jumpAt: 0.6, length: 2.2 },
+    { title: 'walk off C and land on B', x: 250, on: 'C', dir: 1, walkUntil: 0.45, length: 1.8 }
+  ];
+
+  var auto = true;
+  var steerX = null;
+  var jumpCount = 0, dropCount = 0;
+  var hBroken = null, hFixed = null;
+
+  function makeSim(fixed) {
+    return {
+      fixed: fixed,
+      body: { x: 0, y: 0, vx: 0, vy: 0, on: null },
+      acc: 0, clock: 0, scene: 0, jumped: false, dropped: false,
+      trail: [], tick: 0,
+      popTimer: 0, popAmount: 0, popFrom: 0, bonkTimer: 0,
+      decision: '', jumpSeen: 0, dropSeen: 0
+    };
+  }
+  var simBroken = makeSim(false), simFixed = makeSim(true);
+
+  function methodOf(sim) { return sim.fixed ? 'above' : leftRule.value; }
+
+  function place(sim, x, on) {
+    var b = sim.body;
+    var top = on === 'floor' ? FLOOR : platform(on).top;
+    b.x = x; b.y = top - BOX_H; b.vx = 0; b.vy = 0;
+    b.on = on === 'floor' ? 'floor' : platform(on);
+    sim.trail = []; sim.popTimer = 0; sim.bonkTimer = 0; sim.acc = 0;
+  }
+
+  function loadScene(sim) {
+    var sc = SCENES[sim.scene];
+    place(sim, sc.x, sc.on);
+    sim.clock = 0; sim.jumped = false; sim.dropped = false;
+  }
+
+  function startScript() {
+    auto = true;
+    simBroken.scene = 0; simFixed.scene = 0;
+    loadScene(simBroken); loadScene(simFixed);
+    showScene();
+  }
+
+  function resetManual() {
+    auto = false;
+    steerX = null;
+    place(simBroken, 40, 'floor'); place(simFixed, 40, 'floor');
+    simBroken.jumpSeen = simFixed.jumpSeen = jumpCount;
+    simBroken.dropSeen = simFixed.dropSeen = dropCount;
+    showScene();
+  }
+
+  function takeOver() {
+    if (!auto) return;
+    auto = false;
+    simBroken.jumpSeen = simFixed.jumpSeen = jumpCount;
+    simBroken.dropSeen = simFixed.dropSeen = dropCount;
+    showScene();
+  }
+
+  var ui = DemoKit.controls('[data-demo="oneway"]');
+  var leftRule = ui.select({
+    label: 'Left rule',
+    options: [
+      { value: 'falling', label: 'Falling only (vy > 0)' },
+      { value: 'solid', label: 'Solid platform' }
+    ],
+    value: 'falling',
+    onChange: function () { updateLabel(); }
+  });
+  var jumpHeight = ui.slider({ label: 'Jump height', min: 50, max: 140, step: 5, value: 90, unit: ' px' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Jump', onClick: function () { takeOver(); jumpCount += 1; } });
+  ui.button({ label: 'Drop through', onClick: function () { takeOver(); dropCount += 1; } });
+  ui.button({ label: 'Replay script', onClick: function () { startScript(); } });
+  ui.button({ label: 'Reset', onClick: function () { resetManual(); } });
+  var sceneOut = ui.readout({ label: 'Script' });
+
+  var lastSceneText = '';
+  function showScene() {
+    var text = auto
+      ? 'scene ' + (simFixed.scene + 1) + ' of ' + SCENES.length + ': ' + SCENES[simFixed.scene].title
+      : 'off, you are in control';
+    if (text !== lastSceneText) { sceneOut.set(text); lastSceneText = text; }
+  }
+
+  function updateLabel() {
+    var el = document.getElementById('oneway-broken-label');
+    if (el) el.textContent = leftRule.value === 'solid' ? 'Solid platform' : 'Falling only';
+  }
+
+  function keyHeld(names) {
+    var handles = [hBroken, hFixed];
+    for (var h = 0; h < handles.length; h++) {
+      if (!handles[h]) continue;
+      for (var n = 0; n < names.length; n++) if (handles[h].state.keys.has(names[n])) return true;
+    }
+    return false;
+  }
+
+  function overX(b, p) { return b.x < p.x + p.w && b.x + BOX_W > p.x; }
+  function overY(y, p) { return y < p.top + SLAB && y + BOX_H > p.top; }
+
+  // One fixed step of one panel.
+  function step(sim) {
+    var b = sim.body, method = methodOf(sim);
+    var dir = 0, jump = false, drop = false;
+
+    if (auto) {
+      var sc = SCENES[sim.scene];
+      if (sim.clock < sc.walkUntil) dir = sc.dir;
+      if (sc.jumpAt !== undefined && !sim.jumped && sim.clock >= sc.jumpAt) { jump = true; sim.jumped = true; }
+      if (sc.dropAt !== undefined && !sim.dropped && sim.clock >= sc.dropAt) { drop = true; sim.dropped = true; }
+    } else {
+      if (keyHeld(['arrowleft', 'a'])) dir -= 1;
+      if (keyHeld(['arrowright', 'd'])) dir += 1;
+      if (steerX !== null) {
+        var d = steerX - (b.x + BOX_W / 2);
+        dir = Math.abs(d) > 3 ? (d > 0 ? 1 : -1) : 0;
+      }
+      if (jumpCount > sim.jumpSeen) jump = true;
+      if (dropCount > sim.dropSeen) drop = true;
+      sim.jumpSeen = jumpCount;
+      sim.dropSeen = dropCount;
+    }
+
+    // Sideways. Only a solid platform blocks this.
+    b.vx = dir * RUN;
+    b.x = DemoKit.clamp(b.x + b.vx * STEP, 0, W - BOX_W);
+    if (method === 'solid') {
+      for (var i = 0; i < PLATFORMS.length; i++) {
+        var q = PLATFORMS[i];
+        if (overX(b, q) && overY(b.y, q)) {
+          if (dir > 0) b.x = q.x - BOX_W;
+          else if (dir < 0) b.x = q.x + q.w;
+        }
+      }
+    }
+
+    if (jump && b.on) b.vy = -Math.sqrt(2 * GRAVITY * jumpHeight.value);
+    else if (drop && b.on && b.on !== 'floor') b.y += 1;   // feet 1 px below the top
+
+    b.vy += GRAVITY * STEP;
+    var oldBottom = b.y + BOX_H;
+    b.y += b.vy * STEP;
+    var newBottom = b.y + BOX_H;
+
+    var hit = null, bonked = false;
+    for (var j = 0; j < PLATFORMS.length; j++) {
+      var p = PLATFORMS[j];
+      if (!overX(b, p)) continue;
+      var lands = false;
+      if (method === 'above') {
+        lands = b.vy >= 0 && oldBottom <= p.top && newBottom >= p.top;
+      } else if (method === 'falling') {
+        lands = b.vy > 0 && overY(b.y, p);
+      } else if (overY(b.y, p)) {
+        if (b.vy > 0) lands = true;
+        else { b.y = p.top + SLAB; b.vy = 0; newBottom = b.y + BOX_H; bonked = true; }
+      }
+      if (lands && (!hit || p.top < hit.top)) hit = p;
+    }
+
+    b.on = null;
+    var popped = false;
+    if (hit) {
+      if (oldBottom > hit.top + 0.001) {
+        // The feet were already below the top before this step: a pop.
+        popped = true;
+        sim.popTimer = 1.2;
+        sim.popAmount = newBottom - hit.top;
+        sim.popFrom = newBottom;
+      }
+      b.y = hit.top - BOX_H; b.vy = 0; b.on = hit;
+    } else if (newBottom >= FLOOR) {
+      b.y = FLOOR - BOX_H; b.vy = 0; b.on = 'floor';
+    }
+    if (bonked) sim.bonkTimer = 0.8;
+
+    // Describe the decision for the platform nearest the feet.
+    var near = null;
+    for (var k = 0; k < PLATFORMS.length; k++) {
+      var r = PLATFORMS[k];
+      if (!overX(b, r)) continue;
+      if (!near || Math.abs(oldBottom - r.top) < Math.abs(oldBottom - near.top)) near = r;
+    }
+    var text;
+    if (method === 'above') {
+      if (hit) text = hit.name + ': feet crossed the top going down, land';
+      else if (!near) text = 'no platform above or below';
+      else if (b.vy < 0) text = near.name + ': moving up, pass through';
+      else if (oldBottom > near.top) text = near.name + ': feet already below the top, ignore';
+      else text = near.name + ': feet above the top, land when they cross it';
+    } else if (method === 'falling') {
+      if (hit && popped) text = hit.name + ': falling and overlapping, snap to top';
+      else if (hit) text = hit.name + ': falling and overlapping, land';
+      else if (!near) text = 'no platform above or below';
+      else if (b.vy < 0) text = near.name + ': moving up, pass through';
+      else text = near.name + ': falling, no overlap yet';
+    } else {
+      if (bonked) text = 'solid: hit its head';
+      else if (hit) text = hit.name + ': solid, land';
+      else text = 'solid: blocks from every side';
+    }
+    if (b.on === 'floor' && !bonked) text = 'on the ground';
+    if (sim.popTimer > 0 && !popped) text = 'snapped up ' + sim.popAmount.toFixed(1) + ' px: feet were already below';
+    else if (sim.bonkTimer > 0 && !bonked) text = 'solid: hit its head';
+    sim.decision = text;
+
+    sim.tick += 1;
+    if (sim.tick % 3 === 0) {
+      sim.trail.push({ x: b.x + BOX_W / 2, y: b.y + BOX_H });
+      if (sim.trail.length > 40) sim.trail.shift();
+    }
+    if (sim.popTimer > 0 && !popped) sim.popTimer -= STEP;
+    if (sim.bonkTimer > 0 && !bonked) sim.bonkTimer -= STEP;
+  }
+
+  function advance(sim, dt) {
+    sim.acc += Math.min(dt, MAX_FRAME);
+    var guard = 0;
+    while (sim.acc >= STEP && guard < 30) {
+      step(sim);
+      sim.acc -= STEP;
+      sim.clock += STEP;
+      if (auto && sim.clock >= SCENES[sim.scene].length) {
+        sim.scene = (sim.scene + 1) % SCENES.length;
+        loadScene(sim);
+      }
+      guard += 1;
+    }
+    if (guard === 30) sim.acc = 0;
+    showScene();
+  }
+
+  function view(s) {
+    var k = Math.min(s.width / W, s.height / H);
+    return { k: k, ox: (s.width - W * k) / 2, oy: (s.height - H * k) / 2 };
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, head) {
+    var a = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.moveTo(x2 - head * Math.cos(a - 0.5), y2 - head * Math.sin(a - 0.5));
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(a + 0.5), y2 - head * Math.sin(a + 0.5));
+    ctx.stroke();
+  }
+
+  function isActive(sim, p) {
+    var b = sim.body, method = methodOf(sim);
+    if (method === 'solid') return true;
+    if (method === 'falling') return b.vy >= 0;
+    return b.y + BOX_H <= p.top + 0.001;
+  }
+
+  function drawSim(ctx, s, sim) {
+    var c = s.colors, v = view(s), k = v.k, b = sim.body;
+    var showDebug = debug.value;
+    function X(x) { return v.ox + x * k; }
+    function Y(y) { return v.oy + y * k; }
+
+    // Ground.
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(X(0), Y(FLOOR), W * k, (H - FLOOR) * k);
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(FLOOR));
+    ctx.lineTo(X(W), Y(FLOOR));
+    ctx.stroke();
+
+    // Platforms.
+    ctx.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    for (var i = 0; i < PLATFORMS.length; i++) {
+      var p = PLATFORMS[i];
+      var active = !showDebug || isActive(sim, p);
+      if (active) {
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(X(p.x), Y(p.top), p.w * k, SLAB * k);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(X(p.x), Y(p.top));
+        ctx.lineTo(X(p.x + p.w), Y(p.top));
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(X(p.x), Y(p.top), p.w * k, SLAB * k);
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText(p.name, X(p.x) + 3, Y(p.top + SLAB) + 12);
+    }
+
+    // Trail of the feet.
+    if (showDebug) {
+      ctx.fillStyle = c.ink3;
+      for (var t = 0; t < sim.trail.length; t++) {
+        ctx.globalAlpha = 0.25 + 0.6 * t / sim.trail.length;
+        ctx.beginPath();
+        ctx.arc(X(sim.trail[t].x), Y(sim.trail[t].y), Math.max(1.5, 2 * k), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // The pop: where the feet were before the snap, and where they ended up.
+    var cx = b.x + BOX_W / 2;
+    if (sim.popTimer > 0) {
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(X(cx + 14), Y(sim.popFrom));
+      ctx.lineTo(X(cx + 14), Y(b.y + BOX_H));
+      ctx.stroke();
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = c.bad;
+      ctx.textAlign = 'left';
+      ctx.fillText('pop', X(cx + 18), Y(b.y + BOX_H) + 12);
+    }
+
+    // The box.
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(X(b.x), Y(b.y), BOX_W * k, BOX_H * k);
+    if (sim.bonkTimer > 0) {
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(X(b.x) - 1, Y(b.y) - 1, BOX_W * k + 2, BOX_H * k + 2);
+    }
+
+    if (showDebug) {
+      // The feet: the line compared with each top.
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(X(b.x - 6), Y(b.y + BOX_H));
+      ctx.lineTo(X(b.x + BOX_W + 6), Y(b.y + BOX_H));
+      ctx.stroke();
+      // Velocity: 0.08 seconds of motion.
+      if (Math.abs(b.vx) + Math.abs(b.vy) > 1) {
+        arrow(ctx, X(cx), Y(b.y + BOX_H / 2), X(cx + b.vx * 0.08), Y(b.y + BOX_H / 2 + b.vy * 0.08), 6);
+      }
+    }
+
+    // The decision, below the panel label.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = sim.popTimer > 0 || sim.bonkTimer > 0 ? c.bad : c.ink2;
+    ctx.fillText(sim.decision, 10, 44);
+  }
+
+  function makeCanvas(id, sim, label) {
+    function toWorldX(p, s) { var v = view(s); return (p.x - v.ox) / v.k; }
+    return DemoKit.canvas(id, {
+      aspect: 4 / 3,
+      maxHeight: 380,
+      drag: true,
+      keys: true,
+      label: label,
+      update: function (dt) { advance(sim, dt); },
+      draw: function (ctx, s) { drawSim(ctx, s, sim); },
+      onDown: function (p, s) { takeOver(); steerX = toWorldX(p, s); },
+      onMove: function (p, s) { if (p.down) steerX = toWorldX(p, s); },
+      onUp: function () { steerX = null; },
+      onKey: function (key, isDown) {
+        if (!isDown) return;
+        if (['arrowleft', 'arrowright', 'a', 'd'].indexOf(key) >= 0) takeOver();
+        if (['arrowup', 'w', 'space'].indexOf(key) >= 0) { takeOver(); jumpCount += 1; }
+        if (['arrowdown', 's'].indexOf(key) >= 0) { takeOver(); dropCount += 1; }
+      }
+    });
+  }
+
+  updateLabel();
+  startScript();
+  hBroken = makeCanvas('#oneway-broken', simBroken,
+    'A box jumping and dropping among three one-way platforms using a broken rule. With the falling-only rule it pops up onto platforms it jumped into and cannot drop through. With the solid rule it hits its head.');
+  hFixed = makeCanvas('#oneway-fixed', simFixed,
+    'The same box and input using the feet-were-above rule. It passes up through platforms, lands only when its feet cross a top on the way down, and drops through when asked.');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The event bus: one channel in the middle · Game Dev Daily</title>
+<meta name="description" content="How a central event bus lets senders and listeners meet without references, when listeners run, and what it costs you when debugging.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-16">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>The event bus: one channel in the middle</h1>
+  <p class="lede">How a central event bus lets senders and listeners meet without references, when listeners run, and what it costs you when debugging.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your enemy script started small. Now, when an enemy dies, it plays a sound, tells the quest log, tells the achievement tracker and updates the HUD. Each of those is a reference the enemy has to hold, and the enemy scene no longer runs in an empty test level because it expects all four to exist.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One channel in the middle</h2>
+  <p>In the observer lesson, each subject owned its own list of listeners, so a listener had to find the subject first. The HUD would need a reference to every enemy that might ever spawn.</p>
+  <p>An <dfn>event bus</dfn> is one object that holds the listener lists for every kind of event in the game. An <dfn>event</dfn> is a name, such as <code>enemy_died</code>, plus data about what happened, called the <dfn>payload</dfn>. Code with news <dfn>publishes</dfn> an event to the bus; code that cares <dfn>subscribes</dfn> to that name. Senders and listeners hold no references to each other, only to the bus.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Two panels. On the left, direct references: three senders, Player, Enemy and Coin, each have arrows straight to the listeners they call, HUD, Audio, Badges and Quests, making a web of crossing lines. On the right, the same senders and listeners each have one short line to a horizontal event bus in the middle, and no line goes from a sender to a listener.">
+      <defs>
+        <marker id="eb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="20" y="24">Direct references</text>
+      <text class="d-label" x="340" y="24">Event bus</text>
+      <path class="d-dash" d="M320 36 V270"/>
+
+      <g>
+        <rect class="d-box" x="25" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="125" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="225" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="17" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="87" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="157" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="227" y="196" width="60" height="32" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="60" y="65">Player</text>
+        <text class="d-text" x="160" y="65">Enemy</text>
+        <text class="d-text" x="260" y="65">Coin</text>
+        <text class="d-text" x="47" y="217">HUD</text>
+        <text class="d-text" x="117" y="217">Audio</text>
+        <text class="d-text" x="187" y="217">Badges</text>
+        <text class="d-text" x="257" y="217">Quests</text>
+      </g>
+      <g>
+        <path class="d-accent" d="M58 76 L48 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M64 76 L114 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M156 76 L120 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M162 76 L186 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M166 76 L254 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M254 76 L52 192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M258 76 L124 192" marker-end="url(#eb-arrow)"/>
+      </g>
+      <text class="d-muted" x="20" y="256">Each sender holds its listeners.</text>
+      <text class="d-muted" x="20" y="274">Wires grow as senders × listeners.</text>
+
+      <g>
+        <rect class="d-box" x="345" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="445" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="545" y="44" width="70" height="32" rx="6"/>
+        <rect class="d-box" x="337" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="407" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="477" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-box" x="547" y="196" width="60" height="32" rx="6"/>
+        <rect class="d-accent-soft" x="335" y="124" width="290" height="28" rx="6"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="380" y="65">Player</text>
+        <text class="d-text" x="480" y="65">Enemy</text>
+        <text class="d-text" x="580" y="65">Coin</text>
+        <text class="d-text" x="367" y="217">HUD</text>
+        <text class="d-text" x="437" y="217">Audio</text>
+        <text class="d-text" x="507" y="217">Badges</text>
+        <text class="d-text" x="577" y="217">Quests</text>
+        <text class="d-text" x="480" y="143">event bus</text>
+      </g>
+      <g>
+        <path class="d-accent" d="M380 76 V120" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M480 76 V120" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M580 76 V120" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M367 152 V192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M437 152 V192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M507 152 V192" marker-end="url(#eb-arrow)"/>
+        <path class="d-accent" d="M577 152 V192" marker-end="url(#eb-arrow)"/>
+      </g>
+      <text class="d-muted" x="340" y="256">Each side knows only the bus.</text>
+      <text class="d-muted" x="340" y="274">Wires grow as senders + listeners.</text>
+    </svg>
+    <figcaption>With direct references the enemy names every system that cares about its death. With a bus it names one event, and the bus finds the listeners at run time.</figcaption>
+  </figure>
+
+  <p>Who owns what? The bus owns the subscription lists, the sender owns the game state the event describes, and each listener owns its reaction. The payload is shared, so listeners should treat it as read-only. The bus usually lives for the whole game, longer than any scene.</p>
+
+  <h2>When does a listener run?</h2>
+  <p><strong>Immediate delivery.</strong> Publish calls each listener before it returns. The data is fresh and the code is simple, but if a listener publishes a second event, every listener of that event runs <em>inside</em> the delivery of the first. Below, Badges unlocks a badge while handling <code>enemy_died</code>, so HUD and Audio hear about the badge before Quests hears about the death.</p>
+  <p><strong>Queued delivery.</strong> Publish only appends the event to a queue, and at a fixed point in the frame, usually the end, the bus delivers the queue in order. The sender is never interrupted and chains become a straight line. The price is delay: by delivery time the enemy may be freed, so put what listeners need, such as the position, into the payload.</p>
+  <p>A queue also needs a rule for events published while it is being delivered. This lesson's bus keeps them for the next frame, so two listeners that answer each other cannot lock the game in an endless loop.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 200" role="img" aria-label="A timeline comparing delivery order after Enemy publishes enemy_died. Immediate: Audio, Badges, then HUD and Audio for badge_unlocked nested inside Badges, then Quests. Queued: Audio, Badges and Quests at the end of frame 1, then HUD and Audio for badge_unlocked at the end of frame 2.">
+      <text class="d-label" x="20" y="54">Immediate</text>
+      <text class="d-label" x="20" y="144">Queued</text>
+      <g>
+        <rect class="d-box" x="120" y="34" width="84" height="30" rx="5"/>
+        <rect class="d-box" x="210" y="34" width="84" height="30" rx="5"/>
+        <rect class="d-accent-soft" x="300" y="34" width="84" height="30" rx="5"/>
+        <rect class="d-accent-soft" x="390" y="34" width="84" height="30" rx="5"/>
+        <rect class="d-box" x="480" y="34" width="84" height="30" rx="5"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="162" y="54">Audio</text>
+        <text class="d-text" x="252" y="54">Badges</text>
+        <text class="d-text" x="342" y="54">HUD</text>
+        <text class="d-text" x="432" y="54">Audio</text>
+        <text class="d-text" x="522" y="54">Quests</text>
+      </g>
+      <path class="d-thin" d="M300 72 V80 H474 V72"/>
+      <text class="d-muted" x="387" y="96" text-anchor="middle">badge_unlocked, inside Badges</text>
+
+      <g>
+        <rect class="d-box" x="120" y="124" width="84" height="30" rx="5"/>
+        <rect class="d-box" x="210" y="124" width="84" height="30" rx="5"/>
+        <rect class="d-box" x="300" y="124" width="84" height="30" rx="5"/>
+        <rect class="d-accent-soft" x="436" y="124" width="84" height="30" rx="5"/>
+        <rect class="d-accent-soft" x="526" y="124" width="84" height="30" rx="5"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-text" x="162" y="144">Audio</text>
+        <text class="d-text" x="252" y="144">Badges</text>
+        <text class="d-text" x="342" y="144">Quests</text>
+        <text class="d-text" x="478" y="144">HUD</text>
+        <text class="d-text" x="568" y="144">Audio</text>
+      </g>
+      <path class="d-dash" d="M410 112 V176"/>
+      <text class="d-muted" x="252" y="180" text-anchor="middle">end of frame 1</text>
+      <text class="d-muted" x="523" y="180" text-anchor="middle">end of frame 2</text>
+    </svg>
+    <figcaption>The same three subscriptions, two delivery rules. Shaded boxes are the listeners of <code>badge_unlocked</code>, the event Badges publishes on a first kill.</figcaption>
+  </figure>
+
+  <h2>The bill comes when debugging</h2>
+  <p>With direct references, "find all references" shows every system the enemy touches. With a bus, the enemy's code says only "publish <code>enemy_died</code>", and who listens is decided at run time. When a sound plays twice, you hunt through every subscriber to that name. If names are strings, a typo such as <code>enemy_dead</code> fails silently. Three habits keep the cost down:</p>
+  <ul>
+    <li>Declare every event in one file, with typed parameters, so a misspelt name fails to compile and "find usages" works again.</li>
+    <li>Log inside the bus. It is the one place that sees every event and every listener, so one line of logging there traces the whole game.</li>
+    <li>Use the bus for news that many unrelated systems care about. Keep a direct call or a local signal for a parent talking to its own child.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Publish on the bus when the sender genuinely does not care who listens, or whether anyone does. If the sender needs an answer, or exactly one system must act, call that system directly.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press <strong>Enemy died</strong> and follow the dot: it leaves the Enemy, runs along the bus and drops into each listener in subscription order. The first, third and fifth kills make Badges publish <code>badge_unlocked</code>. Watch the delivery order list: in immediate mode the badge deliveries are indented, because they happen inside Badges' handler.</p>
+  <p>Switch to <strong>Event bus, queued</strong>. Events now wait as chips on the bus until you press <strong>End frame</strong>, and the badge waits one frame longer. Then switch to <strong>Direct references</strong> and tick <strong>Add Stats</strong>: compare how many wires appear, and how many senders had to change, with the bus modes.</p>
+
+  <figure class="demo wide" data-demo="event-bus">
+    <canvas id="event-bus"></canvas>
+    <figcaption>You can also tap the Player, Enemy and Coin boxes to fire their events. The model delivers one message at a time so the order is visible. It leaves out payloads, unsubscribing, and the cost of the calls themselves.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua version is a whole LÖVE program with the demo's events, listeners and badge numbers. Keys 1, 2 and 3 publish, and Q switches between immediate and queued delivery. The bus logs every delivery, which is the same list the demo shows.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua. Keys: 1 hurt, 2 enemy died, 3 coin, Q toggles queued delivery.</span>
+local bus = { listeners = {}, queue = {}, queued = false }
+local log = {}
+
+function bus.subscribe(event, name, fn)
+  local list = bus.listeners[event]
+  if list == nil then
+    list = {}
+    bus.listeners[event] = list
+  end
+  list[#list + 1] = { name = name, fn = fn }
+end
+
+function bus.unsubscribe(event, name)
+  local list = bus.listeners[event] or {}
+  for i = #list, 1, -1 do
+    if list[i].name == name then table.remove(list, i) end
+  end
+end
+
+local function deliver(event, data)
+  local list = bus.listeners[event] or {}
+  local copy = {}                         <span class="c">-- listeners may unsubscribe mid-loop</span>
+  for i = 1, #list do copy[i] = list[i] end
+  for i = 1, #copy do
+    log[#log + 1] = event .. " -&gt; " .. copy[i].name   <span class="c">-- one place sees all</span>
+    copy[i].fn(data)
+  end
+end
+
+<span class="k">function bus.publish(event, data)
+  if bus.queued then
+    bus.queue[#bus.queue + 1] = { event = event, data = data }
+  else
+    deliver(event, data)                  <span class="c">-- listeners run before this returns</span>
+  end
+end
+
+function bus.flush()                      <span class="c">-- call once, at the end of the frame</span>
+  local waiting = bus.queue
+  bus.queue = {}                          <span class="c">-- events posted during flush wait a frame</span>
+  for i = 1, #waiting do deliver(waiting[i].event, waiting[i].data) end
+end</span>
+
+<span class="c">-- Listeners. None of them knows who sends.</span>
+local hud = { health = 100, coins = 0, badge = "" }
+local sounds, kills, questKills = 0, 0, 0
+local BADGE_AT = { [1] = "First blood", [3] = "Hunter", [5] = "Veteran" }
+
+bus.subscribe("player_hurt", "HUD", function (d) hud.health = d.health end)
+bus.subscribe("player_hurt", "Audio", function (d) sounds = sounds + 1 end)
+bus.subscribe("enemy_died", "Audio", function (d) sounds = sounds + 1 end)
+bus.subscribe("enemy_died", "Badges", function (d)
+  kills = kills + 1
+  if BADGE_AT[kills] then bus.publish("badge_unlocked", { name = BADGE_AT[kills] }) end
+end)
+bus.subscribe("enemy_died", "Quests", function (d) questKills = questKills + 1 end)
+bus.subscribe("coin_collected", "HUD", function (d) hud.coins = d.total end)
+bus.subscribe("coin_collected", "Audio", function (d) sounds = sounds + 1 end)
+bus.subscribe("badge_unlocked", "HUD", function (d) hud.badge = d.name end)
+bus.subscribe("badge_unlocked", "Audio", function (d) sounds = sounds + 1 end)
+
+<span class="c">-- Senders. They know only the bus.</span>
+local health, coins = 100, 0
+
+function love.keypressed(key)
+  if key == "1" then
+    health = health - 10
+    bus.publish("player_hurt", { health = health })
+  elseif key == "2" then
+    bus.publish("enemy_died", { x = 200, y = 120 })
+  elseif key == "3" then
+    coins = coins + 1
+    bus.publish("coin_collected", { total = coins })
+  elseif key == "q" then
+    bus.queued = not bus.queued
+  end
+end
+
+function love.update(dt)
+  <span class="c">-- the rest of the game would update here</span>
+  bus.flush()                             <span class="c">-- the end of the frame</span>
+end
+
+function love.draw()
+  love.graphics.print("health " .. hud.health .. "  coins " .. hud.coins ..
+    "  badge " .. hud.badge .. "  sounds " .. sounds .. "  quest kills " .. questKills, 10, 10)
+  love.graphics.print(bus.queued and "delivery: queued" or "delivery: immediate", 10, 30)
+  local first = math.max(1, #log - 20)
+  for i = first, #log do
+    love.graphics.print(log[i], 10, 50 + (i - first) * 16)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># events.gd. Godot 4. Register it as an autoload named Events in Project Settings.</span>
+<span class="c"># The bus is a node that only declares signals. It lives as long as the game.</span>
+extends Node
+
+<span class="k">signal player_hurt(health: int)
+signal enemy_died(at: Vector2)
+signal coin_collected(total: int)
+signal badge_unlocked(badge_name: String)</span>
+
+
+<span class="c"># main.gd, in its own file, on the root Node of a new scene.</span>
+<span class="c"># Press Enter or Space (the ui_accept action) and read the Output panel.</span>
+extends Node
+
+const BADGE_AT := {1: "First blood", 3: "Hunter", 5: "Veteran"}
+var kills := 0
+
+func _ready() -&gt; void:
+    Events.enemy_died.connect(_on_enemy_died_audio)
+    Events.enemy_died.connect(_on_enemy_died_badges)
+<span class="k">    <span class="c"># Deferred: called at the end of the frame, not inside emit().</span>
+    Events.enemy_died.connect(_on_enemy_died_quests, CONNECT_DEFERRED)</span>
+    Events.badge_unlocked.connect(_on_badge_unlocked)
+
+func _process(_delta: float) -&gt; void:
+    if Input.is_action_just_pressed("ui_accept"):
+        print("--- Enemy emits enemy_died")
+<span class="k">        Events.enemy_died.emit(Vector2(200, 120))</span>
+        print("--- emit() has returned")
+
+func _on_enemy_died_audio(_at: Vector2) -&gt; void:
+    print("Audio heard enemy_died")
+
+func _on_enemy_died_badges(_at: Vector2) -&gt; void:
+    kills += 1
+    print("Badges heard enemy_died, kills = ", kills)
+    if BADGE_AT.has(kills):
+        Events.badge_unlocked.emit(BADGE_AT[kills])
+
+func _on_enemy_died_quests(_at: Vector2) -&gt; void:
+    print("Quests heard enemy_died (deferred)")
+
+func _on_badge_unlocked(badge_name: String) -&gt; void:
+    print("HUD shows badge: ", badge_name)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// GameEvents.cs. Unity 2022 LTS or Unity 6.</span>
+<span class="c">// A static class: no GameObject, and it lives for the whole run.</span>
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+public static class GameEvents
+{
+<span class="k">    public static event Action&lt;Vector3&gt; EnemyDied;
+    public static event Action&lt;string&gt; BadgeUnlocked;</span>
+
+    <span class="c">// Only the declaring class may invoke an event, so senders call these.</span>
+    public static void RaiseEnemyDied(Vector3 at) =&gt; EnemyDied?.Invoke(at);
+    public static void RaiseBadgeUnlocked(string name) =&gt; BadgeUnlocked?.Invoke(name);
+
+    <span class="c">// Queued delivery: Post now, Flush once near the end of the frame.</span>
+    static readonly List&lt;Action&gt; queue = new List&lt;Action&gt;();
+    public static void Post(Action raise) =&gt; queue.Add(raise);
+    public static void Flush()
+    {
+        var waiting = queue.ToArray();
+        queue.Clear();                        <span class="c">// posted during Flush waits a frame</span>
+        foreach (var raise in waiting) raise();
+    }
+}
+
+
+<span class="c">// EventDemo.cs, in its own file. Add to an empty GameObject and press Play.</span>
+<span class="c">// Tick "Queued" in the Inspector while it runs to switch delivery.</span>
+using UnityEngine;
+
+public class EventDemo : MonoBehaviour
+{
+    public bool queued;
+    static readonly string[] BadgeAt = { null, "First blood", null, "Hunter", null, "Veteran" };
+    int kills;
+    float timer;
+
+    void OnEnable()
+    {
+        GameEvents.EnemyDied += OnEnemyDiedAudio;
+        GameEvents.EnemyDied += OnEnemyDiedBadges;
+        GameEvents.BadgeUnlocked += OnBadgeUnlocked;
+    }
+
+<span class="k">    void OnDisable()   <span class="c">// a static event holds every listener until it is removed</span>
+    {
+        GameEvents.EnemyDied -= OnEnemyDiedAudio;
+        GameEvents.EnemyDied -= OnEnemyDiedBadges;
+        GameEvents.BadgeUnlocked -= OnBadgeUnlocked;
+    }</span>
+
+    void Update()
+    {
+        timer += Time.deltaTime;
+        if (timer &lt; 2f) return;
+        timer = 0f;
+        Vector3 at = transform.position;      <span class="c">// copy the data into the payload</span>
+        Debug.Log("--- Enemy raises EnemyDied");
+        if (queued) GameEvents.Post(() =&gt; GameEvents.RaiseEnemyDied(at));
+        else GameEvents.RaiseEnemyDied(at);
+        Debug.Log("--- Raise has returned");
+    }
+
+    void LateUpdate() =&gt; GameEvents.Flush();   <span class="c">// after every Update</span>
+
+    void OnEnemyDiedAudio(Vector3 at) =&gt; Debug.Log("Audio heard EnemyDied");
+
+    void OnEnemyDiedBadges(Vector3 at)
+    {
+        kills++;
+        Debug.Log("Badges heard EnemyDied, kills = " + kills);
+        if (kills &lt; BadgeAt.Length &amp;&amp; BadgeAt[kills] != null)
+            GameEvents.RaiseBadgeUnlocked(BadgeAt[kills]);
+    }
+
+    void OnBadgeUnlocked(string badgeName) =&gt; Debug.Log("HUD shows badge: " + badgeName);
+}</code></pre>
+  </div>
+  <p>Neither engine ships an "event bus" class; both give you the pieces. In Godot it is usually an autoload that only declares signals. Connections to an object's methods are removed automatically when that object is freed. Queuing is chosen per connection: <code>CONNECT_DEFERRED</code> makes that listener run at idle time, at the end of the frame, instead of inside <code>emit()</code>.</p>
+  <p>In Unity it is usually a static class of C# events, as above, or ScriptableObject assets you write that each act as one event channel. A static event keeps every subscribed listener alive, even after its GameObject is destroyed, so <code>OnDisable</code> must remove what <code>OnEnable</code> added. The queue is your own, and <code>LateUpdate</code> stands in for the end of the frame; which script's <code>LateUpdate</code> runs first depends on the script execution order.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Listeners that outlive their objects.</strong> The bus outlives every scene. A Unity script that never unsubscribes from a static event is still called after its object is destroyed, and throws errors when it touches its GameObject. In Godot, a node that is hidden or removed from the tree but not freed still reacts.</li>
+    <li><strong>Relying on listener order.</strong> Order usually follows subscription order, which follows whichever object was enabled first. If Quests must update before the HUD reads it, make that explicit with a second event or a direct call.</li>
+    <li><strong>Stale payloads in queued mode.</strong> The sender may be freed before delivery. Copy values such as position and score into the payload instead of sending the node.</li>
+    <li><strong>Feedback loops.</strong> Two listeners that answer each other recurse forever with immediate delivery. Holding new events for the next frame turns the hang into a bug you can watch.</li>
+    <li><strong>Everything through the bus.</strong> When a request and its reply both travel over the bus, the logic is spread across files that never mention each other. Questions with answers are function calls.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In Godot projects, an autoload holding only signals, often named <code>Events</code> or <code>EventBus</code>, is a widely shared community pattern for scenes that do not know each other, such as the player and the HUD.</p>
+  <p>In Unity, Ryan Hipple's Unite 2017 talk on ScriptableObject architecture popularised event channels as assets: senders raise the asset, and listener components respond to it, wired up in the Inspector.</p>
+  <p>Robert Nystrom's <cite>Game Programming Patterns</cite> describes the queued form as the Event Queue pattern, with audio as the example: game code posts sound requests, and the audio system works through them later.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick one event in your project that at least three systems care about, such as an enemy dying. Create a bus that declares only that event: an autoload with one signal in Godot, or a static class with one event in Unity. Replace the sender's direct calls with one publish, and make each listener subscribe, with a matching unsubscribe in Unity's <code>OnDisable</code>.</p>
+  <p>Log the event name and listener count inside the bus. You are done when the enemy scene runs alone in an empty test scene without errors, and the full game logs every death with the right count.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An event bus owns the listener lists, so senders and listeners only need a reference to the bus, not to each other.</li>
+    <li>Immediate delivery runs listeners inside publish, so events published by listeners nest. Queued delivery runs them later, in order, at a point in the frame you choose.</li>
+    <li>Queued events arrive late: put copied values in the payload, not references to objects that may be gone.</li>
+    <li>The cost is visibility. Declare events in one typed file, log inside the bus, and unsubscribe when a listener goes away.</li>
+    <li>Use the bus for news many systems care about. Use direct calls for questions that need an answer.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson looks at the other kind of global object, the service locator, and how autoloads in Godot and singletons in Unity make audio and saving reachable from anywhere while staying replaceable.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapters "Event Queue" and "Observer". The queued form, its ring buffer, and the risk of feedback loops.</li>
+    <li>Godot Engine documentation, <cite>Singletons (Autoload)</cite>, and the class reference for <cite>Object</cite>, which lists the connect flags including <code>CONNECT_DEFERRED</code>.</li>
+    <li>Microsoft, <cite>C# programming guide: Events</cite>. How <code>event</code> fields restrict invocation to the declaring class.</li>
+    <li>Ryan Hipple, <cite>Game Architecture with Scriptable Objects</cite>, talk at Unite Austin 2017. Event channels as assets.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SPEED = 700;          // pixels per second for a travelling message
+  var MAX_PENDING = 40;     // ignore clicks while this many messages wait
+  var LOG_LINES = 6;
+
+  var NODES = {
+    player: { name: 'Player', row: 0, col: 0, emits: 'player_hurt' },
+    enemy:  { name: 'Enemy',  row: 0, col: 1, emits: 'enemy_died' },
+    coin:   { name: 'Coin',   row: 0, col: 2, emits: 'coin_collected' },
+    hud:    { name: 'HUD',    row: 1, col: 0 },
+    audio:  { name: 'Audio',  row: 1, col: 1 },
+    badges: { name: 'Badges', row: 1, col: 2 },
+    quests: { name: 'Quests', row: 1, col: 3 },
+    stats:  { name: 'Stats',  row: 1, col: 4 }
+  };
+  var TOP = ['player', 'enemy', 'coin'];
+  var SHORT = { player_hurt: 'hurt', enemy_died: 'died', coin_collected: 'coin', badge_unlocked: 'badge' };
+  // Subscription order, the same as the Lua.
+  var SUBS = {
+    player_hurt: ['hud', 'audio'],
+    enemy_died: ['audio', 'badges', 'quests'],
+    coin_collected: ['hud', 'audio'],
+    badge_unlocked: ['hud', 'audio']
+  };
+  var SENDS = { player: 'player_hurt', enemy: 'enemy_died', coin: 'coin_collected', badges: 'badge_unlocked' };
+  var BADGE_AT = { 1: 'First blood', 3: 'Hunter', 5: 'Veteran' };
+
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) &&
+    !/(^|[#&])gdd-test\b/.test(window.location.hash);
+
+  var mode = 'bus';         // 'direct', 'bus' or 'queued'
+  var statsOn = false;
+  var pending, busQueue, log, seq, got, flash, kills, frameNo;
+
+  function reset() {
+    pending = [];
+    busQueue = [];
+    log = [];
+    seq = 0;
+    kills = 0;
+    frameNo = 1;
+    got = {};
+    flash = {};
+    Object.keys(NODES).forEach(function (id) { got[id] = 0; flash[id] = 0; });
+  }
+  reset();
+
+  function listenersOf(event) {
+    var list = SUBS[event].slice();
+    if (statsOn) list.push('stats');
+    return list;
+  }
+
+  function addLog(text) {
+    log.push(text);
+    while (log.length > LOG_LINES) log.shift();
+  }
+
+  function indent(depth) {
+    var s = '';
+    for (var i = 0; i < depth; i++) s += '    ';
+    return depth > 0 ? s + '↳ ' : '';
+  }
+
+  // A listener receives an event. Badges may publish while handling it.
+  function deliver(to, event, depth) {
+    got[to] += 1;
+    flash[to] = 0.6;
+    seq += 1;
+    addLog(indent(depth) + seq + '. ' + event + ' → ' + NODES[to].name);
+    if (to === 'badges' && event === 'enemy_died') {
+      kills += 1;
+      if (BADGE_AT[kills]) publish('badges', 'badge_unlocked', depth + 1, true);
+    }
+  }
+
+  // nested = published from inside a listener, so it goes before anything already waiting.
+  function publish(sender, event, depth, nested) {
+    var packets = [];
+    if (mode === 'queued') {
+      packets.push({ kind: 'enqueue', from: sender, event: event, d: 0, onArrive: function () {
+        busQueue.push(event);
+        addLog(NODES[sender].name + ' posts ' + event + ' (waits)');
+      } });
+    } else {
+      listenersOf(event).forEach(function (to) {
+        packets.push({ kind: mode === 'direct' ? 'direct' : 'bus', from: sender, to: to, event: event, d: 0,
+          onArrive: function () { deliver(to, event, depth); } });
+      });
+    }
+    pending = nested ? packets.concat(pending) : pending.concat(packets);
+  }
+
+  function endFrame() {
+    if (mode !== 'queued') return;
+    pending.push({ kind: 'marker', onArrive: function () {
+      var events = busQueue;
+      busQueue = [];
+      addLog('-- end of frame ' + frameNo + ' --');
+      frameNo += 1;
+      var packets = [];
+      events.forEach(function (event) {
+        listenersOf(event).forEach(function (to) {
+          packets.push({ kind: 'dequeue', to: to, event: event, d: 0,
+            onArrive: function () { deliver(to, event, 0); } });
+        });
+      });
+      pending = packets.concat(pending);
+    } });
+    settle();
+  }
+
+  function fire(sender) {
+    if (pending.length > MAX_PENDING) return;
+    publish(sender, SENDS[sender], 0, false);
+    settle();
+  }
+
+  // ---- layout, all from the canvas size ----
+  var BOX_H = 38, TOP_Y = 30, BUS_Y = 122, BOTTOM_Y = 172, LOG_Y = 268;
+
+  function rectOf(id, s) {
+    var n = NODES[id];
+    var count = n.row === 0 ? 3 : (statsOn ? 5 : 4);
+    var cell = s.width / count;
+    var w = Math.min(n.row === 0 ? 110 : 90, cell - 8);
+    var cx = cell * (n.col + 0.5);
+    var y = n.row === 0 ? TOP_Y : BOTTOM_Y;
+    return { x: cx - w / 2, y: y, w: w, h: BOX_H, cx: cx, row: n.row };
+  }
+
+  function queueX(s, index) { return Math.min(96 + index * 50, s.width - 40); }
+
+  function underY(to) { return BOTTOM_Y + BOX_H + (to === 'hud' ? 24 : 12); }
+
+  function pathOf(p, s) {
+    var a = p.from ? rectOf(p.from, s) : null;
+    var b = p.to ? rectOf(p.to, s) : null;
+    var startBus = a ? [a.cx, a.row === 0 ? a.y + a.h : a.y] : null;
+    if (p.kind === 'direct') {
+      if (a.row === 0) return [[a.cx, a.y + a.h], [b.cx, b.y]];
+      var below = underY(p.to);
+      return [[a.cx, a.y + a.h], [a.cx, below], [b.cx, below], [b.cx, b.y + b.h]];
+    }
+    if (p.kind === 'bus') return [startBus, [a.cx, BUS_Y], [b.cx, BUS_Y], [b.cx, b.y]];
+    if (p.kind === 'enqueue') return [startBus, [a.cx, BUS_Y], [queueX(s, busQueue.length), BUS_Y]];
+    return [[queueX(s, 0), BUS_Y], [b.cx, BUS_Y], [b.cx, b.y]];   // dequeue
+  }
+
+  function lengthOf(pts) {
+    var total = 0;
+    for (var i = 1; i < pts.length; i++) {
+      total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    }
+    return total;
+  }
+
+  function pointAt(pts, d) {
+    for (var i = 1; i < pts.length; i++) {
+      var seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      if (d <= seg && seg > 0) {
+        var t = d / seg;
+        return [DemoKit.lerp(pts[i - 1][0], pts[i][0], t), DemoKit.lerp(pts[i - 1][1], pts[i][1], t)];
+      }
+      d -= seg;
+    }
+    return pts[pts.length - 1];
+  }
+
+  function step(dt, s) {
+    var guard = 0;
+    while (pending.length && guard < 50) {
+      guard += 1;
+      var p = pending[0];
+      if (p.kind === 'marker') {
+        pending.shift();
+        p.onArrive();
+        continue;
+      }
+      p.d += SPEED * dt;
+      if (p.d >= lengthOf(pathOf(p, s))) {
+        pending.shift();
+        p.onArrive();
+      }
+      break;
+    }
+  }
+
+  // With reduced motion every message arrives at once, in the same order.
+  function settle() {
+    if (reduce) {
+      var guard = 0;
+      while (pending.length && guard < 500) {
+        guard += 1;
+        pending.shift().onArrive();
+      }
+    }
+    updateReadouts();
+    if (handle) handle.redraw();
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="event-bus"]');
+  ui.select({ label: 'Mode', value: 'bus', options: [
+    { value: 'direct', label: 'Direct references' },
+    { value: 'bus', label: 'Event bus, immediate' },
+    { value: 'queued', label: 'Event bus, queued' }
+  ], onChange: function (v) { mode = v; reset(); endBtn.el.disabled = (mode !== 'queued'); settle(); } });
+  ui.button({ label: 'Player hurt', onClick: function () { fire('player'); } });
+  ui.button({ label: 'Enemy died', onClick: function () { fire('enemy'); } });
+  ui.button({ label: 'Coin collected', onClick: function () { fire('coin'); } });
+  var endBtn = ui.button({ label: 'End frame', onClick: endFrame });
+  endBtn.el.disabled = true;
+  ui.toggle({ label: 'Add Stats (listens to everything)', value: false,
+    onChange: function (v) { statsOn = v; reset(); settle(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); settle(); } });
+  var wiresOut = ui.readout({ label: 'Connections' });
+  var editsOut = ui.readout({ label: 'Senders that must know Stats' });
+
+  function directPairs() {
+    var pairs = [];
+    Object.keys(SENDS).forEach(function (sender) {
+      listenersOf(SENDS[sender]).forEach(function (to) { pairs.push([sender, to]); });
+    });
+    return pairs;
+  }
+
+  function updateReadouts() {
+    if (mode === 'direct') {
+      wiresOut.set(String(directPairs().length));
+      editsOut.set(statsOn ? '4 (Player, Enemy, Coin, Badges)' : '0 until you add Stats');
+    } else {
+      wiresOut.set(String(statsOn ? 8 : 7));
+      editsOut.set('0');
+    }
+  }
+
+  // ---- drawing ----
+  var FONT = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function polyline(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function visibleIds() {
+    return Object.keys(NODES).filter(function (id) { return id !== 'stats' || statsOn; });
+  }
+
+  function drawNode(ctx, c, id, s) {
+    var r = rectOf(id, s);
+    roundRect(ctx, r.x, r.y, r.w, r.h, 6);
+    ctx.fillStyle = c.surface;
+    ctx.fill();
+    if (!reduce && flash[id] > 0) {
+      ctx.globalAlpha = Math.min(1, flash[id] / 0.6) * 0.35;
+      ctx.fillStyle = c.topic;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = (!reduce && flash[id] > 0) ? c.topic : c.ink3;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink;
+    ctx.font = FONT;
+    ctx.fillText(NODES[id].name, r.cx, r.y + 16);
+    ctx.font = SMALL;
+    ctx.fillStyle = c.ink2;
+    if (r.row === 0) {
+      ctx.fillText('tap to send', r.cx, r.y + 31);
+    } else {
+      ctx.fillText('heard ' + got[id], r.cx, r.y + 31);
+    }
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var ids = visibleIds();
+
+    // Event names above the senders.
+    ctx.font = SMALL;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink2;
+    TOP.forEach(function (id) {
+      var r = rectOf(id, s);
+      ctx.fillText(NODES[id].emits, r.cx, TOP_Y - 8);
+    });
+
+    // Wires.
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = c.line;
+    if (mode === 'direct') {
+      directPairs().forEach(function (pair) {
+        polyline(ctx, pathOf({ kind: 'direct', from: pair[0], to: pair[1] }, s));
+      });
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('no bus: senders call listeners', 10, BUS_Y + 4);
+    } else {
+      ids.forEach(function (id) {
+        var r = rectOf(id, s);
+        var y = r.row === 0 ? r.y + r.h : r.y;
+        polyline(ctx, [[r.cx, y], [r.cx, BUS_Y]]);
+      });
+      roundRect(ctx, 6, BUS_Y - 14, s.width - 12, 28, 7);
+      ctx.fillStyle = c.surface2;
+      ctx.fill();
+      ctx.strokeStyle = c.ink3;
+      ctx.stroke();
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'left';
+      ctx.font = FONT;
+      ctx.fillText(mode === 'queued' ? 'bus queue' : 'event bus', 14, BUS_Y + 5);
+
+      // Queued events wait as chips.
+      ctx.font = SMALL;
+      ctx.textAlign = 'center';
+      var fits = Math.max(1, Math.floor((s.width - 96 - 20) / 50));
+      for (var i = 0; i < busQueue.length && i < fits; i++) {
+        var x = queueX(s, i);
+        roundRect(ctx, x - 22, BUS_Y - 10, 44, 20, 5);
+        ctx.fillStyle = c.topic;
+        ctx.fill();
+        ctx.fillStyle = c.bg;
+        ctx.fillText(SHORT[busQueue[i]], x, BUS_Y + 4);
+      }
+      if (busQueue.length > fits) {
+        ctx.fillStyle = c.ink;
+        ctx.fillText('+' + (busQueue.length - fits), s.width - 18, BUS_Y - 18);
+      }
+    }
+
+    ids.forEach(function (id) { drawNode(ctx, c, id, s); });
+
+    // The message currently travelling.
+    var p = pending[0];
+    if (p && p.kind !== 'marker') {
+      var pts = pathOf(p, s);
+      var pos = pointAt(pts, Math.min(p.d, lengthOf(pts)));
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(pos[0], pos[1], 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = SMALL;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.fillText(SHORT[p.event], Math.min(pos[0] + 9, s.width - 40), pos[1] - 8);
+    }
+
+    // Delivery order.
+    ctx.textAlign = 'left';
+    ctx.font = '600 ' + FONT;
+    ctx.fillStyle = c.ink;
+    ctx.fillText('Delivery order', 10, LOG_Y);
+    ctx.font = SMALL;
+    if (log.length === 0) {
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Nothing delivered yet. Press a button above.', 10, LOG_Y + 20);
+    }
+    for (var j = 0; j < log.length; j++) {
+      ctx.fillStyle = j === log.length - 1 ? c.ink : c.ink2;
+      ctx.fillText(log[j], 10, LOG_Y + 20 + j * 17);
+    }
+  }
+
+  var handle = DemoKit.canvas('#event-bus', {
+    height: 390,
+    label: 'Three senders at the top, Player, Enemy and Coin, and listeners at the bottom. Messages travel from senders to listeners either along direct wires or through a central event bus, and a list underneath shows the order in which listeners heard each event.',
+    update: function (dt, s) {
+      Object.keys(flash).forEach(function (id) { flash[id] = Math.max(0, flash[id] - dt); });
+      step(dt, s);
+    },
+    draw: draw,
+    onDown: function (pt, s) {
+      TOP.forEach(function (id) {
+        var r = rectOf(id, s);
+        if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) fire(id);
+      });
+    }
+  });
+  settle();
+})();
+</script>
+</body>
+</html>
