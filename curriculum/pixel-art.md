@@ -38,7 +38,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Anti-aliasing by hand** — How placing a few in-between pixels softens a jagged edge without blurring it. Demo: click to add in-between pixels on a curve and compare your result with no smoothing and with automatic smoothing. (published 2026-11-07, anti-aliasing-by-hand)
 - [x] **Highlights and reflected light** — How a small highlight and a faint bounce light on the shadow side make forms look solid. Demo: toggles add a highlight, a core shadow and reflected light to a sphere one layer at a time. (published 2026-11-08, highlights-reflected-light)
 - [x] **Cast shadows and grounding** — How a simple shadow under a sprite anchors it to the ground and shows its height. Demo: drag a character up and down while switching between no shadow, a blob shadow and a projected shadow. (published 2026-11-16, cast-shadows-grounding)
-- [ ] **Shiny materials: metal and glass** — How high contrast and sharp highlights make a surface read as polished. Demo: a shininess slider changes a grey ball from matte clay to chrome by remapping its shade bands.
+- [x] **Shiny materials: metal and glass** — How high contrast and sharp highlights make a surface read as polished. Demo: a shininess slider changes a grey ball from matte clay to chrome by remapping its shade bands. (published 2026-11-17, shiny-metal-glass)
 - [ ] **Rough materials: wood, stone, and cloth** — How small clusters of pixels suggest texture without turning into noise. Demo: choose a material for a shaded cube and adjust a texture density slider to find the point where it becomes noisy.
 
 ## Track 4: Tiles and environments

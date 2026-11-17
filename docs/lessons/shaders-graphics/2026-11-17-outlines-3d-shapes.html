@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outlines for 3D shapes: view angle, edge detection and the inverted hull · Game Dev Daily</title>
+<meta name="description" content="Three ways to ink a 3D shape: threshold N·V, compare neighbouring depth and normals, or draw a grown copy inside out. What each one catches and misses.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Outlines for 3D shapes: view angle, edge detection and the inverted hull</h1>
+  <p class="lede">Three ways to ink a 3D shape: threshold N·V, compare neighbouring depth and normals, or draw a grown copy inside out. What each one catches and misses.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your toon-shaded hero looks right in an empty test scene, but in a busy level the orange shadow band melts into an orange wall and the shape disappears. Cartoons solve this with a dark ink line around every shape. Games draw that line in three quite different ways, and each one misses a different kind of edge.</p>
+</section>
+
+<section data-section="concept">
+  <h2>An outline is a mask</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For an outline, that function needs one extra number per pixel: <code>line</code>, which is 1 on an edge and 0 everywhere else. Then one line does the inking:</p>
+<pre><code>colour = mix(shadedColour, INK, line)</code></pre>
+  <p>The three methods only differ in how they compute <code>line</code> and in what information they can see. Two kinds of edge matter. A <dfn>silhouette</dfn> edge is where a shape ends and something further away shows behind it. A <dfn>crease</dfn> is where two faces of the same shape meet at an angle, like the edge between the top and the front of a box.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Three panels. Left, view angle: a circle seen from an eye on the left; where the surface normal points at the eye N dot V is near 1, and on the top and bottom of the circle, where the normal is at right angles to the view, N dot V is near 0 and the surface is inked. Middle, edge detection: a grid of pixels, half near and half far; the centre pixel compares its depth with four neighbours, and the neighbour across the boundary has a large depth jump, so the centre pixel is inked. Right, inverted hull: a circle with a larger circle around it; the half of the larger circle facing the eye is culled and dashed, the far half is drawn, and only a thin ring of it shows around the object.">
+      <text class="d-label" x="100" y="22" text-anchor="middle">1. View angle</text>
+      <text class="d-label" x="320" y="22" text-anchor="middle">2. Edge detection</text>
+      <text class="d-label" x="540" y="22" text-anchor="middle">3. Inverted hull</text>
+
+      <!-- 1. view angle -->
+      <circle class="d-accent-soft" cx="120" cy="140" r="52"/>
+      <path class="d-stroke" style="stroke-width:6" d="M93 95 A52 52 0 0 1 147 95"/>
+      <path class="d-stroke" style="stroke-width:6" d="M93 185 A52 52 0 0 0 147 185"/>
+      <path class="d-stroke" d="M68 140 H44"/>
+      <path class="d-stroke" d="M50 135 L42 140 L50 145"/>
+      <path class="d-stroke" d="M120 88 V64"/>
+      <path class="d-stroke" d="M115 70 L120 62 L125 70"/>
+      <circle class="d-stroke" cx="18" cy="140" r="6"/>
+      <text class="d-muted" x="18" y="166" text-anchor="middle">eye</text>
+      <text class="d-mono" x="20" y="116">N·V ≈ 1</text>
+      <text class="d-mono" x="132" y="66">N·V ≈ 0</text>
+      <text class="d-muted" x="100" y="222" text-anchor="middle">ink where N·V is small:</text>
+      <text class="d-muted" x="100" y="238" text-anchor="middle">the surface turns away</text>
+      <text class="d-muted" x="100" y="254" text-anchor="middle">from the eye</text>
+
+      <!-- 2. edge detection: 5 by 5 grid of 26 px cells starting at (255, 75) -->
+      <rect class="d-accent-soft" x="255" y="75" width="78" height="130"/>
+      <rect class="d-fill" x="333" y="75" width="52" height="130"/>
+      <path class="d-thin" d="M281 75 V205 M307 75 V205 M333 75 V205 M359 75 V205 M255 101 H385 M255 127 H385 M255 153 H385 M255 179 H385"/>
+      <rect class="d-thin" x="255" y="75" width="130" height="130"/>
+      <rect class="d-stroke" style="stroke-width:3" x="307" y="127" width="26" height="26"/>
+      <circle class="d-accent-fill" cx="294" cy="140" r="4"/>
+      <circle class="d-accent-fill" cx="320" cy="114" r="4"/>
+      <circle class="d-accent-fill" cx="320" cy="166" r="4"/>
+      <circle class="d-bad-fill" cx="346" cy="140" r="5"/>
+      <text class="d-mono" x="294" y="64" text-anchor="middle">near</text>
+      <text class="d-mono" x="359" y="64" text-anchor="middle">far</text>
+      <text class="d-muted" x="320" y="222" text-anchor="middle">compare depth and normal</text>
+      <text class="d-muted" x="320" y="238" text-anchor="middle">with the neighbours: a big</text>
+      <text class="d-muted" x="320" y="254" text-anchor="middle">jump means an edge</text>
+
+      <!-- 3. inverted hull -->
+      <circle class="d-dash" cx="545" cy="140" r="60"/>
+      <path class="d-stroke" style="stroke-width:3" d="M545 80 A60 60 0 0 1 545 200"/>
+      <circle class="d-accent-soft" cx="545" cy="140" r="48"/>
+      <circle class="d-stroke" cx="452" cy="140" r="6"/>
+      <text class="d-muted" x="452" y="166" text-anchor="middle">eye</text>
+      <text class="d-muted" x="490" y="66" text-anchor="middle">culled</text>
+      <text class="d-muted" x="606" y="66" text-anchor="middle">drawn</text>
+      <text class="d-muted" x="540" y="222" text-anchor="middle">a grown copy, inside out:</text>
+      <text class="d-muted" x="540" y="238" text-anchor="middle">only its back faces draw,</text>
+      <text class="d-muted" x="540" y="254" text-anchor="middle">and they peek out as a ring</text>
+    </svg>
+    <figcaption>Three sources for the same mask. The first reads the surface's own normal, the second reads neighbouring pixels of finished buffers, the third adds geometry.</figcaption>
+  </figure>
+
+  <h3>1. View angle: threshold N·V</h3>
+  <p>You met this in the rim light lesson. V is the unit vector from the surface towards the eye. <code>dot(N, V)</code>, the <dfn>facing ratio</dfn>, is 1 where the surface faces you and falls to 0 where it turns edge-on. Silhouettes of smooth shapes are exactly where it reaches 0, so:</p>
+<pre><code>line = step(dot(N, V), limit)     -- 1 where facing &lt;= limit</code></pre>
+  <p>It runs inside the object's own shader, needs nothing else and costs one dot product. But the line width depends on curvature. A sphere gets a neat ring. A flat face has the same N·V everywhere, so the whole face is either inked or not, and a box gets no outline at all until a face turns almost edge-on, when that whole face goes black. It also never finds creases.</p>
+
+  <h3>2. Edge detection on depth and normals</h3>
+  <p>This is a <dfn>post-process</dfn>: a full-screen pass that runs after the scene is drawn. It reads two buffers the renderer can fill: the <dfn>depth buffer</dfn>, which holds how far away the surface in each pixel is, and a <dfn>normal buffer</dfn>, which holds that surface's normal. Each pixel compares itself with its neighbours:</p>
+<pre><code>depthJump = largest |depth(neighbour) - depth(centre)|
+bend      = largest 1 - dot(normal(neighbour), normal(centre))
+line      = step(DEPTH_EDGE, depthJump)  or  step(NORMAL_EDGE, bend)</code></pre>
+  <p>A depth jump finds silhouettes, including one object in front of another. A change in normal finds creases, where depth is continuous but the surface bends. The distance to the neighbours sets the line width. The demo has no real buffers, so it calls its <code>scene()</code> function at the neighbour positions; reading a buffer at those pixels gives the same numbers.</p>
+
+  <h3>3. The inverted hull</h3>
+  <p>This one adds geometry instead of a pixel test. Draw the mesh a second time, with every vertex pushed outwards along its normal by the outline thickness, in flat ink colour, with front faces culled. <dfn>Culling</dfn> means the GPU skips triangles that face a given way. The grown copy then shows only its back faces, the inside of a slightly bigger shell. The real object hides most of the shell, and the depth test leaves a ring around it. The demo has no meshes, so it intersects each pixel with grown copies of its shapes and keeps their far side, which gives the same picture.</p>
+
+  <div class="callout">
+    <p class="callout-title">Axes, depth and colour</p>
+    <p>The demo uses an orthographic camera looking down −z, so V = (0, 0, 1) everywhere and N·V is just <code>N.z</code>. Its "depth" is the z coordinate, larger means nearer. <code>gl_FragCoord</code> has (0, 0) at the bottom-left; LÖVE's <code>screen_coords</code> start at the top-left with y down, so the LÖVE code flips y. Real depth buffers store a non-linear value, and whether near is 0 or 1 depends on the engine and platform (Unity uses a reversed range on Direct3D, Metal and Vulkan). Convert to linear distance before comparing it with a threshold. Colours here are used as written, without sRGB conversion.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Start with the <em>Stage</em> menu: the normal buffer and depth buffer are the raw inputs that edge detection reads, and stage 4 shows the mask each method produces. Then switch <em>Method</em> and drag on the canvas (or use the arrow keys) to turn the cube.</p>
+  <p>Things to notice. With <em>View angle</em> the ball gets a clean ring but the cube gets nothing, until you turn it close to 0° (or close to 90°) and a whole face that is nearly edge-on goes solid black. <em>Depth only</em> outlines both shapes but not the cube's creases. <em>Depth + normals</em> adds them. <em>Inverted hull</em> draws silhouettes, including the ball over the cube, but no creases.</p>
+
+  <figure class="demo wide" data-demo="outlines">
+    <canvas id="outline-shader"></canvas>
+    <figcaption>A live fragment shader. The ball and cube are computed in the shader with maths; there are no textures or meshes. The thickness slider controls all three methods, in screen pixels.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE version draws the same scene with the <code>effect</code> entry point. Keys <kbd>0</kbd> to <kbd>4</kbd> choose the method in the same order as the demo, <kbd>-</kbd> and <kbd>=</kbd> change the thickness, and the arrow keys turn the cube.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local method = 3              <span class="c">-- 0 none, 1 view angle, 2 depth, 3 depth + normals, 4 hull</span>
+local thickness = 3           <span class="c">-- outline width in screen pixels</span>
+local turn = math.rad(35)     <span class="c">-- cube rotation about the vertical axis</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_method;
+uniform float u_thickness;
+uniform float u_turn;
+
+const vec3 BALL_C = vec3(-0.45, -0.1, 0.0);
+const float BALL_R = 0.55;
+const vec3 BOX_C = vec3(0.45, 0.1, -1.0);
+const float BOX_H = 0.42;
+const float TILT = 0.5;
+const float FAR = -3.0;
+const float DEPTH_EDGE = 0.1;
+const float NORMAL_EDGE = 0.2;
+const vec3 L = vec3(-0.48, 0.58, 0.66);
+const vec3 INK = vec3(0.08, 0.08, 0.1);
+
+vec3 rotY(vec3 v, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+}
+vec3 rotX(vec3 v, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec3(v.x, c * v.y - s * v.z, s * v.y + c * v.z);
+}
+vec3 toWorld(vec3 v) { return rotX(rotY(v, -u_turn), TILT); }
+vec3 toLocal(vec3 v) { return rotY(rotX(v, -TILT), u_turn); }
+
+vec2 boxHit(vec3 ro, vec3 rd, float h, out vec3 nNear) {
+  vec3 sgn = vec3(rd.x &lt; 0.0 ? -1.0 : 1.0, rd.y &lt; 0.0 ? -1.0 : 1.0, rd.z &lt; 0.0 ? -1.0 : 1.0);
+  vec3 m = sgn / max(abs(rd), vec3(0.001));
+  vec3 t1 = -m * ro - abs(m) * h;
+  vec3 t2 = -m * ro + abs(m) * h;
+  float tN = max(max(t1.x, t1.y), t1.z);
+  float tF = min(min(t2.x, t2.y), t2.z);
+  nNear = -sgn * step(vec3(tN), t1);
+  return vec2(tN, tF);
+}
+
+vec4 scene(vec2 p, out float id) {
+  vec4 hit = vec4(0.0, 0.0, 1.0, FAR);
+  id = 0.0;
+  vec2 q = p - BALL_C.xy;
+  float h = BALL_R * BALL_R - dot(q, q);
+  if (h &gt; 0.0) {
+    hit = vec4(vec3(q, sqrt(h)) / BALL_R, BALL_C.z + sqrt(h));
+    id = 1.0;
+  }
+  vec3 nN;
+  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H, nN);
+  if (t.x &lt; t.y &amp;&amp; 3.0 - t.x &gt; hit.w) {
+    hit = vec4(toWorld(nN), 3.0 - t.x);
+    id = 2.0;
+  }
+  return hit;
+}
+
+float edges(vec2 p, vec4 c, float off, float useNormals) {
+  float id;
+  vec4 a = scene(p + vec2(off, 0.0), id);
+  vec4 b = scene(p - vec2(off, 0.0), id);
+  vec4 d = scene(p + vec2(0.0, off), id);
+  vec4 e = scene(p - vec2(0.0, off), id);
+  float depthJump = max(max(abs(a.w - c.w), abs(b.w - c.w)), max(abs(d.w - c.w), abs(e.w - c.w)));
+  float bend = max(max(1.0 - dot(a.xyz, c.xyz), 1.0 - dot(b.xyz, c.xyz)),
+                   max(1.0 - dot(d.xyz, c.xyz), 1.0 - dot(e.xyz, c.xyz)));
+  return max(step(DEPTH_EDGE, depthJump), useNormals * step(NORMAL_EDGE, bend));
+}
+
+float hull(vec2 p, float grow, float depth) {
+  float line = 0.0;
+  vec2 q = p - BALL_C.xy;
+  float r = BALL_R + grow;
+  float h = r * r - dot(q, q);
+  if (h &gt; 0.0 &amp;&amp; BALL_C.z - sqrt(h) &gt; depth) line = 1.0;
+  vec3 nN;
+  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H + grow, nN);
+  if (t.x &lt; t.y &amp;&amp; 3.0 - t.y &gt; depth) line = 1.0;
+  return line;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 fc = vec2(screen_coords.x, u_resolution.y - screen_coords.y);  // make y grow upwards
+  vec2 p = (2.0 * fc - u_resolution) / u_resolution.y;
+  float px = 2.0 / u_resolution.y;
+  float id;
+  vec4 c = scene(p, id);
+  vec3 n = c.xyz;
+
+  vec3 albedo = id &gt; 1.5 ? vec3(0.25, 0.65, 0.75) : vec3(0.95, 0.5, 0.2);
+  float lit = smoothstep(0.25, 0.3, dot(n, L));
+  vec3 col = albedo * mix(0.45, 1.0, lit);
+  if (id &lt; 0.5) col = vec3(0.86, 0.88, 0.9);
+
+  float line = 0.0;
+  if (abs(u_method - 1.0) &lt; 0.5) {
+    float rpx = BALL_R / px;
+    float ratio = max(rpx - u_thickness, 0.0) / rpx;
+    line = step(0.5, id) * step(n.z, sqrt(1.0 - ratio * ratio));
+  }
+  if (abs(u_method - 2.0) &lt; 0.5) line = edges(p, c, 0.5 * u_thickness * px, 0.0);
+  if (abs(u_method - 3.0) &lt; 0.5) line = edges(p, c, 0.5 * u_thickness * px, 1.0);
+  if (abs(u_method - 4.0) &lt; 0.5) line = hull(p, u_thickness * px, c.w);
+  col = mix(col, INK, line);
+  return vec4(col, 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  local n = tonumber(key)
+  if n and n &gt;= 0 and n &lt;= 4 then method = n end
+  if key == "=" then thickness = math.min(thickness + 1, 8) end
+  if key == "-" then thickness = math.max(thickness - 1, 1) end
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("left") then turn = math.max(turn - dt, 0) end
+  if love.keyboard.isDown("right") then turn = math.min(turn + dt, math.pi / 2) end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  love.graphics.setColor(1, 1, 1)
+  shader:send("u_resolution", { love.graphics.getPixelDimensions() })
+<span class="k">  shader:send("u_method", method)
+  shader:send("u_thickness", thickness * love.graphics.getDPIScale())</span>
+  shader:send("u_turn", turn)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+  love.graphics.setColor(0, 0, 0)
+  love.graphics.print("method " .. method .. "  thickness " .. thickness, 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_method;     // 0 none, 1 view angle, 2 depth, 3 depth + normals, 4 inverted hull
+uniform float u_thickness;  // outline width in device pixels
+uniform float u_turn;       // cube rotation about the vertical axis, radians
+uniform float u_stage;      // 0 normals, 1 depth, 2 facing, 3 mask, 4 final
+
+const vec3 BALL_C = vec3(-0.45, -0.1, 0.0);
+const float BALL_R = 0.55;
+const vec3 BOX_C = vec3(0.45, 0.1, -1.0);
+const float BOX_H = 0.42;               // half the cube's side
+const float TILT = 0.5;                 // cube tilt towards the eye, radians
+const float FAR = -3.0;                 // depth of the empty background
+const float DEPTH_EDGE = 0.1;
+const float NORMAL_EDGE = 0.2;
+const vec3 L = vec3(-0.48, 0.58, 0.66); // towards the light, unit length
+const vec3 INK = vec3(0.08, 0.08, 0.1);
+
+vec3 rotY(vec3 v, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+}
+vec3 rotX(vec3 v, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec3(v.x, c * v.y - s * v.z, s * v.y + c * v.z);
+}
+vec3 toWorld(vec3 v) { return rotX(rotY(v, -u_turn), TILT); }
+vec3 toLocal(vec3 v) { return rotY(rotX(v, -TILT), u_turn); }
+
+// A ray against a cube of half size h centred at the origin.
+// Returns the near and far distances; the ray misses when near &gt; far.
+vec2 boxHit(vec3 ro, vec3 rd, float h, out vec3 nNear) {
+  vec3 sgn = vec3(rd.x &lt; 0.0 ? -1.0 : 1.0, rd.y &lt; 0.0 ? -1.0 : 1.0, rd.z &lt; 0.0 ? -1.0 : 1.0);
+  vec3 m = sgn / max(abs(rd), vec3(0.001));
+  vec3 t1 = -m * ro - abs(m) * h;
+  vec3 t2 = -m * ro + abs(m) * h;
+  float tN = max(max(t1.x, t1.y), t1.z);
+  float tF = min(min(t2.x, t2.y), t2.z);
+  nNear = -sgn * step(vec3(tN), t1);
+  return vec2(tN, tF);
+}
+
+// The nearest surface at screen point p: xyz = normal, w = depth (larger is nearer).
+// id: 0 background, 1 ball, 2 cube. The camera looks down -z from z = 3.
+vec4 scene(vec2 p, out float id) {
+  vec4 hit = vec4(0.0, 0.0, 1.0, FAR);
+  id = 0.0;
+  vec2 q = p - BALL_C.xy;
+  float h = BALL_R * BALL_R - dot(q, q);
+  if (h &gt; 0.0) {
+    hit = vec4(vec3(q, sqrt(h)) / BALL_R, BALL_C.z + sqrt(h));
+    id = 1.0;
+  }
+  vec3 nN;
+  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H, nN);
+  if (t.x &lt; t.y &amp;&amp; 3.0 - t.x &gt; hit.w) {
+    hit = vec4(toWorld(nN), 3.0 - t.x);
+    id = 2.0;
+  }
+  return hit;
+}
+
+// Method 2 and 3: compare depth and normal with four neighbours.
+float edges(vec2 p, vec4 c, float off, float useNormals) {
+  float id;
+  vec4 a = scene(p + vec2(off, 0.0), id);
+  vec4 b = scene(p - vec2(off, 0.0), id);
+  vec4 d = scene(p + vec2(0.0, off), id);
+  vec4 e = scene(p - vec2(0.0, off), id);
+  float depthJump = max(max(abs(a.w - c.w), abs(b.w - c.w)), max(abs(d.w - c.w), abs(e.w - c.w)));
+  float bend = max(max(1.0 - dot(a.xyz, c.xyz), 1.0 - dot(b.xyz, c.xyz)),
+                   max(1.0 - dot(d.xyz, c.xyz), 1.0 - dot(e.xyz, c.xyz)));
+  return max(step(DEPTH_EDGE, depthJump), useNormals * step(NORMAL_EDGE, bend));
+}
+
+// Method 4: the far side of grown copies, kept where it is nearer than the scene.
+float hull(vec2 p, float grow, float depth) {
+  float line = 0.0;
+  vec2 q = p - BALL_C.xy;
+  float r = BALL_R + grow;
+  float h = r * r - dot(q, q);
+  if (h &gt; 0.0 &amp;&amp; BALL_C.z - sqrt(h) &gt; depth) line = 1.0;
+  vec3 nN;
+  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H + grow, nN);
+  if (t.x &lt; t.y &amp;&amp; 3.0 - t.y &gt; depth) line = 1.0;
+  return line;
+}
+
+void main() {
+  vec2 p = (2.0 * gl_FragCoord.xy - u_resolution) / u_resolution.y;  // y from -1 to 1
+  float px = 2.0 / u_resolution.y;                                   // one pixel in scene units
+  float id;
+  vec4 c = scene(p, id);
+  vec3 n = c.xyz;
+
+  // two-tone toon shading, as in the previous lesson
+  vec3 albedo = id &gt; 1.5 ? vec3(0.25, 0.65, 0.75) : vec3(0.95, 0.5, 0.2);
+  float lit = smoothstep(0.25, 0.3, dot(n, L));
+  vec3 col = albedo * mix(0.45, 1.0, lit);
+  if (id &lt; 0.5) col = vec3(0.86, 0.88, 0.9);
+
+  // the outline mask
+  float line = 0.0;
+  if (abs(u_method - 1.0) &lt; 0.5) {
+    // the limit that gives a ring u_thickness pixels wide on the ball
+    float rpx = BALL_R / px;
+    float ratio = max(rpx - u_thickness, 0.0) / rpx;
+    line = step(0.5, id) * step(n.z, sqrt(1.0 - ratio * ratio));
+  }
+  if (abs(u_method - 2.0) &lt; 0.5) line = edges(p, c, 0.5 * u_thickness * px, 0.0);
+  if (abs(u_method - 3.0) &lt; 0.5) line = edges(p, c, 0.5 * u_thickness * px, 1.0);
+  if (abs(u_method - 4.0) &lt; 0.5) line = hull(p, u_thickness * px, c.w);
+  col = mix(col, INK, line);
+
+  // stage view: the intermediate values
+  if (u_stage &lt; 3.5) col = vec3(line);
+  if (u_stage &lt; 2.5) col = vec3(step(0.5, id) * max(n.z, 0.0));
+  if (u_stage &lt; 1.5) col = vec3(clamp((c.w + 2.0) / 2.6, 0.0, 1.0));
+  if (u_stage &lt; 0.5) col = id &lt; 0.5 ? vec3(0.5) : n * 0.5 + 0.5;
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. The inverted hull: put this ShaderMaterial in the "Next Pass"
+// slot of the object's own material, so the mesh is drawn twice.
+shader_type spatial;
+render_mode unshaded, cull_front;
+
+uniform vec3 ink : source_color = vec3(0.08, 0.08, 0.1);
+uniform float thickness : hint_range(0.0, 0.1) = 0.02;  // in model units
+
+void vertex() {
+<span class="k">    VERTEX += NORMAL * thickness;   // grow along the normal (model space)</span>
+}
+
+void fragment() {
+    ALBEDO = ink;
+}
+
+// The view-angle method instead goes in the object's own fragment():
+//     float facing = dot(normalize(NORMAL), VIEW);   // both in view space
+//     ALBEDO = mix(base_colour, ink, step(facing, 0.2));</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline. Pass 1 is the inverted hull, pass 2 draws the
+// object itself with two-tone lighting from the main directional light.
+Shader "GameDevDaily/OutlineHull"
+{
+    Properties
+    {
+        _Albedo ("Albedo", Color) = (0.95, 0.5, 0.2, 1)
+        _Ink ("Ink", Color) = (0.08, 0.08, 0.1, 1)
+        _Thickness ("Thickness", Range(0, 0.1)) = 0.02
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            Cull Front
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            fixed4 _Ink;
+            float _Thickness;
+            struct v2f { float4 pos : SV_POSITION; };
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+<span class="k">                float3 grown = v.vertex.xyz + normalize(v.normal) * _Thickness;</span>
+                o.pos = UnityObjectToClipPos(float4(grown, 1.0));
+                return o;
+            }
+            fixed4 frag (v2f i) : SV_Target { return _Ink; }
+            ENDCG
+        }
+        Pass
+        {
+            Tags { "LightMode" = "ForwardBase" }
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            fixed4 _Albedo;
+            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD0; };
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.n = UnityObjectToWorldNormal(v.normal);
+                return o;
+            }
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float d = dot(normalize(i.n), normalize(_WorldSpaceLightPos0.xyz));
+                float lit = smoothstep(0.25, 0.3, d);
+                return fixed4(_Albedo.rgb * lerp(0.45, 1.0, lit), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The GLSL tab is the demo's shader exactly as it runs on this page, including the stage view. The engine tabs show the inverted hull because it is the method that needs a real mesh; the demo and the LÖVE program can only imitate it with maths. In URP, the same idea is usually done by drawing the mesh a second time with an outline material, for example with a Render Objects renderer feature; the edge detection method there is a full-screen pass that reads the camera's depth and normals textures.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>View angle on flat or low-poly shapes.</strong> Each flat face has one N·V, so the line is all or nothing per face. Keep this method for smooth, rounded shapes, or combine it with another.</li>
+    <li><strong>Depth thresholds and steep surfaces.</strong> A floor seen at a grazing angle changes depth quickly from pixel to pixel and gets false lines. Compare linear depth, and scale the threshold with distance or with how steep the surface is.</li>
+    <li><strong>Split normals break the hull.</strong> A cube with hard edges has three different normals at each corner, so pushing each copy of the vertex along its own normal tears the shell open at the edges. Grow along averaged normals instead, often stored by a tool in a second normal or vertex colour channel.</li>
+    <li><strong>Hull thickness is in world units.</strong> The line gets thinner as the object moves away. Scale the push by the distance to the camera if you want a constant pixel width.</li>
+    <li><strong>Edge detection is all or nothing per screen.</strong> It outlines everything that writes depth, and misses transparent objects that do not. Per-object control needs extra data, such as an object id buffer.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The view-angle test is one dot product per pixel, free even on a phone. The inverted hull doubles the vertex work and the draw calls for each outlined mesh, but its pixels are trivial. Edge detection is one full-screen pass with four to eight buffer reads per pixel, plus the cost of producing a normal buffer. Those reads use memory bandwidth, which is what phones have least of, so on mobile it is usually the most expensive of the three.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The inverted hull is a long-standing technique for character outlines. Arc System Works described using it for the characters of Guilty Gear Xrd in a GDC 2015 talk, with extra control over the line width painted into the mesh data. Godot's StandardMaterial3D has a <em>Grow</em> setting that pushes vertices along their normals, meant for this kind of outline pass. In Blender, a Solidify modifier with flipped normals is a common way to build the same shell. Full-screen edge detection on depth and normals is a standard post-process in stylised games, and the Real-Time Rendering book covers all three families of methods.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Ink each shape with a dark version of its own colour instead of <code>INK</code>: replace the mix with <code>mix(col, albedo * 0.3, line)</code>. Notice which colour each method picks at the ball-over-cube edge, and why.</li>
+    <li>Add a uniform <code>u_depthEdge</code> to replace <code>DEPTH_EDGE</code>, bind it to two keys, and find the value where false lines start to appear on the cube's steepest face.</li>
+    <li>Combine methods: <code>line = max(view-angle line on the ball, depth + normal edges)</code>.</li>
+  </ol>
+  <p>You are done when the ball has a ring in its own darker orange, the cube has its creases, and you can explain the depth threshold you chose.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Every outline is a mask, <code>line</code>, mixed with <code>mix(colour, ink, line)</code>. The methods differ in how they find it.</li>
+    <li>View angle, <code>step(N·V, limit)</code>: free and per object, good on smooth shapes, useless on flat faces and creases.</li>
+    <li>Edge detection compares neighbouring depth (silhouettes) and normals (creases) in a full-screen pass. It finds the most edges and costs the most bandwidth.</li>
+    <li>The inverted hull draws a grown, front-culled copy. It gives clean silhouettes with controllable width, but no creases, and needs smooth normals.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>That completes the lighting track; next the topic moves to noise, starting with how a shader makes repeatable random numbers from a hash of its coordinates.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Tomas Akenine-Möller, Eric Haines, Naty Hoffman and others, <cite>Real-Time Rendering</cite>, the chapter on non-photorealistic rendering, on contour and silhouette edge methods.</li>
+    <li>Junya C. Motomura (Arc System Works), <cite>GuiltyGearXrd's Art Style: The X Factor Between 2D and 3D</cite>, GDC 2015.</li>
+    <li>Godot Engine documentation, <cite>Spatial shaders</cite> and <cite>Standard Material 3D and ORM Material 3D</cite>.</li>
+    <li>Unity documentation, <cite>ShaderLab command: Cull</cite> and <cite>Writing shaders for the Built-in Render Pipeline</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_method;     // 0 none, 1 view angle, 2 depth, 3 depth + normals, 4 inverted hull",
+    "uniform float u_thickness;  // outline width in device pixels",
+    "uniform float u_turn;       // cube rotation about the vertical axis, radians",
+    "uniform float u_stage;      // 0 normals, 1 depth, 2 facing, 3 mask, 4 final",
+    "",
+    "const vec3 BALL_C = vec3(-0.45, -0.1, 0.0);",
+    "const float BALL_R = 0.55;",
+    "const vec3 BOX_C = vec3(0.45, 0.1, -1.0);",
+    "const float BOX_H = 0.42;               // half the cube's side",
+    "const float TILT = 0.5;                 // cube tilt towards the eye, radians",
+    "const float FAR = -3.0;                 // depth of the empty background",
+    "const float DEPTH_EDGE = 0.1;",
+    "const float NORMAL_EDGE = 0.2;",
+    "const vec3 L = vec3(-0.48, 0.58, 0.66); // towards the light, unit length",
+    "const vec3 INK = vec3(0.08, 0.08, 0.1);",
+    "",
+    "vec3 rotY(vec3 v, float a) {",
+    "  float c = cos(a);",
+    "  float s = sin(a);",
+    "  return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);",
+    "}",
+    "vec3 rotX(vec3 v, float a) {",
+    "  float c = cos(a);",
+    "  float s = sin(a);",
+    "  return vec3(v.x, c * v.y - s * v.z, s * v.y + c * v.z);",
+    "}",
+    "vec3 toWorld(vec3 v) { return rotX(rotY(v, -u_turn), TILT); }",
+    "vec3 toLocal(vec3 v) { return rotY(rotX(v, -TILT), u_turn); }",
+    "",
+    "// A ray against a cube of half size h centred at the origin.",
+    "// Returns the near and far distances; the ray misses when near > far.",
+    "vec2 boxHit(vec3 ro, vec3 rd, float h, out vec3 nNear) {",
+    "  vec3 sgn = vec3(rd.x < 0.0 ? -1.0 : 1.0, rd.y < 0.0 ? -1.0 : 1.0, rd.z < 0.0 ? -1.0 : 1.0);",
+    "  vec3 m = sgn / max(abs(rd), vec3(0.001));",
+    "  vec3 t1 = -m * ro - abs(m) * h;",
+    "  vec3 t2 = -m * ro + abs(m) * h;",
+    "  float tN = max(max(t1.x, t1.y), t1.z);",
+    "  float tF = min(min(t2.x, t2.y), t2.z);",
+    "  nNear = -sgn * step(vec3(tN), t1);",
+    "  return vec2(tN, tF);",
+    "}",
+    "",
+    "// The nearest surface at screen point p: xyz = normal, w = depth (larger is nearer).",
+    "// id: 0 background, 1 ball, 2 cube. The camera looks down -z from z = 3.",
+    "vec4 scene(vec2 p, out float id) {",
+    "  vec4 hit = vec4(0.0, 0.0, 1.0, FAR);",
+    "  id = 0.0;",
+    "  vec2 q = p - BALL_C.xy;",
+    "  float h = BALL_R * BALL_R - dot(q, q);",
+    "  if (h > 0.0) {",
+    "    hit = vec4(vec3(q, sqrt(h)) / BALL_R, BALL_C.z + sqrt(h));",
+    "    id = 1.0;",
+    "  }",
+    "  vec3 nN;",
+    "  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H, nN);",
+    "  if (t.x < t.y && 3.0 - t.x > hit.w) {",
+    "    hit = vec4(toWorld(nN), 3.0 - t.x);",
+    "    id = 2.0;",
+    "  }",
+    "  return hit;",
+    "}",
+    "",
+    "// Method 2 and 3: compare depth and normal with four neighbours.",
+    "float edges(vec2 p, vec4 c, float off, float useNormals) {",
+    "  float id;",
+    "  vec4 a = scene(p + vec2(off, 0.0), id);",
+    "  vec4 b = scene(p - vec2(off, 0.0), id);",
+    "  vec4 d = scene(p + vec2(0.0, off), id);",
+    "  vec4 e = scene(p - vec2(0.0, off), id);",
+    "  float depthJump = max(max(abs(a.w - c.w), abs(b.w - c.w)), max(abs(d.w - c.w), abs(e.w - c.w)));",
+    "  float bend = max(max(1.0 - dot(a.xyz, c.xyz), 1.0 - dot(b.xyz, c.xyz)),",
+    "                   max(1.0 - dot(d.xyz, c.xyz), 1.0 - dot(e.xyz, c.xyz)));",
+    "  return max(step(DEPTH_EDGE, depthJump), useNormals * step(NORMAL_EDGE, bend));",
+    "}",
+    "",
+    "// Method 4: the far side of grown copies, kept where it is nearer than the scene.",
+    "float hull(vec2 p, float grow, float depth) {",
+    "  float line = 0.0;",
+    "  vec2 q = p - BALL_C.xy;",
+    "  float r = BALL_R + grow;",
+    "  float h = r * r - dot(q, q);",
+    "  if (h > 0.0 && BALL_C.z - sqrt(h) > depth) line = 1.0;",
+    "  vec3 nN;",
+    "  vec2 t = boxHit(toLocal(vec3(p, 3.0) - BOX_C), toLocal(vec3(0.0, 0.0, -1.0)), BOX_H + grow, nN);",
+    "  if (t.x < t.y && 3.0 - t.y > depth) line = 1.0;",
+    "  return line;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (2.0 * gl_FragCoord.xy - u_resolution) / u_resolution.y;  // y from -1 to 1",
+    "  float px = 2.0 / u_resolution.y;                                   // one pixel in scene units",
+    "  float id;",
+    "  vec4 c = scene(p, id);",
+    "  vec3 n = c.xyz;",
+    "",
+    "  // two-tone toon shading, as in the previous lesson",
+    "  vec3 albedo = id > 1.5 ? vec3(0.25, 0.65, 0.75) : vec3(0.95, 0.5, 0.2);",
+    "  float lit = smoothstep(0.25, 0.3, dot(n, L));",
+    "  vec3 col = albedo * mix(0.45, 1.0, lit);",
+    "  if (id < 0.5) col = vec3(0.86, 0.88, 0.9);",
+    "",
+    "  // the outline mask",
+    "  float line = 0.0;",
+    "  if (abs(u_method - 1.0) < 0.5) {",
+    "    // the limit that gives a ring u_thickness pixels wide on the ball",
+    "    float rpx = BALL_R / px;",
+    "    float ratio = max(rpx - u_thickness, 0.0) / rpx;",
+    "    line = step(0.5, id) * step(n.z, sqrt(1.0 - ratio * ratio));",
+    "  }",
+    "  if (abs(u_method - 2.0) < 0.5) line = edges(p, c, 0.5 * u_thickness * px, 0.0);",
+    "  if (abs(u_method - 3.0) < 0.5) line = edges(p, c, 0.5 * u_thickness * px, 1.0);",
+    "  if (abs(u_method - 4.0) < 0.5) line = hull(p, u_thickness * px, c.w);",
+    "  col = mix(col, INK, line);",
+    "",
+    "  // stage view: the intermediate values",
+    "  if (u_stage < 3.5) col = vec3(line);",
+    "  if (u_stage < 2.5) col = vec3(step(0.5, id) * max(n.z, 0.0));",
+    "  if (u_stage < 1.5) col = vec3(clamp((c.w + 2.0) / 2.6, 0.0, 1.0));",
+    "  if (u_stage < 0.5) col = id < 0.5 ? vec3(0.5) : n * 0.5 + 0.5;",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+
+  var BALL_R = 0.55;   // the same as in the shader
+  var handle = null;
+  function redraw() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="outlines"]');
+  var method = ui.select({
+    label: 'Method',
+    options: [
+      { value: '0', label: 'None' },
+      { value: '1', label: 'View angle: N·V below a limit' },
+      { value: '2', label: 'Edge detection: depth only' },
+      { value: '3', label: 'Edge detection: depth + normals' },
+      { value: '4', label: 'Inverted hull' }
+    ],
+    value: '3',
+    onChange: redraw
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Normal buffer: N × 0.5 + 0.5' },
+      { value: '1', label: '2. Depth buffer: nearer is brighter' },
+      { value: '2', label: '3. Facing ratio: N·V' },
+      { value: '3', label: '4. Outline mask from the method' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: redraw
+  });
+  var thick = ui.slider({ label: 'Thickness', min: 1, max: 8, step: 1, value: 3, unit: ' px', onInput: redraw });
+  var turn = ui.slider({ label: 'Cube turn', min: 0, max: 90, step: 1, value: 35, unit: '°', onInput: redraw });
+  var readout = ui.readout({ label: 'View-angle limit for that ring on the ball' });
+
+  function updateReadout(s) {
+    var r = BALL_R * 0.5 * s.height;           // ball radius in CSS pixels
+    if (r <= 0) return;
+    var ratio = Math.max(r - thick.value, 0) / r;
+    readout.set('ink where N·V < ' + Math.sqrt(1 - ratio * ratio).toFixed(2));
+  }
+
+  function setTurn(v) {
+    turn.set(Math.round(DemoKit.clamp(v, 0, 90)));
+    redraw();
+  }
+
+  var lastX = 0;
+  var turnFloat = turn.value;
+
+  handle = DemoKit.shader('#outline-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A live fragment shader drawing an orange ball in front of a tilted teal cube, with toon shading and an ink outline. The Method menu switches between no outline, the view-angle test, edge detection on depth, edge detection on depth and normals, and the inverted hull. The Stage menu shows the normal buffer, the depth buffer, the facing ratio and the outline mask. Drag sideways on the canvas or use the left and right arrow keys to turn the cube.',
+    uniforms: {
+      u_method: function () { return Number(method.value); },
+      u_stage: function () { return Number(stage.value); },
+      u_thickness: function (s) { updateReadout(s); return thick.value * s.dpr; },
+      u_turn: function () { return turn.value * Math.PI / 180; }
+    },
+    onDown: function (p) { lastX = p.x; turnFloat = turn.value; },
+    onMove: function (p) {
+      if (!p.down) return;
+      turnFloat = DemoKit.clamp(turnFloat + (p.x - lastX) * 0.4, 0, 90);
+      lastX = p.x;
+      setTurn(turnFloat);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') setTurn(turn.value - 5);
+      else if (key === 'arrowright') setTurn(turn.value + 5);
+    }
+  });
+})();
+</script>
+</body>
+</html>

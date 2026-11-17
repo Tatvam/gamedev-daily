@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stacking and solver iterations · Game Dev Daily</title>
+<meta name="description" content="Why a tower of boxes sinks into itself or shivers, and how running the contact solver several times per step makes it stand still.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Stacking and solver iterations</h1>
+  <p class="lede">Why a tower of boxes sinks into itself or shivers, and how running the contact solver several times per step makes it stand still.</p>
+</header>
+
+<section data-section="hook">
+  <p>You stack ten crates. Each pair collides correctly, yet the tower squashes until the top crate sits two crates lower than it should. Put a heavy crate on top and the tower shivers.</p>
+  <p>The collision test is fine. Every contact is fixed once per step, and fixing one breaks its neighbour.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One pass is not enough</h2>
+  <p>The <dfn>solver</dfn> is the part of a physics step that changes velocities so that no touching pair keeps moving into each other. It fixes contacts one at a time with the impulse from earlier lessons, sharing each push by inverse mass.</p>
+  <p>One box on the floor is fixed in one go. In a stack, every box sits in two contacts. Follow three equal boxes through one step: gravity has just given each 1000 × 1/60 ≈ 16.7 pixels per second downward, and the solver walks up from the floor.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Four snapshots of a three-box stack during one solver pass. At the start all boxes fall at 16.7 pixels per second. Fixing the floor contact stops box 1. Fixing contact 1-2 shares the speed so boxes 1 and 2 both fall at 8.3. Fixing contact 2-3 leaves boxes 2 and 3 at 12.5. Every box is still moving down at the end of the pass.">
+      <g text-anchor="middle">
+        <text class="d-text" x="80" y="22">Start of pass</text>
+        <text class="d-text" x="240" y="22">Fix floor–1</text>
+        <text class="d-text" x="400" y="22">Fix 1–2</text>
+        <text class="d-text" x="560" y="22">Fix 2–3</text>
+      </g>
+      <g>
+        <path class="d-stroke" d="M24 200 H136"/>
+        <path class="d-stroke" d="M184 200 H296"/>
+        <path class="d-stroke" d="M344 200 H456"/>
+        <path class="d-stroke" d="M504 200 H616"/>
+      </g>
+      <!-- boxes: x = centre - 50, width 40 -->
+      <g>
+        <rect class="d-accent-soft" x="30" y="160" width="40" height="40"/>
+        <rect class="d-accent-soft" x="30" y="120" width="40" height="40"/>
+        <rect class="d-accent-soft" x="30" y="80" width="40" height="40"/>
+        <rect class="d-accent-soft" x="190" y="160" width="40" height="40"/>
+        <rect class="d-accent-soft" x="190" y="120" width="40" height="40"/>
+        <rect class="d-accent-soft" x="190" y="80" width="40" height="40"/>
+        <rect class="d-accent-soft" x="350" y="160" width="40" height="40"/>
+        <rect class="d-accent-soft" x="350" y="120" width="40" height="40"/>
+        <rect class="d-accent-soft" x="350" y="80" width="40" height="40"/>
+        <rect class="d-accent-soft" x="510" y="160" width="40" height="40"/>
+        <rect class="d-accent-soft" x="510" y="120" width="40" height="40"/>
+        <rect class="d-accent-soft" x="510" y="80" width="40" height="40"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="50" y="185">1</text><text class="d-mono" x="50" y="145">2</text><text class="d-mono" x="50" y="105">3</text>
+        <text class="d-mono" x="210" y="185">1</text><text class="d-mono" x="210" y="145">2</text><text class="d-mono" x="210" y="105">3</text>
+        <text class="d-mono" x="370" y="185">1</text><text class="d-mono" x="370" y="145">2</text><text class="d-mono" x="370" y="105">3</text>
+        <text class="d-mono" x="530" y="185">1</text><text class="d-mono" x="530" y="145">2</text><text class="d-mono" x="530" y="105">3</text>
+      </g>
+      <!-- the contact being fixed -->
+      <path class="d-bad" d="M184 200 H236"/>
+      <path class="d-bad" d="M344 160 H396"/>
+      <path class="d-bad" d="M504 120 H556"/>
+      <!-- velocity arrows, 1.8 px of arrow per px/s, centred on each box -->
+      <g>
+        <path class="d-accent" d="M86 165 V195 M82 189 L86 195 L90 189"/>
+        <path class="d-accent" d="M86 125 V155 M82 149 L86 155 L90 149"/>
+        <path class="d-accent" d="M86 85 V115 M82 109 L86 115 L90 109"/>
+
+        <path class="d-accent" d="M246 125 V155 M242 149 L246 155 L250 149"/>
+        <path class="d-accent" d="M246 85 V115 M242 109 L246 115 L250 109"/>
+
+        <path class="d-accent" d="M406 172.5 V187.5 M402 181.5 L406 187.5 L410 181.5"/>
+        <path class="d-accent" d="M406 132.5 V147.5 M402 141.5 L406 147.5 L410 141.5"/>
+        <path class="d-accent" d="M406 85 V115 M402 109 L406 115 L410 109"/>
+
+        <path class="d-accent" d="M566 172.5 V187.5 M562 181.5 L566 187.5 L570 181.5"/>
+        <path class="d-accent" d="M566 128.75 V151.25 M562 145.25 L566 151.25 L570 145.25"/>
+        <path class="d-accent" d="M566 88.75 V111.25 M562 105.25 L566 111.25 L570 105.25"/>
+      </g>
+      <g>
+        <text class="d-mono" x="96" y="184">16.7</text><text class="d-mono" x="96" y="144">16.7</text><text class="d-mono" x="96" y="104">16.7</text>
+        <text class="d-mono" x="256" y="184">0</text><text class="d-mono" x="256" y="144">16.7</text><text class="d-mono" x="256" y="104">16.7</text>
+        <text class="d-mono" x="416" y="184">8.3</text><text class="d-mono" x="416" y="144">8.3</text><text class="d-mono" x="416" y="104">16.7</text>
+        <text class="d-mono" x="576" y="184">8.3</text><text class="d-mono" x="576" y="144">12.5</text><text class="d-mono" x="576" y="104">12.5</text>
+      </g>
+      <text class="d-muted" x="320" y="234" text-anchor="middle">Numbers are downward speeds in pixels per second. The red line is the contact being fixed.</text>
+    </svg>
+    <figcaption>One pass up the stack. Fixing contact 1–2 shares box 2's speed with box 1 and pushes it back into the floor. After the pass every box is still falling.</figcaption>
+  </figure>
+
+  <p>Each fix was right for its own pair and undid part of the fix below it.</p>
+
+  <h3>Run it again</h3>
+  <p>So go over the whole list again, starting from the velocities the last pass left. One trip through the list is a <dfn>pass</dfn>, or <dfn>iteration</dfn>. Each pass carries the support of the floor a little further up. For three boxes, each pass removes a quarter of the leftover speed:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Passes</th><th class="num">Top box still falling at</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="num">12.5 px/s</td></tr>
+      <tr><td class="num">2</td><td class="num">9.4 px/s</td></tr>
+      <tr><td class="num">4</td><td class="num">5.3 px/s</td></tr>
+      <tr><td class="num">8</td><td class="num">1.7 px/s</td></tr>
+      <tr><td class="num">20</td><td class="num">0.05 px/s</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Solving contacts one at a time, over and over, is called <dfn>sequential impulses</dfn>. It never reaches the exact answer, but each pass gets closer, and you choose when it is close enough.</p>
+
+  <h3>Why leftover speed becomes sinking</h3>
+  <p>Speed the solver fails to remove moves the boxes into each other. As in the lesson on resolving penetration, overlap is removed a fraction at a time, with a strength and a slop. Here the solver asks for a small push-out speed:</p>
+<pre><code>push = STRENGTH * (depth - SLOP) / dt</code></pre>
+  <p>In words: remove a fifth (<code>STRENGTH = 0.2</code>) of the overlap beyond half a pixel of slop during this step. Then each contact gets the impulse that leaves the pair separating at exactly that speed:</p>
+<pre><code>j = (closing + push) / (a.inv + b.inv)</code></pre>
+  <p>In words: the speed change needed, shared by inverse mass. With too few passes, the stack stops sinking only once overlaps are deep enough for their push to cover what the passes missed. It rests squashed. In the demo, ten boxes with one pass sink about 67 pixels; with twenty passes, about 7.5 pixels, most of which is the allowed slop.</p>
+
+  <h3>Tall stacks and heavy tops</h3>
+  <p>Taller stacks need more passes for the support to reach the top. A heavy box on a light one is worse: the impulse is shared by inverse mass, so the light box takes almost every correction while the heavy one barely changes speed. With few passes the light box is shoved down and pushed back up over and over, and the tower shivers.</p>
+
+  <div class="callout">
+    <p class="callout-title">Game answer, not physics answer</p>
+    <p>Real crates never overlap, but a game stack only has to look still. Every pass costs time on every contact, so use the fewest passes that make your tallest stack look solid.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both towers run the same code with different passes per step: one on the left, ten on the right. Watch the left tower squash, then raise its slider one pass at a time and watch it rise. Switch on the heavy top box to see the shiver. Tap the canvas or press <strong>Drop a box</strong> to drop a crate on both towers.</p>
+
+  <figure class="demo wide" data-demo="stack">
+    <canvas id="stack"></canvas>
+    <figcaption>Red bands are overlaps between boxes. The dashed line is where the top of the tower would be with no overlap at all, and orange arrows show each box's speed. "Sunk" is how far the top of the tower is below that line.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the right tower of the demo, with the same numbers. A quick check by hand: a resting box overlaps the floor by 3 pixels. Gravity gives it 16.7 px/s downward. The push is 0.2 × (3 − 0.5) × 60 = 30 px/s, so <code>j</code> = 16.7 + 30 = 46.7 and the box leaves the step rising at 30 px/s. That moves it up 0.5 pixels, a fifth of the 2.5 pixels beyond the slop.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GRAVITY    = 1000    <span class="c">-- pixels per second squared, +y is down</span>
+local STEP       = 1 / 60  <span class="c">-- fixed timestep in seconds</span>
+local ITERATIONS = 10      <span class="c">-- solver passes per step</span>
+local STRENGTH   = 0.2     <span class="c">-- share of the overlap pushed out per step</span>
+local SLOP       = 0.5     <span class="c">-- pixels of overlap left alone</span>
+local SIZE       = 30      <span class="c">-- box height in pixels</span>
+
+local function newBody(y, h, mass)
+  local inv = 0
+  if mass &gt; 0 then inv = 1 / mass end
+  return { y = y, h = h, vy = 0, inv = inv }
+end
+
+<span class="c">-- stack[1] is the floor, top edge at y = 400. Then ten boxes,</span>
+<span class="c">-- bottom first, each starting 2 px above the one below.</span>
+local stack = { newBody(420, 40, 0) }
+for i = 1, 10 do
+  stack[i + 1] = newBody(400 - (i - 0.5) * SIZE - i * 2, SIZE, 1)
+end
+
+local function step(dt)
+  for i = 2, #stack do
+    stack[i].vy = stack[i].vy + GRAVITY * dt
+  end
+  <span class="c">-- Collision detection: once per step.</span>
+  local contacts = {}
+  for i = 2, #stack do
+    local a, b = stack[i - 1], stack[i]
+    local depth = (b.y + b.h / 2) - (a.y - a.h / 2)
+    if depth &gt; 0 then
+      local push = STRENGTH * math.max(depth - SLOP, 0) / dt
+      contacts[#contacts + 1] = { a = a, b = b, push = push }
+    end
+  end
+  <span class="c">-- The solver: the whole list, ITERATIONS times over.</span>
+<span class="k">  for pass = 1, ITERATIONS do
+    for _, c in ipairs(contacts) do
+      local closing = c.b.vy - c.a.vy      -- b moving down into a
+      local j = (closing + c.push) / (c.a.inv + c.b.inv)
+      if j &gt; 0 then                        -- only ever push apart
+        c.a.vy = c.a.vy + j * c.a.inv
+        c.b.vy = c.b.vy - j * c.b.inv
+      end
+    end
+  end</span>
+  for i = 2, #stack do
+    stack[i].y = stack[i].y + stack[i].vy * dt
+  end
+end
+
+local accumulator = 0
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.line(100, 400, 300, 400)
+  for i = 2, #stack do
+    local b = stack[i]
+    love.graphics.rectangle("line", 174, b.y - b.h / 2, 52, b.h)
+  end
+end</code></pre>
+  </div>
+  <p>The floor has an inverse mass of 0, so the same two lines that move a box leave the floor where it is. Set <code>ITERATIONS</code> to 1 to get the left tower.</p>
+  <p>Engines expose the same number. In Unity's 2D physics it is <strong>Velocity Iterations</strong> and <strong>Position Iterations</strong> under Project Settings &gt; Physics 2D (8 and 3 by default), or <code>Physics2D.velocityIterations</code> and <code>Physics2D.positionIterations</code> from a script. Unity's 3D physics has <code>Physics.defaultSolverIterations</code> for the whole world and <code>Rigidbody.solverIterations</code> for one body. Godot's built-in 2D physics reads the project setting <code>physics/2d/solver/solver_iterations</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Raising STRENGTH instead of passes.</strong> A stronger push hides the sinking but turns overlap into upward speed nothing earned. With this code at 20 passes, a box dropped on a ten-box stack throws boxes up at about 14 px/s with <code>STRENGTH = 0.2</code> and 53 px/s with 0.8: the stack pops and bounces.</li>
+    <li><strong>Detecting contacts inside the loop.</strong> Finding contacts is the expensive part. Do it once per step and repeat only the cheap fix. Solver time is passes × contacts: 500 crates at 20 passes is 10 000 fixes per step.</li>
+    <li><strong>Large mass ratios.</strong> A crate ten times heavier than the one under it needs many more passes. Keep touching bodies within a few times each other's mass, or put heavy things at the bottom.</li>
+    <li><strong>Only-add clamping.</strong> The code above never takes push back. For a straight stack that gives the same result, but engines keep a running total of push per contact and clamp the total at zero, so a later pass can undo too much push from an earlier one.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the engine behind Unity's 2D physics, popularised this approach. Its version 2 manual suggests 8 velocity and 3 position iterations, Unity's 2D defaults. Box2D version 3 instead splits each step into smaller substeps.</p>
+  <p>Engines also use <dfn>warm starting</dfn>: each contact begins the step with the push it needed last step, so a still stack starts nearly solved and needs fewer passes than this lesson's code. They also put bodies that stopped moving to <dfn>sleep</dfn>, skipping them until something touches them. Both are why crates in shipped games stay put.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build a stack of ten equal boxes, with the code above in LÖVE or with physics bodies in your engine. Set the solver passes to 1 and measure how far the top box sinks after five seconds. Raise the passes one at a time and write down the smallest number at which the top box ends within 1 pixel per box of where it should be.</p>
+  <p>Now make the top box ten times heavier and find the new number. You are done when you have both numbers and can say why the second one is larger.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>In a stack every box sits in two contacts, so fixing one contact disturbs its neighbour.</li>
+    <li>Running the whole contact list several times per step lets the support of the floor travel up the stack.</li>
+    <li>Speed the solver fails to remove becomes overlap, and the stack comes to rest squashed.</li>
+    <li>Tall stacks and heavy boxes on light ones need more passes. Detect contacts once and repeat only the cheap fix.</li>
+    <li>Choose the smallest number of passes that looks still, not the one that is physically exact.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next track turns to characters, starting with the three kinds of body an engine offers, static, kinematic and dynamic, and when to use each.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Erin Catto, <cite>Iterative Dynamics with Temporal Coherence</cite> (Game Developers Conference, 2005). The iterative solver with warm starting.</li>
+    <li>Erin Catto, <cite>Fast and Simple Physics using Sequential Impulses</cite>, talk at the Game Developers Conference, 2006. Running totals of impulse and clamping.</li>
+    <li>Erin Catto, <cite>Box2D User Manual</cite> (version 2). Discusses velocity and position iterations.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Resolving many contacts in turn.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 1000;     // pixels per second squared, +y is down
+  var STEP = 1 / 60;      // fixed timestep in seconds
+  var STRENGTH = 0.2;     // share of the overlap pushed out per step
+  var SLOP = 0.5;         // pixels of overlap left alone
+  var SIZE = 30;          // box height in pixels
+  var FLOOR = 400;        // y of the floor's top edge
+  var WIDTH = 52;         // box width, only used for drawing
+  var MAX_BOXES = 12;
+  var DROP_GAP = 50;      // a dropped box starts this far above the tower
+  var MAX_FRAME = 0.25;
+
+  // Small sideways offsets so the towers look hand-stacked. Same seed, same look every time.
+  var offsets = [0];
+  (function () {
+    var random = DemoKit.rng(4);
+    for (var i = 1; i <= MAX_BOXES + 1; i++) offsets.push((random() - 0.5) * 10);
+  })();
+
+  function newBody(y, h, mass) {
+    return { y: y, prevY: y, h: h, vy: 0, inv: mass > 0 ? 1 / mass : 0, heavy: mass > 1, dx: 0 };
+  }
+
+  function buildTower(n, heavyTop) {
+    var stack = [newBody(FLOOR + 20, 40, 0)];
+    for (var i = 1; i <= n; i++) {
+      var b = newBody(FLOOR - (i - 0.5) * SIZE - i * 2, SIZE, heavyTop && i === n ? 10 : 1);
+      b.dx = offsets[i];
+      stack.push(b);
+    }
+    return stack;
+  }
+
+  // Exactly the Lua step(dt), with the number of passes passed in.
+  function step(stack, dt, iterations) {
+    var i, k;
+    for (i = 1; i < stack.length; i++) stack[i].vy += GRAVITY * dt;
+    var contacts = [];
+    for (i = 1; i < stack.length; i++) {
+      var a = stack[i - 1];
+      var b = stack[i];
+      var depth = (b.y + b.h / 2) - (a.y - a.h / 2);
+      if (depth > 0) {
+        contacts.push({ a: a, b: b, push: STRENGTH * Math.max(depth - SLOP, 0) / dt });
+      }
+    }
+    for (k = 0; k < iterations; k++) {
+      for (i = 0; i < contacts.length; i++) {
+        var c = contacts[i];
+        var closing = c.b.vy - c.a.vy;
+        var j = (closing + c.push) / (c.a.inv + c.b.inv);
+        if (j > 0) {
+          c.a.vy += j * c.a.inv;
+          c.b.vy -= j * c.b.inv;
+        }
+      }
+    }
+    for (i = 1; i < stack.length; i++) stack[i].y += stack[i].vy * dt;
+  }
+
+  function sunk(stack) {
+    var n = stack.length - 1;
+    var top = stack[n];
+    return (top.y - top.h / 2) - (FLOOR - n * SIZE);
+  }
+
+  var left, right, accumulator, alpha, readoutClock;
+
+  var ui = DemoKit.controls('[data-demo="stack"]');
+  var leftPasses = ui.slider({ label: 'Passes, left tower', min: 1, max: 20, step: 1, value: 1 });
+  var rightPasses = ui.slider({ label: 'Passes, right tower', min: 1, max: 20, step: 1, value: 10 });
+  var boxCount = ui.slider({ label: 'Boxes', min: 2, max: 10, step: 1, value: 10, onInput: reset });
+  var heavy = ui.toggle({ label: 'Heavy top box (10× mass)', value: false, onChange: reset });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Drop a box', onClick: drop });
+  ui.button({ label: 'Reset', onClick: reset });
+  var sinkReadout = ui.readout({ label: 'Top of tower sunk' });
+
+  function reset() {
+    left = buildTower(boxCount.value, heavy.value);
+    right = buildTower(boxCount.value, heavy.value);
+    accumulator = 0;
+    alpha = 0;
+    readoutClock = 0;
+    showSink();
+  }
+
+  function dropOn(stack) {
+    if (stack.length - 1 >= MAX_BOXES) return;
+    var top = stack[stack.length - 1];
+    var highest = FLOOR - (MAX_BOXES * SIZE + DROP_GAP) + SIZE / 2;
+    var y = Math.max(top.y - top.h / 2 - DROP_GAP - SIZE / 2, highest);
+    var b = newBody(y, SIZE, 1);
+    b.dx = offsets[stack.length];
+    stack.push(b);
+  }
+
+  function drop() {
+    dropOn(left);
+    dropOn(right);
+  }
+
+  function showSink() {
+    sinkReadout.set('left ' + Math.max(0, sunk(left)).toFixed(1) + ' px, right ' +
+      Math.max(0, sunk(right)).toFixed(1) + ' px');
+  }
+
+  reset();
+
+  function savePrevious(stack) {
+    for (var i = 0; i < stack.length; i++) stack[i].prevY = stack[i].y;
+  }
+
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var FONT_BOLD = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function drawTower(ctx, s, stack, cx, k, floorY, passes) {
+    var c = s.colors;
+    var i;
+    function sy(y) { return floorY - (FLOOR - y) * k; }
+    function drawnY(b) { return DemoKit.lerp(b.prevY, b.y, alpha); }
+
+    // Title and how far the top has sunk.
+    var n = stack.length - 1;
+    ctx.textAlign = 'center';
+    ctx.font = FONT_BOLD;
+    ctx.fillStyle = c.ink;
+    ctx.fillText(passes + (passes === 1 ? ' pass' : ' passes') + ' per step', cx, 20);
+    ctx.font = FONT;
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('sunk ' + Math.max(0, sunk(stack)).toFixed(1) + ' px', cx, 37);
+
+    // Floor.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 70 * k - 20, floorY);
+    ctx.lineTo(cx + 70 * k + 20, floorY);
+    ctx.stroke();
+
+    // Boxes, bottom first.
+    var w = WIDTH * k;
+    for (i = 1; i < stack.length; i++) {
+      var b = stack[i];
+      var top = sy(drawnY(b) - b.h / 2);
+      var x = cx + b.dx * k - w / 2;
+      ctx.fillStyle = b.heavy ? c.ink2 : c.topic;
+      ctx.fillRect(x, top, w, b.h * k);
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.75, top + 0.75, w - 1.5, b.h * k - 1.5);
+      if (b.heavy) {
+        ctx.fillStyle = c.surface;
+        ctx.textAlign = 'center';
+        ctx.fillText('×10', cx + b.dx * k, top + b.h * k / 2 + 4);
+      }
+    }
+
+    if (!debug.value) return;
+
+    // Where the top would be with no overlap.
+    var idealY = sy(FLOOR - n * SIZE);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cx - w / 2 - 18, idealY);
+    ctx.lineTo(cx + w / 2 + 18, idealY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Overlaps between each box and whatever is under it.
+    ctx.fillStyle = c.bad;
+    ctx.globalAlpha = 0.75;
+    for (i = 1; i < stack.length; i++) {
+      var upper = stack[i];
+      var lower = stack[i - 1];
+      var bottomOfUpper = drawnY(upper) + upper.h / 2;
+      var topOfLower = drawnY(lower) - lower.h / 2;
+      var depth = bottomOfUpper - topOfLower;
+      if (depth <= SLOP) continue;
+      var x1 = upper.dx - WIDTH / 2;
+      var x2 = upper.dx + WIDTH / 2;
+      if (i > 1) {
+        x1 = Math.max(x1, lower.dx - WIDTH / 2);
+        x2 = Math.min(x2, lower.dx + WIDTH / 2);
+      }
+      ctx.fillRect(cx + x1 * k, sy(topOfLower), (x2 - x1) * k, depth * k);
+    }
+    ctx.globalAlpha = 1;
+
+    // Velocity arrows beside each box.
+    ctx.strokeStyle = c.warn;
+    ctx.fillStyle = c.warn;
+    ctx.lineWidth = 2;
+    for (i = 1; i < stack.length; i++) {
+      var body = stack[i];
+      if (Math.abs(body.vy) < 4) continue;
+      var ax = cx + (body.dx + WIDTH / 2 + 8) * k;
+      var ay = sy(drawnY(body));
+      var len = DemoKit.clamp(body.vy * 0.15, -60, 60);
+      var dir = len > 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax, ay + len);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax - 4, ay + len - 6 * dir);
+      ctx.lineTo(ax, ay + len);
+      ctx.lineTo(ax + 4, ay + len - 6 * dir);
+      ctx.stroke();
+    }
+  }
+
+  DemoKit.canvas('#stack', {
+    height: 440,
+    label: 'Two towers of boxes on a floor. The left tower gets one solver pass per step and sinks into itself; the right gets ten and stands nearly at full height. Sliders change the passes for each tower.',
+    update: function (dt) {
+      accumulator += Math.min(dt, MAX_FRAME);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 30) {
+        savePrevious(left);
+        savePrevious(right);
+        step(left, STEP, leftPasses.value);
+        step(right, STEP, rightPasses.value);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+      alpha = DemoKit.clamp(accumulator / STEP, 0, 1);
+      readoutClock += dt;
+      if (readoutClock > 0.25) {
+        readoutClock = 0;
+        showSink();
+      }
+    },
+    draw: function (ctx, s) {
+      var floorY = s.height - 46;
+      var k = Math.min(1, (floorY - 50) / (MAX_BOXES * SIZE + DROP_GAP));
+      drawTower(ctx, s, left, s.width * 0.27, k, floorY, leftPasses.value);
+      drawTower(ctx, s, right, s.width * 0.71, k, floorY, rightPasses.value);
+      ctx.strokeStyle = s.colors.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(s.width * 0.5) + 0.5, 0);
+      ctx.lineTo(Math.round(s.width * 0.5) + 0.5, s.height);
+      ctx.stroke();
+    },
+    onDown: function () { drop(); }
+  });
+})();
+</script>
+</body>
+</html>

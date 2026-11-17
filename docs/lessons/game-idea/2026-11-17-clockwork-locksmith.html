@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clockwork Locksmith: every turn pushes back · Game Dev Daily</title>
+<meta name="description" content="A gear lock puzzle where turning one gear turns its neighbours the other way, and every mark must point up. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Clockwork Locksmith: every turn pushes back</h1>
+  <p class="lede">A gear lock puzzle where turning one gear turns its neighbours the other way, and every mark must point up. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>Six brass gears sit behind the glass of an old lock, each with a scratched mark, and the bolt slides back only when every mark points straight up. Turn one gear a notch and the gears touching it lurch a notch the other way, so every fix undoes something you fixed a moment ago.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: pick a gear, turn it, read the marks</h2>
+  <p>Clockwork Locksmith is a calm puzzle about one lock at a time. The lock is a small set of gears. Each gear has a <dfn>mark</dfn>, an arrow painted on its face, and the mark can point in four directions: up, right, down or left. The lock opens when all marks point up.</p>
+  <p>You click a gear and it turns a quarter turn clockwise. Every gear whose teeth touch it, its <dfn>neighbours</dfn>, turns a quarter turn anticlockwise. Gears further away do not move.</p>
+  <p>Every ten seconds the player picks a gear, turns it and reads the marks again. Every minute a lock opens and a harder one arrives. Every session is a run of locks, each with a <dfn>par</dfn>, the smallest number of turns that opens it, for players who want to do better than just open it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: pick a gear, turn it, and read the marks. It leads back to picking. Beside it, two longer loops: every minute a lock opens and a harder one arrives, and every session a run of locks played against par.">
+      <defs>
+        <marker id="cl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Pick a gear</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">which mark is worst?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Turn it</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">neighbours turn back</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Read the marks</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">how many point up?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#cl-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#cl-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#cl-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">the bolt slides back,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">a harder lock arrives</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a run of locks,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">each against its par</text>
+    </svg>
+    <figcaption>The short loop is one click. Reading all six marks after it is where the thinking happens.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>One click, one quarter turn.</strong> The gear you click turns clockwise by a quarter.</li>
+    <li><strong>Neighbours push back.</strong> Each gear touching it turns anticlockwise by a quarter. Nothing else moves.</li>
+    <li><strong>Four clicks do nothing.</strong> Four quarter turns bring every affected gear back to where it was.</li>
+    <li><strong>All marks up.</strong> The lock opens when every mark points up. There is no timer and no way to lose.</li>
+    <li><strong>Par.</strong> Each lock knows its shortest solution. Matching it is the stretch goal.</li>
+  </ul>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 200" role="img" aria-label="Six gears in two rows of three. The middle gear of the top row is clicked and labelled plus one quarter. The three gears touching it, left, right and below, are labelled minus one quarter. The two bottom corner gears do not move and are labelled no change.">
+      <circle class="d-stroke" cx="70" cy="60" r="38"/>
+      <circle class="d-accent-soft" cx="180" cy="60" r="38"/>
+      <circle class="d-stroke" cx="290" cy="60" r="38"/>
+      <circle class="d-thin d-dash" cx="70" cy="150" r="38"/>
+      <circle class="d-stroke" cx="180" cy="150" r="38"/>
+      <circle class="d-thin d-dash" cx="290" cy="150" r="38"/>
+      <text class="d-label" x="180" y="56" text-anchor="middle">clicked</text>
+      <text class="d-text" x="180" y="74" text-anchor="middle">+1</text>
+      <text class="d-text" x="70" y="66" text-anchor="middle">−1</text>
+      <text class="d-text" x="290" y="66" text-anchor="middle">−1</text>
+      <text class="d-text" x="180" y="156" text-anchor="middle">−1</text>
+      <text class="d-muted" x="70" y="156" text-anchor="middle">same</text>
+      <text class="d-muted" x="290" y="156" text-anchor="middle">same</text>
+    </svg>
+    <figcaption>Clicking the top middle gear. Plus one is a quarter turn clockwise, minus one is a quarter turn anticlockwise. The corners below are not touching it, so they stay put.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the locksmith with patient fingers who feels the mechanism instead of forcing it. The constraint is that you can never move one gear alone: every action has a side effect on its neighbours, and the puzzle is choosing side effects you can live with.</p>
+  <p>A confession about the fiction: in a real gear train every connected gear turns, so all six would spin together and nothing would change. This lock has ratchets that stop each neighbour after one notch. Show that in the first room, with a click and a visible pawl, so players read the rule as part of the lock rather than a bug.</p>
+  <p>The insight players reach after a few locks is that the <em>order</em> of clicks does not matter. Clicking gear 2 then gear 5 ends in the same place as gear 5 then gear 2. A lock is really a question of how many times to click each gear, from zero to three. That is when the game turns from fiddling into planning.</p>
+  <p>The hardest part to build is the lock generator: most random arrangements of marks cannot be opened at all, so locks must be made by scrambling a solved lock.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Lock 1 needs two clicks. Each lock after it needs one more, up to eight. Watch which marks move when you click, and look for the gear whose side effects help you.</p>
+
+  <figure class="demo wide" data-demo="clockwork-locksmith">
+    <canvas id="clockwork-locksmith"></canvas>
+    <figcaption>Controls: click or tap a gear to turn it a quarter clockwise. With the keyboard, click the canvas, then press <kbd>1</kbd> to <kbd>6</kbd> to turn a gear, or move the ring with the <kbd>arrow keys</kbd> and press <kbd>Space</kbd>. <kbd>Z</kbd> undoes, <kbd>R</kbd> restarts the lock, <kbd>H</kbd> shows a hint, and <kbd>Enter</kbd> or a tap opens the next lock after a win. The goal and your clicks against par are shown at the top.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: the gear links, the click rule and a generator that only makes locks you can open. A mark is stored as the number of quarter turns clockwise from up, so <code>0</code> means up. Drawing is left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local marks = {}                  <span class="c">-- 0 up, 1 right, 2 down, 3 left</span>
+local links = {                   <span class="c">-- two rows of three gears</span>
+  {2, 4}, {1, 3, 5}, {2, 6},      <span class="c">-- 1 2 3</span>
+  {1, 5}, {2, 4, 6}, {3, 5},      <span class="c">-- 4 5 6</span>
+}
+local clicks = 0
+
+local function click(i)
+<span class="k">  marks[i] = (marks[i] + 1) % 4             -- a quarter turn clockwise
+  for _, j in ipairs(links[i]) do
+    marks[j] = (marks[j] - 1) % 4           -- each neighbour turns back
+  end</span>
+  clicks = clicks + 1
+end
+
+local function isOpen()
+  for i = 1, #marks do
+    if marks[i] ~= 0 then return false end
+  end
+  return true
+end
+
+local function newLock(scrambles)
+  for i = 1, #links do marks[i] = 0 end
+  repeat                                     <span class="c">-- scramble a solved lock with real clicks</span>
+    for _ = 1, scrambles do click(love.math.random(1, #links)) end
+  until not isOpen()
+  clicks = 0
+end
+
+function love.load()
+  newLock(4)
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole rule. In Lua, <code>%</code> always returns a result with the sign of the divisor, so <code>(0 - 1) % 4</code> is <code>3</code>: up turned back once points left, with no special case. Because the lock is built from real clicks, it can always be opened, by clicking each scrambled gear three more times if nothing better. The demo goes one step further: it tries every combination of clicks once at load time, so it knows each lock's par and can pick locks of an exact difficulty.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Random locks that cannot open.</strong> With six gears there are 4,096 ways to set the marks, but I checked every combination of clicks on this two-by-three layout and only 512 arrangements can be reached. Seven in eight random locks would be impossible. Always generate by scrambling, or check against the list of reachable states, and test this for every new layout.</li>
+    <li><strong>The puzzle turns into arithmetic.</strong> Once players know the order does not matter, some will solve locks on paper by counting. Test it: give a player five locks and watch whether the fifth is more fun than the first, or only faster.</li>
+    <li><strong>Marks that are hard to read.</strong> If testers click and then ask what changed, make the arrows bolder, show a fixed "up" notch on every gear, and turn the neighbours a beat after the clicked gear.</li>
+    <li><strong>Three clicks to go back.</strong> With clockwise only, undoing a turn by hand takes three clicks. Give undo a key from day one, and see whether players want an anticlockwise click. Adding one makes locks easier, so measure par again if you do.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The closest relative is <cite>Lights Out</cite>, the handheld electronic puzzle from Tiger Electronics (1995): pressing a light toggles it and its neighbours, and the board is solved when every light is off. Clockwork Locksmith is that family of puzzle with four states per piece instead of two, and with the neighbours pushed the opposite way instead of the same way. That second change matters: in Lights Out pressing twice undoes a press, while here a gear needs four turns to come back, so planning ahead pays off more.</p>
+  <p>Rotating-piece locks are also a familiar mini-game in adventure games, usually a single screen to pass. The bet here is that the neighbour rule can carry a whole game, with layouts that change which gears touch.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with six circles, an arrow line on each, mouse clicks and an undo key. Skip teeth, animation and sound. Make ten locks with <code>newLock(3)</code> to <code>newLock(6)</code>.</p>
+  <p>Give it to a friend with only the five rules. The one question: <strong>do they notice, without being told, that the order of clicks does not matter?</strong> Watch for the moment they stop clicking and start counting. If it comes by the fifth lock, the game has a real insight to build on. If it never comes, the marks are too hard to read or the locks are too easy to brute-force by clicking.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> the six-gear lock from the demo, generated locks with par, undo, a hint, and a satisfying bolt animation when the lock opens.</li>
+    <li><strong>One-month version:</strong> twenty hand-picked layouts with different links (a chain, a ring of six, a star), gears that are rusted and refuse to turn by hand, and a daily lock with a par leaderboard kept on the player's own device.</li>
+    <li><strong>Cut first:</strong> gears of different sizes. Gear ratios sound right for the theme but turn the rule into arithmetic nobody can see at a glance.</li>
+    <li><strong>Hardest part:</strong> the lock generator. Brute force is fine for six gears (4,096 combinations); for twelve gears, generate by scrambling and estimate par with a search instead.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: a rusted gear that cannot be clicked at all, so it only moves when a neighbour turns it, and every lock has to be solved around it.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Marlow Anderson and Todd Feil, <cite>Turning Lights Out with Linear Algebra</cite> (Mathematics Magazine, 1998). Why the order of presses does not matter and how to tell which boards can be solved.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). The chapter on puzzles, on clear goals and the moment of insight.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). On how small rule sets create a large space of possible play.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var HUD = 54, FOOT = 50, TEETH = 12;
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  // Same links as the Lua, counted from 0: two rows of three gears.
+  var LINKS = [[1, 3], [0, 2, 4], [1, 5], [0, 4], [1, 3, 5], [2, 4]];
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function applyClicks(marks, counts) {
+    var m = marks.slice();
+    for (var i = 0; i < 6; i++) {
+      m[i] = (m[i] + counts[i]) % 4;
+      for (var k = 0; k < LINKS[i].length; k++) m[LINKS[i][k]] = (m[LINKS[i][k]] + 3 * counts[i]) % 4;
+    }
+    return m;
+  }
+
+  // Try all 4^6 click counts once. best[key] = fewest clicks that turn a solved lock into key.
+  var best = {}, keys = [];
+  (function () {
+    for (var n = 0; n < 4096; n++) {
+      var c = [], x = n, sum = 0;
+      for (var i = 0; i < 6; i++) { c.push(x % 4); sum += x % 4; x = Math.floor(x / 4); }
+      var key = applyClicks([0, 0, 0, 0, 0, 0], c).join('');
+      if (!best[key]) { best[key] = { c: c, sum: sum }; keys.push(key); }
+      else if (sum < best[key].sum) best[key] = { c: c, sum: sum };
+    }
+  })();
+  function neg(m) { return m.map(function (v) { return (4 - v) % 4; }); }
+  // Clicks that open the lock from marks m: the clicks that make -m from a solved lock.
+  function solution(m) { return best[neg(m).join('')]; }
+
+  var lockNo = 1, start, marks, rot, disp, history, clicks, par, open, sel = 0, showSel = false;
+  var hint = -1, message = '', msgColor = 'ink2', lift = 0, layout = null;
+
+  function say(t, c) { message = t; msgColor = c || 'ink2'; }
+
+  function newLock(n) {
+    lockNo = n;
+    var target = Math.min(n + 1, 8), pool = [];
+    for (var i = 0; i < keys.length; i++) if (best[keys[i]].sum === target) pool.push(keys[i]);
+    var rnd = DemoKit.rng(n * 7919 + 13);
+    var key = pool[Math.floor(rnd() * pool.length)];
+    start = neg(key.split('').map(Number));
+    par = target;
+    restart();
+    say('Lock ' + n + '. Turn the gears until every arrow points up.');
+  }
+
+  function restart() {
+    marks = start.slice(); rot = start.slice(); disp = start.slice();
+    history = []; clicks = 0; open = false; hint = -1; lift = 0;
+    say('Lock restarted.');
+  }
+
+  function turn(i, dir) {
+    marks[i] = (marks[i] + dir + 4) % 4; rot[i] += dir;
+    for (var k = 0; k < LINKS[i].length; k++) {
+      var j = LINKS[i][k];
+      marks[j] = (marks[j] - dir + 4) % 4; rot[j] -= dir;
+    }
+  }
+
+  function upCount() { var u = 0; for (var i = 0; i < 6; i++) if (marks[i] === 0) u++; return u; }
+
+  function click(i) {
+    if (open) { newLock(lockNo + 1); return; }
+    turn(i, 1); history.push(i); clicks += 1; hint = -1;
+    if (upCount() === 6) {
+      open = true;
+      var verdict = clicks <= par ? 'Par! ' : (clicks - par) + ' over par. ';
+      say('Open in ' + clicks + ' clicks. ' + verdict + 'Tap or press Enter for the next lock.', 'good');
+    } else {
+      var ns = LINKS[i].map(function (j) { return j + 1; });
+      var names = ns.slice(0, -1).join(', ') + ' and ' + ns[ns.length - 1];
+      say('Gear ' + (i + 1) + ' turned clockwise; gears ' + names + ' turned back.');
+    }
+  }
+
+  function undo() {
+    if (open || !history.length) { say(open ? 'Already open.' : 'Nothing to undo.'); return; }
+    var i = history.pop(); turn(i, -1); clicks -= 1; hint = -1;
+    say('Undone: gear ' + (i + 1) + ' turned back.');
+  }
+
+  function showHint() {
+    if (open) return;
+    var s = solution(marks);
+    for (var i = 0; i < 6; i++) if (s.c[i] > 0) { hint = i; break; }
+    say('Hint: gear ' + (hint + 1) + ' is part of a shortest solution (' + s.sum + ' clicks left).', 'warn');
+  }
+
+  function update(dt) {
+    var k = reduced ? 1 : 1 - Math.exp(-dt * 14);
+    for (var i = 0; i < 6; i++) {
+      disp[i] += (rot[i] - disp[i]) * k;
+      if (Math.abs(rot[i] - disp[i]) < 0.002) disp[i] = rot[i];
+    }
+    var goal = open ? 1 : 0;
+    lift += (goal - lift) * (reduced ? 1 : 1 - Math.exp(-dt * 8));
+  }
+
+  function wrap(ctx, text, maxW) {
+    var words = text.split(' '), lines = [], line = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = words[i]; } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines.slice(0, 2);
+  }
+
+  function gearPath(ctx, x, y, r, t, ang) {
+    var step = Math.PI * 2 / TEETH;
+    ctx.beginPath();
+    for (var k = 0; k < TEETH; k++) {
+      var a = ang + k * step;
+      var pts = [[r, a - step * 0.5], [r, a - step * 0.24], [r + t, a - step * 0.13],
+                 [r + t, a + step * 0.13], [r, a + step * 0.24]];
+      for (var p = 0; p < pts.length; p++) {
+        var px = x + Math.cos(pts[p][1]) * pts[p][0], py = y + Math.sin(pts[p][1]) * pts[p][0];
+        if (k === 0 && p === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+    }
+    ctx.closePath();
+  }
+
+  function draw(ctx, s) {
+    var col = s.colors, W = s.width, H = s.height;
+    var d = Math.min((W - 16) / 3, (H - HUD - FOOT - 8) / 2);
+    var r = d * 0.42, t = d * 0.12;
+    var ox = (W - 3 * d) / 2 + d / 2, oy = HUD + (H - HUD - FOOT - 2 * d) / 2 + d / 2;
+    layout = { d: d, r: r, t: t, ox: ox, oy: oy };
+
+    for (var i = 0; i < 6; i++) {
+      var row = Math.floor(i / 3), c = i % 3;
+      var x = ox + c * d, y = oy + row * d;
+      var phase = ((row + c) % 2) * (Math.PI / TEETH);
+      var ang = disp[i] * Math.PI / 2;
+      var settled = disp[i] === rot[i];
+      gearPath(ctx, x, y, r, t, ang + phase);
+      ctx.fillStyle = col.surface2; ctx.fill();
+      ctx.lineWidth = (showSel && sel === i) || hint === i ? 3 : 1.5;
+      ctx.strokeStyle = hint === i ? col.warn : (showSel && sel === i ? col.topic : col.ink3);
+      ctx.stroke();
+
+      // Face, the fixed "up" notch, then the turning mark.
+      ctx.fillStyle = col.surface;
+      ctx.beginPath(); ctx.arc(x, y, r * 0.78, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = col.ink3;
+      ctx.beginPath(); ctx.moveTo(x - r * 0.1, y - r * 0.78); ctx.lineTo(x + r * 0.1, y - r * 0.78);
+      ctx.lineTo(x, y - r * 0.64); ctx.closePath(); ctx.fill();
+
+      var up = marks[i] === 0 && settled;
+      var ma = -Math.PI / 2 + ang, ca = Math.cos(ma), sa = Math.sin(ma);
+      ctx.strokeStyle = up ? col.good : col.topic; ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = Math.max(3, r * 0.1); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x + ca * r * 0.2, y + sa * r * 0.2); ctx.lineTo(x + ca * r * 0.44, y + sa * r * 0.44); ctx.stroke();
+      var tx = x + ca * r * 0.6, ty = y + sa * r * 0.6, w = r * 0.14;
+      ctx.beginPath(); ctx.moveTo(tx, ty);
+      ctx.lineTo(x + ca * r * 0.42 - sa * w, y + sa * r * 0.42 + ca * w);
+      ctx.lineTo(x + ca * r * 0.42 + sa * w, y + sa * r * 0.42 - ca * w);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = col.ink2; ctx.font = '600 ' + Math.round(Math.max(12, r * 0.24)) + 'px ' + FONT;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), x, y);
+    }
+
+    // HUD: lock number, padlock, clicks against par, marks up.
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = '600 14px ' + FONT; ctx.fillStyle = col.ink;
+    ctx.fillText('Lock ' + lockNo, 10, 16);
+    ctx.font = '14px ' + FONT; ctx.fillStyle = col.ink2;
+    ctx.fillText('Up: ' + upCount() + ' of 6', 10, 38);
+    ctx.textAlign = 'right';
+    ctx.fillText('Clicks ' + clicks + ' · Par ' + par, W - 10, 16);
+    ctx.fillText(open ? 'Open!' : 'Goal: all arrows up', W - 10, 38);
+
+    var px = W / 2, lockCol = open ? col.good : col.ink2;
+    ctx.strokeStyle = lockCol; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.arc(px, 24 - lift * 8, 8, Math.PI, 0); ctx.lineTo(px + 8, 30 - lift * 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px - 8, 24 - lift * 8); ctx.lineTo(px - 8, 30); ctx.stroke();
+    ctx.fillStyle = lockCol; ctx.fillRect(px - 13, 28, 26, 18);
+
+    ctx.textAlign = 'left'; ctx.font = '13px ' + FONT; ctx.fillStyle = col[msgColor] || col.ink2;
+    var lines = wrap(ctx, message, W - 100);
+    for (var j = 0; j < lines.length; j++) ctx.fillText(lines[j], 10, H - FOOT + 14 + j * 17);
+  }
+
+  function key(k) {
+    if (k >= '1' && k <= '6' && k.length === 1) { sel = Number(k) - 1; click(sel); return; }
+    var moves = { arrowleft: -1, arrowright: 1, arrowup: -3, arrowdown: 3 };
+    if (moves[k] !== undefined) {
+      var n = sel + moves[k];
+      if (k === 'arrowleft' && sel % 3 === 0) n = sel;
+      if (k === 'arrowright' && sel % 3 === 2) n = sel;
+      if (n >= 0 && n < 6) sel = n;
+      showSel = true; return;
+    }
+    if (k === ' ' || k === 'space') { showSel = true; click(sel); }
+    else if (k === 'enter') { if (open) newLock(lockNo + 1); else { showSel = true; click(sel); } }
+    else if (k === 'z' || k === 'backspace') undo();
+    else if (k === 'r') restart();
+    else if (k === 'h') showHint();
+  }
+
+  var ui = DemoKit.controls('[data-demo="clockwork-locksmith"]');
+  ui.button({ label: 'Undo (Z)', onClick: undo });
+  ui.button({ label: 'Restart (R)', onClick: restart });
+  ui.button({ label: 'Hint (H)', onClick: showHint });
+  ui.button({ label: 'New lock', onClick: function () { newLock(lockNo + 1); } });
+
+  newLock(1);
+
+  DemoKit.canvas('#clockwork-locksmith', {
+    height: 420,
+    keys: true,
+    label: 'Clockwork Locksmith prototype. Six gears in two rows of three, each with an arrow. Clicking a gear turns it a quarter clockwise and turns the gears touching it a quarter anticlockwise. The lock opens when every arrow points up.',
+    update: update,
+    draw: draw,
+    onDown: function (p) {
+      if (open) { newLock(lockNo + 1); return; }
+      if (!layout) return;
+      for (var i = 0; i < 6; i++) {
+        var x = layout.ox + (i % 3) * layout.d, y = layout.oy + Math.floor(i / 3) * layout.d;
+        var dx = p.x - x, dy = p.y - y;
+        if (dx * dx + dy * dy < layout.r * layout.r) { showSel = false; sel = i; click(i); return; }
+      }
+    },
+    onKey: function (k, isDown) { if (isDown) key(k); }
+  });
+})();
+</script>
+</body>
+</html>

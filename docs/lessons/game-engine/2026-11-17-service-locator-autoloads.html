@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service locator: autoloads in Godot, singletons in Unity · Game Dev Daily</title>
+<meta name="description" content="How to make audio and saving reachable from anywhere through a service locator, and keep them swappable with null and logging services.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-17">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Service locator: autoloads in Godot, singletons in Unity</h1>
+  <p class="lede">How to make audio and saving reachable from anywhere through a service locator, and keep them swappable with null and logging services.</p>
+</header>
+
+<section data-section="hook">
+  <p>Every script in your game calls <code>AudioManager.play("jump")</code>. Run the player scene on its own and it fails with a null-reference error, because the audio manager lives in the menu scene. Muting everything for a test means editing forty scripts.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Global access, the quick way</h2>
+  <p>Some systems are needed everywhere and should exist once: audio, saving, settings. Passing them through every constructor is tedious, so we make them global.</p>
+  <p>A <dfn>singleton</dfn> is a class that makes sure only one instance of itself exists and gives every caller global access to that instance. Godot builds this in as the <dfn>autoload</dfn>: a script or scene you list in Project Settings, which Godot creates when the game starts, adds under the root of the scene tree, and makes reachable by name from any script. In Unity you usually write it yourself: a MonoBehaviour stores itself in a static <code>Instance</code> field in <code>Awake</code>, destroys any second copy, and calls <code>DontDestroyOnLoad</code> so it survives scene changes.</p>
+  <p>Both solve reachability, and both share a weakness: the caller names the <em>concrete class</em>. To mute the game or log every sound, you must edit the callers or the class.</p>
+
+  <h2>A locator: ask for the role, not the class</h2>
+  <p>A <dfn>service</dfn> is a role described by a small set of methods, for example "something with <code>play(id)</code>". A <dfn>service locator</dfn> is one global object with a slot for each role. At startup, some code <dfn>provides</dfn> (registers) an implementation for each slot. Game code then asks the locator for the role and never learns which class answered:</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>RealAudio:play("jump")        <span class="c">-- names the class: hard to swap</span>
+<span class="k">services.audio:play("jump")   -- names the role: swap the slot instead</span></code></pre>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Three callers, Player, Coin and Menu, each have an arrow to a Locator box with two slots, audio and save. The audio slot points with a solid arrow to LoggingAudio, which wraps RealAudio below it. A dashed arrow marked swap points from the audio slot to NullAudio. The save slot points to FileSave.">
+      <defs>
+        <marker id="sl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+        <marker id="sl-arrow-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="80" y="24" text-anchor="middle">Callers</text>
+      <rect class="d-box" x="20" y="40" width="120" height="40" rx="8"/>
+      <text class="d-text" x="80" y="65" text-anchor="middle">Player</text>
+      <rect class="d-box" x="20" y="100" width="120" height="40" rx="8"/>
+      <text class="d-text" x="80" y="125" text-anchor="middle">Coin</text>
+      <rect class="d-box" x="20" y="160" width="120" height="40" rx="8"/>
+      <text class="d-text" x="80" y="185" text-anchor="middle">Menu</text>
+      <path class="d-stroke" d="M140 60 L226 104" marker-end="url(#sl-arrow-m)"/>
+      <path class="d-stroke" d="M140 120 L226 120" marker-end="url(#sl-arrow-m)"/>
+      <path class="d-stroke" d="M140 180 L226 136" marker-end="url(#sl-arrow-m)"/>
+
+      <text class="d-label" x="310" y="24" text-anchor="middle">Locator</text>
+      <rect class="d-box" x="230" y="70" width="160" height="110" rx="8"/>
+      <rect class="d-accent-soft" x="244" y="84" width="132" height="32" rx="6"/>
+      <text class="d-text d-mono" x="310" y="105" text-anchor="middle">audio</text>
+      <rect class="d-box" x="244" y="134" width="132" height="32" rx="6"/>
+      <text class="d-text d-mono" x="310" y="155" text-anchor="middle">save</text>
+
+      <path class="d-accent" d="M376 100 L466 42" marker-end="url(#sl-arrow)"/>
+      <path class="d-stroke d-dash" d="M376 100 L466 148" marker-end="url(#sl-arrow-m)"/>
+      <text class="d-muted" x="430" y="140" text-anchor="middle">swap</text>
+      <path class="d-stroke" d="M376 150 L466 214" marker-end="url(#sl-arrow-m)"/>
+
+      <text class="d-label" x="545" y="14" text-anchor="middle">Services</text>
+      <rect class="d-box" x="470" y="22" width="150" height="38" rx="8"/>
+      <text class="d-text" x="545" y="46" text-anchor="middle">LoggingAudio</text>
+      <path class="d-stroke" d="M545 60 L545 80" marker-end="url(#sl-arrow-m)"/>
+      <text class="d-muted" x="556" y="75">wraps</text>
+      <rect class="d-box" x="470" y="82" width="150" height="38" rx="8"/>
+      <text class="d-text" x="545" y="106" text-anchor="middle">RealAudio</text>
+      <rect class="d-box" x="470" y="132" width="150" height="38" rx="8"/>
+      <text class="d-text" x="545" y="156" text-anchor="middle">NullAudio</text>
+      <rect class="d-box" x="470" y="196" width="150" height="38" rx="8"/>
+      <text class="d-text" x="545" y="220" text-anchor="middle">FileSave</text>
+    </svg>
+    <figcaption>Callers know only the locator and the role. Which class fills a slot is decided in one place, and changing it changes no caller.</figcaption>
+  </figure>
+
+  <p>Two small helpers make the locator pleasant to use:</p>
+  <ul>
+    <li>A <dfn>null service</dfn> has the right methods and does nothing. Fill every slot with one by default, and callers never need to check for an empty slot. A scene opened on its own is silent instead of broken.</li>
+    <li>A <dfn>decorator</dfn> is a service that wraps another one with the same methods. <code>LoggingAudio</code> writes each call to a log, then hands it to the real audio service. You add logging without touching either the callers or the real service.</li>
+  </ul>
+
+  <h2>Who owns what</h2>
+  <p>The locator owns <em>references</em>, one per slot. Whoever provides a service creates it, usually a startup script or a test. The service owns its own resources, such as audio players. In Godot, an autoload node is a child of the tree's root, so changing scenes, which replaces only the current scene, leaves it alone. In Unity, a static field lives as long as the scripting domain does, and a <code>DontDestroyOnLoad</code> object is moved to a special scene that loading a new scene does not unload.</p>
+
+  <h2>Order: register before anyone asks</h2>
+  <p>If a caller asks before the slot is filled, it gets the null service at best and a crash at worst.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="Two startup timelines. Godot: autoloads are created in list order, then the main scene enters the tree, then _ready runs on scene nodes, then _process every frame. Unity: methods marked to run before scene load, then Awake and OnEnable on scene objects in an order that is not guaranteed, then Start, then Update every frame. The first step of each timeline is highlighted as the place to register services.">
+      <defs>
+        <marker id="sl-arrow-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="20" y="22">Godot 4</text>
+      <rect class="d-accent-soft" x="20" y="32" width="135" height="50" rx="8"/>
+      <text class="d-text" x="87" y="54" text-anchor="middle">Autoloads</text>
+      <text class="d-muted" x="87" y="72" text-anchor="middle">in list order</text>
+      <rect class="d-box" x="175" y="32" width="135" height="50" rx="8"/>
+      <text class="d-text" x="242" y="54" text-anchor="middle">Main scene</text>
+      <text class="d-muted" x="242" y="72" text-anchor="middle">enters tree</text>
+      <rect class="d-box" x="330" y="32" width="135" height="50" rx="8"/>
+      <text class="d-text d-mono" x="397" y="54" text-anchor="middle">_ready()</text>
+      <text class="d-muted" x="397" y="72" text-anchor="middle">scene nodes</text>
+      <rect class="d-box" x="485" y="32" width="135" height="50" rx="8"/>
+      <text class="d-text d-mono" x="552" y="54" text-anchor="middle">_process()</text>
+      <text class="d-muted" x="552" y="72" text-anchor="middle">every frame</text>
+      <path class="d-stroke" d="M155 57 L172 57" marker-end="url(#sl-arrow-t)"/>
+      <path class="d-stroke" d="M310 57 L327 57" marker-end="url(#sl-arrow-t)"/>
+      <path class="d-stroke" d="M465 57 L482 57" marker-end="url(#sl-arrow-t)"/>
+
+      <text class="d-label" x="20" y="122">Unity</text>
+      <rect class="d-accent-soft" x="20" y="132" width="135" height="50" rx="8"/>
+      <text class="d-text" x="87" y="154" text-anchor="middle">BeforeSceneLoad</text>
+      <text class="d-muted" x="87" y="172" text-anchor="middle">static methods</text>
+      <rect class="d-box" x="175" y="132" width="135" height="50" rx="8"/>
+      <text class="d-text" x="242" y="154" text-anchor="middle">Awake, OnEnable</text>
+      <text class="d-muted" x="242" y="172" text-anchor="middle">scene objects</text>
+      <rect class="d-box" x="330" y="132" width="135" height="50" rx="8"/>
+      <text class="d-text d-mono" x="397" y="154" text-anchor="middle">Start()</text>
+      <text class="d-muted" x="397" y="172" text-anchor="middle">scene objects</text>
+      <rect class="d-box" x="485" y="132" width="135" height="50" rx="8"/>
+      <text class="d-text d-mono" x="552" y="154" text-anchor="middle">Update()</text>
+      <text class="d-muted" x="552" y="172" text-anchor="middle">every frame</text>
+      <path class="d-stroke" d="M155 157 L172 157" marker-end="url(#sl-arrow-t)"/>
+      <path class="d-stroke" d="M310 157 L327 157" marker-end="url(#sl-arrow-t)"/>
+      <path class="d-stroke" d="M465 157 L482 157" marker-end="url(#sl-arrow-t)"/>
+      <text class="d-muted" x="242" y="204" text-anchor="middle">order between objects not guaranteed</text>
+    </svg>
+    <figcaption>The shaded step runs before any scene script, so it is the safe place to register services.</figcaption>
+  </figure>
+
+  <p>Godot creates autoloads before the main scene, in the order of the Autoload list, so any scene node can rely on them in <code>_ready</code>. Unity's classic singleton fills its <code>Instance</code> in <code>Awake</code>, but Unity does not promise which object's <code>Awake</code> runs first, so another script's <code>Awake</code> may see <code>null</code>. The usual fixes are to read services in <code>Start</code>, to set the Script Execution Order, or to register from a static method marked <code>[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]</code>, which runs before any <code>Awake</code> in the first scene.</p>
+
+  <p>Godot's autoload is built in and ordered, but a script that writes <code>Audio.play()</code> is tied to that autoload's name and class. Unity has nothing built in, so you write more, but a static C# property gives you a typed interface and compile errors when a slot is renamed.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Put a locator in front of services that really are global, and fill every slot with a null service before the first scene runs. For anything a single object needs, pass it in directly instead; that is <dfn>dependency injection</dfn>, and it keeps the dependency visible in the code.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The square hops every 1.2 seconds and calls <code>services.audio:play("jump")</code>; every third hop grabs the coin and also plays <code>"coin"</code>. Use <strong>Audio service</strong> (or tap a box) to swap what fills the slot. Watch the game code panel: its two lines flash on every call and never change.</p>
+  <p>Try <strong>NullAudio</strong>: calls keep coming, sounds stop, nothing breaks. Try <strong>LoggingAudio</strong>: the log fills and each call still reaches Real. Then pick <strong>nil</strong>, an empty slot with no null service, and watch the next hop.</p>
+
+  <figure class="demo" data-demo="service-locator">
+    <canvas id="service-locator"></canvas>
+    <figcaption>The demo makes no sound; the Real box shows rings instead. The model has one slot and one caller, and leaves out startup order and releasing a swapped service's resources.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua is the demo as a LÖVE 11 program: the same services, hop timing and coin rule, with keys 1 to 4 for the four choices. It runs silently in an empty folder; add <code>sounds/jump.wav</code> and <code>sounds/coin.wav</code> to hear RealAudio. The Godot and Unity tabs build the same locator, registered before any scene script runs.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Keys: 1 real, 2 null, 3 logging, 4 nothing registered.</span>
+local clock, played = 0, 0
+local log = {}
+
+<span class="c">-- Three services with the same method: play(id).</span>
+local NullAudio = { name = "NullAudio" }
+function NullAudio:play(id) end              <span class="c">-- accepts the call, does nothing</span>
+
+local RealAudio = { name = "RealAudio", sources = {} }
+function RealAudio:play(id)
+  played = played + 1
+  local path = "sounds/" .. id .. ".wav"
+  if self.sources[id] == nil and love.filesystem.getInfo(path) then
+    self.sources[id] = love.audio.newSource(path, "static")
+  end
+  local source = self.sources[id]
+  if source then
+    source:stop()                            <span class="c">-- restart if still playing</span>
+    source:play()
+  end
+end
+
+local LoggingAudio = { name = "LoggingAudio", inner = RealAudio }
+function LoggingAudio:play(id)
+  log[#log + 1] = string.format("%.1fs  play(%q)", clock, id)
+  self.inner:play(id)                        <span class="c">-- then do the real work</span>
+end
+
+<span class="c">-- The locator: one slot per role.</span>
+<span class="k">local services = { audio = NullAudio }
+
+function services.provideAudio(service)
+  services.audio = service or NullAudio      -- nil falls back to the null service
+end</span>
+
+<span class="c">-- Game code. It names the role, never the class.</span>
+local HOP_EVERY = 1.2
+local timer, hops = 0, 0
+
+function love.load()
+  services.provideAudio(RealAudio)           <span class="c">-- register before anyone asks</span>
+end
+
+function love.update(dt)
+  clock = clock + dt
+  timer = timer + dt
+  if timer &gt;= HOP_EVERY then
+    timer = timer - HOP_EVERY
+    hops = hops + 1
+<span class="k">    services.audio:play("jump")</span>
+    if hops % 3 == 0 then
+      services.audio:play("coin")            <span class="c">-- every third hop grabs the coin</span>
+    end
+  end
+end
+
+function love.keypressed(key)
+  if key == "1" then services.provideAudio(RealAudio) end
+  if key == "2" then services.provideAudio(NullAudio) end
+  if key == "3" then services.provideAudio(LoggingAudio) end
+  if key == "4" then services.audio = nil end  <span class="c">-- skips provideAudio: next hop crashes</span>
+end
+
+function love.draw()
+  local name = services.audio and services.audio.name or "nil"
+  love.graphics.print("audio: " .. name .. "   hops " .. hops .. "   sounds played " .. played, 10, 10)
+  local first = math.max(1, #log - 9)
+  for i = first, #log do
+    love.graphics.print(log[i], 10, 40 + (i - first) * 16)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4. Six small files. Optional: res://sounds/jump.wav and coin.wav.</span>
+
+<span class="c"># audio_service.gd: the role. Every audio service extends it.</span>
+class_name AudioService
+extends RefCounted
+
+func play(_id: String) -&gt; void:
+    pass
+
+
+<span class="c"># null_audio.gd</span>
+class_name NullAudio
+extends AudioService
+
+func play(_id: String) -&gt; void:
+    pass  <span class="c"># accepts the call, does nothing</span>
+
+
+<span class="c"># real_audio.gd</span>
+class_name RealAudio
+extends AudioService
+
+var _player: AudioStreamPlayer
+
+func _init(player: AudioStreamPlayer) -&gt; void:
+    _player = player
+
+func play(id: String) -&gt; void:
+    var path := "res://sounds/%s.wav" % id
+    if ResourceLoader.exists(path):
+        _player.stream = load(path)
+        _player.play()
+
+
+<span class="c"># logging_audio.gd: wraps another service.</span>
+class_name LoggingAudio
+extends AudioService
+
+var _inner: AudioService
+
+func _init(inner: AudioService) -&gt; void:
+    _inner = inner
+
+func play(id: String) -&gt; void:
+    print("[audio] play ", id)
+    _inner.play(id)
+
+
+<span class="c"># services.gd: add it to the Autoload list in Project Settings as "Services".</span>
+<span class="c"># Godot creates it before the main scene, so it is ready first.</span>
+extends Node
+
+<span class="k">var audio: AudioService = NullAudio.new()</span>
+
+func _ready() -&gt; void:
+    var player := AudioStreamPlayer.new()
+    add_child(player)  <span class="c"># the autoload owns the player node</span>
+    provide_audio(LoggingAudio.new(RealAudio.new(player)))
+
+<span class="k">func provide_audio(service: AudioService) -&gt; void:
+    audio = service if service != null else NullAudio.new()</span>
+
+
+<span class="c"># hopper.gd: on any Node in the main scene.</span>
+extends Node
+
+const HOP_EVERY := 1.2
+var _timer := 0.0
+var _hops := 0
+
+func _process(delta: float) -&gt; void:
+    _timer += delta
+    if _timer &lt; HOP_EVERY:
+        return
+    _timer -= HOP_EVERY
+    _hops += 1
+<span class="k">    Services.audio.play("jump")</span>
+    if _hops % 3 == 0:
+        Services.audio.play("coin")</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Services.cs. Unity 2022 LTS or Unity 6. Needs no GameObject in the scene.</span>
+<span class="c">// Optional: Assets/Resources/Sounds/jump.wav and coin.wav.</span>
+using UnityEngine;
+
+public interface IAudioService { void Play(string id); }
+
+public class NullAudio : IAudioService
+{
+    public void Play(string id) { }          <span class="c">// accepts the call, does nothing</span>
+}
+
+public class RealAudio : IAudioService
+{
+    readonly AudioSource source;
+    public RealAudio(AudioSource source) { this.source = source; }
+
+    public void Play(string id)
+    {
+        var clip = Resources.Load&lt;AudioClip&gt;("Sounds/" + id);
+        if (clip != null) source.PlayOneShot(clip);
+    }
+}
+
+public class LoggingAudio : IAudioService
+{
+    readonly IAudioService inner;
+    public LoggingAudio(IAudioService inner) { this.inner = inner; }
+
+    public void Play(string id)
+    {
+        Debug.Log("[audio] play " + id);
+        inner.Play(id);
+    }
+}
+
+public static class Services
+{
+<span class="k">    public static IAudioService Audio { get; private set; } = new NullAudio();
+
+    public static void ProvideAudio(IAudioService service) =&gt;
+        Audio = service ?? new NullAudio();</span>
+
+    <span class="c">// Runs before any Awake in the first scene, every time Play starts.</span>
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void Boot()
+    {
+        var go = new GameObject("Audio");
+        Object.DontDestroyOnLoad(go);
+        ProvideAudio(new LoggingAudio(new RealAudio(go.AddComponent&lt;AudioSource&gt;())));
+    }
+}
+
+
+<span class="c">// Hopper.cs, in its own file. Add to any GameObject and press Play.</span>
+using UnityEngine;
+
+public class Hopper : MonoBehaviour
+{
+    const float HopEvery = 1.2f;
+    float timer;
+    int hops;
+
+    void Update()
+    {
+        timer += Time.deltaTime;
+        if (timer &lt; HopEvery) return;
+        timer -= HopEvery;
+        hops++;
+<span class="k">        Services.Audio.Play("jump");</span>
+        if (hops % 3 == 0) Services.Audio.Play("coin");
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Empty slots.</strong> An empty slot turns every early call into a crash, as the nil option shows. Start each slot with a null service, and make provide fall back to it.</li>
+    <li><strong>Swapping without cleaning up.</strong> Replacing a service in the slot does not stop its music or close its files. Give services a shutdown method and call it before you swap.</li>
+    <li><strong>Unity statics that survive Play mode.</strong> With domain reload turned off in the Enter Play Mode options, static fields keep their values from the previous run, including a service whose AudioSource was destroyed. Re-provide every service in a <code>BeforeSceneLoad</code> method, or reset statics in one marked <code>RuntimeInitializeLoadType.SubsystemRegistration</code>.</li>
+    <li><strong>The locator as a junk drawer.</strong> A class that reaches into the locator for six services hides six dependencies. Keep the locator for a few truly global services.</li>
+    <li><strong>Holding a cached reference.</strong> A script that copies <code>Services.audio</code> into a field at startup keeps the old service after a swap. Ask the locator at the moment of the call.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot's own documentation presents autoloads as the way to keep data and systems alive across scene changes, and the engine's editor shows them under the root in the Remote scene tree while the game runs.</p>
+  <p>In Unity projects, a bootstrap that registers services before the first scene, through a static initialiser or a dedicated startup scene, is a common community pattern.</p>
+  <p>Robert Nystrom's <cite>Game Programming Patterns</cite> uses audio as its main example of the Service Locator pattern, including the null service and the logging decorator, and has a separate chapter arguing against overusing singletons.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find the global object in your project that the most scripts call directly, often audio or saving. Write a small interface for the methods they actually use, a null version, and a locator slot that starts with the null version. Change the callers to go through the slot.</p>
+  <p>You are done when the scene that uses it most runs on its own, with the real service never registered, without a single error, and when registering a logging wrapper prints every call without any caller being edited.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Autoloads and singletons make a system reachable from anywhere, but callers that name the concrete class cannot swap it.</li>
+    <li>A service locator has one slot per role. Callers ask for the role; one place decides which class fills it.</li>
+    <li>Fill every slot with a null service by default, and wrap services with decorators such as logging instead of editing them.</li>
+    <li>Register before anyone asks: Godot autoloads come before the main scene, and Unity's <code>BeforeSceneLoad</code> comes before any <code>Awake</code>.</li>
+    <li>Keep the locator small. For dependencies that belong to one object, pass them in directly.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson builds behaviour trees, where selectors, sequences and conditions combine into readable AI that the engine ticks every frame.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapters "Service Locator" and "Singleton". The audio example, null services, logging decorators, and the case against global state.</li>
+    <li>Godot Engine documentation, <cite>Singletons (Autoload)</cite>. How autoloads are listed, created and reached by name.</li>
+    <li>Unity Manual, <cite>Order of execution for event functions</cite>, and the scripting reference for <cite>RuntimeInitializeOnLoadMethodAttribute</cite> and <cite>RuntimeInitializeLoadType</cite>.</li>
+    <li>Unity Manual, <cite>Configurable Enter Play Mode</cite>. What changes for static fields when domain reload is turned off.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var HOP_EVERY = 1.2;      // seconds between hops, the same as the Lua
+  var HOP_TIME = 0.5;       // how long a hop lasts on screen
+  var LOG_LINES = 4;
+  var BOXES = [
+    { id: 'real', label: 'Real' },
+    { id: 'silent', label: 'Null' },
+    { id: 'logging', label: 'Logging' },
+    { id: 'none', label: 'nil' }
+  ];
+  var NAMES = { real: 'RealAudio', silent: 'NullAudio', logging: 'LoggingAudio', none: 'nil' };
+
+  var service = 'real';
+  var clock, timer, hops, sinceHop, coinGone, calls, sounds, log, lineFlash, boxFlash, rings, crashed, lastSound;
+
+  function reset() {
+    clock = 0;
+    timer = 0;
+    hops = 0;
+    sinceHop = 99;
+    coinGone = 0;
+    calls = 0;
+    sounds = 0;
+    log = [];
+    lineFlash = { jump: 0, coin: 0 };
+    boxFlash = { real: 0, silent: 0, logging: 0, none: 0 };
+    rings = [];
+    crashed = false;
+    lastSound = '';
+  }
+  reset();
+
+  function realPlay(id) {
+    sounds += 1;
+    boxFlash.real = 1;
+    lastSound = id;
+    rings.push(0);
+  }
+
+  // services.audio:play(id), with whatever fills the slot right now.
+  function play(id) {
+    calls += 1;
+    lineFlash[id] = 1;
+    if (service === 'none') {
+      boxFlash.none = 1;
+      crashed = true;
+      return;
+    }
+    if (service === 'silent') {
+      boxFlash.silent = 1;
+      return;
+    }
+    if (service === 'logging') {
+      boxFlash.logging = 1;
+      log.push(clock.toFixed(1) + 's  play("' + id + '")');
+      while (log.length > LOG_LINES) log.shift();
+    }
+    realPlay(id);
+  }
+
+  function hop() {
+    if (crashed) return;
+    hops += 1;
+    sinceHop = 0;
+    play('jump');
+    if (!crashed && hops % 3 === 0) {
+      play('coin');
+      coinGone = 0.8;
+    }
+    showReadouts();
+  }
+
+  var ui = DemoKit.controls('[data-demo="service-locator"]');
+  var pick = ui.select({
+    label: 'Audio service',
+    value: 'real',
+    options: [
+      { value: 'real', label: 'RealAudio' },
+      { value: 'silent', label: 'NullAudio' },
+      { value: 'logging', label: 'LoggingAudio (wraps Real)' },
+      { value: 'none', label: 'nil (nothing registered)' }
+    ],
+    onChange: function (v) { setService(v); }
+  });
+  ui.button({ label: 'Hop now', onClick: function () { hop(); showReadouts(); handle.redraw(); } });
+  ui.button({ label: 'Restart game', onClick: function () { reset(); showReadouts(); handle.redraw(); } });
+  var rCalls = ui.readout({ label: 'Calls by game code' });
+  var rSounds = ui.readout({ label: 'Sounds played' });
+  var rEdits = ui.readout({ label: 'Game code lines changed' });
+
+  function showReadouts() {
+    rCalls.set(String(calls));
+    rSounds.set(String(sounds));
+    rEdits.set('0');
+  }
+
+  function setService(v) {
+    service = v;
+    pick.set(v);
+    showReadouts();
+    if (handle) handle.redraw();
+  }
+
+  // ---- layout, all from the canvas size ----
+  var GROUND = 88, CODE_Y = 116, CODE_H = 60, LOC_Y = 198, LOC_H = 34, BOX_Y = 272, BOX_H = 34, OUT_Y = 350;
+
+  function boxRect(i, s) {
+    var cell = s.width / BOXES.length;
+    var w = Math.min(100, cell - 8);
+    var cx = cell * (i + 0.5);
+    return { x: cx - w / 2, y: BOX_Y, w: w, h: BOX_H, cx: cx };
+  }
+
+  function indexOf(id) {
+    for (var i = 0; i < BOXES.length; i++) if (BOXES[i].id === id) return i;
+    return 0;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function arrowHead(ctx, x, y, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y - 7);
+    ctx.lineTo(x + 5, y - 7);
+    ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  var handle = DemoKit.canvas('#service-locator', {
+    height: 440,
+    label: 'A square hops and calls the audio slot of a service locator. Four service boxes, Real, Null, Logging and nil, show which one fills the slot and how each reacts to the calls.',
+    update: function (dt) {
+      var k;
+      for (k in lineFlash) lineFlash[k] = Math.max(0, lineFlash[k] - dt * 1.5);
+      for (k in boxFlash) boxFlash[k] = Math.max(0, boxFlash[k] - dt * 1.5);
+      for (var i = rings.length - 1; i >= 0; i--) {
+        rings[i] += dt;
+        if (rings[i] > 0.8) rings.splice(i, 1);
+      }
+      if (crashed) return;
+      clock += dt;
+      timer += dt;
+      sinceHop += dt;
+      coinGone = Math.max(0, coinGone - dt);
+      if (timer >= HOP_EVERY) {
+        timer -= HOP_EVERY;
+        hop();
+      }
+    },
+    onDown: function (p, s) {
+      for (var i = 0; i < BOXES.length; i++) {
+        var r = boxRect(i, s);
+        if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y - 6 && p.y <= r.y + r.h + 6) {
+          setService(BOXES[i].id);
+          return;
+        }
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors, W = s.width;
+      ctx.textBaseline = 'alphabetic';
+
+      // ---- the game ----
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('Game', 12, 18);
+      ctx.textAlign = 'right';
+      ctx.fillText('hops ' + hops, W - 12, 18);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(12, GROUND);
+      ctx.lineTo(W - 12, GROUND);
+      ctx.stroke();
+      var px = Math.round(W * 0.3);
+      var off = sinceHop < HOP_TIME ? 34 * Math.sin(Math.PI * sinceHop / HOP_TIME) : 0;
+      if (coinGone <= 0) {
+        ctx.fillStyle = c.warn;
+        ctx.beginPath();
+        ctx.arc(px, 30, 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = crashed ? c.ink3 : c.topic;
+      ctx.fillRect(px - 11, GROUND - 22 - off, 22, 22);
+      if (crashed) {
+        ctx.fillStyle = c.bad;
+        ctx.font = 'bold 14px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('Game crashed', px + 26, 62);
+      }
+
+      // ---- the game code, which never changes ----
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('Game code (the same in every mode)', 12, CODE_Y - 6);
+      roundRect(ctx, 12, CODE_Y, W - 24, CODE_H, 8);
+      ctx.fillStyle = c.surface2;
+      ctx.fill();
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      var lines = [['jump', CODE_Y + 22], ['coin', CODE_Y + 48]];
+      ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+      for (var li = 0; li < lines.length; li++) {
+        var f = lineFlash[lines[li][0]];
+        if (f > 0) {
+          ctx.globalAlpha = f * 0.35;
+          ctx.fillStyle = crashed && li === 0 ? c.bad : c.topic;
+          ctx.fillRect(16, lines[li][1] - 15, W - 32, 20);
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = c.ink;
+        ctx.fillText('services.audio:play("' + lines[li][0] + '")', 22, lines[li][1]);
+      }
+
+      // ---- the locator ----
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, CODE_Y + CODE_H);
+      ctx.lineTo(W / 2, LOC_Y - 6);
+      ctx.stroke();
+      arrowHead(ctx, W / 2, LOC_Y, c.ink3);
+      var lw = Math.min(220, W - 24);
+      roundRect(ctx, W / 2 - lw / 2, LOC_Y, lw, LOC_H, 8);
+      ctx.fillStyle = c.surface;
+      ctx.fill();
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'center';
+      ctx.fillText('locator: audio slot', W / 2, LOC_Y + 22);
+
+      // ---- the wire to whatever fills the slot ----
+      var sel = indexOf(service);
+      var sr = boxRect(sel, s);
+      var wireColor = service === 'none' ? c.bad : c.topic;
+      ctx.strokeStyle = wireColor;
+      ctx.lineWidth = 2.5;
+      if (service === 'none') ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(W / 2, LOC_Y + LOC_H);
+      ctx.lineTo(W / 2, BOX_Y - 18);
+      ctx.lineTo(sr.cx, BOX_Y - 18);
+      ctx.lineTo(sr.cx, BOX_Y - 6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      arrowHead(ctx, sr.cx, BOX_Y, wireColor);
+
+      // ---- the service boxes ----
+      ctx.font = '13px system-ui, sans-serif';
+      for (var i = 0; i < BOXES.length; i++) {
+        var b = BOXES[i], r = boxRect(i, s);
+        var active = b.id === service || (b.id === 'real' && service === 'logging');
+        roundRect(ctx, r.x, r.y, r.w, r.h, 7);
+        ctx.fillStyle = c.surface;
+        ctx.fill();
+        var fl = boxFlash[b.id];
+        if (fl > 0) {
+          ctx.globalAlpha = fl * 0.35;
+          ctx.fillStyle = b.id === 'none' ? c.bad : c.topic;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        if (b.id === 'none') ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = b.id === service ? wireColor : (active ? c.topic : c.ink3);
+        ctx.lineWidth = b.id === service ? 2.5 : 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = active ? c.ink : c.ink3;
+        ctx.textAlign = 'center';
+        ctx.fillText(b.label, r.cx, r.y + 22);
+      }
+
+      // Rings above the Real box stand in for sound.
+      var rr = boxRect(0, s);
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      for (var j = 0; j < rings.length; j++) {
+        ctx.globalAlpha = Math.max(0, 1 - rings[j] / 0.8);
+        ctx.beginPath();
+        ctx.arc(rr.cx, BOX_Y, 12 + rings[j] * 40, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // Logging wraps Real: a wire under the boxes.
+      if (service === 'logging') {
+        var lr = boxRect(2, s);
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(lr.cx, BOX_Y + BOX_H);
+        ctx.lineTo(lr.cx, BOX_Y + BOX_H + 14);
+        ctx.lineTo(rr.cx, BOX_Y + BOX_H + 14);
+        ctx.lineTo(rr.cx, BOX_Y + BOX_H + 6);
+        ctx.stroke();
+        ctx.fillStyle = c.topic;
+        ctx.beginPath();
+        ctx.moveTo(rr.cx - 5, BOX_Y + BOX_H + 7);
+        ctx.lineTo(rr.cx + 5, BOX_Y + BOX_H + 7);
+        ctx.lineTo(rr.cx, BOX_Y + BOX_H);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = c.ink2;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('wraps', (lr.cx + rr.cx) / 2, BOX_Y + BOX_H + 28);
+      }
+
+      // ---- what the current service did ----
+      ctx.textAlign = 'left';
+      ctx.font = '13px system-ui, sans-serif';
+      var out = [];
+      var outColor = c.ink2;
+      if (service === 'real') {
+        out = ['RealAudio plays every call.', 'Last sound: ' + (lastSound || 'none yet')];
+      } else if (service === 'silent') {
+        out = ['NullAudio accepts every call', 'and does nothing. No errors.'];
+      } else if (service === 'logging') {
+        out = log.length ? log.slice() : ['Log is empty. Wait for a hop.'];
+      } else if (crashed) {
+        out = ['Error: attempt to index field', '\'audio\' (a nil value)', 'Press Restart game.'];
+        outColor = c.bad;
+      } else {
+        out = ['The slot is empty. The next', 'call has nothing to call.'];
+        outColor = c.bad;
+      }
+      if (service === 'logging') ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Slot holds: ' + NAMES[service], 12, OUT_Y);
+      ctx.fillStyle = outColor;
+      for (var o = 0; o < out.length; o++) {
+        ctx.fillText(out[o], 12, OUT_Y + 20 + o * 17);
+      }
+    }
+  });
+
+  showReadouts();
+})();
+</script>
+</body>
+</html>

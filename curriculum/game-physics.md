@@ -39,7 +39,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Tile collisions one axis at a time** — Why moving and resolving on x and then on y gives reliable collisions against a tile map. Demo: steer a box through a tile map with a toggle between separated and combined resolution to expose corner snagging. (published 2026-11-07, tile-collisions-per-axis)
 - [x] **Slopes** — How to move along an angled surface and how to limit the steepest slope a character can climb. Demo: walk a character over slopes with sliders for slope angle and maximum walkable angle. (published 2026-11-08, walking-on-slopes)
 - [x] **One-way platforms** — How to let a body pass up through a platform but land on it from above. Demo: jump through platforms from below with a drop-through key and a view of the rule that decides each collision. (published 2026-11-16, one-way-platforms)
-- [ ] **Stacking and solver iterations** — Why stacks of boxes jitter or sink and how repeated solver passes make them stable. Demo: an iteration slider from 1 to 20 changes how steady a tower of boxes stands.
+- [x] **Stacking and solver iterations** — Why stacks of boxes jitter or sink and how repeated solver passes make them stable. Demo: an iteration slider from 1 to 20 changes how steady a tower of boxes stands. (published 2026-11-17, stacking-solver-iterations)
 
 ## Track 4: Character controllers and kinematic bodies
 

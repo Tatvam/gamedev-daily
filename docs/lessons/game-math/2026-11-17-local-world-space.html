@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local space and world space: where is the click, as seen by the ship? · Game Dev Daily</title>
+<meta name="description" content="How the inverse transform turns a world position into an object's own coordinates, so a rotated ship can tell ahead from behind and test clicks on its hull.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-17">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-s { color: var(--t-game-math); font-weight: 650; }
+  .v-x { color: var(--t-game-physics); font-weight: 650; }
+  .v-y { color: var(--t-game-idea); font-weight: 650; }
+  .v-p { color: var(--warn); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Local space and world space: where is the click, as seen by the ship?</h1>
+  <p class="lede">How the inverse transform turns a world position into an object's own coordinates, so a rotated ship can tell ahead from behind and test clicks on its hull.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your ship is turned 37 degrees and the player clicks near it. Did the click land on the hull? In world coordinates the hull is a tilted rectangle, which is awkward to test. From the ship's own point of view it is a straight box, and the test is two comparisons.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One point, two descriptions</h2>
+  <p>As in the last three lessons, y points <strong>down</strong>, as on a screen and in LÖVE, so a positive angle turns <strong>clockwise</strong>. One grid square is one unit.</p>
+  <p><dfn>World space</dfn> is the shared grid every object lives on. <dfn>Local space</dfn> (or <dfn>object space</dfn>) is a grid that belongs to one object: its origin is the object's centre, and its arrows turn and stretch with the object. Our <span class="v-s">ship</span> carries a <span class="v-x">local x arrow</span> that points out of its nose and a <span class="v-y">local y arrow</span> that points out of its right side.</p>
+  <p>The <span class="v-p">point P</span> below has two addresses: world (5, 7), and for the ship "4 along my x arrow, then 2 along my y arrow", local (4, 2).</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 350" role="img" aria-label="Left: a world grid with the origin at the top left and y pointing down. A green ship sits at (3, 3), turned about 37 degrees clockwise. From the ship a blue line goes 4 units along the ship's nose direction, then a purple line goes 2 units along the ship's right side, ending at an orange point P at world (5, 7). Right: two boxes. The top box says ship's space, P equals (4, 2). The bottom box says world space, P equals (5, 7). An arrow labelled M goes down from local to world, and an arrow labelled M inverse goes up from world to local.">
+      <!-- Grid: world x 0..8 maps to 20..340, world y 0..8 maps to 20..340, 40 px per unit -->
+      <path style="stroke: var(--line); stroke-width: 1; fill: none" d="M20 20 V340 M60 20 V340 M100 20 V340 M140 20 V340 M180 20 V340 M220 20 V340 M260 20 V340 M300 20 V340 M340 20 V340 M20 20 H340 M20 60 H340 M20 100 H340 M20 140 H340 M20 180 H340 M20 220 H340 M20 260 H340 M20 300 H340 M20 340 H340"/>
+      <path style="stroke: var(--ink-3); stroke-width: 1.5; fill: none" d="M20 20 H340 M20 20 V340"/>
+      <text class="d-muted" x="340" y="14" text-anchor="end">world x →</text>
+      <text class="d-muted" x="16" y="14" text-anchor="middle">0</text>
+      <!-- Ship: origin (3,3) -> (140,140); local x arrow (32,24) px per unit, local y arrow (-24,32) -->
+      <path style="fill: var(--t-game-math); fill-opacity: 0.35; stroke: var(--t-game-math); stroke-width: 2" d="M188 176 L120.8 85.6 L120.8 125.6 L82.4 136.8 Z"/>
+      <!-- 4 along local x: (140,140) -> (268,236) -->
+      <path style="stroke: var(--t-game-physics); stroke-width: 3; fill: none" d="M140 140 L268 236"/>
+      <!-- 2 along local y: (268,236) -> (220,300) -->
+      <path style="stroke: var(--t-game-idea); stroke-width: 3; fill: none" d="M268 236 L220 300"/>
+      <circle cx="140" cy="140" r="5" style="fill: var(--surface); stroke: var(--ink); stroke-width: 1.5"/>
+      <circle cx="220" cy="300" r="6" style="fill: var(--warn)"/>
+      <text class="d-mono" x="28" y="176">ship (3, 3)</text>
+      <text class="d-mono" x="222" y="182" style="fill: var(--t-game-physics)">4 along ship's x</text>
+      <text class="d-mono" x="256" y="290" style="fill: var(--t-game-idea)">2 along</text>
+      <text class="d-mono" x="256" y="306" style="fill: var(--t-game-idea)">ship's y</text>
+      <text class="d-mono" x="232" y="330" style="fill: var(--warn)">P</text>
+      <text class="d-muted" x="6" y="335">y</text>
+      <text class="d-muted" x="4" y="349">↓</text>
+
+      <!-- Right panel -->
+      <rect class="d-box" x="390" y="40" width="230" height="70" rx="8"/>
+      <text class="d-text" x="505" y="68" text-anchor="middle">Ship's space (local)</text>
+      <text class="d-mono" x="505" y="92" text-anchor="middle">P = (4, 2)</text>
+      <rect class="d-box" x="390" y="230" width="230" height="70" rx="8"/>
+      <text class="d-text" x="505" y="258" text-anchor="middle">World space</text>
+      <text class="d-mono" x="505" y="282" text-anchor="middle">P = (5, 7)</text>
+      <path class="d-stroke" d="M450 116 V222 M444 214 L450 224 L456 214"/>
+      <path class="d-accent" d="M560 224 V118 M554 126 L560 116 L566 126"/>
+      <text class="d-mono" x="462" y="168">× M</text>
+      <text class="d-mono" x="548" y="168" text-anchor="end" style="fill: var(--topic)">× M⁻¹</text>
+      <text class="d-muted" x="462" y="186">local to</text>
+      <text class="d-muted" x="462" y="200">world</text>
+      <text class="d-muted" x="548" y="186" text-anchor="end">world to</text>
+      <text class="d-muted" x="548" y="200" text-anchor="end">local</text>
+    </svg>
+    <figcaption>The ship sits at (3, 3), turned about 37 degrees, where cos = 0.8 and sin = 0.6. Walking 4 along its x arrow and 2 along its y arrow reaches the same point as world (5, 7).</figcaption>
+  </figure>
+
+  <h3>Local to world: you already know this</h3>
+  <p>The ship's <dfn>transform matrix</dfn> M stores its position, angle and scale. Multiplying a local point by M gives the world point: start at the ship and walk along its arrows, (0.8, 0.6) for x and (−0.6, 0.8) for y:</p>
+<pre><code>world = (3, 3) + 4 × (0.8, 0.6) + 2 × (−0.6, 0.8)
+      = (3 + 3.2 − 1.2, 3 + 2.4 + 1.6) = (5, 7)</code></pre>
+
+  <h3>World to local: undo the steps in reverse</h3>
+  <p>The ship's matrix was built as <code>Move × Rotate × Scale</code>: scale first, then rotate, then move. To go back, undo each step, last one first. You take off your shoes before your socks.</p>
+  <ol>
+    <li><strong>Undo the move.</strong> Subtract the ship's position: (5, 7) − (3, 3) = (2, 4). This is the arrow from the ship to P, still measured on the world grid.</li>
+    <li><strong>Undo the turn.</strong> Ask how far that arrow reaches along each of the ship's arrows. That question is the dot product from the dot product lesson: with an arrow of length 1, the dot product measures "how far along it".
+      <br>local x = (2, 4) · (0.8, 0.6) = 1.6 + 2.4 = <strong>4</strong>
+      <br>local y = (2, 4) · (−0.6, 0.8) = −1.2 + 3.2 = <strong>2</strong></li>
+    <li><strong>Undo the scale.</strong> Divide both by the ship's scale. Here it is 1, so P is at local <strong>(4, 2)</strong>. For a ship scaled by 2 it would be (2, 1).</li>
+  </ol>
+  <p>Now the questions get easy. Local x is positive, so P is <em>ahead</em> of the ship. Local y is positive, so P is on its <em>right</em> (with y pointing down; flip that for y-up). On the hull means local x between −1.5 and 1.5 and local y between −1 and 1.</p>
+
+  <h3>The general tool: the inverse matrix</h3>
+  <p>The matrix that undoes M is its <dfn>inverse</dfn>, written M⁻¹ and read "M inverse". Multiply them together, in either order, and you get the identity, the matrix that changes nothing. For our six-number 2D matrix it takes one number first, the <dfn>determinant</dfn>, which says how much the matrix scales areas:</p>
+<pre><code>det = a × d − b × c
+
+a' =  d / det     c' = −c / det     tx' = −(a' × tx + c' × ty)
+b' = −b / det     d' =  a / det     ty' = −(b' × tx + d' × ty)</code></pre>
+  <p>Worked example: the ship's M has a = 0.8, b = 0.6, c = −0.6, d = 0.8, tx = 3, ty = 3. Then det = 0.64 + 0.36 = 1, so a' = 0.8, b' = −0.6, c' = 0.6, d' = 0.8, tx' = −(2.4 + 1.8) = −4.2 and ty' = −(−1.8 + 2.4) = −0.6. Apply it to (5, 7):</p>
+<pre><code>local x = 0.8 × 5 + 0.6 × 7 − 4.2 = 4
+local y = −0.6 × 5 + 0.8 × 7 − 0.6 = 2</code></pre>
+  <p>The same (4, 2). The recipe is easier to picture; the inverse also handles stretched scale and chains of parents, so it is what goes in code.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Many questions are easy in one space and messy in the other. Move the point into the space where the question is easy, answer it, and move the answer back out if you need it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p><strong>Click or drag</strong> anywhere to place the orange <span class="v-p">crosshair</span>. Drag the ship's white centre to move it; the sliders turn and scale it. Keyboard: click the canvas, then arrow keys move the crosshair, W, A, S, D move the ship, Q and E turn it.</p>
+  <p>Turn the ship: the crosshair's world position stays put while its local position changes. Then switch to <strong>Ship's view</strong>, which draws everything in local space: the ship stays straight and the world turns around it. Raise the scale and the local numbers shrink.</p>
+  <figure class="demo" data-demo="ship-space">
+    <canvas id="ship-space"></canvas>
+    <figcaption>World origin top-left, one square per unit, y down. The faint green grid is the ship's own. Blue is the ship's x arrow, purple its y arrow, and the dashed path walks along them to the crosshair. The hull box turns green when the crosshair is inside.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The ship's matrix, its inverse, and a mouse test against the hull. The numbers are the demo's starting values. <code>transformPoint</code> is the one from the last lessons.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- y grows downwards, so a positive angle turns clockwise.</span>
+<span class="c">-- Move × Rotate × Scale, built in one go.</span>
+local function makeTransform(x, y, angle, scale)
+  local cosA, sinA = math.cos(angle), math.sin(angle)
+  return { a = cosA * scale, b = sinA * scale, c = -sinA * scale, d = cosA * scale,
+           tx = x, ty = y }
+end
+
+local function transformPoint(m, x, y)
+  return m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty
+end
+
+local function invert(m)
+  local det = m.a * m.d - m.b * m.c
+  if math.abs(det) &lt; 1e-9 then return nil end   <span class="c">-- scale 0: no way back</span>
+  local a, b, c, d = m.d / det, -m.b / det, -m.c / det, m.a / det
+  return { a = a, b = b, c = c, d = d,
+           tx = -(a * m.tx + c * m.ty), ty = -(b * m.tx + d * m.ty) }
+end
+
+local UNIT = 40                                   <span class="c">-- pixels per world unit</span>
+local HALF_LENGTH, HALF_WIDTH = 1.5, 1            <span class="c">-- hull box, in local units</span>
+local ship = { x = 3, y = 3, angle = math.rad(37), scale = 1 }
+local localX, localY, onHull = 0, 0, false
+
+function love.update(dt)
+  if love.keyboard.isDown("q") then ship.angle = ship.angle - math.rad(90) * dt end
+  if love.keyboard.isDown("e") then ship.angle = ship.angle + math.rad(90) * dt end
+  local shipWorld = makeTransform(ship.x, ship.y, ship.angle, ship.scale)
+  local worldToShip = invert(shipWorld)
+  if worldToShip then
+    local mx, my = love.mouse.getPosition()
+<span class="k">    localX, localY = transformPoint(worldToShip, mx / UNIT, my / UNIT)</span>
+    onHull = math.abs(localX) &lt;= HALF_LENGTH and math.abs(localY) &lt;= HALF_WIDTH
+  end
+end
+
+function love.draw()
+  local ahead = localX &gt; 0 and "ahead" or "behind"
+  local side = localY &gt; 0 and "right" or "left"
+  love.graphics.print(string.format("local (%.1f, %.1f): %s, %s",
+    localX, localY, ahead, side), 10, 10)
+  if onHull then love.graphics.print("on the hull", 10, 30) end
+end</code></pre>
+  </div>
+  <p>With the mouse at pixel (200, 280), which is world (5, 7), this prints <code>local (4.0, 2.0): ahead, right</code>. It is not exact because 37° only approximates the diagram's 36.87°.</p>
+  <p>Built-in versions: in Godot, <code>Node2D.to_local(point)</code> and <code>to_global(point)</code>, or <code>Transform2D.affine_inverse()</code> for the matrix. In Unity, <code>transform.InverseTransformPoint(point)</code> and <code>transform.TransformPoint(point)</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Converting a direction as if it were a point.</strong> A velocity or an aim direction has no position, so it must skip the move: use only a', b', c', d' and leave out tx' and ty'. Otherwise the ship's position leaks into the direction. Unity has <code>InverseTransformDirection</code> for this.</li>
+    <li><strong>Turning back by −angle and forgetting the scale.</strong> The dot product shortcut (or rotating by minus the angle) only undoes a turn. On a ship scaled by 2 the answer comes out twice too large. Divide by the scale, or use the full inverse.</li>
+    <li><strong>Zero scale.</strong> A scale of 0 squashes every point onto the origin, the determinant is 0, and there is no way back. <code>invert</code> returns <code>nil</code>; check for it before using the result.</li>
+    <li><strong>Worrying about angles past 180 degrees.</strong> No wrapping is needed here: 217° and −143° are the same turn, and sine and cosine give the same matrix and the same local point for both.</li>
+    <li><strong>Inverting per point.</strong> Compute the inverse once per object per frame and reuse it. Note too that a point exactly on the centre line (local y = 0) counts as "left" in the code above.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Clicking a rotated unit, button or card is commonly done this way: convert the mouse into the object's local space and test a straight rectangle. The same trick tests a bullet against a rotated box, an <dfn>oriented bounding box</dfn>.</p>
+  <p>Steering code reads "ahead, and on which side?" from the signs of a target's local position. It also fixes last lesson's jumping gem: to reparent without moving, set the new local transform to the parent's world inverse × the object's world transform.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Put three ships on the screen at different positions, angles and scales, using the code above. When the player clicks, convert the click into each ship's local space and select the ship whose hull contains it. Print where the selected ship is as seen from each of the other two.</p>
+  <p>You are done when clicking the tip of a nose or the corner of a tail selects the right ship at every angle, and clicks just outside the hulls select nothing.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A point has a world address and, for each object, a local address along that object's arrows.</li>
+    <li>Local to world: multiply by the object's matrix M. World to local: multiply by its inverse M⁻¹.</li>
+    <li>The inverse undoes the steps in reverse order: subtract the position, turn back, divide by the scale.</li>
+    <li>In local space, "ahead?", "which side?" and "inside my box?" become simple comparisons.</li>
+    <li>Directions skip the move, and a scale of 0 cannot be undone.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the camera: an object whose inverse transform turns the world into the picture on screen, with panning, zooming and click picking.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapters on coordinate spaces and on matrix inverses.</li>
+    <li>Godot Engine documentation, <cite>Matrices and transforms</cite>, and the <cite>Node2D</cite> and <cite>Transform2D</cite> class references.</li>
+    <li>Unity Scripting API, <cite>Transform.InverseTransformPoint</cite> and <cite>Transform.InverseTransformDirection</cite>.</li>
+    <li>LÖVE wiki, <cite>love.mouse.getPosition</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World units, y pointing down, origin at the top-left corner of the grid.
+  var WX = 14, WY = 10;
+  var HL = 1.5, HW = 1;                 // hull box half length and half width, local units
+  var DEF = { x: 3, y: 3, ang: 37, sc: 1, px: 5, py: 7 };
+  var ship = { x: DEF.x, y: DEF.y, ang: DEF.ang, sc: DEF.sc };
+  var probe = { x: DEF.px, y: DEF.py };
+  var view = 'world';
+  var drag = null;                      // 'ship' | 'probe' | null
+  var L = { U: 30, ox: 26, oy: 22, cx: 200, cy: 150, w: 400, h: 300 };
+  var handle = null;
+  var outCache = {};
+
+  function redraw() { if (handle) handle.redraw(); }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  // --- maths -------------------------------------------------------------------------------
+  function shipMatrix() {
+    var r = ship.ang * Math.PI / 180, co = Math.cos(r), si = Math.sin(r);
+    return { a: co * ship.sc, b: si * ship.sc, c: -si * ship.sc, d: co * ship.sc, tx: ship.x, ty: ship.y };
+  }
+  function invert(m) {
+    var det = m.a * m.d - m.b * m.c;
+    if (Math.abs(det) < 1e-9) return null;
+    var a = m.d / det, b = -m.b / det, c = -m.c / det, d = m.a / det;
+    return { a: a, b: b, c: c, d: d, tx: -(a * m.tx + c * m.ty), ty: -(b * m.tx + d * m.ty) };
+  }
+  function apply(m, x, y) { return { x: m.a * x + m.c * y + m.tx, y: m.b * x + m.d * y + m.ty }; }
+
+  // --- layout and the two views ----------------------------------------------------------
+  function layout(s) {
+    L.U = Math.max(12, Math.floor(Math.min((s.width - 34) / WX, (s.height - 30) / WY)));
+    L.ox = Math.round(Math.max(26, (s.width - WX * L.U) / 2));
+    L.oy = 22;
+    L.cx = Math.round(s.width / 2);
+    L.cy = Math.round(s.height / 2);
+    L.w = s.width; L.h = s.height;
+  }
+  // World point -> screen, in the current view.
+  function P(M, Mi, x, y) {
+    if (view === 'world') return { x: L.ox + x * L.U, y: L.oy + y * L.U };
+    var l = apply(Mi, x, y);
+    return { x: L.cx + l.x * L.U, y: L.cy + l.y * L.U };
+  }
+  // Local point -> screen.
+  function PL(M, Mi, x, y) { var w = apply(M, x, y); return P(M, Mi, w.x, w.y); }
+  // Screen -> world, in the current view.
+  function screenToWorld(M, p) {
+    if (view === 'world') return { x: (p.x - L.ox) / L.U, y: (p.y - L.oy) / L.U };
+    return apply(M, (p.x - L.cx) / L.U, (p.y - L.cy) / L.U);
+  }
+
+  // --- controls ----------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="ship-space"]');
+  var sAng = ui.slider({ label: 'Ship angle', min: -180, max: 180, step: 1, value: ship.ang, unit: '°',
+    onInput: function (v) { ship.ang = v; redraw(); } });
+  var sSc = ui.slider({ label: 'Ship scale', min: 0.5, max: 2, step: 0.1, value: ship.sc, unit: '×',
+    onInput: function (v) { ship.sc = v; redraw(); } });
+  var selView = ui.select({ label: 'Draw from', value: 'world',
+    options: [{ value: 'world', label: 'World view' }, { value: 'ship', label: "Ship's view" }],
+    onChange: function (v) { view = v; redraw(); } });
+  var tGrid = ui.toggle({ label: "Show the ship's grid", value: true, onChange: redraw });
+  ui.button({ label: 'Reset', onClick: function () {
+    ship.x = DEF.x; ship.y = DEF.y; ship.ang = DEF.ang; ship.sc = DEF.sc;
+    probe.x = DEF.px; probe.y = DEF.py;
+    view = 'world';
+    sAng.set(ship.ang); sSc.set(ship.sc); selView.set('world');
+    redraw();
+  } });
+  var outWorld = ui.readout({ label: 'Crosshair in the world' });
+  var outLocal = ui.readout({ label: "Crosshair in the ship's space" });
+  var outSeen = ui.readout({ label: 'Seen from the ship' });
+  var outInv = ui.readout({ label: 'Inverse matrix M⁻¹' });
+
+  // --- formatting --------------------------------------------------------------------------
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+  function num(n, dp) {
+    var f = Math.pow(10, dp);
+    n = Math.round(n * f) / f;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n).toFixed(dp) : n.toFixed(dp);
+  }
+  function pair(x, y) { return '(' + num(x, 1) + ', ' + num(y, 1) + ')'; }
+
+  // --- drawing helpers ---------------------------------------------------------------------
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LABEL = '600 12px ui-monospace, Menlo, Consolas, monospace';
+
+  function line(ctx, a, b) {
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  function arrow(ctx, from, to, color, width) {
+    var dx = to.x - from.x, dy = to.y - from.y, len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    var ux = dx / len, uy = dy / len, h = 6;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash([]);
+    line(ctx, from, { x: to.x - ux * h, y: to.y - uy * h });
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - ux * h * 1.8 - uy * h * 0.9, to.y - uy * h * 1.8 + ux * h * 0.9);
+    ctx.lineTo(to.x - ux * h * 1.8 + uy * h * 0.9, to.y - uy * h * 1.8 - ux * h * 0.9);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function label(ctx, text, x, y, color, bg) {
+    ctx.font = LABEL;
+    var w = ctx.measureText(text).width;
+    var left = DemoKit.clamp(x, 4, Math.max(4, L.w - w - 6));
+    var base = DemoKit.clamp(y, 15, L.h - 6);
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = bg;
+    ctx.fillRect(left - 3, base - 11, w + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, left, base);
+  }
+
+  function placeProbe(M, p) {
+    var w = screenToWorld(M, p);
+    probe.x = DemoKit.clamp(Math.round(w.x * 10) / 10, 0, WX);
+    probe.y = DemoKit.clamp(Math.round(w.y * 10) / 10, 0, WY);
+  }
+
+  // --- canvas ------------------------------------------------------------------------------
+  handle = DemoKit.canvas('#ship-space', {
+    aspect: 14 / 10.8,
+    minHeight: 280,
+    maxHeight: 470,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: "A green ship on a world grid with y pointing down, and an orange crosshair. Click or drag to place the crosshair, drag the ship's centre to move it. Arrow keys move the crosshair, W A S D move the ship, Q and E turn it. Readouts below give the crosshair's world and local coordinates.",
+    onResize: function (s) { layout(s); },
+    onDown: function (p, s) {
+      layout(s);
+      var M = shipMatrix(), Mi = invert(M);
+      if (!Mi) return;
+      var c = P(M, Mi, ship.x, ship.y);
+      if (view === 'world' && Math.hypot(p.x - c.x, p.y - c.y) < Math.max(16, 0.45 * L.U)) {
+        drag = 'ship';
+        return;
+      }
+      drag = 'probe';
+      placeProbe(M, p);
+      redraw();
+    },
+    onMove: function (p, s) {
+      if (!p.down || !drag) return;
+      layout(s);
+      var M = shipMatrix();
+      if (drag === 'ship') {
+        var w = screenToWorld(M, p);
+        ship.x = DemoKit.clamp(Math.round(w.x * 2) / 2, 0.5, WX - 0.5);
+        ship.y = DemoKit.clamp(Math.round(w.y * 2) / 2, 0.5, WY - 0.5);
+      } else {
+        placeProbe(M, p);
+      }
+      redraw();
+    },
+    onUp: function () { drag = null; redraw(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.25;
+      if (key === 'arrowright') probe.x = Math.min(WX, probe.x + step);
+      else if (key === 'arrowleft') probe.x = Math.max(0, probe.x - step);
+      else if (key === 'arrowdown') probe.y = Math.min(WY, probe.y + step);
+      else if (key === 'arrowup') probe.y = Math.max(0, probe.y - step);
+      else if (key === 'd') ship.x = Math.min(WX - 0.5, ship.x + 0.5);
+      else if (key === 'a') ship.x = Math.max(0.5, ship.x - 0.5);
+      else if (key === 's') ship.y = Math.min(WY - 0.5, ship.y + 0.5);
+      else if (key === 'w') ship.y = Math.max(0.5, ship.y - 0.5);
+      else if (key === 'q' || key === 'e') {
+        var v = ship.ang + (key === 'q' ? -5 : 5);
+        if (v > 180) v -= 360;
+        if (v < -180) v += 360;
+        ship.ang = v;
+        sAng.set(v);
+      } else return;
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var green = cssVar('--t-game-math', '#2a7d35');
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var purple = cssVar('--t-game-idea', '#8a3fc9');
+      var orange = c.warn;
+      layout(s);
+      var U = L.U, i;
+      var M = shipMatrix(), Mi = invert(M);
+      if (!Mi) return;
+
+      // World grid (turns in the ship's view).
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (i = 0; i <= WX; i++) line(ctx, P(M, Mi, i, 0), P(M, Mi, i, WY));
+      for (i = 0; i <= WY; i++) line(ctx, P(M, Mi, 0, i), P(M, Mi, WX, i));
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.5;
+      line(ctx, P(M, Mi, 0, 0), P(M, Mi, WX, 0));
+      line(ctx, P(M, Mi, 0, 0), P(M, Mi, 0, WY));
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      if (view === 'world') {
+        var every = U >= 26 ? 1 : 2;
+        ctx.textAlign = 'center';
+        for (i = 0; i < WX; i += every) ctx.fillText(String(i), L.ox + i * U, L.oy - 6);
+        ctx.textAlign = 'right';
+        ctx.fillText('x →', L.ox + WX * U, L.oy - 6);
+        for (i = every; i < WY; i += every) ctx.fillText(String(i), L.ox - 5, L.oy + i * U + 4);
+        ctx.fillText('y', L.ox - 5, L.oy + WY * U - 2);
+        ctx.fillText('↓', L.ox - 5, L.oy + WY * U + 12);
+        ctx.textAlign = 'left';
+      }
+
+      // The ship's own grid.
+      if (tGrid.value) {
+        ctx.strokeStyle = green;
+        ctx.globalAlpha = 0.28;
+        ctx.lineWidth = 1;
+        var R = 6;
+        for (i = -R; i <= R; i++) {
+          line(ctx, PL(M, Mi, i, -R), PL(M, Mi, i, R));
+          line(ctx, PL(M, Mi, -R, i), PL(M, Mi, R, i));
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      var lp = apply(Mi, probe.x, probe.y);
+      var inside = Math.abs(lp.x) <= HL && Math.abs(lp.y) <= HW;
+
+      // Hull box.
+      var box = [PL(M, Mi, -HL, -HW), PL(M, Mi, HL, -HW), PL(M, Mi, HL, HW), PL(M, Mi, -HL, HW)];
+      ctx.beginPath();
+      ctx.moveTo(box[0].x, box[0].y);
+      for (i = 1; i < 4; i++) ctx.lineTo(box[i].x, box[i].y);
+      ctx.closePath();
+      if (inside) {
+        ctx.fillStyle = c.good;
+        ctx.globalAlpha = 0.22;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeStyle = inside ? c.good : c.ink3;
+      ctx.lineWidth = inside ? 2 : 1.25;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Ship body.
+      var body = [[1.5, 0], [-1.2, -0.85], [-0.7, 0], [-1.2, 0.85]];
+      ctx.beginPath();
+      for (i = 0; i < body.length; i++) {
+        var bp = PL(M, Mi, body[i][0], body[i][1]);
+        if (i === 0) ctx.moveTo(bp.x, bp.y); else ctx.lineTo(bp.x, bp.y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = green;
+      ctx.globalAlpha = 0.35;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = green;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Path from the ship to the crosshair along the ship's arrows.
+      var o = P(M, Mi, ship.x, ship.y);
+      var corner = PL(M, Mi, lp.x, 0);
+      var ps = P(M, Mi, probe.x, probe.y);
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = blue;
+      line(ctx, o, corner);
+      ctx.strokeStyle = purple;
+      line(ctx, corner, ps);
+      ctx.setLineDash([]);
+
+      // The ship's arrows, one local unit long.
+      arrow(ctx, o, PL(M, Mi, 1, 0), blue, 3);
+      arrow(ctx, o, PL(M, Mi, 0, 1), purple, 3);
+
+      // Ship centre handle.
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, Math.max(5, 0.16 * U), 0, 2 * Math.PI);
+      ctx.fillStyle = c.surface;
+      ctx.fill();
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Crosshair.
+      var cr = Math.max(7, 0.28 * U);
+      ctx.strokeStyle = orange;
+      ctx.lineWidth = 2;
+      line(ctx, { x: ps.x - cr, y: ps.y }, { x: ps.x + cr, y: ps.y });
+      line(ctx, { x: ps.x, y: ps.y - cr }, { x: ps.x, y: ps.y + cr });
+      ctx.beginPath();
+      ctx.arc(ps.x, ps.y, cr * 0.6, 0, 2 * Math.PI);
+      ctx.stroke();
+
+      // Labels next to the crosshair.
+      label(ctx, 'local ' + pair(lp.x, lp.y), ps.x + cr + 6, ps.y - 4, green, c.surface);
+      label(ctx, 'world ' + pair(probe.x, probe.y), ps.x + cr + 6, ps.y + 14, orange, c.surface);
+      if (view === 'ship') {
+        label(ctx, "Ship's view: drawn in local space", 8, 18, c.ink2, c.surface);
+      }
+
+      // Readouts.
+      var ahead = lp.x > 0.05 ? 'ahead' : (lp.x < -0.05 ? 'behind' : 'level with the centre');
+      var side = lp.y > 0.05 ? 'on the right' : (lp.y < -0.05 ? 'on the left' : 'on the centre line');
+      setOut(outWorld, 'w', pair(probe.x, probe.y));
+      setOut(outLocal, 'l', pair(lp.x, lp.y) + (inside ? ', inside the hull' : ', outside the hull'));
+      setOut(outSeen, 's', ahead + ', ' + side);
+      setOut(outInv, 'i', "a' " + num(Mi.a, 2) + ", b' " + num(Mi.b, 2) + ", c' " + num(Mi.c, 2) +
+        ", d' " + num(Mi.d, 2) + ", tx' " + num(Mi.tx, 2) + ", ty' " + num(Mi.ty, 2));
+    }
+  });
+})();
+</script>
+</body>
+</html>

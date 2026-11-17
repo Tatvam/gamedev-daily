@@ -38,7 +38,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Lighting 2D sprites** — How normal maps let flat sprites react to lights in a 2D game. Demo: drag a coloured light around a sprite generated in code with a toggle for the normal map. (published 2026-11-07, lighting-2d-sprites)
 - [x] **Rim light and Fresnel** — How surfaces that face away from the viewer can glow at their edges. Demo: sliders for rim power and colour light the edge of a sphere. (published 2026-11-08, rim-light-fresnel)
 - [x] **Toon shading** — How quantising light into bands produces a cartoon look. Demo: a band count slider and an edge softness slider restyle a lit sphere, with a toggle for a hard specular spot. (published 2026-11-16, toon-shading-bands)
-- [ ] **Outlines for 3D shapes** — How outlines can be drawn from the view angle or from edges in depth and normals, and how the inverted hull method does the same with geometry. Demo: toggle between a view angle outline and an edge detection outline on a shaded shape with a thickness slider.
+- [x] **Outlines for 3D shapes** — How outlines can be drawn from the view angle or from edges in depth and normals, and how the inverted hull method does the same with geometry. Demo: toggle between a view angle outline and an edge detection outline on a shaded shape with a thickness slider. (published 2026-11-17, outlines-3d-shapes)
 
 ## Track 4: Noise and 2D game effects
 
