@@ -1,0 +1,942 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Behaviour trees: AI that is ticked every frame · Game Dev Daily</title>
+<meta name="description" content="How selectors, sequences, conditions and actions combine into readable guard AI, what a tick does in what order, and how Godot and Unity support it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-18">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Behaviour trees: AI that is ticked every frame</h1>
+  <p class="lede">How selectors, sequences, conditions and actions combine into readable guard AI, what a tick does in what order, and how Godot and Unity support it.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your guard's state machine has Patrol, Chase and Attack. Then design asks for "investigate noises", "flee when hurt" and "return to post". Each new state needs transitions to and from most old ones, and the diagram becomes a ball of wool. The question the guard really asks every frame is simpler: <em>what is the most important thing I can do right now?</em></p>
+</section>
+
+<section data-section="concept">
+  <h2>A tree that is asked a question every tick</h2>
+  <p>A <dfn>behaviour tree</dfn> is a tree of small nodes that together decide what an agent does. Many times per second the game <dfn>ticks</dfn> the tree: it calls the root node, the root calls some of its children, and so on down. Every node answers its tick with exactly one of three <dfn>statuses</dfn>:</p>
+  <ul>
+    <li><strong>success</strong>: I did it, or the thing I checked is true.</li>
+    <li><strong>failure</strong>: I cannot do it, or the thing I checked is false.</li>
+    <li><strong>running</strong>: I am still working on it; tick me again next time.</li>
+  </ul>
+  <p>The status is all a parent learns about a child. That small contract is what makes nodes reusable.</p>
+
+  <h3>Leaves do the work</h3>
+  <p><dfn>Leaves</dfn>, the nodes at the ends of branches, come in two kinds. A <dfn>condition</dfn> checks something and answers success or failure at once, for example "can I see the player?". An <dfn>action</dfn> changes the world, for example "move towards the player", and may answer running for many ticks before it finishes.</p>
+
+  <h3>Composites decide the order</h3>
+  <p>The inner nodes are <dfn>composites</dfn>. They own a list of children and tick them left to right. Two composites cover most trees:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Composite</th><th>Ticks children until one</th><th>Returns</th><th>Reads like</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Sequence (→)</td><td>does not succeed</td><td>that child's status, or success if all succeeded</td><td>"do this, then this"</td></tr>
+      <tr><td>Selector (?)</td><td>does not fail</td><td>that child's status, or failure if all failed</td><td>"try this, else this"</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>A sequence that starts with a condition works like an <code>if</code>: if the condition fails, the action is never ticked. A selector is a priority list: the first child that does not fail wins, and later children are not ticked at all. Some books call the selector a <dfn>fallback</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="The guard's behaviour tree. A selector at the top has three children from left to right: an Attack sequence, a Chase sequence and a Patrol action. The Attack sequence has the condition In reach and the action Strike. The Chase sequence has the condition Can see and the action Move to player. An arrow along the bottom says children are tried left to right, and the left is the higher priority.">
+      <defs>
+        <marker id="bt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
+      <path class="d-stroke" d="M340 52 L140 92"/>
+      <path class="d-stroke" d="M340 52 L400 92"/>
+      <path class="d-stroke" d="M340 52 L575 92"/>
+      <path class="d-stroke" d="M140 128 L75 176"/>
+      <path class="d-stroke" d="M140 128 L205 176"/>
+      <path class="d-stroke" d="M400 128 L335 176"/>
+      <path class="d-stroke" d="M400 128 L465 176"/>
+
+      <rect class="d-accent-soft" x="270" y="16" width="140" height="36" rx="8"/>
+      <text class="d-text" x="340" y="39" text-anchor="middle">? Selector</text>
+
+      <rect class="d-accent-soft" x="80" y="92" width="120" height="36" rx="8"/>
+      <text class="d-text" x="140" y="115" text-anchor="middle">→ Attack</text>
+      <rect class="d-accent-soft" x="340" y="92" width="120" height="36" rx="8"/>
+      <text class="d-text" x="400" y="115" text-anchor="middle">→ Chase</text>
+      <rect class="d-box" x="520" y="92" width="110" height="36" rx="3"/>
+      <text class="d-text" x="575" y="115" text-anchor="middle">Patrol</text>
+
+      <rect class="d-box" x="20" y="176" width="110" height="36" rx="18"/>
+      <text class="d-text" x="75" y="199" text-anchor="middle">In reach?</text>
+      <rect class="d-box" x="150" y="176" width="110" height="36" rx="3"/>
+      <text class="d-text" x="205" y="199" text-anchor="middle">Strike</text>
+      <rect class="d-box" x="280" y="176" width="110" height="36" rx="18"/>
+      <text class="d-text" x="335" y="199" text-anchor="middle">Can see?</text>
+      <rect class="d-box" x="410" y="176" width="110" height="36" rx="3"/>
+      <text class="d-text" x="465" y="199" text-anchor="middle">Move to player</text>
+
+      <path class="d-thin" d="M40 228 L600 228" marker-end="url(#bt-arrow)"/>
+      <text class="d-muted" x="320" y="250" text-anchor="middle">children are tried left to right: further left means higher priority</text>
+    </svg>
+    <figcaption>The guard used in the demo. Shaded boxes are composites (? selector, → sequence), pill shapes are conditions and square boxes are actions. Adding "flee when hurt" means adding one branch on the left, not rewiring every state.</figcaption>
+  </figure>
+
+  <h2>One tick, in order</h2>
+  <p>The player stands just outside the guard's sight. One tick:</p>
+  <ol>
+    <li>The selector ticks <em>Attack</em>. Attack ticks <em>In reach?</em>, which fails, so Attack fails without ticking Strike.</li>
+    <li>The selector moves on to <em>Chase</em>. <em>Can see?</em> fails, so Chase fails.</li>
+    <li>The selector ticks <em>Patrol</em>, which steps the guard towards its next waypoint and returns running.</li>
+    <li>Running is not failure, so the selector stops there and returns running. The tick is over.</li>
+  </ol>
+  <p>Now the player steps into sight. Next tick <em>Can see?</em> succeeds, <em>Move to player</em> runs, and Patrol is never reached. Nobody wrote a "Patrol to Chase" transition: the interruption falls out of the priority order, because the tree is walked from the root every tick. That style is called <dfn>reactive</dfn>.</p>
+  <p>The alternative is a composite with <dfn>memory</dfn>: it resumes at the child that was running last tick, skipping the ones before it. That suits scripted steps such as "open door, walk through, close door", but it will not notice a more important branch until the running child ends. Most libraries offer both.</p>
+
+  <h2>Who owns the data</h2>
+  <p>The tree is structure: which nodes exist and in what order. Changing data, such as the guard's next waypoint or where it last saw the player, belongs to the agent. Many libraries keep it in a <dfn>blackboard</dfn>, a per-agent table of named values that conditions read and actions write. Keeping data out of the nodes lets twenty guards share one tree.</p>
+  <p>Your agent ticks the tree from its per-frame callback: <code>_process</code> or <code>_physics_process</code> in Godot, <code>Update</code> in Unity. Many games tick on a timer instead, a few times per second, because decisions rarely need to change every frame.</p>
+
+  <h3>What each engine gives you</h3>
+  <p><strong>Godot 4</strong> has no behaviour tree in the core engine. Community plugins fill the gap: LimboAI is a C++ plugin with behaviour trees, state machines, an editor and a visual debugger, and tasks written in GDScript; Beehave builds the tree out of nodes in your scene.</p>
+  <p><strong>Unity</strong> has none in the core engine either, but offers an official package, Unity Behavior, for Unity 6. It edits trees as a visual "behavior graph" with a blackboard, and custom nodes are C# classes. On Unity 2022 LTS, hand-written trees or Asset Store packages are usual. A plugin buys you an editor and a live debugger; hand-written code, as below, is a few dozen lines you fully understand.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Put the most urgent branch on the left, start each branch with the condition that guards it, and keep the last child of the root something that always works, such as idle or patrol. Then the tree always has an answer.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag the blue player, or click the field and use the arrow keys. The tree below shows the last tick: green succeeded, red failed, amber is running, dashed grey was not ticked. Press <strong>Step one tick</strong> to go one tick at a time.</p>
+  <p>When the guard attacks, notice that everything right of Attack goes grey. Then set <strong>Selector order</strong> to <em>Patrol first</em>. Patrol never fails, so the guard walks right past you.</p>
+
+  <figure class="demo wide" data-demo="behaviour-tree">
+    <canvas id="behaviour-tree"></canvas>
+    <figcaption>Each tick is 0.1 seconds of game time; the Playback slider only changes how fast ticks are shown. The model leaves out a blackboard, memory composites and pathfinding: the guard walks in straight lines and sees through walls.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua is the demo as a LÖVE 11 program with the same numbers: sight 110, reach 24, speed 60 per second, ten ticks per second of game time, and the mouse as the player. Each node is a function that returns its status; the demo uses tables so it can colour them. To try "Patrol first", swap the first and last children of the selector.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. The mouse is the player.</span>
+local SUCCESS, FAILURE, RUNNING = "success", "failure", "running"
+local TICK = 0.1                     <span class="c">-- seconds of game time per tick</span>
+local SIGHT, REACH, SPEED = 110, 24, 60
+local waypoints = { {60, 50}, {340, 50}, {340, 150}, {60, 150} }
+local guard = { x = 60, y = 50, next = 2, strikes = 0 }
+local player = { x = 300, y = 120 }
+local timer = 0
+
+<span class="c">-- Composites tick their children left to right.</span>
+local function Selector(...)
+  local children = { ... }
+  return function(dt)
+    for i = 1, #children do
+      local status = children[i](dt)
+<span class="k">      if status ~= FAILURE then return status end   -- first child that did not fail</span>
+    end
+    return FAILURE
+  end
+end
+
+local function Sequence(...)
+  local children = { ... }
+  return function(dt)
+    for i = 1, #children do
+      local status = children[i](dt)
+<span class="k">      if status ~= SUCCESS then return status end   -- first child that did not succeed</span>
+    end
+    return SUCCESS
+  end
+end
+
+local function distance(x, y)
+  return math.sqrt((x - guard.x) ^ 2 + (y - guard.y) ^ 2)
+end
+
+local function stepToward(x, y, dt)  <span class="c">-- returns true on arrival</span>
+  local d, step = distance(x, y), SPEED * dt
+  if d &lt;= step then
+    guard.x, guard.y = x, y
+    return true
+  end
+  guard.x = guard.x + (x - guard.x) / d * step
+  guard.y = guard.y + (y - guard.y) / d * step
+  return false
+end
+
+<span class="c">-- Leaves. Conditions answer at once; actions may keep running.</span>
+local function inReach() return distance(player.x, player.y) &lt;= REACH and SUCCESS or FAILURE end
+local function canSee() return distance(player.x, player.y) &lt;= SIGHT and SUCCESS or FAILURE end
+
+local function strike()
+  guard.strikes = guard.strikes + 1
+  return SUCCESS
+end
+
+local function moveToPlayer(dt)
+  stepToward(player.x, player.y, dt)
+  return distance(player.x, player.y) &lt;= REACH and SUCCESS or RUNNING
+end
+
+local function patrol(dt)
+  local p = waypoints[guard.next]
+  if not stepToward(p[1], p[2], dt) then return RUNNING end
+  guard.next = guard.next % #waypoints + 1
+  return SUCCESS
+end
+
+<span class="k">local tree = Selector(
+  Sequence(inReach, strike),         -- Attack
+  Sequence(canSee, moveToPlayer),    -- Chase
+  patrol                             -- Patrol
+)</span>
+
+function love.update(dt)
+  player.x, player.y = love.mouse.getPosition()
+  timer = timer + dt
+  while timer &gt;= TICK do
+    timer = timer - TICK
+<span class="k">    tree(TICK)</span>
+  end
+end
+
+function love.draw()
+  love.graphics.circle("line", guard.x, guard.y, SIGHT)
+  love.graphics.circle("fill", guard.x, guard.y, 8)
+  love.graphics.circle("line", player.x, player.y, 8)
+  love.graphics.print("strikes: " .. guard.strikes, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># guard.gd for Godot 4, no plugin. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># The mouse is the player.</span>
+extends Node2D
+
+enum Status { SUCCESS, FAILURE, RUNNING }
+const TICK := 0.1
+const SIGHT := 110.0
+const REACH := 24.0
+const SPEED := 60.0
+
+var waypoints := [Vector2(60, 50), Vector2(340, 50), Vector2(340, 150), Vector2(60, 150)]
+var guard := Vector2(60, 50)
+var player := Vector2(300, 120)
+var next_point := 1
+var strikes := 0
+var timer := 0.0
+var tree: Callable
+
+func _ready() -&gt; void:
+<span class="k">    tree = selector([
+        sequence([in_reach, strike]),        # Attack
+        sequence([can_see, move_to_player]), # Chase
+        patrol,                              # Patrol
+    ])</span>
+
+func selector(children: Array) -&gt; Callable:
+    return func(dt: float):
+        for child in children:
+            var status: int = child.call(dt)
+<span class="k">            if status != Status.FAILURE:
+                return status</span>
+        return Status.FAILURE
+
+func sequence(children: Array) -&gt; Callable:
+    return func(dt: float):
+        for child in children:
+            var status: int = child.call(dt)
+<span class="k">            if status != Status.SUCCESS:
+                return status</span>
+        return Status.SUCCESS
+
+<span class="c"># Leaves. Every leaf takes dt so the composites can call them all the same way.</span>
+func in_reach(_dt: float) -&gt; Status:
+    return Status.SUCCESS if guard.distance_to(player) &lt;= REACH else Status.FAILURE
+
+func can_see(_dt: float) -&gt; Status:
+    return Status.SUCCESS if guard.distance_to(player) &lt;= SIGHT else Status.FAILURE
+
+func strike(_dt: float) -&gt; Status:
+    strikes += 1
+    return Status.SUCCESS
+
+func move_to_player(dt: float) -&gt; Status:
+    guard = guard.move_toward(player, SPEED * dt)
+    return Status.SUCCESS if guard.distance_to(player) &lt;= REACH else Status.RUNNING
+
+func patrol(dt: float) -&gt; Status:
+    var target: Vector2 = waypoints[next_point]
+    guard = guard.move_toward(target, SPEED * dt)
+    if guard != target:
+        return Status.RUNNING
+    next_point = (next_point + 1) % waypoints.size()
+    return Status.SUCCESS
+
+func _process(delta: float) -&gt; void:
+    player = get_global_mouse_position()
+    timer += delta
+    while timer &gt;= TICK:
+        timer -= TICK
+<span class="k">        tree.call(TICK)</span>
+    queue_redraw()
+
+func _draw() -&gt; void:
+    draw_arc(guard, SIGHT, 0.0, TAU, 48, Color(1, 1, 1, 0.3))
+    draw_circle(guard, 8.0, Color.RED)
+    draw_circle(player, 8.0, Color.CYAN)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Guard.cs. Unity 2022 LTS or Unity 6, no package.</span>
+<span class="c">// Distances are the demo's numbers divided by 20, so they fit Unity units.</span>
+<span class="c">// Put this on a 2D circle sprite. Make a second circle for the player, drag it</span>
+<span class="c">// into Player, and move it in the Scene view while the game runs.</span>
+using System;
+using UnityEngine;
+
+public class Guard : MonoBehaviour
+{
+    enum Status { Success, Failure, Running }
+
+    const float Tick = 0.1f, Sight = 5.5f, Reach = 1.2f, Speed = 3f;
+
+    public Transform player;
+    [SerializeField] int strikes;   <span class="c">// visible in the Inspector</span>
+
+    readonly Vector2[] waypoints =
+    {
+        new Vector2(3f, 2.5f), new Vector2(17f, 2.5f),
+        new Vector2(17f, 7.5f), new Vector2(3f, 7.5f)
+    };
+    int next = 1;
+    float timer;
+    Func&lt;float, Status&gt; tree;
+
+    static Func&lt;float, Status&gt; Selector(params Func&lt;float, Status&gt;[] children) =&gt; dt =&gt;
+    {
+        foreach (var child in children)
+        {
+            var status = child(dt);
+<span class="k">            if (status != Status.Failure) return status;</span>
+        }
+        return Status.Failure;
+    };
+
+    static Func&lt;float, Status&gt; Sequence(params Func&lt;float, Status&gt;[] children) =&gt; dt =&gt;
+    {
+        foreach (var child in children)
+        {
+            var status = child(dt);
+<span class="k">            if (status != Status.Success) return status;</span>
+        }
+        return Status.Success;
+    };
+
+    void Start()
+    {
+        transform.position = waypoints[0];
+<span class="k">        tree = Selector(
+            Sequence(InReach, Strike),        // Attack
+            Sequence(CanSee, MoveToPlayer),   // Chase
+            Patrol);                          // Patrol</span>
+    }
+
+    float Distance() =&gt; Vector2.Distance(transform.position, player.position);
+
+    bool StepToward(Vector2 target, float dt)
+    {
+        transform.position = Vector2.MoveTowards(transform.position, target, Speed * dt);
+        return (Vector2)transform.position == target;
+    }
+
+    Status InReach(float dt) =&gt; Distance() &lt;= Reach ? Status.Success : Status.Failure;
+    Status CanSee(float dt) =&gt; Distance() &lt;= Sight ? Status.Success : Status.Failure;
+
+    Status Strike(float dt)
+    {
+        strikes++;
+        return Status.Success;
+    }
+
+    Status MoveToPlayer(float dt)
+    {
+        StepToward(player.position, dt);
+        return Distance() &lt;= Reach ? Status.Success : Status.Running;
+    }
+
+    Status Patrol(float dt)
+    {
+        if (!StepToward(waypoints[next], dt)) return Status.Running;
+        next = (next + 1) % waypoints.Length;
+        return Status.Success;
+    }
+
+    void Update()
+    {
+        timer += Time.deltaTime;
+        while (timer &gt;= Tick)
+        {
+            timer -= Tick;
+<span class="k">            tree(Tick);</span>
+        }
+    }
+
+    void OnDrawGizmos() =&gt; Gizmos.DrawWireSphere(transform.position, Sight);
+}</code></pre>
+  </div>
+  <p>In the C# version, set the Main Camera to orthographic size 6 at position (10, 5, -10) to frame the patrol route.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A branch that never fails.</strong> An action that never fails blocks every branch to its right, as "Patrol first" shows in the demo. Put catch-all behaviour last, and let long actions fail when they cannot finish, for example when the path is blocked.</li>
+    <li><strong>Mixing up running and success.</strong> If "move to player" returns success as soon as it starts, the sequence moves on before the guard has arrived. Return running until the job is done.</li>
+    <li><strong>State hidden inside nodes.</strong> If a node keeps a timer in its own fields and twenty guards share the tree, they overwrite each other. Keep per-agent data on the agent or its blackboard, or give each agent its own tree.</li>
+    <li><strong>Interrupted actions that never clean up.</strong> When a reactive tree switches branches, the old action is simply not ticked again. If it started an animation or reserved a cover point, nothing stops it. Give actions an abort hook once they hold resources; libraries usually have one.</li>
+    <li><strong>Expensive conditions near the root.</strong> In a reactive tree the left-most conditions run every tick for every agent. Put a raycast there and you pay for it constantly. Tick less often, cache results, or put cheap checks first.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Damian Isla's GDC 2005 talk and paper on the AI of <cite>Halo 2</cite> described a hierarchy of behaviours chosen by priority and re-evaluated as the situation changed. It is widely credited with making behaviour trees popular in game development.</p>
+  <p>Unreal Engine ships behaviour trees with a blackboard as part of the engine. Outside games, behaviour trees also control robots, the focus of Colledanchise and Ögren's book below.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the code tab for your engine and add a <em>Flee</em> branch: a sequence of the condition "strikes is at least 20" and an action that moves the guard away from the player and always returns running. Decide where in the selector it belongs, then test it. You are done when the guard backs away after 20 strikes, and you can explain why Flee placed last would never run.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Every node answers a tick with success, failure or running, and that status is all its parent sees.</li>
+    <li>A sequence ticks children until one does not succeed; a selector ticks children until one does not fail. Order is priority.</li>
+    <li>A reactive tree is walked from the root every tick, so more important branches interrupt running ones without explicit transitions.</li>
+    <li>The tree is shared structure; positions, targets and running state belong to each agent, often in a blackboard.</li>
+    <li>Neither engine core has one: Godot has plugins such as LimboAI and Beehave, Unity 6 has the Unity Behavior package, and a hand-written tree is a few dozen lines.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next track turns to rendering, starting with cameras: how Camera2D in Godot and Camera in Unity turn world coordinates into the pixels on screen.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Damian Isla, <cite>Handling Complexity in the Halo 2 AI</cite>, GDC 2005 proceedings, published on Gamasutra (now Game Developer).</li>
+    <li>Michele Colledanchise and Petter Ögren, <cite>Behavior Trees in Robotics and AI: An Introduction</cite> (CRC Press, 2018).</li>
+    <li>LimboAI contributors, <cite><a href="https://github.com/limbonaut/limboai">LimboAI: behavior trees and state machines for Godot 4</a></cite>.</li>
+    <li>bitbrain and contributors, <cite><a href="https://github.com/bitbrain/beehave">Beehave: behavior tree AI for Godot Engine</a></cite>.</li>
+    <li>Unity Technologies, <cite>Unity Behavior</cite> package manual (com.unity.behavior), in the Unity 6 documentation.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SUCCESS = 'success', FAILURE = 'failure', RUNNING = 'running';
+  var TICK = 0.1;          // seconds of game time per tick
+  var SIGHT = 110, REACH = 24, SPEED = 60;
+  var WORLD_W = 400, WORLD_H = 200;
+  var WAYPOINTS = [[60, 50], [340, 50], [340, 150], [60, 150]];
+
+  var guard, player, statuses, trace, tickCount, lastAction, struckAt, rootStatus, playback;
+
+  function reset() {
+    guard = { x: 60, y: 50, next: 1, strikes: 0 };
+    player = { x: 300, y: 120 };
+    statuses = {};
+    trace = [];
+    tickCount = 0;
+    lastAction = '';
+    struckAt = -10;
+    rootStatus = null;
+    playback = 0;
+  }
+  reset();
+
+  function distance(x, y) {
+    return Math.hypot(x - guard.x, y - guard.y);
+  }
+
+  function stepToward(x, y, dt) {   // true on arrival
+    var d = distance(x, y);
+    var step = SPEED * dt;
+    if (d <= step) {
+      guard.x = x;
+      guard.y = y;
+      return true;
+    }
+    guard.x += (x - guard.x) / d * step;
+    guard.y += (y - guard.y) / d * step;
+    return false;
+  }
+
+  // Leaves
+  var inReach = { id: 'inReach', label: 'In reach?', kind: 'condition', fn: function () {
+    return distance(player.x, player.y) <= REACH ? SUCCESS : FAILURE;
+  } };
+  var strike = { id: 'strike', label: 'Strike', kind: 'action', fn: function () {
+    guard.strikes += 1;
+    struckAt = tickCount;
+    return SUCCESS;
+  } };
+  var canSee = { id: 'canSee', label: 'Can see?', kind: 'condition', fn: function () {
+    return distance(player.x, player.y) <= SIGHT ? SUCCESS : FAILURE;
+  } };
+  var moveTo = { id: 'moveTo', label: 'Move to player', short: 'Move to', kind: 'action', fn: function (dt) {
+    stepToward(player.x, player.y, dt);
+    return distance(player.x, player.y) <= REACH ? SUCCESS : RUNNING;
+  } };
+  var patrol = { id: 'patrol', label: 'Patrol', kind: 'action', fn: function (dt) {
+    var p = WAYPOINTS[guard.next];
+    if (!stepToward(p[0], p[1], dt)) return RUNNING;
+    guard.next = (guard.next + 1) % WAYPOINTS.length;
+    return SUCCESS;
+  } };
+
+  // Composites
+  var attack = { id: 'attack', label: '→ Attack', kind: 'sequence', children: [inReach, strike] };
+  var chase = { id: 'chase', label: '→ Chase', kind: 'sequence', children: [canSee, moveTo] };
+  var root = { id: 'root', label: '? Selector', kind: 'selector', children: [attack, chase, patrol] };
+
+  function tickNode(node, dt) {
+    var status, i;
+    if (node.kind === 'selector') {
+      status = FAILURE;
+      for (i = 0; i < node.children.length; i++) {
+        var a = tickNode(node.children[i], dt);
+        if (a !== FAILURE) { status = a; break; }
+      }
+    } else if (node.kind === 'sequence') {
+      status = SUCCESS;
+      for (i = 0; i < node.children.length; i++) {
+        var b = tickNode(node.children[i], dt);
+        if (b !== SUCCESS) { status = b; break; }
+      }
+    } else {
+      status = node.fn(dt);
+      trace.push(node.label + ' ' + status);
+      if (node.kind === 'action') lastAction = node.label;
+    }
+    statuses[node.id] = status;
+    return status;
+  }
+
+  function tickTree() {
+    statuses = {};
+    trace = [];
+    lastAction = '';
+    tickCount += 1;
+    rootStatus = tickNode(root, TICK);
+    showTrace();
+  }
+
+  var ui = DemoKit.controls('[data-demo="behaviour-tree"]');
+  var auto = ui.toggle({ label: 'Auto tick', value: true });
+  var rate = ui.slider({ label: 'Playback', min: 1, max: 10, step: 1, value: 5, unit: ' ticks per second' });
+  var order = ui.select({
+    label: 'Selector order',
+    options: [
+      { value: 'attack', label: 'Attack, Chase, Patrol' },
+      { value: 'patrol', label: 'Patrol first' }
+    ],
+    value: 'attack',
+    onChange: function (v) {
+      root.children = v === 'patrol' ? [patrol, chase, attack] : [attack, chase, patrol];
+      statuses = {};
+      redraw();
+    }
+  });
+  ui.button({ label: 'Step one tick', onClick: function () {
+    auto.set(false);
+    tickTree();
+    redraw();
+  } });
+  ui.button({ label: 'Reset', onClick: function () {
+    reset();
+    showTrace();
+    redraw();
+  } });
+  var traceOut = ui.readout({ label: 'Last tick' });
+
+  function showTrace() {
+    if (tickCount === 0) {
+      traceOut.set('no ticks yet');
+      return;
+    }
+    traceOut.set('#' + tickCount + ': ' + trace.join(', ') + '. Root: ' + rootStatus + '.');
+  }
+  showTrace();
+
+  // ---- Layout ----------------------------------------------------------------------------
+  var view = { ox: 0, oy: 0, scale: 1 };
+
+  function layoutWorld(s) {
+    var scale = Math.min((s.width - 20) / WORLD_W, 1.15);
+    view.scale = scale;
+    view.ox = (s.width - WORLD_W * scale) / 2;
+    view.oy = 10;
+  }
+
+  function toWorld(p) {
+    return {
+      x: (p.x - view.ox) / view.scale,
+      y: (p.y - view.oy) / view.scale
+    };
+  }
+
+  function insideWorld(p) {
+    var w = toWorld(p);
+    return w.x >= -10 && w.x <= WORLD_W + 10 && w.y >= -10 && w.y <= WORLD_H + 10;
+  }
+
+  function movePlayerTo(x, y) {
+    player.x = DemoKit.clamp(x, 0, WORLD_W);
+    player.y = DemoKit.clamp(y, 0, WORLD_H);
+  }
+
+  // Tree positions. Leaves get one slot each; a sequence sits above its two leaves.
+  function layoutTree(s, top) {
+    var slots = [];
+    root.children.forEach(function (child) {
+      if (child.children) {
+        child.children.forEach(function (leaf) { slots.push(leaf); });
+      } else {
+        slots.push(child);
+      }
+    });
+    var slotW = (s.width - 16) / slots.length;
+    var rows = { root: top + 44, mid: top + 104, leaf: top + 164 };
+    var pos = {};
+    slots.forEach(function (node, i) {
+      pos[node.id] = { x: 8 + slotW * (i + 0.5), y: rows.leaf, w: Math.min(slotW - 8, 104) };
+    });
+    root.children.forEach(function (child) {
+      if (child.children) {
+        var a = pos[child.children[0].id], b = pos[child.children[1].id];
+        pos[child.id] = { x: (a.x + b.x) / 2, y: rows.mid, w: Math.min(slotW * 2 - 8, 120) };
+      } else {
+        pos[child.id].y = rows.mid;
+      }
+    });
+    var sum = 0;
+    root.children.forEach(function (child) { sum += pos[child.id].x; });
+    pos.root = { x: sum / root.children.length, y: rows.root, w: Math.min(slotW * 2 - 8, 130) };
+    return pos;
+  }
+
+  // ---- Drawing ---------------------------------------------------------------------------
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function statusColor(c, st) {
+    if (st === SUCCESS) return c.good;
+    if (st === FAILURE) return c.bad;
+    if (st === RUNNING) return c.warn;
+    return c.line;
+  }
+
+  function glyph(st) {
+    if (st === SUCCESS) return '✓';
+    if (st === FAILURE) return '✗';
+    if (st === RUNNING) return '…';
+    return '';
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function drawWorld(ctx, s, c) {
+    var k = view.scale;
+    function X(x) { return view.ox + x * k; }
+    function Y(y) { return view.oy + y * k; }
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(X(0), Y(0), WORLD_W * k, WORLD_H * k);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(X(0) + 0.5, Y(0) + 0.5, WORLD_W * k - 1, WORLD_H * k - 1);
+
+    // Patrol route
+    ctx.setLineDash([4, 5]);
+    ctx.strokeStyle = c.ink3;
+    ctx.beginPath();
+    WAYPOINTS.forEach(function (p, i) {
+      if (i === 0) ctx.moveTo(X(p[0]), Y(p[1])); else ctx.lineTo(X(p[0]), Y(p[1]));
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    WAYPOINTS.forEach(function (p, i) {
+      ctx.fillStyle = i === guard.next ? c.topic : c.ink3;
+      ctx.beginPath();
+      ctx.arc(X(p[0]), Y(p[1]), 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Sight and reach
+    var sees = distance(player.x, player.y) <= SIGHT;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(X(0), Y(0), WORLD_W * k, WORLD_H * k);
+    ctx.clip();
+    ctx.globalAlpha = sees ? 0.16 : 0.07;
+    ctx.fillStyle = c.warn;
+    ctx.beginPath();
+    ctx.arc(X(guard.x), Y(guard.y), SIGHT * k, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.warn;
+    ctx.beginPath();
+    ctx.arc(X(guard.x), Y(guard.y), SIGHT * k, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = c.ink2;
+    ctx.beginPath();
+    ctx.arc(X(guard.x), Y(guard.y), REACH * k, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Strike flash
+    if (tickCount - struckAt <= 0) {
+      ctx.strokeStyle = c.bad;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(X(guard.x), Y(guard.y));
+      ctx.lineTo(X(player.x), Y(player.y));
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    // Player
+    ctx.fillStyle = c.topic;
+    ctx.beginPath();
+    ctx.arc(X(player.x), Y(player.y), 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = c.surface;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Guard
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(X(guard.x) - 8, Y(guard.y) - 8, 16, 16);
+
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = c.ink2;
+    ctx.fillText('strikes ' + guard.strikes + '   tick ' + tickCount, X(0) + 8, Y(0) + 16);
+
+    if (lastAction) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink;
+      var ly = Y(guard.y) - 14;
+      if (ly < Y(0) + 28) ly = Y(guard.y) + 24;
+      ctx.fillText(lastAction, DemoKit.clamp(X(guard.x), X(0) + 30, X(WORLD_W) - 30), ly);
+    }
+  }
+
+  function drawNode(ctx, c, node, p) {
+    var st = statuses[node.id];
+    var h = 30;
+    var x = p.x - p.w / 2, y = p.y - h / 2;
+    var r = node.kind === 'condition' ? h / 2 : (node.kind === 'action' ? 3 : 8);
+    roundRect(ctx, x, y, p.w, h, r);
+    ctx.fillStyle = c.surface;
+    ctx.fill();
+    if (st) {
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = statusColor(c, st);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = statusColor(c, st);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    var text = node.label;
+    var size = 12;
+    ctx.font = size + 'px ' + FONT;
+    if (node.short && ctx.measureText(text).width > p.w - 8) text = node.short;
+    while (size > 10 && ctx.measureText(text).width > p.w - 8) {
+      size -= 1;
+      ctx.font = size + 'px ' + FONT;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = st ? c.ink : c.ink3;
+    ctx.fillText(text, p.x, p.y + 1);
+
+    if (st) {
+      var bx = x + p.w - 2, by = y + 1;
+      ctx.fillStyle = statusColor(c, st);
+      ctx.beginPath();
+      ctx.arc(bx, by, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.surface;
+      ctx.font = 'bold 11px ' + FONT;
+      ctx.fillText(glyph(st), bx, by + 1);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawEdge(ctx, c, from, to, st) {
+    ctx.strokeStyle = st ? statusColor(c, st) : c.line;
+    ctx.lineWidth = st ? 2 : 1;
+    if (!st) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y + 15);
+    ctx.lineTo(to.x, to.y - 15);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+  }
+
+  function drawLegend(ctx, c, s, y) {
+    var items = [[SUCCESS, 'success'], [FAILURE, 'failure'], [RUNNING, 'running'], [null, 'not ticked']];
+    ctx.font = '12px ' + FONT;
+    var widths = items.map(function (it) { return ctx.measureText(it[1]).width + 26; });
+    var total = widths.reduce(function (a, b) { return a + b; }, 0);
+    var x = Math.max(8, (s.width - total) / 2);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    items.forEach(function (it, i) {
+      if (it[0]) {
+        ctx.fillStyle = statusColor(c, it[0]);
+        ctx.beginPath();
+        ctx.arc(x + 6, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = c.ink3;
+        ctx.beginPath();
+        ctx.arc(x + 6, y, 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(it[1], x + 15, y);
+      x += widths[i];
+    });
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawTree(ctx, s, c, top) {
+    drawLegend(ctx, c, s, top + 8);
+    var pos = layoutTree(s, top);
+    root.children.forEach(function (child) {
+      drawEdge(ctx, c, pos.root, pos[child.id], statuses[child.id]);
+      if (child.children) {
+        child.children.forEach(function (leaf) {
+          drawEdge(ctx, c, pos[child.id], pos[leaf.id], statuses[leaf.id]);
+        });
+      }
+    });
+    drawNode(ctx, c, root, pos.root);
+    root.children.forEach(function (child) {
+      drawNode(ctx, c, child, pos[child.id]);
+      if (child.children) {
+        child.children.forEach(function (leaf) { drawNode(ctx, c, leaf, pos[leaf.id]); });
+      }
+    });
+  }
+
+  var dragging = false;
+
+  var handle = DemoKit.canvas('#behaviour-tree', {
+    height: 490,
+    drag: true,
+    keys: true,
+    label: 'A guard patrols a field and a player you can drag. Below it, the guard\'s behaviour tree shows which nodes succeeded, failed, were running or were not ticked on the last tick.',
+    update: function (dt) {
+      if (!auto.value) return;
+      playback += dt * rate.value;
+      var guardSteps = 0;
+      while (playback >= 1 && guardSteps < 10) {
+        playback -= 1;
+        tickTree();
+        guardSteps += 1;
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      layoutWorld(s);
+      drawWorld(ctx, s, c);
+      drawTree(ctx, s, c, view.oy + WORLD_H * view.scale + 14);
+    },
+    onDown: function (p) {
+      if (!insideWorld(p)) return;
+      dragging = true;
+      var w = toWorld(p);
+      movePlayerTo(w.x, w.y);
+      redraw();
+    },
+    onMove: function (p) {
+      if (!dragging) return;
+      var w = toWorld(p);
+      movePlayerTo(w.x, w.y);
+      redraw();
+    },
+    onUp: function () {
+      dragging = false;
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 10;
+      if (key === 'arrowleft') movePlayerTo(player.x - step, player.y);
+      else if (key === 'arrowright') movePlayerTo(player.x + step, player.y);
+      else if (key === 'arrowup') movePlayerTo(player.x, player.y - step);
+      else if (key === 'arrowdown') movePlayerTo(player.x, player.y + step);
+      else return;
+      redraw();
+    }
+  });
+
+  function redraw() {
+    if (handle) handle.redraw();
+  }
+})();
+</script>
+</body>
+</html>

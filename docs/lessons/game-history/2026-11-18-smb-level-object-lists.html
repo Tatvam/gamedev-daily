@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Mario Bros.: a level is a list, not a picture · Game Dev Daily</title>
+<meta name="description" content="How Super Mario Bros. fitted its levels in a 40 KB cartridge by storing short lists of two-byte objects instead of full tile grids.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .byte-list {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+    background: var(--surface-2);
+    color: var(--ink);
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Super Mario Bros.: a level is a list, not a picture</h1>
+  <p class="lede">How Super Mario Bros. fitted its levels in a 40 KB cartridge by storing short lists of two-byte objects instead of full tile grids.</p>
+</header>
+
+<section data-section="hook">
+  <p>Super Mario Bros. (1985) has 32 levels, plus its music, its graphics and all of its code, on a cartridge of 40 kilobytes. A single photo on a phone is usually far bigger than that.</p>
+  <p>The levels fit because the cartridge does not store what they look like. It stores short instructions for building them, such as "a row of five bricks here" or "a pipe there".</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: 40 kilobytes for everything</h2>
+  <p>The cartridge holds two memory chips. One has 32 KB of program: the code, the music and the level data. The other has 8 KB of graphics: the 8 by 8 pixel <dfn>tiles</dfn> that every picture on screen is made from. The levels have to share the 32 KB with everything else in the game.</p>
+  <p>The game builds its world from <dfn>metatiles</dfn>: 16 by 16 pixel blocks, each made of four tiles. A brick, a question block or a piece of ground is one metatile. A level is a grid of these blocks, 13 rows tall in the play area below the score line.</p>
+
+  <h2>The obvious way: store the grid</h2>
+  <p>The simplest format is a <dfn>tile grid</dfn>: one byte per cell, naming the block in that cell. A screen is 16 blocks wide, so each screen-wide slice of the level costs 16 × 13 = 208 bytes. A level a dozen screens long would cost about 2.5 KB, and 32 such levels would need about 80 KB. That is more than twice the whole cartridge, before a single line of code.</p>
+  <p>Most of those bytes just say "sky" or "ground".</p>
+
+  <h2>The trick: store objects</h2>
+  <p>Super Mario Bros. stores each area as an <dfn>object list</dfn>: a short header, then a run of objects, then an end marker. As the community disassembly of the game describes it, every object takes two bytes, holding its position, its type and, for things that come in rows or columns, a length. The game's code then draws each object into the grid.</p>
+  <p>So "eight bricks in a row" is not eight bytes. It is two bytes: "bricks, here, length 8". A pipe is two bytes however tall it is. The ground is not stored cell by cell at all: the header describes it, and gaps are objects that remove it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="An object takes two bytes. The first byte holds the column within the page in its top four bits and the row in its bottom four bits. The second byte holds a one-bit new page flag, a three-bit type and a four-bit length. Example: 47 10 means column 4, row 7, question blocks, length 1.">
+      <text class="d-text" x="20" y="28">One object = two bytes (the format used in this page's demo)</text>
+
+      <text class="d-muted" x="20" y="74">Byte 1</text>
+      <rect class="d-accent-soft" x="90" y="50" width="200" height="40" rx="4"/>
+      <rect class="d-fill" x="290" y="50" width="200" height="40" rx="4"/>
+      <text class="d-text" x="190" y="75" text-anchor="middle">column in page (4 bits)</text>
+      <text class="d-text" x="390" y="75" text-anchor="middle">row (4 bits)</text>
+
+      <text class="d-muted" x="20" y="144">Byte 2</text>
+      <rect class="d-accent-soft" x="90" y="120" width="50" height="40" rx="4"/>
+      <rect class="d-fill" x="140" y="120" width="150" height="40" rx="4"/>
+      <rect class="d-accent-soft" x="290" y="120" width="200" height="40" rx="4"/>
+      <text class="d-text" x="115" y="145" text-anchor="middle">P</text>
+      <text class="d-text" x="215" y="145" text-anchor="middle">type (3 bits)</text>
+      <text class="d-text" x="390" y="145" text-anchor="middle">length − 1 (4 bits)</text>
+      <path class="d-thin" d="M115 160 V182"/>
+      <text class="d-label" x="90" y="198">P = this object starts the next page</text>
+
+      <text class="d-muted" x="20" y="244">Example</text>
+      <rect class="d-box" x="90" y="220" width="70" height="36" rx="4"/>
+      <rect class="d-box" x="166" y="220" width="70" height="36" rx="4"/>
+      <text class="d-mono" x="125" y="243" text-anchor="middle">47</text>
+      <text class="d-mono" x="201" y="243" text-anchor="middle">10</text>
+      <path class="d-accent" d="M248 238 H284"/>
+      <text class="d-text" x="296" y="236">column 4, row 7</text>
+      <text class="d-text" x="296" y="256">type 1 (question block), length 1</text>
+      <rect class="d-accent-fill" x="540" y="214" width="44" height="44" rx="3"/>
+      <text class="d-label" x="562" y="280" text-anchor="middle">result</text>
+    </svg>
+    <figcaption>A column needs only 4 bits because it counts within one screen-wide page of 16 columns. The P bit says "move on to the next page", so positions stay small however long the level is.</figcaption>
+  </figure>
+
+  <h3>Pages keep the numbers small</h3>
+  <p>Four bits can only count to 15, but a level is hundreds of columns long. The answer is <dfn>pages</dfn>: the level is cut into screen-wide pieces of 16 columns. Objects are listed from left to right, and each one stores only its column inside the current page. One bit in the second byte says "this object is on the next page". The decoder keeps a page counter and adds 16 columns each time that bit is set.</p>
+  <p>The demo on this page uses its own simplified version of this idea, so that you can read every bit. The real game's format has more types and uses some row values as special commands, for example to change the scenery or to mark where a pipe leads. Enemies are kept in a separate list.</p>
+
+  <div class="callout">
+    <p class="callout-title">The trade</p>
+    <p>An object list is tiny on disk but must be run through code before it is a level. A grid is large but ready to use. Super Mario Bros. paid in code and processor time to save storage, which on a 1985 cartridge was the scarcest resource.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Pick an object type and a length, then click or tap a cell to place it there. Tap the same cell again to remove the object that starts there. With a keyboard, focus the level, move with the arrow keys and press Enter or Space.</p>
+  <p>Watch the two sizes. The full grid always costs 416 bytes. The object list grows by two bytes per object, however long the object is. Then drag <em>Objects decoded</em> down to zero and back up to watch the decoder build the level one object at a time.</p>
+
+  <figure class="demo wide" data-demo="object-list">
+    <canvas id="object-list"></canvas>
+    <pre class="byte-list" id="object-bytes" aria-label="The encoded bytes of the level"></pre>
+    <figcaption>The level you see is decoded from the bytes listed under it, not stored separately. Turn on the tile grid to see the 416 cells a grid format would have to store one by one, and the object outlines to see the few objects that actually describe them.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This decoder reads the same format as the demo, with the same type numbers. It starts with sky and ground, then reads two bytes at a time until it meets the end marker <code>0xFD</code>. Rows and columns are stored from 0 and turned into Lua's 1-based indexes.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Tile ids in the decoded grid</span>
+local SKY, GROUND, BRICK, QBLOCK, COIN, PIPE, BLOCK = 0, 1, 2, 3, 4, 5, 6
+local ROWS = 13
+
+local function set(grid, r, c, v)
+  if grid[r] and grid[r][c] then grid[r][c] = v end   <span class="c">-- ignore cells off the map</span>
+end
+
+local function placeObject(grid, kind, col, row, len, floorRow)
+  for k = 0, len - 1 do
+    local c = col + k
+    if kind == 0 then set(grid, row, c, BRICK)
+    elseif kind == 1 then set(grid, row, c, QBLOCK)
+    elseif kind == 2 then set(grid, row, c, COIN)
+    elseif kind == 4 then                                <span class="c">-- stairs rise to the right</span>
+      for r = floorRow - k, floorRow do set(grid, r, c, BLOCK) end
+    elseif kind == 5 then                                <span class="c">-- gap: remove the ground</span>
+      for r = floorRow + 1, ROWS do set(grid, r, c, SKY) end
+    end
+  end
+  if kind == 3 then                                      <span class="c">-- pipe: 2 wide, down to the floor</span>
+    for r = row, floorRow do set(grid, r, col, PIPE); set(grid, r, col + 1, PIPE) end
+  end
+end
+
+function decodeArea(bytes)
+  local pages, groundRows = bytes[1], bytes[2]           <span class="c">-- the 2-byte header</span>
+  local floorRow = ROWS - groundRows
+  local grid = {}
+  for r = 1, ROWS do
+    grid[r] = {}
+    for c = 1, pages * 16 do
+      if r > floorRow then grid[r][c] = GROUND else grid[r][c] = SKY end
+    end
+  end
+  local page, i = 0, 3
+  while bytes[i] and bytes[i] ~= 0xFD do
+    local b1, b2 = bytes[i], bytes[i + 1]
+<span class="k">    if b2 >= 128 then page = page + 1 end                <span class="c">-- the "next page" bit</span>
+    local col = page * 16 + math.floor(b1 / 16) + 1
+    local row = b1 % 16 + 1
+    local kind = math.floor(b2 / 16) % 8
+    local len = b2 % 16 + 1</span>
+    placeObject(grid, kind, col, row, len, floorRow)
+    i = i + 2
+  end
+  return grid
+end
+
+<span class="c">-- The demo's starting level: 21 bytes instead of 416</span>
+local level = decodeArea({ 0x02, 0x02,
+  0x47, 0x10,  0x87, 0x04,  0xA7, 0x10,  0xA3, 0x10,  0xE9, 0x30,
+  0x16, 0xA3,  0x3B, 0x51,  0x78, 0x30,  0xAA, 0x43,  0xFD })</code></pre>
+  </div>
+  <p>Draw <code>level</code> in <code>love.draw()</code> by looping over rows and columns and calling <code>love.graphics.rectangle("fill", (c - 1) * 16, (r - 1) * 16, 16, 16)</code> with a colour per tile id.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Order matters.</strong> Later objects overwrite earlier ones. In the demo the bricks at column 8 come first, so the question block at column 10 can replace one of them. If the bricks came after it, the question block would vanish under them.</li>
+    <li><strong>The list must be sorted.</strong> Pages only work if objects are listed left to right. An object that belongs on an earlier page cannot be reached once the page counter has moved on.</li>
+    <li><strong>Random access is slow.</strong> To know what is in column 200 you must read the list up to it. Decode into a grid (all at once, or a few columns ahead of the camera) before the game needs to check collisions.</li>
+    <li><strong>Small fields set hard limits.</strong> With four bits a row of bricks can be at most 16 long. A longer run needs two objects. Choose field sizes from the levels you actually want to build.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Describing a level as placed objects instead of cells is how most modern engines save scenes. A Godot <code>.tscn</code> file or a Unity scene lists objects with their positions and settings; it does not store every point in space.</p>
+  <p>The constraint itself returns wherever size matters. Web games pay for every byte the player downloads before playing. Games that let players share their own levels often turn them into short codes or small files, and an object list is far smaller than a grid. Shared editors can send "placed a pipe at column 14" rather than the whole map.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into a LÖVE project and draw <code>level</code> with one colour per tile id. Then add a new object type 6, a vertical column of bricks whose length is its height, by adding one <code>elseif</code> to <code>placeObject</code>. Add one object of the new type to the byte list. You are done when the column appears in the right place and you can say how many bytes the level is now.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A level grid spends the same space on empty sky as on content. An object list spends space only on things that are there.</li>
+    <li>Super Mario Bros. stores each object in two bytes: position, type and length.</li>
+    <li>Pages let a 4-bit column cover a long level: objects go left to right, and one bit says "next page".</li>
+    <li>The cost is decoding: the list must be run through code, in order, before the game can use it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes Metroid's password, where the whole save file is packed into bits and written down by the player instead of stored on the cartridge.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: the source pages below could not be opened in this session, so none are linked. The 40 KB cartridge (32 KB program and 8 KB graphics) and the 32 levels are widely documented. The two-byte objects, the length field and the special row values come from my knowledge of the community disassembly and from search summaries of the NESdev Wiki; check them there before repeating the details. The bit layout on this page belongs to the demo's own simplified format, not to the game.</p>
+  <ul>
+    <li>doppelganger, <cite>A Comprehensive Super Mario Bros. Disassembly</cite>. A fully commented disassembly of the game's code, including the routines that read area and enemy data.</li>
+    <li>NESdev Wiki, <cite>Level compression</cite>. A survey of how NES games store levels, with notes on Super Mario Bros.</li>
+    <li>NESdev Wiki, <cite>NROM</cite>. The cartridge board with 32 KB of program memory and 8 KB of graphics memory.</li>
+    <li>Data Crystal, <cite>Super Mario Bros.</cite> notes and ROM map. Community documentation of where the level data lives in the game.</li>
+    <li>Nathan Altice, <cite>I Am Error: The Nintendo Family Computer / Entertainment System Platform</cite> (MIT Press). A study of the hardware, with a close reading of Super Mario Bros.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 32, ROWS = 13, GROUND_ROWS = 2, FLOOR = ROWS - GROUND_ROWS - 1;   // floor row 10 (0-based)
+  var SKY = 0, GROUND = 1, BRICK = 2, QBLOCK = 3, COIN = 4, PIPE = 5, BLOCK = 6;
+  var KIND_NAMES = ['bricks', 'question blocks', 'coins', 'pipe', 'stairs', 'gap'];
+  var MAX_OBJECTS = 60;
+
+  var EXAMPLE = [
+    { c: 4, r: 7, k: 1, n: 1 }, { c: 8, r: 7, k: 0, n: 5 }, { c: 10, r: 7, k: 1, n: 1 },
+    { c: 10, r: 3, k: 1, n: 1 }, { c: 14, r: 9, k: 3, n: 1 }, { c: 17, r: 6, k: 2, n: 4 },
+    { c: 19, r: 11, k: 5, n: 2 }, { c: 23, r: 8, k: 3, n: 1 }, { c: 26, r: 10, k: 4, n: 4 }
+  ];
+
+  var objects = [];
+  var bytes = [];
+  var cursor = { c: 4, r: 7, show: false };
+  var view = null;
+  var bytesEl = document.getElementById('object-bytes');
+
+  function copyExample() {
+    objects = EXAMPLE.map(function (o) { return { c: o.c, r: o.r, k: o.k, n: o.n }; });
+  }
+
+  function hex(v) { return (v < 16 ? '0' : '') + v.toString(16).toUpperCase(); }
+
+  // Sort left to right (stable), then encode: header, two bytes per object, end marker.
+  function encode() {
+    objects.sort(function (a, b) { return a.c - b.c; });
+    var out = [2, GROUND_ROWS];
+    var page = 0;
+    objects.forEach(function (o) {
+      var p = Math.floor(o.c / 16);
+      var flag = p > page ? 128 : 0;
+      page = p;
+      out.push((o.c % 16) * 16 + o.r);
+      out.push(flag + o.k * 16 + (o.n - 1));
+    });
+    out.push(0xFD);
+    return out;
+  }
+
+  function setCell(grid, r, c, v) {
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) grid[r][c] = v;
+  }
+
+  // Decode the bytes into a grid, stopping after `limit` objects. Also returns footprints.
+  function decode(data, limit) {
+    var pages = data[0], groundRows = data[1];
+    var floor = ROWS - groundRows - 1;
+    var grid = [], r, c, k;
+    for (r = 0; r < ROWS; r++) {
+      grid.push([]);
+      for (c = 0; c < pages * 16; c++) grid[r].push(r > floor ? GROUND : SKY);
+    }
+    var foot = [];
+    var page = 0, i = 2, count = 0;
+    while (i + 1 < data.length && data[i] !== 0xFD && count < limit) {
+      var b1 = data[i], b2 = data[i + 1];
+      if (b2 >= 128) page += 1;
+      var col = page * 16 + Math.floor(b1 / 16);
+      var row = b1 % 16;
+      var kind = Math.floor(b2 / 16) % 8;
+      var len = b2 % 16 + 1;
+      for (k = 0; k < len; k++) {
+        c = col + k;
+        if (kind === 0) setCell(grid, row, c, BRICK);
+        else if (kind === 1) setCell(grid, row, c, QBLOCK);
+        else if (kind === 2) setCell(grid, row, c, COIN);
+        else if (kind === 4) { for (r = floor - k; r <= floor; r++) setCell(grid, r, c, BLOCK); }
+        else if (kind === 5) { for (r = floor + 1; r < ROWS; r++) setCell(grid, r, c, SKY); }
+      }
+      if (kind === 3) {
+        for (r = row; r <= floor; r++) { setCell(grid, r, col, PIPE); setCell(grid, r, col + 1, PIPE); }
+      }
+      if (kind === 3) foot.push({ c: col, r: row, w: 2, h: floor - row + 1 });
+      else if (kind === 4) foot.push({ c: col, r: floor - len + 1, w: len, h: len });
+      else if (kind === 5) foot.push({ c: col, r: floor + 1, w: len, h: groundRows });
+      else foot.push({ c: col, r: row, w: len, h: 1 });
+      count += 1;
+      i += 2;
+    }
+    return { grid: grid, foot: foot, count: count };
+  }
+
+  var ui = DemoKit.controls('[data-demo="object-list"]');
+  var kindSel = ui.select({
+    label: 'Object to place',
+    options: KIND_NAMES.map(function (name, idx) { return { value: String(idx), label: idx + ': ' + name }; }),
+    value: '0'
+  });
+  var lenSlider = ui.slider({ label: 'Length', min: 1, max: 16, step: 1, value: 3,
+    format: function (v) { return v + (v === 1 ? ' cell' : ' cells'); } });
+  var decodeSlider = ui.slider({ label: 'Objects decoded', min: 0, max: EXAMPLE.length, step: 1,
+    value: EXAMPLE.length, onInput: function () { refresh(false); } });
+  var gridToggle = ui.toggle({ label: 'Show tile grid', value: false, onChange: function () { refresh(false); } });
+  var outlineToggle = ui.toggle({ label: 'Show object outlines', value: true, onChange: function () { refresh(false); } });
+  ui.button({ label: 'Reset example', onClick: function () { copyExample(); refresh(true); } });
+  ui.button({ label: 'Clear level', onClick: function () { objects = []; refresh(true); } });
+  var listOut = ui.readout({ label: 'Object list' });
+  var gridOut = ui.readout({ label: 'Full tile grid' });
+  var ratioOut = ui.readout({ label: 'Grid is bigger by' });
+
+  function describeObject(o, idx, decoded, newPage) {
+    var text = KIND_NAMES[o.k] + ', col ' + o.c + ', row ' + o.r;
+    if (o.k !== 3) text += ', length ' + o.n;
+    if (newPage) text += ', next page';
+    if (!decoded) text += '  (not decoded yet)';
+    return text;
+  }
+
+  function refresh(objectsChanged) {
+    bytes = encode();
+    var n = objects.length;
+    if (objectsChanged) {
+      decodeSlider.el.max = n;
+      decodeSlider.set(n);
+    }
+    var limit = Math.min(decodeSlider.value, n);
+    var lines = ['header  ' + hex(bytes[0]) + ' ' + hex(bytes[1]) + '   2 pages, 2 rows of ground'];
+    objects.forEach(function (o, idx) {
+      var b1 = bytes[2 + idx * 2], b2 = bytes[3 + idx * 2];
+      var label = ('#' + (idx + 1) + '      ').slice(0, 8);
+      lines.push(label + hex(b1) + ' ' + hex(b2) + '   ' + describeObject(o, idx, idx < limit, b2 >= 128));
+    });
+    lines.push('end     FD');
+    bytesEl.textContent = lines.join('\n');
+    listOut.set(bytes.length + ' bytes');
+    gridOut.set(COLS * ROWS + ' bytes');
+    ratioOut.set((COLS * ROWS / bytes.length).toFixed(1) + ' times');
+    if (view) view.redraw();
+  }
+
+  function act() {
+    var k = parseInt(kindSel.value, 10);
+    var r = cursor.r;
+    if (k === 3 && r > FLOOR - 1) r = FLOOR - 1;            // a pipe is at least 2 tall
+    var found = -1;
+    objects.forEach(function (o, idx) {
+      if (o.c === cursor.c && (o.r === cursor.r || o.r === r)) found = idx;
+    });
+    if (found >= 0) {
+      objects.splice(found, 1);
+    } else if (objects.length < MAX_OBJECTS) {
+      objects.push({ c: cursor.c, r: r, k: k, n: k === 3 ? 1 : lenSlider.value });
+    }
+    refresh(true);
+  }
+
+  var layout = { cs: 10, ox: 0, oy: 18 };
+
+  function cellAt(p) {
+    var c = Math.floor((p.x - layout.ox) / layout.cs);
+    var r = Math.floor((p.y - layout.oy) / layout.cs);
+    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return null;
+    return { c: c, r: r };
+  }
+
+  function drawTile(ctx, t, x, y, s, col) {
+    if (t === SKY) return;
+    if (t === GROUND) {
+      ctx.fillStyle = col.ink3;
+      ctx.fillRect(x, y, s, s);
+      ctx.strokeStyle = col.surface2;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
+    } else if (t === BRICK) {
+      ctx.fillStyle = col.warn;
+      ctx.fillRect(x, y, s, s);
+      ctx.strokeStyle = col.surface;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y + s / 2); ctx.lineTo(x + s, y + s / 2);
+      ctx.moveTo(x + s / 2, y); ctx.lineTo(x + s / 2, y + s / 2);
+      ctx.moveTo(x + s / 4, y + s / 2); ctx.lineTo(x + s / 4, y + s);
+      ctx.stroke();
+    } else if (t === QBLOCK) {
+      ctx.fillStyle = col.topic;
+      ctx.fillRect(x + 0.5, y + 0.5, s - 1, s - 1);
+      ctx.fillStyle = col.surface;
+      ctx.beginPath();
+      ctx.arc(x + s / 2, y + s / 2, Math.max(1.5, s * 0.15), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (t === COIN) {
+      ctx.fillStyle = col.warn;
+      ctx.beginPath();
+      ctx.ellipse(x + s / 2, y + s / 2, s * 0.22, s * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (t === PIPE) {
+      ctx.fillStyle = col.good;
+      ctx.fillRect(x, y, s, s);
+    } else if (t === BLOCK) {
+      ctx.fillStyle = col.ink2;
+      ctx.fillRect(x + 0.5, y + 0.5, s - 1, s - 1);
+    }
+  }
+
+  view = DemoKit.canvas('#object-list', {
+    aspect: 32 / 14,
+    minHeight: 150,
+    maxHeight: 360,
+    animate: false,
+    keys: true,
+    label: 'A two-page level built from an object list. Click a cell or use the arrow keys and Enter to place or remove objects.',
+    onDown: function (p) {
+      var cell = cellAt(p);
+      if (!cell) return;
+      cursor.c = cell.c; cursor.r = cell.r; cursor.show = true;
+      act();
+    },
+    onMove: function (p) {
+      var cell = cellAt(p);
+      if (cell) { cursor.c = cell.c; cursor.r = cell.r; cursor.show = true; }
+    },
+    onKey: function (key, down) {
+      if (!down) return;
+      cursor.show = true;
+      if (key === 'arrowleft') cursor.c = Math.max(0, cursor.c - 1);
+      else if (key === 'arrowright') cursor.c = Math.min(COLS - 1, cursor.c + 1);
+      else if (key === 'arrowup') cursor.r = Math.max(0, cursor.r - 1);
+      else if (key === 'arrowdown') cursor.r = Math.min(ROWS - 1, cursor.r + 1);
+      else if (key === 'enter' || key === 'space') act();
+    },
+    onResize: function (s) {
+      var cs = Math.min(s.width / COLS, (s.height - 18) / ROWS);
+      layout.cs = cs;
+      layout.ox = (s.width - cs * COLS) / 2;
+      layout.oy = 18;
+    },
+    draw: function (ctx, s) {
+      var col = s.colors;
+      var cs = layout.cs, ox = layout.ox, oy = layout.oy;
+      var limit = Math.min(decodeSlider.value, objects.length);
+      var result = decode(bytes, limit);
+      var r, c;
+
+      ctx.fillStyle = col.surface2;
+      ctx.fillRect(ox, oy, cs * COLS, cs * ROWS);
+
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = col.ink2;
+      ctx.textBaseline = 'middle';
+      ctx.fillText('page 0', ox + 2, 9);
+      ctx.fillText('page 1', ox + cs * 16 + 4, 9);
+
+      for (r = 0; r < ROWS; r++) {
+        for (c = 0; c < COLS; c++) drawTile(ctx, result.grid[r][c], ox + c * cs, oy + r * cs, cs, col);
+      }
+
+      if (gridToggle.value) {
+        ctx.strokeStyle = col.ink3;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (c = 0; c <= COLS; c++) { ctx.moveTo(ox + c * cs, oy); ctx.lineTo(ox + c * cs, oy + ROWS * cs); }
+        for (r = 0; r <= ROWS; r++) { ctx.moveTo(ox, oy + r * cs); ctx.lineTo(ox + COLS * cs, oy + r * cs); }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Page boundary
+      ctx.strokeStyle = col.ink;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ox + 16 * cs, 0);
+      ctx.lineTo(ox + 16 * cs, oy + ROWS * cs);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (outlineToggle.value) {
+        ctx.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        result.foot.forEach(function (f, idx) {
+          var last = idx === result.foot.length - 1 && limit < objects.length;
+          ctx.strokeStyle = col.topic;
+          ctx.lineWidth = last ? 3 : 1.5;
+          ctx.setLineDash(last ? [] : [3, 2]);
+          var w = Math.min(f.w, COLS - f.c);
+          ctx.strokeRect(ox + f.c * cs + 1, oy + f.r * cs + 1, w * cs - 2, f.h * cs - 2);
+          ctx.setLineDash([]);
+          var bx = ox + f.c * cs + 1, by = oy + f.r * cs + 1;
+          ctx.fillStyle = col.topic;
+          ctx.fillRect(bx, by, 15, 13);
+          ctx.fillStyle = col.surface;
+          ctx.fillText(String(idx + 1), bx + 7.5, by + 7);
+        });
+        ctx.textAlign = 'left';
+      }
+
+      if (cursor.show) {
+        ctx.strokeStyle = col.ink;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + cursor.c * cs + 1, oy + cursor.r * cs + 1, cs - 2, cs - 2);
+      }
+    }
+  });
+
+  copyExample();
+  refresh(true);
+})();
+</script>
+</body>
+</html>

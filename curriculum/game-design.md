@@ -39,7 +39,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 - [x] **Introduce, develop, twist, conclude** — How the four-step structure inspired by kishotenketsu builds a level around one idea. Demo: Four short rooms built around a moving platform are labelled by step, and can be reordered and replayed to feel why the order matters. (published 2026-11-08, introduce-develop-twist-conclude)
 - [x] **Signposting** — How light, colour, lines and landmarks guide players without a map marker. Demo: A dark maze-like room with toggles for a lit exit, a landmark tower and a trail of pickups, and a timer for reaching the goal. (published 2026-11-16, signposting-light-landmarks)
 - [x] **Affordances and visual language** — How consistent shapes and colours tell players what can be climbed, broken or feared. Demo: A room of objects where one toggle makes the colour rules consistent or random, with a counter of wrong guesses about which ones hurt. (published 2026-11-17, affordances-visual-language)
-- [ ] **Risk and reward** — How optional danger with a better payoff lets players choose their own difficulty. Demo: A coin run with a safe route and a dangerous route, a slider for the reward multiplier, and a tally of which route you choose.
+- [x] **Risk and reward** — How optional danger with a better payoff lets players choose their own difficulty. Demo: A coin run with a safe route and a dangerous route, a slider for the reward multiplier, and a tally of which route you choose. (published 2026-11-18, risk-and-reward)
 
 ## Track 4: Economy, progression and randomness
 

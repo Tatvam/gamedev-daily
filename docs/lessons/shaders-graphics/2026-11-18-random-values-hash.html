@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Random values from a hash: same cell, same number · Game Dev Daily</title>
+<meta name="description" content="A shader has no random() and no memory. A hash turns a cell's coordinates into a number that looks random but is the same every frame.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-18">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Random values from a hash: same cell, same number</h1>
+  <p class="lede">A shader has no random() and no memory. A hash turns a cell's coordinates into a number that looks random but is the same every frame.</p>
+</header>
+
+<section data-section="hook">
+  <p>Grass where every tile is the same green looks like wallpaper. On the CPU you would call <code>math.random</code> per tile and store the result. A shader has no random function and remembers nothing between pixels or frames. It has to <em>compute</em> a random-looking number from what it has: the pixel's position.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A hash: a number that only looks random</h2>
+  <p>A fragment shader is a small function that runs once per pixel: the pixel's position and a few uniforms go in, a colour comes out. Any randomness has to come from those inputs.</p>
+  <p>A <dfn>hash function</dfn> scrambles an input so that nearby inputs give unrelated outputs. It is <dfn>deterministic</dfn>: the same input always gives the same output. That is exactly what a shader needs. Cell (3, 5) gets the same value on every frame and every pixel inside it, with nothing stored. <code>math.random</code>, by contrast, is a <dfn>generator</dfn> with hidden state, where each call depends on the one before. Pixels run in parallel and cannot share that state.</p>
+
+  <h3>Step 1: one input per cell</h3>
+  <p>As in the fract lesson, dividing by a cell size and taking <code>floor</code> gives each pixel the number of its cell.</p>
+<pre><code>vec2 id = floor(gl_FragCoord.xy / u_cell);   // (0, 0), (1, 0), (2, 0) ...</code></pre>
+  <p>Every pixel in a cell shares the <code>id</code>, so it shares the random value. Hash the raw pixel position instead and you get film grain rather than tiles.</p>
+
+  <h3>Step 2: squash, scramble, keep the tail</h3>
+  <p>The classic shader hash is one line, copied so widely that its origin is hard to trace:</p>
+<pre><code>float r = fract(sin(dot(id, vec2(12.9898, 78.233))) * 43758.5453);</code></pre>
+  <p>Read it from the inside out.</p>
+  <ul>
+    <li><code>dot(id, K)</code> squashes two numbers into one: 12.9898 × x + 78.233 × y. The constants are arbitrary uneven numbers, chosen so rows and columns do not line up.</li>
+    <li><code>sin</code> folds that number into the range −1 to 1. Neighbours now differ, but still follow a wave: stage 3 of the demo shows stripes.</li>
+    <li><code>* 43758.5453</code> pushes the sine's fourth and fifth decimal places to the front. Those far digits change wildly from cell to cell.</li>
+    <li><code>fract</code> keeps only those digits: a number from 0 to just under 1.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="The hash worked through for cell 3, 5. The cell id goes through dot with 12.9898 and 78.233 to give 430.1344. Sine gives 0.2607447. Multiplying by 43758.5453 gives 11409.8103. Fract throws away 11409 and keeps 0.8103, shown as a swatch at 81 percent strength.">
+      <rect class="d-box" x="16" y="30" width="120" height="50" rx="6"/>
+      <text class="d-muted" x="76" y="22" text-anchor="middle">cell id</text>
+      <text class="d-mono" x="76" y="60" text-anchor="middle">(3, 5)</text>
+
+      <path class="d-stroke" d="M136 55 H236"/>
+      <path class="d-stroke" d="M228 49 L238 55 L228 61"/>
+      <text class="d-label" x="186" y="44" text-anchor="middle">dot(id, K)</text>
+
+      <rect class="d-box" x="240" y="30" width="140" height="50" rx="6"/>
+      <text class="d-muted" x="310" y="22" text-anchor="middle">one number</text>
+      <text class="d-mono" x="310" y="60" text-anchor="middle">430.1344</text>
+
+      <path class="d-stroke" d="M380 55 H476"/>
+      <path class="d-stroke" d="M468 49 L478 55 L468 61"/>
+      <text class="d-label" x="428" y="44" text-anchor="middle">sin</text>
+
+      <rect class="d-box" x="480" y="30" width="144" height="50" rx="6"/>
+      <text class="d-muted" x="552" y="22" text-anchor="middle">−1 to 1</text>
+      <text class="d-mono" x="552" y="60" text-anchor="middle">0.2607447</text>
+
+      <path class="d-stroke" d="M552 80 V112 H330 V140"/>
+      <path class="d-stroke" d="M324 132 L330 142 L336 132"/>
+      <text class="d-label" x="440" y="104" text-anchor="middle">× 43758.5453</text>
+
+      <rect class="d-box" x="230" y="146" width="200" height="50" rx="6"/>
+      <text class="d-mono" x="330" y="176" text-anchor="middle"><tspan class="d-muted">11409</tspan>.8103</text>
+      <text class="d-muted" x="330" y="216" text-anchor="middle">whole part: thrown away</text>
+
+      <path class="d-stroke" d="M430 171 H496"/>
+      <path class="d-stroke" d="M488 165 L498 171 L488 177"/>
+      <text class="d-label" x="462" y="160" text-anchor="middle">fract</text>
+
+      <rect class="d-box" x="500" y="146" width="70" height="50" rx="6"/>
+      <text class="d-mono" x="535" y="176" text-anchor="middle">0.8103</text>
+      <rect class="d-accent-fill" x="584" y="146" width="40" height="50" rx="6" fill-opacity="0.81"/>
+      <text class="d-muted" x="604" y="216" text-anchor="middle">r</text>
+
+      <text class="d-muted" x="16" y="160">K = (12.9898, 78.233)</text>
+      <text class="d-muted" x="16" y="244">Numbers computed in double precision; a GPU may differ.</text>
+    </svg>
+    <figcaption>The hash for cell (3, 5). The multiply shoves the sine's far decimals to the front, and fract keeps only them.</figcaption>
+  </figure>
+
+  <p>Why does that look random? One cell to the right, the sine shifts a little. Multiplied by about 44 thousand, that shift is thousands of units, and only its fractional part survives. With a multiplier of 1 you still see the wave, and small multipliers leave traces of it in the bar chart; try the demo's <em>Multiplier</em> menu.</p>
+
+  <h3>More than one value per cell</h3>
+  <p>Hashing the same <code>id</code> twice gives the same number twice. For a second value, shift the input: <code>hash(id + vec2(0.5, 0.25))</code> falls between the integer ids, so it never repeats another cell's value.</p>
+
+  <h3>Seeds</h3>
+  <p>A <dfn>seed</dfn> picks which pattern you get: <code>hash(id + seed * vec2(31.0, 17.0))</code>. Step it several times a second for TV static.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Precision is part of the formula</p>
+    <p>The hash lives on the last few of the roughly seven digits a 32-bit float keeps. For cell (3, 5), double precision gives 0.810; the same sum rounded to 32-bit floats gives about 0.835. GPUs also compute <code>sin</code> slightly differently, so the pattern can change between devices. Under <code>mediump</code>, a 16-bit float on many phones, it turns into blotches and stripes. The demo asks for <code>highp</code> when the device has it.</p>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">Which corner is cell (0, 0)</p>
+    <p>WebGL's <code>gl_FragCoord</code> starts at the bottom-left with y up, so that is the demo's cell (0, 0). LÖVE's <code>screen_coords</code> start at the top-left with y down; the LÖVE code flips y to match. Godot's canvas <code>UV</code> starts at the top-left, Unity's mesh UVs at the bottom-left. The greys are output as written; in a linear-space project, such as Unity's Linear colour space, they display brighter.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Step through the <em>Stage</em> menu; each stage adds one line of the shader. On stage 4, set <em>Multiplier</em> to 1, 10, 100, 1000 and then 43758.5453, and watch the stripes break up, in the shader and in the bar chart of the bottom row. Then change the <em>Seed</em> and <em>Cell size</em>: a cell keeps its value until you do. <em>Animate the seed</em> re-rolls the grid six times a second.</p>
+
+  <figure class="demo wide" data-demo="hash-cells">
+    <canvas id="hash-shader"></canvas>
+    <canvas id="hash-graph"></canvas>
+    <figcaption>Top: the live shader. Bottom: the bottom row of cells. Bars are the hash r, dots the plain sine mapped to 0 to 1. The chart uses CPU doubles, so at the largest multiplier it can differ slightly from the shader. With reduced motion on, press Play to animate the seed.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over the window. The arrow keys double or halve the cell size; space changes the seed.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local cellSize = 24        <span class="c">-- cell size in screen units</span>
+local seed = 0             <span class="c">-- whole number: each seed is a different pattern</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_cell;
+uniform float u_seed;
+const vec2 K = vec2(12.9898, 78.233);
+const vec2 SEED_STEP = vec2(31.0, 17.0);
+
+float hash(vec2 p)
+{
+  return fract(sin(dot(p, K)) * 43758.5453);
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  // LÖVE's origin is the top-left: flip y so cell (0, 0) is bottom-left, as in the demo
+  vec2 pos = vec2(screen_coords.x, u_resolution.y - screen_coords.y);
+  vec2 id = floor(pos / u_cell);
+  float r = hash(id + u_seed * SEED_STEP);
+  return vec4(vec3(r), 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "up" then cellSize = math.min(cellSize * 2, 96) end
+  if key == "down" then cellSize = math.max(cellSize / 2, 3) end
+  if key == "space" then seed = (seed + 1) % 32 end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local pw, ph = love.graphics.getPixelDimensions()
+  shader:send("u_resolution", { pw, ph })
+<span class="k">  shader:send("u_cell", cellSize * pw / w)   <span class="c">-- in real pixels on high-DPI screens</span>
+  shader:send("u_seed", seed)</span>
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+  love.graphics.print("cell " .. cellSize .. "  seed " .. seed, 10, 10)
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;   // the hash needs 32-bit floats
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_cell;    // cell size in device pixels
+uniform float u_seed;    // whole number: each seed is a different pattern
+uniform float u_mult;    // the big multiplier, 43758.5453 normally
+uniform float u_stage;   // 0 raw UV ... 4 final colour
+
+const vec2 K = vec2(12.9898, 78.233);
+const vec2 SEED_STEP = vec2(31.0, 17.0);
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, K)) * u_mult);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;     // 1. 0 to 1 across the canvas
+  vec2 id = floor(gl_FragCoord.xy / u_cell);    // 2. which cell: 0, 1, 2 ...
+  vec2 p = id + u_seed * SEED_STEP;
+  float s = sin(dot(p, K));                     // 3. one number per cell, folded to -1..1
+  float r = fract(s * u_mult);                  // 4. keep only the far digits: 0 to 1
+
+  // 5. use it: r picks the shade of grass, a second hash puts a flower in about 1 cell in 5
+  vec2 f = fract(gl_FragCoord.xy / u_cell);     // position inside the cell, 0 to 1
+  float r2 = hash(p + vec2(0.5, 0.25));
+  vec3 col = mix(vec3(0.16, 0.38, 0.16), vec3(0.36, 0.62, 0.24), r);
+  float flower = step(r2, 0.2) * (1.0 - smoothstep(0.2, 0.26, length(f - 0.5)));
+  col = mix(col, vec3(0.98, 0.84, 0.3), flower);
+
+  if (u_stage &lt; 3.5) col = vec3(r);
+  if (u_stage &lt; 2.5) col = vec3(s * 0.5 + 0.5);
+  if (u_stage &lt; 1.5) col = vec3(id * u_cell / u_resolution, 0.0);
+  if (u_stage &lt; 0.5) col = vec3(uv, 0.0);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 rect_size = vec2(640.0, 360.0);  // set this to the ColorRect's size
+uniform float cell_size = 24.0;
+uniform float seed = 0.0;
+
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+void fragment() {
+    // UV starts at the top-left with y going down, so cell (0, 0) is the top-left cell.
+<span class="k">    vec2 id = floor(UV * rect_size / cell_size);
+    float r = hash(id + seed * vec2(31.0, 17.0));</span>
+    COLOR = vec4(vec3(r), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit. Put it on a Quad.
+Shader "GameDevDaily/HashCells"
+{
+    Properties
+    {
+        _Cells ("Cells across (x) and down (y)", Vector) = (16, 9, 0, 0)
+        _Seed ("Seed", Float) = 0
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float4 _Cells;
+            float _Seed;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float hash (float2 p)
+            {
+                return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                // Unity UVs start at the bottom-left, like gl_FragCoord in the demo.
+<span class="k">                float2 id = floor(i.uv * _Cells.xy);
+                float r = hash(id + _Seed * float2(31.0, 17.0));</span>
+                return fixed4(r, r, r, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The highlighted lines are the whole idea: find the cell, hash it. HLSL spells <code>fract</code> as <code>frac</code>. In URP Shader Graph, chain UV, Multiply and Floor into the Random Range node; Unity's documentation for that node shows generated code using this same sine formula. The Godot and Unity versions count cells over the object's UVs, so the grid moves with the object.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Hashing large numbers.</strong> A world position of 50 000, or <code>u_time</code> after an hour, has lost the digits the hash lives on, and the pattern turns blocky. Hash small numbers such as cell ids, and wrap seeds and time, as the demo does.</li>
+    <li><strong>Low precision on phones.</strong> Under <code>mediump</code> the hash falls apart. Ask for <code>highp</code>, or use a hash without <code>sin</code>, such as Dave Hoskins' "Hash without Sine" family.</li>
+    <li><strong>Trusting the GPU for gameplay.</strong> CPU and GPU, or two GPUs, can disagree in the last digits. If gameplay depends on which tile has a flower, decide it on the CPU and send it to the shader.</li>
+    <li><strong>Hashing the same input twice.</strong> Then "random size" and "random colour" are the same number. Offset the input for each extra value.</li>
+    <li><strong>Expecting smooth randomness.</strong> A hash is <dfn>white noise</dfn>: each cell is independent of its neighbours. Clouds and fire need values that change gradually, which is the next lesson.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One dot product, one <code>sin</code>, one multiply and one <code>fract</code>: cheap even on a phone. <code>sin</code> is the dearest part, but most GPUs have dedicated hardware for it. The alternative, a noise texture, costs a texture read, memory bandwidth and an asset.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Per-cell hashes give games small variety: tiles shaded or rotated slightly differently, stars that twinkle at their own rate, grass with its own sway offset, film grain and dithering. The same hash, with the same constants give or take a few digits, appears in The Book of Shaders' chapter on randomness and in Unity's documentation for the Random Range node. Many shader writers now prefer hashes without <code>sin</code>.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE program into a star field.</p>
+  <ol>
+    <li>With <code>f = fract(pos / u_cell)</code>, draw a disc in each cell: <code>1.0 - smoothstep(0.03, 0.06, length(f - 0.5))</code>.</li>
+    <li>Keep it only where <code>hash(id) &lt; 0.15</code>.</li>
+    <li>Move each star off-centre with two more hashes, offset by <code>vec2(0.5, 0.25)</code> and <code>vec2(0.75, 0.5)</code>.</li>
+    <li>Add <code>uniform float u_time</code>, fed from a timer you add <code>dt</code> to in <code>love.update</code>, and multiply the brightness by <code>0.6 + 0.4 * sin(u_time * 3.0 + 6.28 * hash(id + vec2(0.25, 0.75)))</code>.</li>
+  </ol>
+  <p>You are done when the stars are scattered irregularly, stay put between runs, and twinkle out of step.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A shader has no random generator and no memory. A hash computes a random-looking number from its input, the same one every time.</li>
+    <li>Hash the cell id from <code>floor</code> for one value per cell.</li>
+    <li><code>fract(sin(dot(id, K)) * 43758.5453)</code>: squash to one number, fold with sin, push the far digits forward, keep them.</li>
+    <li>It depends on 32-bit precision: use <code>highp</code>, keep inputs small, and do not base gameplay on it.</li>
+    <li>Offset the input for extra values; add a seed for a different pattern.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, noise in a fragment shader: blending the random values of neighbouring cells to get smooth value noise and gradient noise.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Random".</li>
+    <li>Dave Hoskins, <cite>Hash without Sine</cite>, a Shadertoy collection of hashes that avoid <code>sin</code>.</li>
+    <li>Mark Jarzynski and Marc Olano, <cite>Hash Functions for GPU Rendering</cite>, Journal of Computer Graphics Techniques, 2020.</li>
+    <li>The Khronos Group, <cite>The OpenGL ES Shading Language, version 1.00</cite>, on precision qualifiers and <code>GL_FRAGMENT_PRECISION_HIGH</code>.</li>
+    <li>Unity documentation, <cite>Random Range Node</cite> (Shader Graph).</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;   // the hash needs 32-bit floats",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_cell;    // cell size in device pixels",
+    "uniform float u_seed;    // whole number: each seed is a different pattern",
+    "uniform float u_mult;    // the big multiplier, 43758.5453 normally",
+    "uniform float u_stage;   // 0 raw UV ... 4 final colour",
+    "",
+    "const vec2 K = vec2(12.9898, 78.233);",
+    "const vec2 SEED_STEP = vec2(31.0, 17.0);",
+    "",
+    "float hash(vec2 p) {",
+    "  return fract(sin(dot(p, K)) * u_mult);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 uv = gl_FragCoord.xy / u_resolution;     // 1. 0 to 1 across the canvas",
+    "  vec2 id = floor(gl_FragCoord.xy / u_cell);    // 2. which cell: 0, 1, 2 ...",
+    "  vec2 p = id + u_seed * SEED_STEP;",
+    "  float s = sin(dot(p, K));                     // 3. one number per cell, folded to -1..1",
+    "  float r = fract(s * u_mult);                  // 4. keep only the far digits: 0 to 1",
+    "",
+    "  // 5. use it: r picks the shade of grass, a second hash puts a flower in about 1 cell in 5",
+    "  vec2 f = fract(gl_FragCoord.xy / u_cell);     // position inside the cell, 0 to 1",
+    "  float r2 = hash(p + vec2(0.5, 0.25));",
+    "  vec3 col = mix(vec3(0.16, 0.38, 0.16), vec3(0.36, 0.62, 0.24), r);",
+    "  float flower = step(r2, 0.2) * (1.0 - smoothstep(0.2, 0.26, length(f - 0.5)));",
+    "  col = mix(col, vec3(0.98, 0.84, 0.3), flower);",
+    "",
+    "  if (u_stage < 3.5) col = vec3(r);",
+    "  if (u_stage < 2.5) col = vec3(s * 0.5 + 0.5);",
+    "  if (u_stage < 1.5) col = vec3(id * u_cell / u_resolution, 0.0);",
+    "  if (u_stage < 0.5) col = vec3(uv, 0.0);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var K = [12.9898, 78.233];      // the same as in the shader
+  var SEED_STEP = [31, 17];
+  var REROLLS = 6;                // new seeds per second when the seed is animated
+  var SEEDS = 32;                 // seeds wrap so the hash input stays small
+
+  var handle = null;
+  var graph = null;
+  var seedNow = 0;
+
+  var ui = DemoKit.controls('[data-demo="hash-cells"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Raw UV: gl_FragCoord / resolution' },
+      { value: '1', label: '2. Cell id: floor(gl_FragCoord / cell)' },
+      { value: '2', label: '3. One number, folded: sin(dot(id, K))' },
+      { value: '3', label: '4. The hash: fract(sin(...) × multiplier)' },
+      { value: '4', label: '5. Use it: grass shade and flowers' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+  var mult = ui.select({
+    label: 'Multiplier',
+    options: ['1', '10', '100', '1000', '43758.5453'],
+    value: '43758.5453',
+    onChange: changed
+  });
+  var cell = ui.slider({ label: 'Cell size', min: 3, max: 80, step: 1, value: 24, unit: ' px', onInput: changed });
+  var seedSlider = ui.slider({ label: 'Seed', min: 0, max: 15, step: 1, value: 0, onInput: changed });
+  var animateSeed = ui.toggle({ label: 'Animate the seed (6 per second)', value: false, onChange: changed });
+  var readout = ui.readout({ label: 'Grid' });
+
+  function computeSeed(time) {
+    var extra = animateSeed.value ? Math.floor(time * REROLLS) : 0;
+    return (seedSlider.value + extra) % SEEDS;
+  }
+
+  function updateReadout() {
+    var s = handle ? handle.state : null;
+    if (!s || !s.width) { readout.set('seed ' + seedNow); return; }
+    var cols = Math.ceil(s.width / cell.value);
+    var rows = Math.ceil(s.height / cell.value);
+    readout.set(cols + ' × ' + rows + ' cells, seed ' + seedNow + ', cell (0, 0) at the bottom-left');
+  }
+
+  function changed() {
+    seedNow = computeSeed(handle ? handle.state.time : 0);
+    updateReadout();
+    if (handle) handle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  function fract(x) { return x - Math.floor(x); }
+
+  handle = DemoKit.shader('#hash-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 400,
+    label: 'A live fragment shader that splits the canvas into square cells and gives each cell a grey value from a hash. The Stage menu shows the raw coordinates, the cell ids, the sine before scrambling, the hash, and a grass field with flowers that uses it. Controls set the multiplier, the cell size and the seed.',
+    uniforms: {
+      u_cell: function (s) { return cell.value * s.dpr; },
+      u_seed: function () { return seedNow; },
+      u_mult: function () { return Number(mult.value); },
+      u_stage: function () { return Number(stage.value); }
+    },
+    update: function (dt, s) {
+      var next = computeSeed(s.time);
+      if (next !== seedNow) {
+        seedNow = next;
+        updateReadout();
+        if (graph) graph.redraw();
+      }
+    },
+    onResize: function () { updateReadout(); }
+  });
+
+  graph = DemoKit.canvas('#hash-graph', {
+    height: 170,
+    animate: false,
+    label: 'A bar chart of the hash value for each cell along the bottom row, with dots showing the plain sine for comparison. With a small multiplier the bars follow the dots in a wave; with the large multiplier they jump around.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 30, right = 12, top = 30, bottom = 22;
+      var w = Math.max(10, s.width - left - right);
+      var h = Math.max(10, s.height - top - bottom);
+      var n = Math.max(8, Math.min(40, Math.floor(w / 12)));
+      var bw = w / n;
+      var m = Number(mult.value);
+      function Y(v) { return top + (1 - v) * h; }
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+
+      // axes
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(1)); ctx.lineTo(left + w, Y(1));
+      ctx.moveTo(left, Y(0.5)); ctx.lineTo(left + w, Y(0.5));
+      ctx.stroke();
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(1)); ctx.lineTo(left, Y(0)); ctx.lineTo(left + w, Y(0));
+      ctx.stroke();
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'right';
+      ctx.fillText('1', left - 6, Y(1));
+      ctx.fillText('0', left - 6, Y(0));
+
+      var i, px, py, d, sv, r, x;
+      for (i = 0; i < n; i++) {
+        px = i + seedNow * SEED_STEP[0];
+        py = 0 + seedNow * SEED_STEP[1];
+        d = px * K[0] + py * K[1];
+        sv = Math.sin(d);
+        r = fract(sv * m);
+        x = left + i * bw;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(x + bw * 0.15, Y(r), bw * 0.7, Y(0) - Y(r));
+        ctx.fillStyle = c.ink;
+        ctx.beginPath();
+        ctx.arc(x + bw * 0.5, Y(sv * 0.5 + 0.5), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(left, 9, 10, 10);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('r, the hash', left + 16, 14);
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(left + 116, 14, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('sin × 0.5 + 0.5', left + 124, 14);
+      ctx.textBaseline = 'top';
+      ctx.fillText('cell x = 0 to ' + (n - 1) + ', bottom row', left, Y(0) + 5);
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Static, kinematic and dynamic bodies · Game Dev Daily</title>
+<meta name="description" content="How static, kinematic and dynamic bodies differ, which one to pick for floors, platforms, players and crates, and why kinematic bodies move by velocity.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-18">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Static, kinematic and dynamic bodies</h1>
+  <p class="lede">How static, kinematic and dynamic bodies differ, which one to pick for floors, platforms, players and crates, and why a kinematic body must move by velocity.</p>
+</header>
+
+<section data-section="hook">
+  <p>You build a moving platform by changing its position a little every frame. The crate on top does not ride along: the platform slides out from under it and the crate drops.</p>
+  <p>Then you make the hero a rigid body, and the first crate that lands on him knocks him over. Both bugs have the same cause: the wrong kind of body, or the right kind moved the wrong way.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One question: who moves this body?</h2>
+  <p>A physics engine sorts every body into one of three kinds, by who may change where it goes.</p>
+  <ul>
+    <li>A <dfn>static body</dfn> never moves. Floors, walls and level geometry.</li>
+    <li>A <dfn>kinematic body</dfn> moves only at the velocity your code gives it. Gravity and collisions do not change that velocity. Moving platforms, doors, elevators, and often the player.</li>
+    <li>A <dfn>dynamic body</dfn> is moved by the simulation: gravity, forces and collisions all change its velocity. Crates, balls, debris.</li>
+  </ul>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th>Static</th><th>Kinematic</th><th>Dynamic</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Who sets the velocity</td><td>nobody, it is 0</td><td>your code</td><td>the simulation</td></tr>
+      <tr><td>Gravity</td><td>no</td><td>no</td><td>yes</td></tr>
+      <tr><td>Pushed by collisions</td><td>no</td><td>no</td><td>yes</td></tr>
+      <tr><td>Pushes dynamic bodies</td><td>blocks them</td><td>yes</td><td>yes, shared by mass</td></tr>
+      <tr><td>Inverse mass</td><td>0</td><td>0</td><td>1 / mass</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The solver only sees inverse mass and velocity</h3>
+  <p>In the earlier lessons on impulses, a collision changed each body's velocity like this:</p>
+<pre><code>v = v + j * inv</code></pre>
+  <p>In words: the push <code>j</code> changes the velocity in proportion to the <dfn>inverse mass</dfn> <code>inv</code>, which is 1 divided by the mass. Give a body an inverse mass of 0 and no push can ever change its velocity. That is how both static and kinematic bodies get their infinite mass, with no special case in the solver.</p>
+  <p>So what separates them? Only the velocity. A static body's velocity is always 0. A kinematic body's velocity is whatever your code set, and the solver uses it when it works out how fast two bodies close in on each other. That is how a platform shoves a crate and carries it by friction.</p>
+  <p>One more rule follows. When both bodies in a pair have inverse mass 0, the push formula divides by <code>0 + 0</code>. Neither body could move anyway, so engines skip those pairs: a kinematic body passes straight through walls, floors and other kinematic bodies.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Four boxes: static and kinematic on top, two dynamic bodies below. Static and kinematic are joined by a dashed line marked no contact. Static blocks the dynamic body below it. Kinematic pushes the dynamic body below it and is not pushed back. The two dynamic bodies push each other, split by mass.">
+      <rect class="d-box" x="40" y="30" width="180" height="76" rx="8"/>
+      <rect class="d-box" x="420" y="30" width="180" height="76" rx="8"/>
+      <rect class="d-accent-soft" x="40" y="184" width="180" height="76" rx="8"/>
+      <rect class="d-accent-soft" x="420" y="184" width="180" height="76" rx="8"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="130" y="56">Static</text>
+        <text class="d-muted" x="130" y="76">inverse mass 0</text>
+        <text class="d-muted" x="130" y="94">velocity always 0</text>
+        <text class="d-text" x="510" y="56">Kinematic</text>
+        <text class="d-muted" x="510" y="76">inverse mass 0</text>
+        <text class="d-muted" x="510" y="94">velocity from your code</text>
+        <text class="d-text" x="130" y="210">Dynamic</text>
+        <text class="d-muted" x="130" y="230">inverse mass 1 / m</text>
+        <text class="d-muted" x="130" y="248">velocity from the solver</text>
+        <text class="d-text" x="510" y="210">Dynamic</text>
+        <text class="d-muted" x="510" y="230">inverse mass 1 / m</text>
+        <text class="d-muted" x="510" y="248">velocity from the solver</text>
+      </g>
+      <path class="d-dash" d="M220 68 H420"/>
+      <text class="d-muted" x="320" y="58" text-anchor="middle">no contact</text>
+      <path class="d-stroke" d="M130 106 V184"/>
+      <text class="d-label" x="142" y="150">blocks</text>
+      <path class="d-accent" d="M510 106 V176"/>
+      <path class="d-accent-fill" d="M503 172 L510 184 L517 172 Z"/>
+      <text class="d-label" x="498" y="140" text-anchor="end">pushes,</text>
+      <text class="d-label" x="498" y="158" text-anchor="end">never pushed back</text>
+      <path class="d-accent" d="M232 222 H408"/>
+      <path class="d-accent-fill" d="M232 215 L220 222 L232 229 Z"/>
+      <path class="d-accent-fill" d="M408 215 L420 222 L408 229 Z"/>
+      <text class="d-label" x="320" y="212" text-anchor="middle">push each other</text>
+      <text class="d-muted" x="320" y="244" text-anchor="middle">split by mass</text>
+    </svg>
+    <figcaption>Who pushes whom. Only pairs with at least one dynamic body are solved. Two bodies with inverse mass 0 never collide.</figcaption>
+  </figure>
+
+  <h3>The teleport bug</h3>
+  <p>Because the solver reads a kinematic body's velocity, you must move it <em>by</em> velocity. If you write its position directly, it <dfn>teleports</dfn>: it arrives at the new place, but its velocity is still 0. The solver thinks it is standing still. A crate on top feels no friction, so the platform slides out from under it. A crate in its way is not shoved, only pushed out of the overlap bit by bit.</p>
+  <p>The fix: set the velocity that reaches the target in one step:</p>
+<pre><code>vx = (targetX - x) / dt</code></pre>
+  <p>In words: the gap to the target, divided by the step time. With the target 10 pixels to the right and a step of 1/60 s, <code>vx</code> = 10 × 60 = 600 px/s. The integrator then moves the body exactly those 10 pixels, and the solver knows it was moving at 600 px/s while it did.</p>
+
+  <div class="callout">
+    <p class="callout-title">Game answer, not physics answer</p>
+    <p>A real person is a dynamic body: pushed by crates, toppled by a hit. Players rarely want that. Platformer heroes are usually kinematic, so speed and jump arc are exactly what the designer chose. Make something dynamic when you <em>want</em> the simulation to surprise you.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The coloured box is the one you control. Pick its kind, then drag it, move it with the arrow keys, or throw crates at it. Two small crates start on top of it.</p>
+  <p>Start with <strong>Kinematic</strong> and drag the box slowly sideways: the crates ride along. Switch on <strong>Teleport</strong> and repeat: the box slides out from under them, and its red velocity arrow is gone. Then drag it into the floor, and throw a crate at each kind of box.</p>
+
+  <figure class="demo wide" data-demo="bodies">
+    <canvas id="bodies"></canvas>
+    <figcaption>Static ignores the mouse and gravity. Kinematic follows you exactly, floats when let go, passes through the floor, and stops a thrown crate dead. Dynamic falls, sags a little under the mouse, and is knocked along by a crate. Keyboard: click the canvas, then use the arrow keys, and Space to throw a crate.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>This is the demo's physics with the same numbers, minus the walls, the keys, throwing and the mouse spring. The body kind is used in three places only: whether gravity applies, which pairs are tested, and whether position is integrated. Everything else follows from the inverse mass.</p>
+  <p>A check by hand for one step: a dynamic crate at rest gains 1000 × 1/60 ≈ 16.7 px/s downward; a kinematic box gains nothing. A crate resting on top gets a normal push of about 16.7 per step, so friction changes its speed by at most 0.6 × 16.7 ≈ 10 px/s per step: it catches a box moving at 100 px/s in about 10 steps. When a crate thrown at 600 px/s hits the dynamic box of mass 4, the push is 600 / (1 + 1/4) = 480. The box gains 480 × 1/4 = 120 px/s and the crate keeps 600 − 480 = 120 px/s (floor friction on the box then cuts that; in the demo it peaks near 70). Against the kinematic box the push is 600 / (1 + 0) = 600, so the crate stops and the box gains 600 × 0 = 0.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GRAVITY    = 1000    <span class="c">-- pixels per second squared, +y is down</span>
+local STEP       = 1 / 60
+local ITERATIONS = 8
+local FRICTION   = 0.6
+local STRENGTH   = 0.2     <span class="c">-- share of the overlap pushed out per step</span>
+local SLOP       = 0.5     <span class="c">-- pixels of overlap left alone</span>
+
+local function newBody(kind, x, y, w, h, mass)
+  local b = { kind = kind, x = x, y = y, w = w, h = h, vx = 0, vy = 0 }
+<span class="k">  b.inv = 0                                   -- static and kinematic: infinite mass
+  if kind == "dynamic" then b.inv = 1 / mass end</span>
+  return b
+end
+
+local function findContact(a, b)
+  local dx, dy = b.x - a.x, b.y - a.y
+  local ox = (a.w + b.w) / 2 - math.abs(dx)
+  local oy = (a.h + b.h) / 2 - math.abs(dy)
+  if ox &lt;= 0 or oy &lt;= 0 then return nil end
+  local c = { a = a, b = b, nx = 0, ny = 0, depth = oy, jn = 0, jt = 0 }
+  if ox &lt; oy then
+    c.depth = ox
+    if dx &lt; 0 then c.nx = -1 else c.nx = 1 end
+  else
+    if dy &lt; 0 then c.ny = -1 else c.ny = 1 end
+  end
+  return c
+end
+
+local function applyPush(c, j, ux, uy)      <span class="c">-- j along direction (ux, uy)</span>
+  c.a.vx = c.a.vx - j * c.a.inv * ux
+  c.a.vy = c.a.vy - j * c.a.inv * uy
+  c.b.vx = c.b.vx + j * c.b.inv * ux
+  c.b.vy = c.b.vy + j * c.b.inv * uy
+end
+
+local function solve(c, dt)
+  local inv = c.a.inv + c.b.inv
+  <span class="c">-- Normal: uses the kinematic body's velocity, which is why it shoves.</span>
+  local vn = (c.b.vx - c.a.vx) * c.nx + (c.b.vy - c.a.vy) * c.ny
+  local push = STRENGTH * math.max(c.depth - SLOP, 0) / dt
+  local old = c.jn
+  c.jn = math.max(old + (push - vn) / inv, 0)
+  applyPush(c, c.jn - old, c.nx, c.ny)
+  <span class="c">-- Friction along the surface: this is what carries a rider.</span>
+  local tx, ty = -c.ny, c.nx
+  local vt = (c.b.vx - c.a.vx) * tx + (c.b.vy - c.a.vy) * ty
+  local limit = FRICTION * c.jn
+  old = c.jt
+  c.jt = math.min(math.max(old - vt / inv, -limit), limit)
+  applyPush(c, c.jt - old, tx, ty)
+end
+
+local function step(bodies, dt)
+  for _, b in ipairs(bodies) do
+<span class="k">    if b.kind == "dynamic" then b.vy = b.vy + GRAVITY * dt end</span>
+  end
+  local contacts = {}
+  for i = 1, #bodies do
+    for j = i + 1, #bodies do
+      local a, b = bodies[i], bodies[j]
+<span class="k">      if a.inv + b.inv &gt; 0 then               -- two unmovable bodies never collide</span>
+        local c = findContact(a, b)
+        if c then contacts[#contacts + 1] = c end
+      end
+    end
+  end
+  for pass = 1, ITERATIONS do
+    for _, c in ipairs(contacts) do solve(c, dt) end
+  end
+  for _, b in ipairs(bodies) do
+<span class="k">    if b.kind ~= "static" then               -- kinematic bodies move too</span>
+      b.x = b.x + b.vx * dt
+      b.y = b.y + b.vy * dt
+    end
+  end
+end
+
+<span class="c">-- Kinematic: choose the velocity that reaches the target in one step.</span>
+<span class="c">-- Never write box.x directly: that is the teleport bug.</span>
+local function driveKinematic(b, targetX, targetY, dt)
+<span class="k">  b.vx = (targetX - b.x) / dt
+  b.vy = (targetY - b.y) / dt</span>
+end
+
+local floor = newBody("static", 320, 330, 800, 60, 0)     <span class="c">-- top edge at y = 300</span>
+local box   = newBody("kinematic", 320, 200, 100, 40, 4)
+local crate = newBody("dynamic", 320, 163, 30, 30, 1)
+local bodies = { floor, box, crate }
+local accumulator = 0
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local mx, my = love.mouse.getPosition()
+    driveKinematic(box, mx, my, STEP)
+    step(bodies, STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, b in ipairs(bodies) do
+    love.graphics.rectangle("line", b.x - b.w / 2, b.y - b.h / 2, b.w, b.h)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4 gives each kind its own node type:</span>
+<span class="c">#   StaticBody2D      static</span>
+<span class="c">#   AnimatableBody2D  kinematic, for platforms and doors moved by code or animation</span>
+<span class="c">#   CharacterBody2D   kinematic, moved with move_and_slide()</span>
+<span class="c">#   RigidBody2D       dynamic (set freeze and freeze_mode to make it static or kinematic)</span>
+extends AnimatableBody2D
+
+@export var target := Vector2(400, 200)
+
+func _physics_process(delta: float) -&gt; void:
+<span class="k">    # Moved inside the physics step, so Godot works out its velocity</span>
+<span class="k">    # and bodies it touches are pushed and carried.</span>
+    position = position.move_toward(target, 100.0 * delta)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity 2D: one component, three body types.</span>
+<span class="c">// A Collider2D with no Rigidbody2D at all also counts as static.</span>
+using UnityEngine;
+
+public class Platform : MonoBehaviour
+{
+    public Vector2 target = new Vector2(4f, 2f);
+    Rigidbody2D body;
+
+    void Awake()
+    {
+        body = GetComponent&lt;Rigidbody2D&gt;();
+        body.bodyType = RigidbodyType2D.Kinematic;   <span class="c">// or Dynamic, Static</span>
+    }
+
+    void FixedUpdate()
+    {
+<span class="k">        // MovePosition gives the body the velocity that reaches the point</span>
+<span class="k">        // during the next physics step. Writing transform.position teleports it.</span>
+        Vector2 next = Vector2.MoveTowards(body.position, target, 1f * Time.fixedDeltaTime);
+        body.MovePosition(next);
+    }
+}</code></pre>
+  </div>
+  <p>In Godot, moving a <code>StaticBody2D</code> by changing its position is the teleport bug; that is what <code>AnimatableBody2D</code> is for. In Unity 3D the same three choices are a <code>Rigidbody</code> with <code>isKinematic</code> off, a <code>Rigidbody</code> with <code>isKinematic</code> on, and a collider with no <code>Rigidbody</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Teleporting a kinematic or static body.</strong> Writing the position leaves the velocity at 0, so riders are left behind. Move it by velocity, or with the engine call made for it.</li>
+    <li><strong>Expecting a kinematic body to stop at walls.</strong> It has no contact with static bodies, so it walks through them. A kinematic character needs its own collision code.</li>
+    <li><strong>Crushing.</strong> A kinematic body pushes with infinite strength. Pin a crate between it and a wall and the solver cannot satisfy both contacts: the crate jitters, squeezes through, or is flung out.</li>
+    <li><strong>Making everything dynamic.</strong> Every dynamic body costs solver time and can be knocked around. Level geometry should be static, which engines never integrate.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Box2D, the engine under Unity's 2D physics and LÖVE's <code>love.physics</code>, has exactly these three kinds. In LÖVE you pass <code>"static"</code>, <code>"kinematic"</code> or <code>"dynamic"</code> to <code>love.physics.newBody</code>. The Box2D manual states that kinematic bodies do not collide with static or other kinematic bodies.</p>
+  <p>Godot splits the kinematic idea in two: <code>CharacterBody2D</code> for things you steer, and <code>AnimatableBody2D</code> for platforms and doors that push whatever is in the way.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a platform that moves left and right between two points, and put a crate on it. First move it by writing its position every frame and watch the crate get left behind. Then move it by velocity: <code>driveKinematic</code> in LÖVE, <code>AnimatableBody2D</code> in Godot, <code>MovePosition</code> on a kinematic <code>Rigidbody2D</code> in Unity.</p>
+  <p>You are done when the crate rides back and forth without sliding off.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Static never moves, kinematic moves at the velocity your code sets, dynamic is moved by the simulation.</li>
+    <li>Static and kinematic bodies both have inverse mass 0, so no collision can change their velocity. The only difference is that a kinematic body can have one.</li>
+    <li>Pairs where both bodies have inverse mass 0 are never solved, so kinematic bodies pass through walls.</li>
+    <li>Move kinematic bodies by velocity, never by writing the position, or they cannot push or carry anything.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Since a kinematic character walks through walls, the next lesson gives it move and slide: move, hit, slide along the surface, and repeat.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Erin Catto, <cite>Box2D User Manual</cite> (version 2), section on body types. Static, kinematic and dynamic bodies and which pairs collide.</li>
+    <li>Godot Engine documentation, <cite>Physics introduction</cite>, and the class reference pages for <cite>StaticBody2D</cite>, <cite>AnimatableBody2D</cite>, <cite>CharacterBody2D</cite> and <cite>RigidBody2D</cite>.</li>
+    <li>Unity Manual, <cite>Rigidbody 2D</cite> body types: Dynamic, Kinematic and Static.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite> (Morgan Kaufmann, second edition 2010). Infinite mass as an inverse mass of zero.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var GRAVITY = 1000;     // pixels per second squared, +y is down
+  var STEP = 1 / 60;      // fixed timestep in seconds
+  var ITERATIONS = 8;     // solver passes per step
+  var FRICTION = 0.6;
+  var STRENGTH = 0.2;     // share of the overlap pushed out per step
+  var SLOP = 0.5;         // pixels of overlap left alone
+  var MAX_FRAME = 0.25;
+  var W = 640;            // world size in pixels
+  var H = 320;
+  var FLOOR_TOP = 300;
+  var KIN_MAX = 1500;     // cap on the kinematic box's speed, px/s
+  var DYN_MAX = 1200;     // cap on dynamic speeds so nothing tunnels, px/s
+  var KEY_SPEED = 150;    // kinematic speed with the arrow keys, px/s
+  var KEY_PUSH = 1500;    // dynamic acceleration with the arrow keys, px/s^2
+  var SPRING = 150;       // mouse spring for dynamic bodies, 1/s^2
+  var DAMP = 24;          // and its damping, 1/s
+  var THROW_SPEED = 600;
+  var MAX_THROWN = 6;
+  var BOX_MASS = 4;
+
+  var DESCRIBE = {
+    'static': 'inverse mass 0, no gravity, never moves',
+    'kinematic': 'inverse mass 0, no gravity, moves at the velocity your code sets',
+    'dynamic': 'inverse mass 1/4, gravity on, moved by forces and contacts'
+  };
+
+  function newBody(kind, x, y, w, h, mass, role) {
+    var b = { kind: kind, x: x, y: y, px: x, py: y, w: w, h: h, vx: 0, vy: 0,
+      mass: mass, inv: 0, role: role };
+    if (kind === 'dynamic') b.inv = 1 / mass;
+    return b;
+  }
+
+  function setKind(b, kind) {
+    b.kind = kind;
+    b.inv = kind === 'dynamic' ? 1 / b.mass : 0;
+    b.vx = 0;
+    b.vy = 0;
+  }
+
+  var bodies, box, contacts, grab, accumulator, alpha, thrown, message, messageTime, readoutClock;
+
+  var ui = DemoKit.controls('[data-demo="bodies"]');
+  var kindSelect = ui.select({
+    label: 'Box kind',
+    options: [
+      { value: 'static', label: 'Static' },
+      { value: 'kinematic', label: 'Kinematic' },
+      { value: 'dynamic', label: 'Dynamic' }
+    ],
+    value: 'kinematic',
+    onChange: function (v) { setKind(box, v); grab = null; showInfo(); }
+  });
+  var teleport = ui.toggle({ label: 'Teleport kinematic box (the bug)', value: false });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Throw a crate', onClick: throwCrate });
+  ui.button({ label: 'Reset', onClick: reset });
+  var info = ui.readout({ label: 'Box' });
+  var speed = ui.readout({ label: 'Box velocity' });
+
+  function reset() {
+    bodies = [
+      newBody('static', W / 2, FLOOR_TOP + 30, W + 160, 60, 0, 'world'),
+      newBody('static', -100, H / 2 - 200, 200, H + 400, 0, 'world'),
+      newBody('static', W + 100, H / 2 - 200, 200, H + 400, 0, 'world')
+    ];
+    box = newBody(kindSelect.value, W / 2, 200, 100, 40, BOX_MASS, 'box');
+    bodies.push(box);
+    bodies.push(newBody('dynamic', 297, 163, 30, 30, 1, 'crate'));
+    bodies.push(newBody('dynamic', 343, 163, 30, 30, 1, 'crate'));
+    contacts = [];
+    grab = null;
+    thrown = [];
+    accumulator = 0;
+    alpha = 0;
+    message = '';
+    messageTime = 0;
+    readoutClock = 0;
+    showInfo();
+  }
+
+  function showInfo() {
+    info.set(box.kind + ': ' + DESCRIBE[box.kind]);
+    speed.set('vx ' + Math.round(box.vx) + ', vy ' + Math.round(box.vy) + ' px/s');
+  }
+
+  function throwCrate() {
+    var fromLeft = box.x > 200;
+    var x0 = fromLeft ? 30 : W - 30;
+    var y0 = 120;
+    var dir = fromLeft ? 1 : -1;
+    var reach = Math.max(Math.abs(box.x - x0) - box.w / 2 - 12, 30);
+    var t = reach / THROW_SPEED;
+    var c = newBody('dynamic', x0, y0, 24, 24, 1, 'thrown');
+    c.vx = dir * THROW_SPEED;
+    c.vy = (box.y - y0 - 0.5 * GRAVITY * t * t) / t;
+    bodies.push(c);
+    thrown.push(c);
+    if (thrown.length > MAX_THROWN) {
+      var old = thrown.shift();
+      var i = bodies.indexOf(old);
+      if (i >= 0) bodies.splice(i, 1);
+      if (grab && grab.body === old) grab = null;
+    }
+  }
+
+  reset();
+
+  // ---- the physics: the same functions as the Lua ----
+
+  function findContact(a, b) {
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var ox = (a.w + b.w) / 2 - Math.abs(dx);
+    var oy = (a.h + b.h) / 2 - Math.abs(dy);
+    if (ox <= 0 || oy <= 0) return null;
+    var c = { a: a, b: b, nx: 0, ny: 0, depth: oy, jn: 0, jt: 0 };
+    if (ox < oy) {
+      c.depth = ox;
+      c.nx = dx < 0 ? -1 : 1;
+    } else {
+      c.ny = dy < 0 ? -1 : 1;
+    }
+    // Middle of the overlap, only used for drawing.
+    c.cx = (Math.max(a.x - a.w / 2, b.x - b.w / 2) + Math.min(a.x + a.w / 2, b.x + b.w / 2)) / 2;
+    c.cy = (Math.max(a.y - a.h / 2, b.y - b.h / 2) + Math.min(a.y + a.h / 2, b.y + b.h / 2)) / 2;
+    return c;
+  }
+
+  function applyPush(c, j, ux, uy) {
+    c.a.vx -= j * c.a.inv * ux;
+    c.a.vy -= j * c.a.inv * uy;
+    c.b.vx += j * c.b.inv * ux;
+    c.b.vy += j * c.b.inv * uy;
+  }
+
+  function solve(c, dt) {
+    var inv = c.a.inv + c.b.inv;
+    var vn = (c.b.vx - c.a.vx) * c.nx + (c.b.vy - c.a.vy) * c.ny;
+    var push = STRENGTH * Math.max(c.depth - SLOP, 0) / dt;
+    var old = c.jn;
+    c.jn = Math.max(old + (push - vn) / inv, 0);
+    applyPush(c, c.jn - old, c.nx, c.ny);
+    var tx = -c.ny;
+    var ty = c.nx;
+    var vt = (c.b.vx - c.a.vx) * tx + (c.b.vy - c.a.vy) * ty;
+    var limit = FRICTION * c.jn;
+    old = c.jt;
+    c.jt = Math.min(Math.max(old - vt / inv, -limit), limit);
+    applyPush(c, c.jt - old, tx, ty);
+  }
+
+  function keyAxis(s, minus, plus) {
+    return (s.keys.has(plus) ? 1 : 0) - (s.keys.has(minus) ? 1 : 0);
+  }
+
+  function capSpeed(b, max) {
+    var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (sp > max) {
+      b.vx *= max / sp;
+      b.vy *= max / sp;
+    }
+  }
+
+  function clampTarget(b, x, y) {
+    return {
+      x: DemoKit.clamp(x, b.w / 2, W - b.w / 2),
+      y: DemoKit.clamp(y, b.h / 2 - 60, FLOOR_TOP)
+    };
+  }
+
+  function step(s, dt) {
+    var i, j, b;
+    for (i = 0; i < bodies.length; i++) {
+      bodies[i].px = bodies[i].x;
+      bodies[i].py = bodies[i].y;
+    }
+    var kx = keyAxis(s, 'arrowleft', 'arrowright');
+    var ky = keyAxis(s, 'arrowup', 'arrowdown');
+
+    // 1. Your code drives the kinematic box.
+    if (box.kind === 'kinematic') {
+      var target = (grab && grab.body === box)
+        ? clampTarget(box, grab.tx, grab.ty)
+        : clampTarget(box, box.x + kx * KEY_SPEED * dt, box.y + ky * KEY_SPEED * dt);
+      if (teleport.value) {
+        box.x = target.x;          // the bug: moved, but velocity stays 0
+        box.y = target.y;
+        box.vx = 0;
+        box.vy = 0;
+      } else {
+        box.vx = (target.x - box.x) / dt;
+        box.vy = (target.y - box.y) / dt;
+        capSpeed(box, KIN_MAX);
+      }
+    }
+
+    // 2. Gravity and other forces, dynamic bodies only.
+    for (i = 0; i < bodies.length; i++) {
+      b = bodies[i];
+      if (b.kind !== 'dynamic') continue;
+      b.vy += GRAVITY * dt;
+      if (grab && grab.body === b) {
+        var t2 = clampTarget(b, grab.tx, grab.ty);
+        b.vx += (SPRING * (t2.x - b.x) - DAMP * b.vx) * dt;
+        b.vy += (SPRING * (t2.y - b.y) - DAMP * b.vy) * dt;
+      }
+      if (b === box) {
+        b.vx += kx * KEY_PUSH * dt;
+        b.vy += ky * (ky < 0 ? KEY_PUSH + GRAVITY : KEY_PUSH) * dt;
+      }
+      capSpeed(b, DYN_MAX);
+    }
+
+    // 3. Contacts, only where at least one body can move.
+    contacts = [];
+    for (i = 0; i < bodies.length; i++) {
+      for (j = i + 1; j < bodies.length; j++) {
+        if (bodies[i].inv + bodies[j].inv > 0) {
+          var c = findContact(bodies[i], bodies[j]);
+          if (c) contacts.push(c);
+        }
+      }
+    }
+
+    // 4. Solver.
+    for (var pass = 0; pass < ITERATIONS; pass++) {
+      for (i = 0; i < contacts.length; i++) solve(contacts[i], dt);
+    }
+
+    // 5. Integrate everything that is not static.
+    for (i = 0; i < bodies.length; i++) {
+      b = bodies[i];
+      if (b.kind === 'static') continue;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      // Safety net: a crate squeezed out of the world comes back from the top.
+      if (b.kind === 'dynamic' && (b.y > H + 80 || b.x < -60 || b.x > W + 60 || !isFinite(b.x + b.y))) {
+        b.x = DemoKit.clamp(isFinite(b.x) ? b.x : W / 2, 40, W - 40);
+        b.y = 20;
+        b.px = b.x;
+        b.py = b.y;
+        b.vx = 0;
+        b.vy = 0;
+      }
+    }
+  }
+
+  // ---- input ----
+
+  function view(s) {
+    var k = Math.min(s.width / W, s.height / H);
+    return { k: k, ox: (s.width - W * k) / 2, oy: s.height - H * k };
+  }
+
+  function toWorld(p, s) {
+    var v = view(s);
+    return { x: (p.x - v.ox) / v.k, y: (p.y - v.oy) / v.k };
+  }
+
+  function inside(b, x, y) {
+    return Math.abs(x - b.x) <= b.w / 2 && Math.abs(y - b.y) <= b.h / 2;
+  }
+
+  function onDown(p, s) {
+    var w = toWorld(p, s);
+    for (var i = bodies.length - 1; i >= 0; i--) {
+      var b = bodies[i];
+      if (b.role === 'world' || !inside(b, w.x, w.y)) continue;
+      if (b.kind === 'static') {
+        message = 'Static: the mouse cannot move it';
+        messageTime = 1.6;
+        grab = null;
+        return;
+      }
+      grab = { body: b, dx: w.x - b.x, dy: w.y - b.y, tx: b.x, ty: b.y };
+      return;
+    }
+  }
+
+  function onMove(p, s) {
+    if (!grab) return;
+    var w = toWorld(p, s);
+    grab.tx = w.x - grab.dx;
+    grab.ty = w.y - grab.dy;
+  }
+
+  function onUp() {
+    grab = null;
+  }
+
+  // ---- drawing ----
+
+  var FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 4) return;
+    var ux = dx / len;
+    var uy = dy / len;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * 6, y2 - uy * 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 8 - uy * 4, y2 - uy * 8 + ux * 4);
+    ctx.lineTo(x2 - ux * 8 + uy * 4, y2 - uy * 8 - ux * 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function boxColor(c, kind) {
+    if (kind === 'static') return c.ink3;
+    if (kind === 'kinematic') return c.warn;
+    return c.topic;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var v = view(s);
+    var k = v.k;
+    var a = DemoKit.clamp(alpha, 0, 1);
+    function sx(x) { return v.ox + x * k; }
+    function sy(y) { return v.oy + y * k; }
+    var i, b;
+
+    // Floor and wall edges.
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(sx(0), sy(FLOOR_TOP), W * k, (H - FLOOR_TOP) * k);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx(0), sy(-60));
+    ctx.lineTo(sx(0), sy(FLOOR_TOP));
+    ctx.lineTo(sx(W), sy(FLOOR_TOP));
+    ctx.lineTo(sx(W), sy(-60));
+    ctx.stroke();
+
+    // Bodies.
+    for (i = 0; i < bodies.length; i++) {
+      b = bodies[i];
+      if (b.role === 'world') continue;
+      var x = DemoKit.lerp(b.px, b.x, a);
+      var y = DemoKit.lerp(b.py, b.y, a);
+      var left = sx(x - b.w / 2);
+      var top = sy(y - b.h / 2);
+      var w = b.w * k;
+      var h = b.h * k;
+      if (b === box) {
+        ctx.fillStyle = boxColor(c, b.kind);
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(left, top, w, h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(left, top, w, h);
+        ctx.fillStyle = c.bg;
+        ctx.font = '600 ' + Math.round(Math.max(10, 13 * k)) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.kind, left + w / 2, top + h / 2);
+        ctx.textBaseline = 'alphabetic';
+      } else {
+        ctx.fillStyle = c.surface;
+        ctx.fillRect(left, top, w, h);
+        ctx.strokeStyle = b.role === 'thrown' ? c.ink : c.ink2;
+        ctx.lineWidth = 1.25;
+        ctx.strokeRect(left, top, w, h);
+        ctx.beginPath();
+        ctx.moveTo(left + 3, top + 3);
+        ctx.lineTo(left + w - 3, top + h - 3);
+        ctx.moveTo(left + w - 3, top + 3);
+        ctx.lineTo(left + 3, top + h - 3);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    if (debug.value) {
+      // Contact normals, pointing from a to b.
+      for (i = 0; i < contacts.length; i++) {
+        var ct = contacts[i];
+        var cx = sx(ct.cx);
+        var cy = sy(ct.cy);
+        arrow(ctx, cx, cy, cx + ct.nx * 16, cy + ct.ny * 16, c.good);
+      }
+      // Velocity arrows: where the body would be in 0.1 s.
+      for (i = 0; i < bodies.length; i++) {
+        b = bodies[i];
+        if (b.kind === 'static') continue;
+        var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        if (sp < 5) continue;
+        var len = Math.min(sp * 0.1, 120);
+        var bx = sx(DemoKit.lerp(b.px, b.x, a));
+        var by = sy(DemoKit.lerp(b.py, b.y, a));
+        arrow(ctx, bx, by, bx + b.vx / sp * len * k, by + b.vy / sp * len * k,
+          b === box ? c.bad : c.topic);
+      }
+      // Mouse spring or target.
+      if (grab) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(sx(grab.body.x + grab.dx), sy(grab.body.y + grab.dy));
+        ctx.lineTo(sx(grab.tx + grab.dx), sy(grab.ty + grab.dy));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.font = FONT;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('green: contact normals, arrows: velocity', 8, s.height - 5);
+    }
+
+    if (messageTime > 0 && message) {
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.ink;
+      ctx.fillText(message, s.width / 2, 20);
+    }
+  }
+
+  DemoKit.canvas('#bodies', {
+    aspect: 2,
+    minHeight: 220,
+    maxHeight: 340,
+    drag: true,
+    keys: true,
+    label: 'A box you can switch between static, kinematic and dynamic, with two crates on top, a floor and walls. Drag the box or the crates, move the box with the arrow keys, and press Space to throw a crate at it.',
+    onDown: onDown,
+    onMove: onMove,
+    onUp: onUp,
+    onKey: function (key, isDown) {
+      if (isDown && key === 'space') throwCrate();
+    },
+    update: function (dt, s) {
+      if (grab && !s.pointer.down) grab = null;
+      accumulator += Math.min(dt, MAX_FRAME);
+      while (accumulator >= STEP) {
+        step(s, STEP);
+        accumulator -= STEP;
+      }
+      alpha = accumulator / STEP;
+      if (messageTime > 0) messageTime -= dt;
+      readoutClock += dt;
+      if (readoutClock > 0.1) {
+        readoutClock = 0;
+        showInfo();
+      }
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>
