@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heartbeat Runner: your pulse is the metronome · Game Dev Daily</title>
+<meta name="description" content="A rhythm runner where every step must land on your own heartbeat, and sprinting makes that beat faster. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-19">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Heartbeat Runner: your pulse is the metronome</h1>
+  <p class="lede">A rhythm runner where every step must land on your own heartbeat, and sprinting makes that beat faster. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>In most rhythm games the song sets the tempo and you keep up. In Heartbeat Runner the tempo is your hero's heart: every stride must land on a beat, and every sprint makes the next beats come faster and the timing tighter, until you either reach a bench to catch your breath or collapse on the track.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: step, push, breathe</h2>
+  <p>You see a runner from the side on a 160 metre course. A heart at the top of the screen beats, and a strip below it shows the next few beats sliding toward a line, like a heart monitor running in reverse. The runner only moves when you press a step key close to a beat. The allowed distance from the beat is the <dfn>timing window</dfn>.</p>
+  <p>Each step is a choice between two keys. A <strong>walk</strong> step moves you one metre and lets your heart settle by one beat per minute. A <strong>sprint</strong> step moves you 2.2 metres but raises your heart rate by five. Because a faster heart means more beats per second, sprinting pays twice: longer strides and more of them. That is the bait.</p>
+  <p>Every ten seconds you are tapping along with your pulse and deciding, step by step, whether to push. Every minute you finish a course, usually in two or three bursts between benches. Every session is a training plan: a string of courses with different bench placements, where your best times are the score.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: hear the beat, choose walk or sprint, and the heart rate changes, which leads back to hearing a faster or slower beat. Beside it, two longer loops: every minute a course of sprints and rests between benches, and every session a training plan of courses with best times.">
+      <defs>
+        <marker id="hr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Feel the beat</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">watch the pulse strip</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Walk or sprint</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">press on the beat</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Heart answers</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">faster beat, tighter window</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#hr-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#hr-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#hr-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one course: bursts</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">between benches</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a training plan,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">best times to beat</text>
+    </svg>
+    <figcaption>The short loop feeds itself: what you press changes the tempo you must press to next.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Step on the beat.</strong> A press counts if it is within the timing window of the nearest heartbeat. Each beat can carry only one step.</li>
+    <li><strong>The window is a share of the beat.</strong> It is 22 percent of the time between beats, never less than 70 milliseconds. At a resting 72 beats per minute that is about 180 milliseconds either side; at 180 it is about 73.</li>
+    <li><strong>Missing hurts.</strong> A press off the beat, or a second press on the same beat, is a stumble: no stride, and a fright that adds three beats per minute. Mashing the keys makes things worse.</li>
+    <li><strong>Standing still calms you.</strong> After 0.6 seconds without a step your heart slows by 3 beats per minute each second, or by 15 on a bench.</li>
+    <li><strong>At 190 you collapse.</strong> You lie on the track for 2.5 seconds while your heart falls back toward 140. You lose time, never the run.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A graph of heart rate against distance. The line climbs steeply during a sprint from the start, eases down during a short walk, drops sharply on the first bench, climbs again, drops on the second bench, and climbs to just under the dashed collapse line at the finish.">
+      <rect class="d-fill" x="246" y="34" width="27" height="170"/>
+      <rect class="d-fill" x="414" y="34" width="27" height="170"/>
+      <path class="d-thin" d="M60 34 V204 H604"/>
+      <path class="d-bad" stroke-dasharray="6 5" d="M60 40 H604"/>
+      <text class="d-muted" x="66" y="30">collapse at 190</text>
+      <text class="d-muted" x="66" y="222">start</text>
+      <text class="d-muted" x="604" y="222" text-anchor="end">finish, 160 m</text>
+      <text class="d-muted" x="259" y="222" text-anchor="middle">bench</text>
+      <text class="d-muted" x="428" y="222" text-anchor="middle">bench</text>
+      <text class="d-muted" x="332" y="244" text-anchor="middle">distance</text>
+      <text class="d-muted" x="18" y="130" transform="rotate(-90 18 130)" text-anchor="middle">heart rate</text>
+      <path class="d-accent" d="M60 185 L195 73 L246 92 L252 175 L398 50 L414 56 L420 175 L441 175 L600 45"/>
+      <text class="d-label" x="112" y="112">sprint</text>
+      <text class="d-label" x="198" y="104">walk</text>
+      <text class="d-label" x="300" y="150">sprint</text>
+      <text class="d-label" x="470" y="150">final sprint</text>
+    </svg>
+    <figcaption>A good run: sprint until the line nears the dashed limit, walk the last metres to a bench, rest, repeat. Sprinting all the way from the start collapses you at about 52 metres, just short of the first bench.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the athlete who knows their own body: pushing right to the edge and pulling back at the last moment. The constraint is that the tempo is not a song chosen by the designer but a number the player raises and lowers. Your heart rate is your speed, your difficulty and your stamina bar at the same time.</p>
+  <p>That makes the risk visible and felt. You do not read that you are tired; you hear the beat speed up and feel the window shrink under your fingers. Benches become places you plan for, and the question every few seconds is "one more sprint step, or walk now?"</p>
+  <p>The hardest part to build is input timing that feels fair. Small delays in reading keys and drawing frames add up, and at 180 beats per minute a 50 millisecond error is most of the window. Budget time for a calibration screen.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Find the beat by walking for a few steps, then sprint and watch the strip squeeze together as your heart speeds up. Try to reach a bench before you hit 190, stand still on it, and then go again. Finish the 160 metres as fast as you can.</p>
+
+  <figure class="demo wide" data-demo="heartbeat-runner">
+    <canvas id="heartbeat-runner"></canvas>
+    <figcaption>Controls: tap the STEP pad, or anywhere on the track, to walk; tap the SPRINT pad to sprint. With the keyboard, click the canvas, then press <kbd>Space</kbd>, <kbd>Z</kbd> or <kbd>Right</kbd> to walk and <kbd>X</kbd> or <kbd>Up</kbd> to sprint. <kbd>R</kbd> or the Restart button starts over. Press when a spike on the strip crosses the line; the shaded band is the timing window. Distance, time and heart rate are shown at the top, and the clock starts on your first good step.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE. The heart is a counter, <code>phase</code>, that grows by one for every beat. A press is judged against the nearest whole number. Drawing is left out. The names and numbers are the same as in the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local REST_BPM, COLLAPSE_BPM = 72, 190
+local bpm, phase, distance = REST_BPM, 0.3, 0
+local lastBeat, idle, down = -1, 0, 0
+local RESTS = { {55, 63}, {105, 113} }     <span class="c">-- benches, in metres</span>
+local function inRest(d)
+  for _, r in ipairs(RESTS) do
+    if d &gt;= r[1] and d &lt;= r[2] then return true end
+  end
+  return false
+end
+function love.update(dt)
+  phase = phase + dt * bpm / 60            <span class="c">-- the heart is the metronome</span>
+  idle = idle + dt
+  if down &gt; 0 then                         <span class="c">-- collapsed: lie still, heart eases to 140</span>
+    down = down - dt
+    bpm = math.max(140, bpm - 20 * dt)
+  elseif idle &gt; 0.6 then                   <span class="c">-- standing still calms you, benches faster</span>
+    bpm = math.max(REST_BPM, bpm - (inRest(distance) and 15 or 3) * dt)
+  end
+end
+local function step(sprint)
+  if down &gt; 0 then return end
+<span class="k">  local beat = math.floor(phase + 0.5)     -- the nearest heartbeat
+  local err = (phase - beat) * 60 / bpm    -- seconds early (-) or late (+)
+  local window = math.max(0.07, 0.22 * 60 / bpm)
+  if math.abs(err) &gt; window or beat == lastBeat then</span>
+    bpm = bpm + 3                          <span class="c">-- stumble: no stride, and a fright</span>
+  elseif sprint then
+    lastBeat, idle = beat, 0
+    distance, bpm = distance + 2.2, bpm + 5
+  else
+    lastBeat, idle = beat, 0
+    distance, bpm = distance + 1, math.max(REST_BPM, bpm - 1)
+  end
+  if bpm &gt;= COLLAPSE_BPM then down = 2.5 end
+end
+function love.keypressed(key)
+  if key == "space" or key == "z" then step(false) elseif key == "x" then step(true) end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole rhythm judge. Because <code>phase</code> counts beats rather than seconds, changing <code>bpm</code> never makes the heart skip or jump: the next beat simply arrives sooner. Dividing by <code>bpm / 60</code> turns the distance from the beat back into seconds, so the window can be compared in real time.</p>
+  <p>Two details in the demo are worth copying. It shows several future beats on the strip, predicted at the current heart rate, so the player can see the tempo change before they feel it. And it judges a key press at the moment the key went down, not at the start of the frame, which removes up to one frame of error.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Sprinting is always right, or never.</strong> If the time saved by sprinting is more than the time lost resting, players sprint into every bench; if less, they walk everywhere and the heart never matters. Test it: time an all-walk run and a well-paced run. In this prototype walking the whole course takes over two minutes and a paced run under one. Keep the gap large but make collapsing cost real time.</li>
+    <li><strong>Unfair timing.</strong> Audio and display delay vary by device. Without a way to shift the beat earlier or later, a good player can miss everything at high tempo. Watch whether testers report "early" or "late" much more often than the other; a strong lean means your offset is wrong, not their hands.</li>
+    <li><strong>A silent heart.</strong> The prototype is visual only. Rhythm is far easier to follow by ear, so the real game needs a heartbeat sound, which the reader must switch on themselves on the web. Also test with the sound off to keep it playable for deaf players.</li>
+    <li><strong>Mashing.</strong> If a missed press costs nothing, players hammer the key. The stumble penalty fixes it here; check that it stays harsh enough when the window is wide.</li>
+    <li><strong>Boredom at low tempo.</strong> At 72 beats per minute a walk is slow. If testers sit through long walks, place benches so walks are short.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Moving to a beat is well explored. <cite>Crypt of the NecroDancer</cite> is a dungeon game where every move must land on the beat of the music, and the <cite>Rhythm Heaven</cite> series is built from short timing games. Running by pressing buttons goes back at least to Konami's arcade <cite>Track &amp; Field</cite>, where you pressed two run buttons quickly in turn.</p>
+  <p>In those rhythm games the tempo belongs to the soundtrack. Heartbeat Runner hands the tempo to the player and ties it to effort, so difficulty is something you choose with every step. I am not aware of a game that does exactly this, but heart rate and stamina are common in sports games, so similar ideas may well exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a circle for the runner, a pulsing circle for the heart, a click sound on each beat, and a print of the heart rate and time. Use one course with two benches.</p>
+  <p>Give it to a friend without explaining the benches. The one question: <strong>by their third run, do they start walking before the bench on purpose, instead of collapsing first?</strong> If they do, the heart rate is readable and the choice is real. If they keep collapsing, make the danger louder: a faster, harder beat sound and a red strip above 160.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one course, walk and sprint, benches, collapse, a heartbeat sound and a best time.</li>
+    <li><strong>One-month version:</strong> ten courses with hills that raise the heart rate, a timing calibration screen, ghost runners of your best time, and music that follows your pulse.</li>
+    <li><strong>Cut first:</strong> characters, gear and upgrades. The heart and the benches are the game.</li>
+    <li><strong>Hardest part:</strong> making timing feel fair on every device. Measure input delay early and add an offset setting.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: a rival runner whose heart you can hear too, so a race becomes a quiet contest of who dares to sprint longer.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On response time and why input that feels late feels unfair.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On balancing risk and reward, and on the player's sense of challenge.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). On feedback loops that strengthen or calm themselves.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var COURSE = 160, REST_BPM = 72, COLLAPSE_BPM = 190, DANGER_BPM = 160;
+  var WALK = 1, SPRINT = 2.2;
+  var RESTS = [[55, 63], [105, 113]];
+  var PX_PER_M = 16, STRIP_PX = 150, HIT_X = 44;
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var now = function () { return window.performance ? window.performance.now() : Date.now(); };
+
+  var bpm, phase, distance, lastBeat, idle, down, clock, started, finished;
+  var shown, hop, stumbleT, msg, msgGood, msgT, padT = [0, 0];
+  var best = null, lastUpdateMs = 0, handle = null;
+
+  function restart() {
+    bpm = REST_BPM; phase = 0.3; distance = 0; lastBeat = -1; idle = 0; down = 0;
+    clock = 0; started = false; finished = false;
+    shown = 0; hop = 0; stumbleT = 0;
+    say('Walk a few steps to find the beat', true, 99);
+    if (handle) handle.redraw();
+  }
+
+  function say(text, good, time) { msg = text; msgGood = good; msgT = time || 1.2; }
+
+  function inRest(d) {
+    for (var i = 0; i < RESTS.length; i++) {
+      if (d >= RESTS[i][0] && d <= RESTS[i][1]) return true;
+    }
+    return false;
+  }
+
+  function windowSec() { return Math.max(0.07, 0.22 * 60 / bpm); }
+
+  // Judge at the moment of the key press, not at the start of the frame.
+  function phaseNow() {
+    var extra = (now() - lastUpdateMs) / 1000;
+    if (!(extra > 0 && extra < 0.1)) extra = 0;
+    return phase + extra * bpm / 60;
+  }
+
+  function step(sprint) {
+    if (finished) { say('Finished. Press Restart or R', true, 2); return; }
+    if (down > 0) return;
+    padT[sprint ? 1 : 0] = 0.15;
+    var p = phaseNow();
+    var beat = Math.floor(p + 0.5);
+    var err = (p - beat) * 60 / bpm;
+    var win = windowSec();
+    if (Math.abs(err) > win || beat === lastBeat) {
+      bpm = bpm + 3;
+      stumbleT = 0.35;
+      say(beat === lastBeat ? 'Stumble: one step per beat' : (err < 0 ? 'Stumble: too early' : 'Stumble: too late'), false);
+    } else {
+      lastBeat = beat; idle = 0; started = true; hop = 1;
+      if (sprint) { distance = distance + SPRINT; bpm = bpm + 5; }
+      else { distance = distance + WALK; bpm = Math.max(REST_BPM, bpm - 1); }
+      if (Math.abs(err) < win * 0.35) say('On the beat', true, 0.5);
+      else say(err < 0 ? 'A little early' : 'A little late', true, 0.5);
+      if (distance >= COURSE) {
+        distance = COURSE; finished = true;
+        if (best === null || clock < best) best = clock;
+        say('Finished in ' + clock.toFixed(1) + ' s', true, 99);
+      }
+    }
+    if (bpm >= COLLAPSE_BPM && !finished) {
+      down = 2.5;
+      say('Collapsed! Catch your breath', false, 2.5);
+    }
+  }
+
+  function update(dt) {
+    lastUpdateMs = now();
+    phase = phase + dt * bpm / 60;
+    idle = idle + dt;
+    if (started && !finished) clock = clock + dt;
+    if (down > 0) {
+      down = Math.max(0, down - dt);
+      bpm = Math.max(140, bpm - 20 * dt);
+    } else if (idle > 0.6) {
+      bpm = Math.max(REST_BPM, bpm - (inRest(distance) ? 15 : 3) * dt);
+    }
+    hop = Math.max(0, hop - dt * 4);
+    stumbleT = Math.max(0, stumbleT - dt);
+    padT[0] = Math.max(0, padT[0] - dt); padT[1] = Math.max(0, padT[1] - dt);
+    if (msgT < 90) msgT = Math.max(0, msgT - dt);
+    shown = reduced ? distance : shown + (distance - shown) * Math.min(1, dt * 12);
+  }
+
+  function pads(s) {
+    var y = s.height - 100, h = 48, gap = 8, half = (s.width - 20 - gap) / 2;
+    return { y: y, h: h, step: { x: 10, w: half }, sprint: { x: 10 + half + gap, w: half } };
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function drawHeart(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y + r);
+    ctx.bezierCurveTo(x - r * 1.6, y - r * 0.2, x - r * 0.6, y - r * 1.4, x, y - r * 0.4);
+    ctx.bezierCurveTo(x + r * 0.6, y - r * 1.4, x + r * 1.6, y - r * 0.2, x, y + r);
+    ctx.fill();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height;
+    var danger = bpm >= DANGER_BPM;
+    ctx.textBaseline = 'alphabetic';
+
+    // HUD
+    ctx.fillStyle = c.ink; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('Distance ' + Math.floor(distance) + ' / ' + COURSE + ' m', 10, 20);
+    ctx.textAlign = 'right';
+    ctx.fillText('Time ' + clock.toFixed(1) + ' s', w - 10, 20);
+    ctx.fillStyle = c.ink3; ctx.font = '13px ' + FONT;
+    ctx.fillText(best === null ? 'Best: none yet' : 'Best ' + best.toFixed(1) + ' s', w - 10, 38);
+
+    // Heart and heart-rate bar
+    var frac = phase - Math.floor(phase);
+    var beatScale = 1 + (reduced ? 0 : 0.35 * Math.exp(-frac * 6));
+    drawHeart(ctx, 22, 52, 9 * beatScale, danger ? c.bad : c.topic);
+    ctx.fillStyle = danger ? c.bad : c.ink; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText(Math.round(bpm) + ' BPM', 40, 58);
+    var bx = 112, bw = Math.max(40, w - 124), by = 50, bh = 10;
+    function bxAt(b) { return bx + bw * (b - 60) / (COLLAPSE_BPM - 60); }
+    ctx.fillStyle = c.surface2; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = c.bad; ctx.globalAlpha = 0.25;
+    ctx.fillRect(bxAt(DANGER_BPM), by, bx + bw - bxAt(DANGER_BPM), bh);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = danger ? c.bad : c.topic;
+    ctx.fillRect(bx, by, Math.max(0, Math.min(bw, bxAt(bpm) - bx)), bh);
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+
+    // Beat strip
+    var sy = 70, sh = 38, mid = sy + sh / 2 + 4;
+    ctx.fillStyle = c.surface2; ctx.fillRect(0, sy, w, sh);
+    var win = windowSec();
+    ctx.fillStyle = c.topic; ctx.globalAlpha = 0.18;
+    ctx.fillRect(HIT_X - win * STRIP_PX, sy, win * 2 * STRIP_PX, sh);
+    ctx.globalAlpha = 1;
+    var secPerBeat = 60 / bpm, k0 = Math.floor(phase) - 1;
+    ctx.strokeStyle = danger ? c.bad : c.ink2; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, mid);
+    for (var k = k0; k < k0 + 12; k++) {
+      var x = HIT_X + (k - phase) * secPerBeat * STRIP_PX;
+      if (x > w + 10) break;
+      ctx.lineTo(x - 7, mid); ctx.lineTo(x - 2, mid - 15); ctx.lineTo(x + 3, mid + 7); ctx.lineTo(x + 7, mid);
+    }
+    ctx.lineTo(w, mid); ctx.stroke();
+    var lx = HIT_X + (lastBeat - phase) * secPerBeat * STRIP_PX;
+    if (lastBeat >= 0 && lx > -10) {
+      ctx.fillStyle = c.good; ctx.beginPath(); ctx.arc(lx, sy + sh - 6, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(HIT_X, sy - 2); ctx.lineTo(HIT_X, sy + sh + 2); ctx.stroke();
+
+    // Track
+    var ground = h - 132, runX = Math.round(w * 0.3);
+    function sx(m) { return runX + (m - shown) * PX_PER_M; }
+    for (var r = 0; r < RESTS.length; r++) {
+      var a = sx(RESTS[r][0]), b = sx(RESTS[r][1]);
+      if (b < 0 || a > w) continue;
+      ctx.fillStyle = c.good; ctx.globalAlpha = 0.14; ctx.fillRect(a, ground - 70, b - a, 70); ctx.globalAlpha = 1;
+      ctx.fillStyle = c.ink3;
+      ctx.fillRect(a + 20, ground - 16, b - a - 40, 5);
+      ctx.fillRect(a + 26, ground - 11, 4, 11); ctx.fillRect(b - 30, ground - 11, 4, 11);
+      ctx.fillStyle = c.good; ctx.font = '600 13px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText('bench: stand still', (a + b) / 2, ground - 76);
+    }
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, ground); ctx.lineTo(w, ground); ctx.stroke();
+    ctx.fillStyle = c.ink3; ctx.font = '12px ' + FONT; ctx.textAlign = 'center'; ctx.lineWidth = 1;
+    var m0 = Math.max(0, Math.floor((shown - runX / PX_PER_M) / 10) * 10);
+    for (var m = m0; m <= COURSE; m += 10) {
+      var tx = sx(m);
+      if (tx > w + 20) break;
+      ctx.beginPath(); ctx.moveTo(tx, ground); ctx.lineTo(tx, ground + 6); ctx.stroke();
+      ctx.fillText(m + ' m', tx, ground + 20);
+    }
+    var fx = sx(COURSE);
+    if (fx < w + 10) {
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(fx, ground); ctx.lineTo(fx, ground - 60); ctx.stroke();
+      ctx.fillStyle = c.topic; ctx.fillRect(fx, ground - 60, 22, 14);
+    }
+
+    // Runner
+    ctx.strokeStyle = danger ? c.bad : c.ink; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    if (down > 0) {
+      ctx.beginPath(); ctx.moveTo(runX - 22, ground - 4); ctx.lineTo(runX + 6, ground - 4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(runX + 14, ground - 7, 7, 0, Math.PI * 2); ctx.fill();
+    } else {
+      var bob = Math.sin(hop * Math.PI) * 6;
+      var swing = (lastBeat % 2 === 0 ? 1 : -1) * (6 + hop * 4);
+      ctx.save();
+      ctx.translate(runX, ground);
+      if (stumbleT > 0 && !reduced) ctx.rotate(Math.sin(stumbleT * 40) * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(0, -18 - bob); ctx.lineTo(swing, 0);
+      ctx.moveTo(0, -18 - bob); ctx.lineTo(-swing, 0);
+      ctx.moveTo(0, -18 - bob); ctx.lineTo(2, -38 - bob);
+      ctx.moveTo(1, -32 - bob); ctx.lineTo(1 - swing, -22 - bob);
+      ctx.moveTo(1, -32 - bob); ctx.lineTo(1 + swing, -24 - bob);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(3, -46 - bob, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.lineCap = 'butt';
+
+    // Message
+    if (msgT > 0) {
+      ctx.fillStyle = msgGood ? c.ink2 : c.bad; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(msg, w / 2, sy + sh + 24);
+    }
+
+    // Touch pads
+    var P = pads(s);
+    [['STEP', 'walk: Space', P.step, 0], ['SPRINT', 'sprint: X', P.sprint, 1]].forEach(function (d) {
+      roundRect(ctx, d[2].x, P.y, d[2].w, P.h, 8);
+      ctx.fillStyle = padT[d[3]] > 0 ? c.topic : c.surface2; ctx.fill();
+      ctx.strokeStyle = d[3] === 1 ? c.bad : c.line; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = padT[d[3]] > 0 ? c.bg : c.ink; ctx.font = '700 15px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(d[0], d[2].x + d[2].w / 2, P.y + 22);
+      ctx.fillStyle = padT[d[3]] > 0 ? c.bg : c.ink3; ctx.font = '12px ' + FONT;
+      ctx.fillText(d[1], d[2].x + d[2].w / 2, P.y + 39);
+    });
+    ctx.fillStyle = c.ink3; ctx.font = '12px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('Collapse at ' + COLLAPSE_BPM + ' BPM', 10, h - 20);
+  }
+
+  var ui = DemoKit.controls('[data-demo="heartbeat-runner"]');
+  ui.button({ label: 'Restart (R)', onClick: restart });
+
+  restart();
+  handle = DemoKit.canvas('#heartbeat-runner', {
+    height: 390,
+    keys: true,
+    label: 'Heartbeat Runner prototype: a runner on a track who moves only when you press on the heartbeat, with a heart rate gauge, a beat strip and two touch pads, STEP and SPRINT.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) {
+      var P = pads(s);
+      if (p.y >= P.y && p.y <= P.y + P.h) {
+        if (p.x >= P.sprint.x && p.x <= P.sprint.x + P.sprint.w) step(true);
+        else if (p.x >= P.step.x && p.x <= P.step.x + P.step.w) step(false);
+      } else if (p.y < P.y) {
+        step(false);
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'z' || key === 'arrowright') step(false);
+      else if (key === 'x' || key === 'arrowup') step(true);
+      else if (key === 'r') restart();
+    }
+  });
+  var cv = document.getElementById('heartbeat-runner');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>

@@ -43,7 +43,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 4: Noise and 2D game effects
 
 - [x] **Random values from a hash** — How a shader makes repeatable random numbers from coordinates without any stored state. Demo: a cell size slider changes a grid of random grey cells with a toggle to animate the seed. (published 2026-11-18, random-values-hash)
-- [ ] **Noise in a fragment shader** — How to write smooth value and gradient noise in GLSL and when it can replace a noise texture. Demo: scale and speed sliders animate a noise field with a toggle between the two types.
+- [x] **Noise in a fragment shader** — How to write smooth value and gradient noise in GLSL and when it can replace a noise texture. Demo: scale and speed sliders animate a noise field with a toggle between the two types. (published 2026-11-19, noise-fragment-shader)
 - [ ] **Cellular patterns** — How the distance to the nearest random point makes cells, scales and cracks. Demo: sliders for cell count and jitter change the pattern with a toggle between distance and edge display.
 - [ ] **Procedural materials** — How layered noise and simple shaping build wood, marble and clouds. Demo: choose a material and adjust the octave, stretch and contrast sliders.
 - [ ] **Hit flash** — How mixing the colour of a sprite towards white shows that damage was taken. Demo: click a sprite to trigger a flash with sliders for duration and flash colour.

@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noise in a fragment shader: value noise and gradient noise · Game Dev Daily</title>
+<meta name="description" content="Hash the four corners of a pixel's cell and blend them with an eased weight: smooth value noise. Hash a direction instead: gradient noise.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Noise in a fragment shader: value noise and gradient noise</h1>
+  <p class="lede">Hash the four corners of a pixel's cell and blend them with an eased weight: smooth value noise. Hash a direction instead: gradient noise.</p>
+</header>
+
+<section data-section="hook">
+  <p>Yesterday's hash gave every cell its own random grey, which is fine for tiles and stars. Clouds, terrain heights and the wobble of a flame need randomness that changes <em>gradually</em>: a point should be close in value to its neighbours. Blocky white noise cannot do that, but blending the hashes of nearby cells can.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Blend the corners, do not paint the cell</h2>
+  <p>A fragment shader is a small function that runs once per pixel: a position goes in, a colour comes out. <dfn>Noise</dfn> is one more function in that chain: a position goes in, and a number from 0 to 1 comes out that looks random at large scales but changes smoothly at small ones. Both kinds here start from a grid of cells, the <dfn>lattice</dfn>.</p>
+
+  <h3>Step 1: which cell, and where inside it</h3>
+<pre><code>vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;   // u_scale cells tall
+vec2 i = floor(p);    // the cell's bottom-left corner: (0, 0), (1, 0) ...
+vec2 f = fract(p);    // where the pixel sits in that cell, 0 to 1</code></pre>
+  <p>Dividing by the height, not the width, keeps the cells square at any aspect ratio.</p>
+
+  <h3>Step 2: a random value on every corner</h3>
+  <p>Hash the corner instead of the cell. The four corners of cell <code>i</code> are <code>i</code>, <code>i + (1, 0)</code>, <code>i + (0, 1)</code> and <code>i + (1, 1)</code>. Neighbouring cells share corners, so they share values along their common edge. That sharing is what makes the result continuous.</p>
+
+  <h3>Step 3: blend the four values</h3>
+  <p>Blend the bottom pair across by <code>f.x</code>, the top pair the same way, then blend those two results up by <code>f.y</code>. This is <dfn>bilinear interpolation</dfn>, the same maths as linear texture filtering.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Left: one lattice cell with random values a, b, c and d on its four corners and a pixel p inside at position f. The bottom edge is blended by u.x, the top edge by u.x, then the two results are blended by u.y. Right: a graph of the fade curve, where the straight linear line has a sharp slope at 0 and 1 and the smoothstep curve is flat at both ends.">
+      <rect class="d-fill" x="40" y="40" width="180" height="180"/>
+      <path class="d-dash" d="M40 148 H157 V220"/>
+      <path class="d-accent" d="M157 40 V220"/>
+      <circle class="d-accent-fill" cx="157" cy="148" r="5"/>
+      <text class="d-label" x="166" y="143">p</text>
+      <circle class="d-stroke" cx="157" cy="40" r="4"/>
+      <circle class="d-stroke" cx="157" cy="220" r="4"/>
+      <text class="d-muted" x="157" y="30" text-anchor="middle">top</text>
+      <text class="d-muted" x="157" y="240" text-anchor="middle">bottom</text>
+      <text class="d-mono" x="98" y="240" text-anchor="middle">f.x</text>
+      <text class="d-mono" x="166" y="192">f.y</text>
+
+      <circle class="d-accent-fill" cx="40" cy="220" r="6"/>
+      <circle class="d-accent-fill" cx="220" cy="220" r="6"/>
+      <circle class="d-accent-fill" cx="40" cy="40" r="6"/>
+      <circle class="d-accent-fill" cx="220" cy="40" r="6"/>
+      <text class="d-text" x="28" y="240" text-anchor="end">a</text>
+      <text class="d-text" x="232" y="240">b</text>
+      <text class="d-text" x="28" y="34" text-anchor="end">c</text>
+      <text class="d-text" x="232" y="34">d</text>
+      <text class="d-muted" x="40" y="266">a = hash(i), b = hash(i + (1, 0)) ...</text>
+
+      <text class="d-mono" x="252" y="74">1. bottom = mix(a, b, u.x)</text>
+      <text class="d-mono" x="252" y="100">2. top = mix(c, d, u.x)</text>
+      <text class="d-mono" x="252" y="126">3. n = mix(bottom, top, u.y)</text>
+      <text class="d-muted" x="252" y="164">u = fade(f) eases the weights</text>
+      <text class="d-muted" x="252" y="184">so the slope is flat at every</text>
+      <text class="d-muted" x="252" y="204">cell edge</text>
+
+      <text class="d-muted" x="540" y="46" text-anchor="middle">fade curve</text>
+      <rect class="d-thin" x="470" y="60" width="140" height="140"/>
+      <path class="d-dash" d="M470 200 L610 60"/>
+      <path class="d-accent" d="M470 200 L484 196.1 L498 185.4 L512 169.8 L526 150.7 L540 130 L554 109.3 L568 90.2 L582 74.6 L596 63.9 L610 60"/>
+      <text class="d-muted" x="470" y="216" text-anchor="middle">0</text>
+      <text class="d-muted" x="610" y="216" text-anchor="middle">1</text>
+      <text class="d-muted" x="540" y="216" text-anchor="middle">f</text>
+      <text class="d-muted" x="470" y="244">dashed: linear, u = f</text>
+      <text class="d-muted" x="470" y="264">solid: 3f² − 2f³</text>
+    </svg>
+    <figcaption>Value noise for one pixel. Each corner holds a hash; the pixel blends them by how close it is to each one, using an eased weight.</figcaption>
+  </figure>
+
+  <h3>Step 4: ease the weights</h3>
+  <p>With <code>f</code> as the weight, the result is continuous but its slope jumps at every cell edge, and the eye picks out the grid as a pattern of diamonds and creases. Pass <code>f</code> through a <dfn>fade curve</dfn> first. The classic one is <code>3f² − 2f³</code>, the same curve as <code>smoothstep(0.0, 1.0, f)</code>. Its slope is zero at 0 and 1, so the creases vanish. Ken Perlin's 2002 "improved noise" uses <code>6f⁵ − 15f⁴ + 10f³</code>, whose curvature is also continuous, which matters when lighting uses the noise.</p>
+<pre><code>vec2 u = f * f * (3.0 - 2.0 * f);
+float n = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);</code></pre>
+  <p>This is <dfn>value noise</dfn>: random values at the corners, smoothly blended between them.</p>
+
+  <h2>Gradient noise: store a slope, not a height</h2>
+  <p>Value noise puts its hills and valleys on the corners, so it still looks a little blocky. <dfn>Gradient noise</dfn>, the family that includes Perlin noise, hashes a random <em>direction</em> <code>g</code> for each corner instead.</p>
+  <p>Each corner contributes <code>dot(g, p − corner)</code>: zero at the corner itself, rising in the direction of <code>g</code> and falling behind it. Then the same eased bilinear blend combines the four.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 340 230" role="img" aria-label="One lattice cell with an arrow at each corner pointing in a random direction, and a pixel p inside with a dashed line from the bottom-left corner to p. The contribution of a corner is the dot product of its arrow with the vector from the corner to p.">
+      <rect class="d-fill" x="90" y="30" width="160" height="160"/>
+      <path class="d-dash" d="M90 190 L186 126"/>
+      <circle class="d-accent-fill" cx="186" cy="126" r="5"/>
+      <text class="d-label" x="194" y="122">p</text>
+      <text class="d-mono" x="148" y="172">p − a</text>
+
+      <path class="d-accent" d="M90 190 L120.6 164.3 M111.9 166.5 L120.6 164.3 L116.9 172.5"/>
+      <path class="d-accent" d="M250 190 L226 158 M227.7 166.8 L226 158 L234 162.1"/>
+      <path class="d-accent" d="M90 30 L126 47.4 M120.4 40.3 L126 47.4 L117 47.4"/>
+      <path class="d-accent" d="M250 30 L221.7 58.3 M230.2 55.3 L221.7 58.3 L224.7 49.8"/>
+      <circle class="d-stroke" cx="90" cy="190" r="3"/>
+      <circle class="d-stroke" cx="250" cy="190" r="3"/>
+      <circle class="d-stroke" cx="90" cy="30" r="3"/>
+      <circle class="d-stroke" cx="250" cy="30" r="3"/>
+      <text class="d-text" x="78" y="206" text-anchor="end">a</text>
+      <text class="d-text" x="262" y="206">b</text>
+      <text class="d-text" x="78" y="26" text-anchor="end">c</text>
+      <text class="d-text" x="262" y="26">d</text>
+      <text class="d-mono" x="170" y="222" text-anchor="middle">a's share = dot(g_a, p − a)</text>
+    </svg>
+    <figcaption>Gradient noise: each corner holds a direction. The noise is exactly zero on every corner and its slopes are random.</figcaption>
+  </figure>
+
+<pre><code>vec2 gradient(vec2 c) {
+  float a = 6.2831853 * hash(c);      // a random angle
+  return vec2(cos(a), sin(a));        // a unit direction
+}
+float a = dot(gradient(i), f);        // and likewise for the other three corners
+float b = dot(gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));</code></pre>
+  <p>The result lies between about −0.7 and 0.7, so the demo maps it with <code>n * 0.5 + 0.5</code>. Bumps now fall between the corners.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which corner is (0, 0), and which colours</p>
+    <p>WebGL's <code>gl_FragCoord</code> starts at the bottom-left with y up. LÖVE's <code>screen_coords</code> and Godot's canvas <code>UV</code> start at the top-left with y down, so the code below flips y to match the demo. Unity's mesh UVs start at the bottom-left. The island colours are written as display (sRGB) values; in a project using linear colour space, such as Unity's Linear setting, they come out lighter.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Start on stage 2 with <em>Value noise</em>: each cell is painted with its bottom-left corner's hash. Step to stage 4 to see the corners blended. Now set <em>Fade</em> to linear and look for the creases along the grid lines, then switch back. Then change <em>Noise type</em> to gradient: stage 2 now shows each corner's direction as colour.</p>
+
+  <figure class="demo wide" data-demo="noise-field">
+    <canvas id="noise-shader"></canvas>
+    <canvas id="noise-graph"></canvas>
+    <figcaption>Top: the live shader; stage 5 colours height bands as an island map. Bottom: a 1D slice with its own random values, showing what each corner holds and the blend between them. With reduced motion on, press Play to scroll.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over the whole window. Tab switches the noise type; the up and down arrows change the scale. The scroll is wrapped on the CPU, and the hash wraps its corners every 64 cells, so the wrap is seamless.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local scale = 6          <span class="c">-- cells across the height of the window</span>
+local speed = 0.5        <span class="c">-- scroll speed in cells per second</span>
+local offset = 0         <span class="c">-- scroll so far, in cells</span>
+local noiseType = 0      <span class="c">-- 0 value noise, 1 gradient noise</span>
+local PERIOD = 64        <span class="c">-- the noise repeats every 64 cells, as in the shader</span>
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_scale;
+uniform float u_offset;
+uniform float u_type;
+const float PERIOD = 64.0;
+
+float hash(vec2 c)
+{
+  c = mod(c, PERIOD);    // corners repeat, so the scroll can wrap
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 gradient(vec2 c)
+{
+  float a = 6.2831853 * hash(c);
+  return vec2(cos(a), sin(a));
+}
+
+float valueNoise(vec2 i, vec2 u)
+{
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float gradientNoise(vec2 i, vec2 f, vec2 u)
+{
+  float a = dot(gradient(i), f);
+  float b = dot(gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+  float c = dot(gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+  float d = dot(gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.5 + 0.5;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  // LÖVE's origin is the top-left: flip y so cell (0, 0) is bottom-left, as in the demo
+  vec2 pos = vec2(screen_coords.x, u_resolution.y - screen_coords.y);
+  vec2 p = pos / u_resolution.y * u_scale + vec2(u_offset, 0.0);
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float n = valueNoise(i, u);
+  if (u_type > 0.5) n = gradientNoise(i, f, u);
+
+  vec3 col = vec3(0.10, 0.22, 0.45);                                  // deep water
+  col = mix(col, vec3(0.20, 0.45, 0.70), smoothstep(0.40, 0.44, n));  // shallows
+  col = mix(col, vec3(0.86, 0.80, 0.56), smoothstep(0.53, 0.55, n));  // sand
+  col = mix(col, vec3(0.32, 0.58, 0.26), smoothstep(0.56, 0.59, n));  // grass
+  col = mix(col, vec3(0.20, 0.38, 0.18), smoothstep(0.66, 0.70, n));  // forest
+  return vec4(col, 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "tab" then noiseType = 1 - noiseType end
+  if key == "up" then scale = math.min(scale + 1, 32) end
+  if key == "down" then scale = math.max(scale - 1, 2) end
+end
+
+function love.update(dt)
+<span class="k">  offset = (offset + speed * dt) % PERIOD   <span class="c">-- keeps the shader's inputs small</span></span>
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local pw, ph = love.graphics.getPixelDimensions()
+  shader:send("u_resolution", { pw, ph })
+  shader:send("u_scale", scale)
+  shader:send("u_offset", offset)
+  shader:send("u_type", noiseType)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;   // the hash needs 32-bit floats
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_scale;    // cells across the height of the canvas
+uniform float u_offset;   // scroll in cells, wrapped to 0..64 on the CPU
+uniform float u_type;     // 0 value noise, 1 gradient noise
+uniform float u_fade;     // 0 linear, 1 cubic (smoothstep), 2 quintic
+uniform float u_stage;    // 0 cell position ... 4 final colour
+uniform float u_grid;     // 1 draws the cell borders
+
+const float PERIOD = 64.0;   // corners repeat every 64 cells, so the scroll can wrap
+
+float hash(vec2 c) {
+  c = mod(c, PERIOD);
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 gradient(vec2 c) {
+  float a = 6.2831853 * hash(c);
+  return vec2(cos(a), sin(a));
+}
+
+vec2 fade(vec2 f) {
+  if (u_fade &lt; 0.5) return f;
+  if (u_fade &lt; 1.5) return f * f * (3.0 - 2.0 * f);
+  return f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+}
+
+float valueNoise(vec2 i, vec2 u) {
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float gradientNoise(vec2 i, vec2 f, vec2 u) {
+  float a = dot(gradient(i), f);
+  float b = dot(gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+  float c = dot(gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+  float d = dot(gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.5 + 0.5;
+}
+
+void main() {
+  vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;   // square cells, u_scale tall
+  p.x += u_offset;
+  vec2 i = floor(p);                                     // 1. which cell
+  vec2 f = fract(p);                                     //    where inside it
+  vec2 u = fade(f);                                      // 3. eased weights
+  float n = valueNoise(i, u);                            // 4. the noise
+  if (u_type > 0.5) n = gradientNoise(i, f, u);
+
+  // 5. use it: colour height bands as an island map
+  vec3 col = vec3(0.10, 0.22, 0.45);                                  // deep water
+  col = mix(col, vec3(0.20, 0.45, 0.70), smoothstep(0.40, 0.44, n));  // shallows
+  col = mix(col, vec3(0.86, 0.80, 0.56), smoothstep(0.53, 0.55, n));  // sand
+  col = mix(col, vec3(0.32, 0.58, 0.26), smoothstep(0.56, 0.59, n));  // grass
+  col = mix(col, vec3(0.20, 0.38, 0.18), smoothstep(0.66, 0.70, n));  // forest
+
+  if (u_stage &lt; 3.5) col = vec3(n);
+  if (u_stage &lt; 2.5) col = vec3(u, 0.0);
+  if (u_stage &lt; 1.5) {
+    // 2. what the corner holds: a grey value, or a direction shown as colour
+    col = vec3(hash(i));
+    if (u_type > 0.5) col = vec3(gradient(i) * 0.5 + 0.5, 0.5);
+  }
+  if (u_stage &lt; 0.5) col = vec3(f, 0.0);
+
+  float cellPx = u_resolution.y / u_scale;
+  vec2 e = min(f, 1.0 - f) * cellPx;                     // pixels to the nearest border
+  float line = 1.0 - step(1.5, min(e.x, e.y));
+  col = mix(col, vec3(1.0), line * u_grid * 0.6);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 rect_size = vec2(640.0, 360.0);  // set this to the ColorRect's size
+uniform float scale = 6.0;                    // cells across the height
+uniform float speed = 0.5;                    // cells per second
+uniform bool use_gradient = false;
+
+const float PERIOD = 64.0;
+
+float hash(vec2 c) {
+    c = mod(c, PERIOD);
+    return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 gradient(vec2 c) {
+    float a = 6.2831853 * hash(c);
+    return vec2(cos(a), sin(a));
+}
+
+void fragment() {
+    // UV starts at the top-left with y down: flip y to match the demo.
+    vec2 pos = vec2(UV.x, 1.0 - UV.y) * rect_size;
+    vec2 p = pos / rect_size.y * scale;
+    p.x += mod(TIME * speed, PERIOD);
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+<span class="k">    vec2 u = f * f * (3.0 - 2.0 * f);</span>
+    float n;
+    if (use_gradient) {
+        float a = dot(gradient(i), f);
+        float b = dot(gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+        float c = dot(gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+        float d = dot(gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+<span class="k">        n = mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.5 + 0.5;</span>
+    } else {
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+<span class="k">        n = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);</span>
+    }
+    COLOR = vec4(vec3(n), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit, value noise. Put it on a Quad.
+Shader "GameDevDaily/ValueNoise"
+{
+    Properties
+    {
+        _Cells ("Cells across (x) and down (y)", Vector) = (10, 6, 0, 0)
+        _Speed ("Scroll speed (cells per second)", Float) = 0.5
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float4 _Cells;
+            float _Speed;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float hash (float2 c)
+            {
+                c = c - 64.0 * floor(c / 64.0);   // GLSL's mod; HLSL's fmod differs for negatives
+                return frac(sin(dot(c, float2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                // Unity UVs start at the bottom-left, like gl_FragCoord in the demo.
+                float2 p = i.uv * _Cells.xy;
+                p.x += frac(_Time.y * _Speed / 64.0) * 64.0;
+                float2 c = floor(p);
+                float2 f = frac(p);
+<span class="k">                float2 u = f * f * (3.0 - 2.0 * f);
+                float n = lerp(lerp(hash(c), hash(c + float2(1, 0)), u.x),
+                               lerp(hash(c + float2(0, 1)), hash(c + float2(1, 1)), u.x), u.y);</span>
+                return fixed4(n, n, n, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL spells <code>mix</code> as <code>lerp</code> and <code>fract</code> as <code>frac</code>. In URP you do not need to write this at all: Shader Graph's <em>Simple Noise</em> node is a value noise and its <em>Gradient Noise</em> node is a gradient noise. Godot also ships CPU-side noise as the <code>FastNoiseLite</code> resource, which a <code>NoiseTexture2D</code> can bake into a texture.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Feeding it raw time or world positions.</strong> The hash lives on the last digits of a 32-bit float. <code>u_time * speed</code> after an hour, or a world position of 20 000, turns the noise blocky. Keep the inputs small: wrap the scroll, and wrap the lattice with <code>mod</code> so the wrap is invisible.</li>
+    <li><strong>Linear weights.</strong> Without a fade curve you get creases along every grid line.</li>
+    <li><strong>Expecting gradient noise to fill 0 to 1.</strong> It stays near the middle and is exactly 0.5 on every corner. Thresholds tuned for value noise give smaller islands. Rescale it, or tune for it.</li>
+    <li><strong>Visible grid at low scale.</strong> One layer of either shows its square lattice. Layering several scales, coming in later lessons, hides it.</li>
+    <li><strong><code>mediump</code> on phones.</strong> The sine hash falls apart at 16-bit precision. Request <code>highp</code>, as the demo does, or use a texture.</li>
+  </ul>
+  <h3>What it costs, and when a texture wins</h3>
+  <p>Value noise is four hashes and three mixes per pixel. Gradient noise adds a <code>sin</code> and <code>cos</code> per corner and four dot products. One layer of either is cheap, even on a phone. Five layers over the full screen is not; there, one read from a small tiling noise texture is often cheaper, at the price of memory and visible repetition. Compute noise when it must animate or be unbounded; bake it when it is fixed and the target is weak. Measure on the real device.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Ken Perlin created gradient noise after working on the film <cite>Tron</cite> (1982) and received a Technical Achievement Academy Award for it in 1997. Scrolling noise distorts water and heat haze, thresholded noise drives dissolves, and layered noise generates terrain heights. Unity's Shader Graph has the two noise nodes named above and <code>Mathf.PerlinNoise</code> on the CPU, and Godot has <code>FastNoiseLite</code>.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE program into drifting clouds.</p>
+  <ol>
+    <li>Replace the island colours with <code>mix(vec3(0.35, 0.6, 0.9), vec3(1.0), smoothstep(0.5, 0.75, n))</code>.</li>
+    <li>Add a second noise at twice the scale: <code>float n2 = valueNoise(floor(p * 2.0), ...)</code> with its own <code>f</code> and <code>u</code>, and use <code>n = 0.65 * n + 0.35 * n2</code>.</li>
+    <li>Scroll the second layer slower than the first by giving it its own offset in <code>love.update</code>.</li>
+  </ol>
+  <p>You are done when the clouds have soft edges with smaller lumps on them, and the two layers drift at different speeds without a jump when the offsets wrap.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Noise is a function from a position to a smooth random-looking value, rebuilt in every pixel from the hash of nearby lattice corners.</li>
+    <li>Value noise: hash a value on each corner and blend the four with <code>mix</code>.</li>
+    <li>Ease the weights with <code>3f² − 2f³</code> (or the quintic) or the grid shows as creases.</li>
+    <li>Gradient noise: hash a direction on each corner and blend <code>dot(g, p − corner)</code>. It is zero on the corners and looks less blocky.</li>
+    <li>Keep inputs small and use <code>highp</code>; wrap the lattice with <code>mod</code> so wrapped time does not jump.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, cellular patterns: instead of blending the corners, measure the distance to a random point in each nearby cell to get cells, scales and cracks.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Ken Perlin, <cite>An Image Synthesizer</cite>, SIGGRAPH 1985.</li>
+    <li>Ken Perlin, <cite>Improving Noise</cite>, SIGGRAPH 2002 (the quintic fade curve).</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Noise".</li>
+    <li>Inigo Quilez, articles on value noise and gradient noise and their derivatives.</li>
+    <li>Unity documentation, <cite>Simple Noise Node</cite> and <cite>Gradient Noise Node</cite> (Shader Graph).</li>
+    <li>Godot documentation, <cite>FastNoiseLite</cite> and <cite>NoiseTexture2D</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;   // the hash needs 32-bit floats",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_scale;    // cells across the height of the canvas",
+    "uniform float u_offset;   // scroll in cells, wrapped to 0..64 on the CPU",
+    "uniform float u_type;     // 0 value noise, 1 gradient noise",
+    "uniform float u_fade;     // 0 linear, 1 cubic (smoothstep), 2 quintic",
+    "uniform float u_stage;    // 0 cell position ... 4 final colour",
+    "uniform float u_grid;     // 1 draws the cell borders",
+    "",
+    "const float PERIOD = 64.0;   // corners repeat every 64 cells, so the scroll can wrap",
+    "",
+    "float hash(vec2 c) {",
+    "  c = mod(c, PERIOD);",
+    "  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);",
+    "}",
+    "",
+    "vec2 gradient(vec2 c) {",
+    "  float a = 6.2831853 * hash(c);",
+    "  return vec2(cos(a), sin(a));",
+    "}",
+    "",
+    "vec2 fade(vec2 f) {",
+    "  if (u_fade < 0.5) return f;",
+    "  if (u_fade < 1.5) return f * f * (3.0 - 2.0 * f);",
+    "  return f * f * f * (f * (f * 6.0 - 15.0) + 10.0);",
+    "}",
+    "",
+    "float valueNoise(vec2 i, vec2 u) {",
+    "  float a = hash(i);",
+    "  float b = hash(i + vec2(1.0, 0.0));",
+    "  float c = hash(i + vec2(0.0, 1.0));",
+    "  float d = hash(i + vec2(1.0, 1.0));",
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+    "}",
+    "",
+    "float gradientNoise(vec2 i, vec2 f, vec2 u) {",
+    "  float a = dot(gradient(i), f);",
+    "  float b = dot(gradient(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));",
+    "  float c = dot(gradient(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));",
+    "  float d = dot(gradient(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));",
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.5 + 0.5;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;   // square cells, u_scale tall",
+    "  p.x += u_offset;",
+    "  vec2 i = floor(p);                                     // 1. which cell",
+    "  vec2 f = fract(p);                                     //    where inside it",
+    "  vec2 u = fade(f);                                      // 3. eased weights",
+    "  float n = valueNoise(i, u);                            // 4. the noise",
+    "  if (u_type > 0.5) n = gradientNoise(i, f, u);",
+    "",
+    "  // 5. use it: colour height bands as an island map",
+    "  vec3 col = vec3(0.10, 0.22, 0.45);                                  // deep water",
+    "  col = mix(col, vec3(0.20, 0.45, 0.70), smoothstep(0.40, 0.44, n));  // shallows",
+    "  col = mix(col, vec3(0.86, 0.80, 0.56), smoothstep(0.53, 0.55, n));  // sand",
+    "  col = mix(col, vec3(0.32, 0.58, 0.26), smoothstep(0.56, 0.59, n));  // grass",
+    "  col = mix(col, vec3(0.20, 0.38, 0.18), smoothstep(0.66, 0.70, n));  // forest",
+    "",
+    "  if (u_stage < 3.5) col = vec3(n);",
+    "  if (u_stage < 2.5) col = vec3(u, 0.0);",
+    "  if (u_stage < 1.5) {",
+    "    // 2. what the corner holds: a grey value, or a direction shown as colour",
+    "    col = vec3(hash(i));",
+    "    if (u_type > 0.5) col = vec3(gradient(i) * 0.5 + 0.5, 0.5);",
+    "  }",
+    "  if (u_stage < 0.5) col = vec3(f, 0.0);",
+    "",
+    "  float cellPx = u_resolution.y / u_scale;",
+    "  vec2 e = min(f, 1.0 - f) * cellPx;                     // pixels to the nearest border",
+    "  float line = 1.0 - step(1.5, min(e.x, e.y));",
+    "  col = mix(col, vec3(1.0), line * u_grid * 0.6);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var PERIOD = 64;       // the same as in the shader
+  var offset = 0;        // scroll so far, in cells
+  var handle = null;
+  var graph = null;
+
+  var COST = {
+    '0': 'value noise: 4 hashes and 3 mixes per pixel',
+    '1': 'gradient noise: 4 hashes, 4 sin and cos pairs, 4 dots and 3 mixes per pixel'
+  };
+
+  var ui = DemoKit.controls('[data-demo="noise-field"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Position in the cell: fract(p)' },
+      { value: '1', label: '2. Corner contents: hash(floor(p))' },
+      { value: '2', label: '3. Eased weights: u = fade(f)' },
+      { value: '3', label: '4. The noise: blend the four corners' },
+      { value: '4', label: '5. Use it: an island map' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+  var type = ui.select({
+    label: 'Noise type',
+    options: [
+      { value: '0', label: 'Value noise' },
+      { value: '1', label: 'Gradient noise' }
+    ],
+    value: '0',
+    onChange: changed
+  });
+  var fadeSel = ui.select({
+    label: 'Fade',
+    options: [
+      { value: '0', label: 'Linear: u = f' },
+      { value: '1', label: 'Cubic: 3f² − 2f³' },
+      { value: '2', label: 'Quintic: 6f⁵ − 15f⁴ + 10f³' }
+    ],
+    value: '1',
+    onChange: changed
+  });
+  var scale = ui.slider({ label: 'Scale (cells tall)', min: 2, max: 32, step: 1, value: 6, onInput: changed });
+  var speed = ui.slider({ label: 'Scroll speed', min: 0, max: 3, step: 0.1, value: 0.5, unit: ' cells/s', onInput: changed });
+  var grid = ui.toggle({ label: 'Show cell borders', value: true, onChange: changed });
+  var readout = ui.readout({ label: 'Cost' });
+
+  function changed() {
+    readout.set(COST[type.value]);
+    if (handle) handle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  handle = DemoKit.shader('#noise-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 400,
+    label: 'A live fragment shader that draws smooth noise over a grid of cells, scrolling sideways. The Stage menu shows the position inside each cell, the random value or direction on each corner, the eased weights, the blended noise, and an island map made from it. Controls choose value or gradient noise, the fade curve, the scale, the scroll speed and whether the cell borders are drawn.',
+    uniforms: {
+      u_scale: function () { return scale.value; },
+      u_offset: function () { return offset; },
+      u_type: function () { return Number(type.value); },
+      u_fade: function () { return Number(fadeSel.value); },
+      u_stage: function () { return Number(stage.value); },
+      u_grid: function () { return grid.value ? 1 : 0; }
+    },
+    update: function (dt) {
+      offset = (offset + speed.value * dt) % PERIOD;
+    }
+  });
+
+  // 1D slice: its own seeded random values, the same blending rules.
+  var rand = DemoKit.rng(11);
+  var VALS = [], SLOPES = [];
+  for (var k = 0; k < 16; k++) {
+    VALS.push(rand());
+    SLOPES.push(rand() * 2 - 1);
+  }
+
+  function fade1(f) {
+    var m = fadeSel.value;
+    if (m === '0') return f;
+    if (m === '1') return f * f * (3 - 2 * f);
+    return f * f * f * (f * (f * 6 - 15) + 10);
+  }
+
+  function noise1(x) {
+    var i = Math.floor(x);
+    var f = x - i;
+    var u = fade1(f);
+    if (type.value === '0') return DemoKit.lerp(VALS[i], VALS[i + 1], u);
+    var a = SLOPES[i] * f;
+    var b = SLOPES[i + 1] * (f - 1);
+    return DemoKit.lerp(a, b, u) * 0.5 + 0.5;
+  }
+
+  graph = DemoKit.canvas('#noise-graph', {
+    height: 180,
+    animate: false,
+    label: 'A graph of one-dimensional noise. For value noise, dots mark a random value at each whole number and a line blends between them. For gradient noise, each whole number has a short slope line through the middle height and the curve follows those slopes. The fade menu changes how the line bends between points.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 30, right = 12, top = 30, bottom = 24;
+      var w = Math.max(10, s.width - left - right);
+      var h = Math.max(10, s.height - top - bottom);
+      var n = Math.max(4, Math.min(12, Math.floor(w / 55)));
+      var cw = w / n;
+      var isValue = type.value === '0';
+      function X(x) { return left + x * cw; }
+      function Y(v) { return top + (1 - v) * h; }
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+
+      // cell borders and axes
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      var k;
+      for (k = 0; k <= n; k++) { ctx.moveTo(X(k), Y(1)); ctx.lineTo(X(k), Y(0)); }
+      ctx.moveTo(left, Y(0.5)); ctx.lineTo(left + w, Y(0.5));
+      ctx.stroke();
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(1)); ctx.lineTo(left, Y(0)); ctx.lineTo(left + w, Y(0));
+      ctx.stroke();
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'right';
+      ctx.fillText('1', left - 6, Y(1));
+      ctx.fillText('0', left - 6, Y(0));
+
+      // value noise before blending: each cell flat at its left corner's value
+      if (isValue) {
+        ctx.strokeStyle = c.ink3;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        for (k = 0; k < n; k++) { ctx.moveTo(X(k), Y(VALS[k])); ctx.lineTo(X(k + 1), Y(VALS[k])); }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // the blended curve
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      var steps = Math.max(40, Math.floor(w / 2));
+      for (k = 0; k <= steps; k++) {
+        var x = Math.min(k / steps * n, n - 1e-6);
+        var py = Y(noise1(x));
+        if (k === 0) ctx.moveTo(X(x), py); else ctx.lineTo(X(x), py);
+      }
+      ctx.stroke();
+
+      // what each corner holds
+      ctx.fillStyle = c.ink;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      for (k = 0; k <= n; k++) {
+        if (isValue) {
+          ctx.beginPath();
+          ctx.arc(X(k), Y(VALS[k]), 4, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          var t = 0.3;   // slope line from -0.3 to 0.3 of a cell
+          ctx.beginPath();
+          ctx.moveTo(X(k - t), Y(0.5 - 0.5 * SLOPES[k] * t));
+          ctx.lineTo(X(k + t), Y(0.5 + 0.5 * SLOPES[k] * t));
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(X(k), Y(0.5), 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // legend
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(left, 9, 14, 4);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('noise', left + 20, 12);
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(left + 76, 12, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(isValue ? 'corner value (dashed: unblended)' : 'corner: zero, with its slope', left + 84, 12);
+      ctx.textBaseline = 'top';
+      ctx.fillText('x = 0 to ' + n + ' cells', left, Y(0) + 6);
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

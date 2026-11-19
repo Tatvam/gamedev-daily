@@ -43,7 +43,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 4: Rendering and animation
 
-- [ ] **Cameras and viewports: Camera2D in Godot, Camera in Unity** — How a camera converts world coordinates into screen coordinates through position, zoom and rotation. Demo: Drag, zoom and rotate a camera rectangle over a world map in one panel and see the resulting screen image in the other.
+- [x] **Cameras and viewports: Camera2D in Godot, Camera in Unity** — How a camera converts world coordinates into screen coordinates through position, zoom and rotation. Demo: Drag, zoom and rotate a camera rectangle over a world map in one panel and see the resulting screen image in the other. (published 2026-11-19, cameras-and-viewports)
 - [ ] **Layers and draw order: z_index and CanvasLayer in Godot, sorting layers in Unity** — How engines decide which sprite is drawn on top and how sorting by vertical position fakes depth. Demo: Walk a character around trees while changing layer numbers and toggling Y sorting to see it pass in front of and behind them.
 - [ ] **Culling** — How engines skip drawing objects that are outside the camera's view, and what the visibility test itself costs. Demo: Move a camera over a field of a thousand objects and watch culled ones turn grey while a counter shows how many are drawn.
 - [ ] **Draw calls and batching** — Why drawing many sprites that share a texture and material is far cheaper than switching between them. Demo: Sprites using three procedural textures are drawn in a random or sorted order while a counter shows the number of batches and a slider changes the sprite count.

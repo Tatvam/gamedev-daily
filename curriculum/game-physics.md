@@ -44,7 +44,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 4: Character controllers and kinematic bodies
 
 - [x] **Static, kinematic, and dynamic bodies** — How the three body types differ and when to use each, with the matching node and component types in Godot and Unity. Demo: switch a box between the three types and push it with the mouse and with other bodies. (published 2026-11-18, static-kinematic-dynamic)
-- [ ] **Move and slide** — How a kinematic character moves, collides and slides over several passes, like move_and_slide in Godot and CharacterController.Move in Unity. Demo: steer a character around a room while each slide pass is drawn as a coloured arrow, with a slider for the maximum number of passes.
+- [x] **Move and slide** — How a kinematic character moves, collides and slides over several passes, like move_and_slide in Godot and CharacterController.Move in Unity. Demo: steer a character around a room while each slide pass is drawn as a coloured arrow, with a slider for the maximum number of passes. (published 2026-11-19, move-and-slide)
 - [ ] **Ground detection** — How to decide reliably whether a character is standing on the floor using contact normals or short downward casts. Demo: walk over ledges and slopes while toggling between ray, box cast and normal-based checks.
 - [ ] **Snapping to the ground** — Why characters launch off the top of slopes and how a snap distance keeps them attached. Demo: run down a hill with a snap toggle and a snap distance slider.
 - [ ] **Steps and stairs** — How a character can climb small ledges without jumping. Demo: walk into steps of different heights with a step height slider.

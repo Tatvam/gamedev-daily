@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cameras and viewports: from world to screen · Game Dev Daily</title>
+<meta name="description" content="How a 2D camera turns world coordinates into screen pixels with position, rotation and zoom, how to undo it for mouse clicks, and how Godot and Unity do it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Cameras and viewports: from world to screen</h1>
+  <p class="lede">How a 2D camera turns world coordinates into screen pixels with position, rotation and zoom, how to undo it for mouse clicks, and how Godot and Unity do it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You add a camera that follows the player, and suddenly clicking on an enemy selects empty grass. The health bar you drew over the boss drifts away as soon as the camera zooms. Nothing is wrong with the click or the bar. They are just measured in a different coordinate system from the things they point at.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Two coordinate systems</h2>
+  <p><dfn>World space</dfn> is where your game objects live. A tree at (560, 280) stays at (560, 280) whatever the camera does. The units are yours: pixels in LÖVE and Godot 2D, metres-ish "units" in Unity.</p>
+  <p><dfn>Screen space</dfn> is the grid of pixels you actually draw into. Its origin is a corner of the window: top left with y pointing down in LÖVE and Godot, bottom left with y pointing up in Unity.</p>
+  <p>The rectangle of pixels a camera draws into is its <dfn>viewport</dfn>. Usually that is the whole window, but split screen gives each player a viewport of their own. In this lesson the viewport is 320 by 180 pixels.</p>
+  <p>A <dfn>camera</dfn> is the description of which part of the world lands in that viewport. In 2D it has three numbers: a position (the world point at the centre of the view), a rotation, and a zoom.</p>
+
+  <h2>The camera is a transform, run backwards</h2>
+  <p>A camera never moves anything on screen by itself. To show the camera moving right, you draw the whole world moved left. Every world point goes through four steps on its way to the screen:</p>
+  <ol>
+    <li><strong>Subtract the camera position.</strong> Now the point is measured from the camera.</li>
+    <li><strong>Rotate by minus the camera angle.</strong> Turning the camera clockwise turns the world anticlockwise.</li>
+    <li><strong>Multiply by the zoom.</strong> At zoom 2 every distance doubles, so things look twice as big.</li>
+    <li><strong>Add half the viewport size.</strong> The camera's position ends up in the middle of the viewport, not in its corner.</li>
+  </ol>
+  <p>Try it with small numbers. The camera is at (500, 300), zoom 2, no rotation. A flag at (560, 280) becomes (60, −20) after step 1, stays (60, −20) in step 2, becomes (120, −40) after step 3 and (280, 50) after step 4. It is drawn 280 pixels from the left and 50 from the top.</p>
+  <p>Going the other way is how mouse picking works. The mouse reports a screen position, and you need the world position to know what was clicked. Undo the same four steps in reverse order: subtract half the viewport, divide by the zoom, rotate by <em>plus</em> the angle, add the camera position. Screen (280, 50) gives (120, −40), then (60, −20), then (60, −20), then (560, 280). The round trip lands exactly on the flag.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Two rows of five boxes. The top row converts a world point to a screen point: world point 560, 280; subtract camera gives 60, minus 20; rotate by minus angle gives 60, minus 20; times zoom gives 120, minus 40; add half view gives 280, 50. The bottom row runs right to left from screen point 280, 50 through subtract half view, divide by zoom, rotate by plus angle and add camera, back to 560, 280.">
+      <defs>
+        <marker id="cam-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="14" y="26">World to screen: drawing</text>
+      <rect class="d-fill" x="14" y="40" width="100" height="56" rx="8"/>
+      <text class="d-text" x="64" y="63" text-anchor="middle">world point</text>
+      <text class="d-mono" x="64" y="83" text-anchor="middle">(560, 280)</text>
+      <rect class="d-box" x="136" y="40" width="100" height="56" rx="8"/>
+      <text class="d-text" x="186" y="63" text-anchor="middle">− camera</text>
+      <text class="d-mono" x="186" y="83" text-anchor="middle">(60, −20)</text>
+      <rect class="d-box" x="258" y="40" width="100" height="56" rx="8"/>
+      <text class="d-text" x="308" y="63" text-anchor="middle">rotate −angle</text>
+      <text class="d-mono" x="308" y="83" text-anchor="middle">(60, −20)</text>
+      <rect class="d-box" x="380" y="40" width="100" height="56" rx="8"/>
+      <text class="d-text" x="430" y="63" text-anchor="middle">× zoom</text>
+      <text class="d-mono" x="430" y="83" text-anchor="middle">(120, −40)</text>
+      <rect class="d-accent-soft" x="502" y="40" width="100" height="56" rx="8"/>
+      <text class="d-text" x="552" y="63" text-anchor="middle">+ half view</text>
+      <text class="d-mono" x="552" y="83" text-anchor="middle">(280, 50)</text>
+      <path class="d-accent" d="M114 68 H134" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M236 68 H256" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M358 68 H378" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M480 68 H500" marker-end="url(#cam-arrow)"/>
+
+      <text class="d-label" x="14" y="146">Screen to world: mouse picking</text>
+      <rect class="d-fill" x="14" y="160" width="100" height="56" rx="8"/>
+      <text class="d-text" x="64" y="183" text-anchor="middle">+ camera</text>
+      <text class="d-mono" x="64" y="203" text-anchor="middle">(560, 280)</text>
+      <rect class="d-box" x="136" y="160" width="100" height="56" rx="8"/>
+      <text class="d-text" x="186" y="183" text-anchor="middle">rotate +angle</text>
+      <text class="d-mono" x="186" y="203" text-anchor="middle">(60, −20)</text>
+      <rect class="d-box" x="258" y="160" width="100" height="56" rx="8"/>
+      <text class="d-text" x="308" y="183" text-anchor="middle">÷ zoom</text>
+      <text class="d-mono" x="308" y="203" text-anchor="middle">(60, −20)</text>
+      <rect class="d-box" x="380" y="160" width="100" height="56" rx="8"/>
+      <text class="d-text" x="430" y="183" text-anchor="middle">− half view</text>
+      <text class="d-mono" x="430" y="203" text-anchor="middle">(120, −40)</text>
+      <rect class="d-accent-soft" x="502" y="160" width="100" height="56" rx="8"/>
+      <text class="d-text" x="552" y="183" text-anchor="middle">screen point</text>
+      <text class="d-mono" x="552" y="203" text-anchor="middle">(280, 50)</text>
+      <path class="d-accent" d="M502 188 H482" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M380 188 H360" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M258 188 H238" marker-end="url(#cam-arrow)"/>
+      <path class="d-accent" d="M136 188 H116" marker-end="url(#cam-arrow)"/>
+      <text class="d-muted" x="320" y="250" text-anchor="middle">camera (500, 300), zoom 2, angle 0, viewport 320 × 180, so half view is (160, 90)</text>
+    </svg>
+    <figcaption>The same four operations, forwards for drawing and backwards (in reverse order, each one inverted) for turning a click into a world position. With an angle of 0 the rotate step changes nothing; set it in the demo to see it matter.</figcaption>
+  </figure>
+
+  <p>One consequence is worth remembering: the part of the world you can see is the viewport divided by the zoom. A 320 by 180 viewport at zoom 2 shows 160 by 90 world units. At zoom 0.5 it shows 640 by 360.</p>
+
+  <h2>Who owns the transform</h2>
+  <p>In LÖVE you own it. You push the four steps onto the graphics transform before drawing the world, and pop them before drawing the interface, which should stay put in screen space.</p>
+  <p>In <strong>Godot 4</strong> a <code>Camera2D</code> node owns it. The current camera of a viewport writes the viewport's canvas transform, and every 2D node in that canvas is drawn through it. A <code>CanvasLayer</code> has its own transform, which is why a HUD placed in one does not move with the camera. Make a Camera2D a child of the player and the transform hierarchy makes it follow for free.</p>
+  <p>In <strong>Unity</strong> the <code>Camera</code> component on a GameObject owns it. The GameObject's Transform gives position and rotation; for 2D you use an orthographic camera, whose zoom is expressed as <code>orthographicSize</code>: half the visible height in world units. Cameras render after <code>LateUpdate</code>, which is why follow scripts usually move the camera there, after every object has finished moving.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th></th><th>Godot 4, Camera2D</th><th>Unity, orthographic Camera</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Position</td><td><code>position</code>, the centre of the view by default</td><td>Transform position; z sits behind the scene (−10 in a new 2D scene)</td></tr>
+      <tr><td>Zoom</td><td><code>zoom</code>, a Vector2; 2 means twice as close</td><td><code>orthographicSize</code>; smaller means closer</td></tr>
+      <tr><td>Rotation</td><td><code>rotation</code>, used only when <code>ignore_rotation</code> is false</td><td>Transform rotation around z</td></tr>
+      <tr><td>Screen to world</td><td><code>get_global_mouse_position()</code></td><td><code>ScreenToWorldPoint</code></td></tr>
+      <tr><td>World to screen</td><td><code>get_viewport().get_canvas_transform() * p</code></td><td><code>WorldToScreenPoint</code></td></tr>
+      <tr><td>Screen y axis</td><td>down, origin top left</td><td>up, origin bottom left</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Before you add, compare or store a position, ask which space it is in. Mouse positions and UI are screen space; entities are world space. Convert at the boundary, once, with the engine's function.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is the whole world, 960 by 640 units, with the camera drawn as a blue rectangle. Drag it, or click a panel and use the arrow keys to pan, <kbd>Q</kbd> and <kbd>E</kbd> to rotate and <kbd>+</kbd> and <kbd>−</kbd> to zoom. The right panel is the 320 by 180 viewport: what the camera sees. You can drag that too, like grabbing the map.</p>
+  <p>Zoom in and watch the rectangle shrink while the screen view grows. Rotate, and notice the world on the right turns the opposite way. Hover over the screen view: the cross on the left marks the world point under your pointer, found with screen to world.</p>
+
+  <figure class="demo wide" data-demo="camera-viewport">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="cam-world"></canvas><span class="demo-label">World</span></div>
+      <div class="demo-stage"><canvas id="cam-screen"></canvas><span class="demo-label">Screen</span></div>
+    </div>
+    <figcaption>The screen panel is a 320 by 180 viewport scaled to fit your device; the readouts are in its own pixels. The model leaves out smoothing, camera limits, pixel snapping and perspective cameras.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua is a LÖVE 11 program with the demo's numbers: a 320 by 180 window, a 960 by 640 world with a grid every 80 units, the flag at (560, 280), panning at 240 units per second and rotating at 90 degrees per second. Notice the four graphics calls in <code>love.draw</code>: read bottom to top, they are <code>worldToScreen</code>, applied to everything drawn between <code>push</code> and <code>pop</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Arrow keys pan, Q and E rotate, the mouse wheel zooms.</span>
+local VIEW_W, VIEW_H = 320, 180       <span class="c">-- the viewport, in screen pixels</span>
+local WORLD_W, WORLD_H = 960, 640     <span class="c">-- the world, in world units</span>
+local PAN_SPEED = 240                 <span class="c">-- world units per second</span>
+local FLAG = { x = 560, y = 280 }
+local cam = { x = 480, y = 320, zoom = 1, angle = 0 }   <span class="c">-- angle in radians</span>
+
+local function worldToScreen(wx, wy)
+  local dx, dy = wx - cam.x, wy - cam.y                 <span class="c">-- 1. relative to the camera</span>
+  local c, s = math.cos(cam.angle), math.sin(cam.angle)
+<span class="k">  local rx, ry = dx * c + dy * s, -dx * s + dy * c      -- 2. rotate by -angle
+  return rx * cam.zoom + VIEW_W / 2,                    -- 3. zoom
+         ry * cam.zoom + VIEW_H / 2                     -- 4. centre of the viewport</span>
+end
+
+local function screenToWorld(sx, sy)  <span class="c">-- the same steps, undone in reverse order</span>
+  local vx = (sx - VIEW_W / 2) / cam.zoom
+  local vy = (sy - VIEW_H / 2) / cam.zoom
+  local c, s = math.cos(cam.angle), math.sin(cam.angle)
+<span class="k">  return vx * c - vy * s + cam.x, vx * s + vy * c + cam.y</span>
+end
+
+function love.load()
+  love.window.setMode(VIEW_W, VIEW_H)
+end
+
+function love.update(dt)
+  local down = love.keyboard.isDown
+  if down("left") then cam.x = cam.x - PAN_SPEED * dt end
+  if down("right") then cam.x = cam.x + PAN_SPEED * dt end
+  if down("up") then cam.y = cam.y - PAN_SPEED * dt end
+  if down("down") then cam.y = cam.y + PAN_SPEED * dt end
+  if down("q") then cam.angle = cam.angle - math.rad(90) * dt end
+  if down("e") then cam.angle = cam.angle + math.rad(90) * dt end
+  cam.x = math.max(0, math.min(WORLD_W, cam.x))
+  cam.y = math.max(0, math.min(WORLD_H, cam.y))
+end
+
+function love.wheelmoved(x, y)
+  if y &gt; 0 then cam.zoom = math.min(3, cam.zoom * 1.1) end
+  if y &lt; 0 then cam.zoom = math.max(0.5, cam.zoom / 1.1) end
+end
+
+function love.draw()
+  love.graphics.push()                                  <span class="c">-- world space from here</span>
+<span class="k">  love.graphics.translate(VIEW_W / 2, VIEW_H / 2)       -- 4.
+  love.graphics.scale(cam.zoom)                         -- 3.
+  love.graphics.rotate(-cam.angle)                      -- 2.
+  love.graphics.translate(-cam.x, -cam.y)               -- 1.</span>
+  for i = 0, WORLD_W, 80 do love.graphics.line(i, 0, i, WORLD_H) end
+  for j = 0, WORLD_H, 80 do love.graphics.line(0, j, WORLD_W, j) end
+  love.graphics.circle("fill", FLAG.x, FLAG.y, 6)
+  love.graphics.pop()                                   <span class="c">-- back to screen space</span>
+
+  local fx, fy = worldToScreen(FLAG.x, FLAG.y)          <span class="c">-- a label that never scales</span>
+  love.graphics.print("flag", fx + 8, fy - 8)
+  local wx, wy = screenToWorld(love.mouse.getPosition())
+  love.graphics.print("mouse in world: " .. math.floor(wx) .. ", " .. math.floor(wy), 4, 4)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># camera_demo.gd for Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Arrow keys pan, Q and E rotate, the mouse wheel zooms, a left click prints both conversions.</span>
+<span class="c"># Set the window to 320 x 180 (Project Settings, Display &gt; Window) to match the demo's numbers.</span>
+extends Node2D
+
+const WORLD := Vector2(960, 640)
+const FLAG := Vector2(560, 280)
+const PAN_SPEED := 240.0
+var cam := Camera2D.new()
+
+func _ready() -&gt; void:
+    cam.position = Vector2(480, 320)
+<span class="k">    cam.ignore_rotation = false   # otherwise Camera2D ignores its own rotation</span>
+    add_child(cam)
+    cam.make_current()
+
+func _process(delta: float) -&gt; void:
+    var move := Vector2(Input.get_axis("ui_left", "ui_right"), Input.get_axis("ui_up", "ui_down"))
+    cam.position = (cam.position + move * PAN_SPEED * delta).clamp(Vector2.ZERO, WORLD)
+    if Input.is_key_pressed(KEY_Q):
+        cam.rotation -= deg_to_rad(90.0) * delta
+    if Input.is_key_pressed(KEY_E):
+        cam.rotation += deg_to_rad(90.0) * delta
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event is InputEventMouseButton and event.pressed:
+        if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+<span class="k">            cam.zoom = (cam.zoom * 1.1).clamp(Vector2(0.5, 0.5), Vector2(3, 3))</span>
+        elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            cam.zoom = (cam.zoom / 1.1).clamp(Vector2(0.5, 0.5), Vector2(3, 3))
+        elif event.button_index == MOUSE_BUTTON_LEFT:
+<span class="k">            var world := get_global_mouse_position()                     # screen to world
+            var screen := get_viewport().get_canvas_transform() * FLAG     # world to screen</span>
+            print("clicked world ", world, ", flag on screen ", screen)
+
+func _draw() -&gt; void:   <span class="c"># drawn in world space, through the camera</span>
+    for i in range(0, 961, 80):
+        draw_line(Vector2(i, 0), Vector2(i, WORLD.y), Color(1, 1, 1, 0.25))
+    for j in range(0, 641, 80):
+        draw_line(Vector2(0, j), Vector2(WORLD.x, j), Color(1, 1, 1, 0.25))
+    draw_circle(FLAG, 6.0, Color.RED)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// CameraDemo.cs. Unity 2022 LTS or Unity 6. Add it to the Main Camera of a 2D scene,</span>
+<span class="c">// drag any sprite into Flag, then play. Distances are in Unity units, not pixels.</span>
+<span class="c">// Uses the Input Manager. If Active Input Handling (Player settings) is set to the</span>
+<span class="c">// Input System package only, switch it to Both.</span>
+using UnityEngine;
+
+public class CameraDemo : MonoBehaviour
+{
+    public Transform flag;
+    const float PanSpeed = 5f;      <span class="c">// units per second</span>
+    Camera cam;
+    float sizeAtZoom1;
+
+    void Start()
+    {
+        cam = GetComponent&lt;Camera&gt;();
+        cam.orthographic = true;
+        sizeAtZoom1 = cam.orthographicSize;   <span class="c">// half the visible height, in units</span>
+    }
+
+    void Update()
+    {
+        var move = new Vector3(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"), 0f);
+        transform.position += move * PanSpeed * Time.deltaTime;   <span class="c">// world y points up</span>
+        if (Input.GetKey(KeyCode.Q)) transform.Rotate(0f, 0f, 90f * Time.deltaTime);
+        if (Input.GetKey(KeyCode.E)) transform.Rotate(0f, 0f, -90f * Time.deltaTime);
+
+        float zoom = sizeAtZoom1 / cam.orthographicSize;
+        if (Input.mouseScrollDelta.y &gt; 0f) zoom = Mathf.Min(3f, zoom * 1.1f);
+        if (Input.mouseScrollDelta.y &lt; 0f) zoom = Mathf.Max(0.5f, zoom / 1.1f);
+<span class="k">        cam.orthographicSize = sizeAtZoom1 / zoom;   // zooming in means a smaller size</span>
+
+        if (Input.GetMouseButtonDown(0))
+        {
+<span class="k">            Vector3 world = cam.ScreenToWorldPoint(Input.mousePosition);
+            Vector3 screen = cam.WorldToScreenPoint(flag.position);</span>
+            Debug.Log($"clicked world {world}, flag on screen {screen}");
+        }
+    }
+}</code></pre>
+  </div>
+  <p>Unity's screen positions start at the bottom left, so the flag's screen y grows as it moves <em>up</em>. For an orthographic camera <code>ScreenToWorldPoint</code> gets x and y right whatever z you pass; with a perspective camera z must be the distance from the camera.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Comparing a mouse position with an entity position.</strong> It works until the camera moves, which is why it often survives the first test. Convert the mouse to world space first.</li>
+    <li><strong>Doing the steps in the wrong order.</strong> Rotating before subtracting the camera position spins the world around the world origin instead of around the camera. Zooming before rotating is harmless; moving the centre step anywhere but last is not.</li>
+    <li><strong>Zoom pointing the other way.</strong> In Godot 4 a larger <code>zoom</code> is closer; Godot 3 was the opposite, so older tutorials will mislead you. In Unity a larger <code>orthographicSize</code> shows more of the world, so it is further away.</li>
+    <li><strong>A Camera2D that will not rotate.</strong> In Godot 4, <code>ignore_rotation</code> is true by default, so setting the camera's rotation changes nothing until you turn it off.</li>
+    <li><strong>HUD drawn in world space.</strong> A health bar drawn as a child of the world zooms and spins with it. Put the HUD on a <code>CanvasLayer</code> in Godot or a Screen Space canvas in Unity, and position it with world to screen.</li>
+    <li><strong>Pixel art at odd zooms.</strong> At a zoom such as 1.5, some art pixels cover one screen pixel and some cover two, so sprites shimmer as the camera moves. Prefer whole-number zooms for pixel art.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Split-screen multiplayer is several cameras, each with its own viewport inside one window. Unity sets this with a camera's viewport rectangle; Godot uses a <code>SubViewport</code> per player. A minimap is the same idea: a second camera, zoomed far out, drawing into a small viewport in the corner.</p>
+  <p>Screen shake is a small random offset added to the camera position for a few frames, so the world moves while the HUD does not. Follow cameras with smoothing and dead zones are common enough that both engines help: Godot's Camera2D has built-in smoothing and limits, and Unity offers the Cinemachine package.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your own project, draw a small marker that sits exactly under the mouse in the world, using the engine's screen to world call. Then draw a label in screen space that stays above one enemy, using world to screen. You are done when both stay correct while the camera pans, zooms and rotates (in Godot, switch off <code>ignore_rotation</code> first).</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>World space is where objects live; screen space is the pixels of a viewport. The camera maps one onto the other.</li>
+    <li>World to screen: subtract the camera position, rotate by minus the angle, multiply by zoom, add half the viewport.</li>
+    <li>Screen to world undoes the same steps in reverse order, and is how every mouse click finds its target.</li>
+    <li>The visible part of the world is the viewport size divided by the zoom.</li>
+    <li>Godot's Camera2D writes the viewport's canvas transform; Unity's orthographic Camera uses its Transform plus <code>orthographicSize</code>. Both give you functions for the two conversions.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>With objects on screen, the next lesson asks which one is drawn on top: layers, draw order and sorting by height to fake depth.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Camera2D</cite> class reference, and the tutorial <cite>Viewport and canvas transforms</cite> (Godot 4).</li>
+    <li>Unity Technologies, Scripting API pages for <cite>Camera.orthographicSize</cite>, <cite>Camera.ScreenToWorldPoint</cite> and <cite>Camera.rect</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.push</cite>, <cite>love.graphics.translate</cite>, <cite>love.graphics.rotate</cite> and <cite>love.graphics.scale</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var WORLD_W = 960, WORLD_H = 640;   // world units
+  var VIEW_W = 320, VIEW_H = 180;     // viewport pixels
+  var FLAG = { x: 560, y: 280 };
+  var PAN_SPEED = 240;                // world units per second
+  var TURN_SPEED = Math.PI / 2;       // 90 degrees per second
+  var MIN_ZOOM = 0.5, MAX_ZOOM = 3;
+
+  var cam;
+  function resetCam() { cam = { x: 480, y: 320, zoom: 1, angle: 0 }; }
+  resetCam();
+
+  var probe = null;        // pointer position in viewport pixels, or null
+  var worldDrag = null;
+  var screenDrag = null;
+  var worldLayout = { k: 1, ox: 0, oy: 0 };
+  var screenLayout = { fit: 1, ox: 0, oy: 0 };
+
+  function worldToScreen(wx, wy) {
+    var dx = wx - cam.x, dy = wy - cam.y;
+    var c = Math.cos(cam.angle), s = Math.sin(cam.angle);
+    var rx = dx * c + dy * s, ry = -dx * s + dy * c;
+    return { x: rx * cam.zoom + VIEW_W / 2, y: ry * cam.zoom + VIEW_H / 2 };
+  }
+
+  function screenToWorld(sx, sy) {
+    var vx = (sx - VIEW_W / 2) / cam.zoom, vy = (sy - VIEW_H / 2) / cam.zoom;
+    var c = Math.cos(cam.angle), s = Math.sin(cam.angle);
+    return { x: vx * c - vy * s + cam.x, y: vx * s + vy * c + cam.y };
+  }
+
+  function clampCam() {
+    cam.x = DemoKit.clamp(cam.x, 0, WORLD_W);
+    cam.y = DemoKit.clamp(cam.y, 0, WORLD_H);
+    cam.zoom = DemoKit.clamp(cam.zoom, MIN_ZOOM, MAX_ZOOM);
+    while (cam.angle > Math.PI) cam.angle -= 2 * Math.PI;
+    while (cam.angle < -Math.PI) cam.angle += 2 * Math.PI;
+  }
+
+  // ---- Scenery, seeded so it is the same for every reader ----
+  var RIVER = [[-40, 500], [200, 450], [420, 530], [640, 440], [1000, 480]];
+  var HOUSES = [[380, 100, 60, 46], [470, 110, 50, 40], [620, 80, 70, 50],
+                [150, 270, 56, 44], [700, 300, 60, 48], [800, 570, 64, 44]];
+
+  function riverY(x) {
+    for (var i = 0; i < RIVER.length - 1; i++) {
+      var a = RIVER[i], b = RIVER[i + 1];
+      if (x >= a[0] && x <= b[0]) return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+    }
+    return 480;
+  }
+
+  var trees = [];
+  (function () {
+    var rng = DemoKit.rng(11);
+    var tries = 0;
+    while (trees.length < 46 && tries < 2000) {
+      tries++;
+      var x = 20 + rng() * 920, y = 20 + rng() * 600, r = 9 + rng() * 8;
+      if (Math.abs(y - riverY(x)) < 45) continue;
+      if (Math.abs(y - 200) < 26 || Math.abs(x - 300) < 26) continue;
+      if (Math.hypot(x - FLAG.x, y - FLAG.y) < 50) continue;
+      var hit = false;
+      for (var i = 0; i < HOUSES.length; i++) {
+        var h = HOUSES[i];
+        if (x > h[0] - 22 && x < h[0] + h[2] + 22 && y > h[1] - 30 && y < h[1] + h[3] + 22) hit = true;
+      }
+      if (!hit) trees.push([x, y, r]);
+    }
+  })();
+
+  // Draws the world in world units. unitPx = screen pixels per world unit.
+  function drawWorld(ctx, c, unitPx, labels) {
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1 / unitPx;
+    ctx.beginPath();
+    for (var gx = 0; gx <= WORLD_W; gx += 80) { ctx.moveTo(gx, 0); ctx.lineTo(gx, WORLD_H); }
+    for (var gy = 0; gy <= WORLD_H; gy += 80) { ctx.moveTo(0, gy); ctx.lineTo(WORLD_W, gy); }
+    ctx.stroke();
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 36;
+    ctx.beginPath();
+    ctx.moveTo(RIVER[0][0], RIVER[0][1]);
+    for (var i = 1; i < RIVER.length; i++) ctx.lineTo(RIVER[i][0], RIVER[i][1]);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(0, 200); ctx.lineTo(WORLD_W, 200);
+    ctx.moveTo(300, 0); ctx.lineTo(300, WORLD_H);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    for (i = 0; i < HOUSES.length; i++) {
+      var h = HOUSES[i];
+      ctx.fillStyle = c.warn;
+      ctx.fillRect(h[0], h[1], h[2], h[3]);
+      ctx.fillStyle = c.bad;
+      ctx.beginPath();
+      ctx.moveTo(h[0] - 6, h[1]);
+      ctx.lineTo(h[0] + h[2] / 2, h[1] - 22);
+      ctx.lineTo(h[0] + h[2] + 6, h[1]);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.fillStyle = c.good;
+    for (i = 0; i < trees.length; i++) {
+      ctx.beginPath();
+      ctx.arc(trees[i][0], trees[i][1], trees[i][2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // The flag. Its world position is the foot of the pole.
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(FLAG.x, FLAG.y);
+    ctx.lineTo(FLAG.x, FLAG.y - 36);
+    ctx.stroke();
+    ctx.fillStyle = c.bad;
+    ctx.beginPath();
+    ctx.moveTo(FLAG.x, FLAG.y - 36);
+    ctx.lineTo(FLAG.x + 24, FLAG.y - 29);
+    ctx.lineTo(FLAG.x, FLAG.y - 22);
+    ctx.closePath();
+    ctx.fill();
+
+    if (labels) {
+      ctx.fillStyle = c.ink2;
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (gx = 0; gx < WORLD_W; gx += 160) {
+        for (gy = 0; gy < WORLD_H; gy += 160) {
+          ctx.fillText(gx + ', ' + gy, gx + 3, gy + 3);
+        }
+      }
+    }
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="camera-viewport"]');
+  var zoomSlider = ui.slider({ label: 'Zoom', min: MIN_ZOOM, max: MAX_ZOOM, step: 0.1, value: 1, unit: '×',
+    onInput: function (v) { cam.zoom = v; } });
+  var angleSlider = ui.slider({ label: 'Rotation', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { cam.angle = v * Math.PI / 180; } });
+  ui.button({ label: 'Reset camera', onClick: function () {
+    resetCam();
+    syncSliders();
+  } });
+  var camOut = ui.readout({ label: 'Camera' });
+  var flagOut = ui.readout({ label: 'Flag on screen' });
+  var pointerOut = ui.readout({ label: 'Pointer' });
+
+  function syncSliders() {
+    zoomSlider.set(Math.round(cam.zoom * 10) / 10);
+    angleSlider.set(Math.round(cam.angle * 180 / Math.PI));
+  }
+
+  function fmt(p) { return '(' + Math.round(p.x) + ', ' + Math.round(p.y) + ')'; }
+
+  function updateReadouts() {
+    camOut.set(fmt(cam) + ', sees ' + Math.round(VIEW_W / cam.zoom) + ' × ' + Math.round(VIEW_H / cam.zoom) + ' units');
+    var f = worldToScreen(FLAG.x, FLAG.y);
+    var on = f.x >= 0 && f.x <= VIEW_W && f.y >= 0 && f.y <= VIEW_H;
+    flagOut.set(fmt(f) + (on ? '' : ', off screen'));
+    if (probe) {
+      pointerOut.set('screen ' + fmt(probe) + ' → world ' + fmt(screenToWorld(probe.x, probe.y)));
+    } else {
+      pointerOut.set('hover or touch the screen view');
+    }
+  }
+
+  // ---- Keyboard, shared by both panels ----
+  function applyKeys(dt, keys) {
+    if (!keys || keys.size === 0) return;
+    var moved = false;
+    if (keys.has('arrowleft')) { cam.x -= PAN_SPEED * dt; moved = true; }
+    if (keys.has('arrowright')) { cam.x += PAN_SPEED * dt; moved = true; }
+    if (keys.has('arrowup')) { cam.y -= PAN_SPEED * dt; moved = true; }
+    if (keys.has('arrowdown')) { cam.y += PAN_SPEED * dt; moved = true; }
+    if (keys.has('q')) { cam.angle -= TURN_SPEED * dt; moved = true; }
+    if (keys.has('e')) { cam.angle += TURN_SPEED * dt; moved = true; }
+    if (moved) { clampCam(); syncSliders(); }
+  }
+
+  function onKey(key, isDown) {
+    if (!isDown) return;
+    if (key === '+' || key === '=') cam.zoom *= 1.1;
+    else if (key === '-' || key === '_') cam.zoom /= 1.1;
+    else if (key === 'r') resetCam();
+    else return;
+    clampCam();
+    syncSliders();
+  }
+
+  // ---- Left panel: the whole world and the camera rectangle ----
+  function worldPanelToWorld(p) {
+    return { x: (p.x - worldLayout.ox) / worldLayout.k, y: (p.y - worldLayout.oy) / worldLayout.k };
+  }
+
+  DemoKit.canvas('#cam-world', {
+    height: 280,
+    drag: true,
+    keys: true,
+    label: 'The whole world seen from above, with the camera drawn as a rectangle. Drag to move the camera; arrow keys pan, Q and E rotate, plus and minus zoom.',
+    update: function (dt, s) { applyKeys(dt, s.keys); },
+    onKey: onKey,
+    onDown: function (p) {
+      var w = worldPanelToWorld(p);
+      worldDrag = { px: w.x, py: w.y, cx: cam.x, cy: cam.y };
+    },
+    onMove: function (p) {
+      if (!worldDrag || !p.down) return;
+      var w = worldPanelToWorld(p);
+      cam.x = worldDrag.cx + (w.x - worldDrag.px);
+      cam.y = worldDrag.cy + (w.y - worldDrag.py);
+      clampCam();
+    },
+    onUp: function () { worldDrag = null; },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var k = Math.min((s.width - 16) / WORLD_W, (s.height - 40) / WORLD_H);
+      if (k <= 0) return;
+      var ox = (s.width - WORLD_W * k) / 2;
+      var oy = 30 + (s.height - 30 - WORLD_H * k) / 2;
+      worldLayout = { k: k, ox: ox, oy: oy };
+
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.scale(k, k);
+      drawWorld(ctx, c, k, false);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1 / k;
+      ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+
+      // The camera rectangle: the four viewport corners taken back into the world.
+      var corners = [screenToWorld(0, 0), screenToWorld(VIEW_W, 0),
+                     screenToWorld(VIEW_W, VIEW_H), screenToWorld(0, VIEW_H)];
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      for (var i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.closePath();
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = c.topic;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5 / k;
+      ctx.lineJoin = 'miter';
+      ctx.stroke();
+
+      // A small triangle on the top edge shows which way is "up" on screen.
+      var reach = 12 * cam.zoom / k, half = 7 * cam.zoom / k;
+      var tip = screenToWorld(VIEW_W / 2, -reach);
+      var bl = screenToWorld(VIEW_W / 2 - half, 0);
+      var br = screenToWorld(VIEW_W / 2 + half, 0);
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(bl.x, bl.y);
+      ctx.lineTo(br.x, br.y);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cam.x, cam.y, 3.5 / k, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (probe) {
+        var w = screenToWorld(probe.x, probe.y);
+        var r = 7 / k;
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 2 / k;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+        ctx.moveTo(w.x - r * 1.8, w.y); ctx.lineTo(w.x + r * 1.8, w.y);
+        ctx.moveTo(w.x, w.y - r * 1.8); ctx.lineTo(w.x, w.y + r * 1.8);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      updateReadouts();
+    }
+  });
+
+  // ---- Right panel: what the camera draws into its 320 x 180 viewport ----
+  function screenPanelToView(p) {
+    return { x: (p.x - screenLayout.ox) / screenLayout.fit, y: (p.y - screenLayout.oy) / screenLayout.fit };
+  }
+  function insideView(v) {
+    return v.x >= 0 && v.x <= VIEW_W && v.y >= 0 && v.y <= VIEW_H;
+  }
+
+  DemoKit.canvas('#cam-screen', {
+    height: 280,
+    drag: true,
+    keys: true,
+    label: 'What the camera shows in a 320 by 180 viewport. Hover to see the world point under the pointer; drag to pan.',
+    update: function (dt, s) {
+      applyKeys(dt, s.keys);
+      if (!s.pointer.inside && !screenDrag) probe = null;
+    },
+    onKey: onKey,
+    onDown: function (p) {
+      var v = screenPanelToView(p);
+      screenDrag = insideView(v) ? v : null;
+      probe = insideView(v) ? v : null;
+    },
+    onMove: function (p) {
+      var v = screenPanelToView(p);
+      probe = insideView(v) ? v : null;
+      if (screenDrag && p.down) {
+        // Grab the map: keep the world point under the pointer under the pointer.
+        var a = screenToWorld(screenDrag.x, screenDrag.y);
+        var b = screenToWorld(v.x, v.y);
+        cam.x += a.x - b.x;
+        cam.y += a.y - b.y;
+        clampCam();
+        screenDrag = v;
+      }
+    },
+    onUp: function () { screenDrag = null; },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var fit = Math.min((s.width - 16) / VIEW_W, (s.height - 44) / VIEW_H);
+      if (fit <= 0) return;
+      var ox = (s.width - VIEW_W * fit) / 2;
+      var oy = 32 + (s.height - 44 - VIEW_H * fit) / 2;
+      screenLayout = { fit: fit, ox: ox, oy: oy };
+
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.scale(fit, fit);
+      ctx.beginPath();
+      ctx.rect(0, 0, VIEW_W, VIEW_H);
+      ctx.clip();
+      ctx.fillStyle = c.bg;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+      // The four steps, in the same order as the Lua love.draw.
+      ctx.save();
+      ctx.translate(VIEW_W / 2, VIEW_H / 2);
+      ctx.scale(cam.zoom, cam.zoom);
+      ctx.rotate(-cam.angle);
+      ctx.translate(-cam.x, -cam.y);
+      drawWorld(ctx, c, fit * cam.zoom, true);
+      ctx.restore();
+
+      // Screen-space overlay: a label that never scales, placed with worldToScreen.
+      var f = worldToScreen(FLAG.x, FLAG.y);
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(f.x + 6, f.y - 9, 34, 18);
+      ctx.fillStyle = c.ink;
+      ctx.fillText('flag', f.x + 10, f.y);
+
+      if (probe) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(probe.x - 10, probe.y); ctx.lineTo(probe.x + 10, probe.y);
+        ctx.moveTo(probe.x, probe.y - 10); ctx.lineTo(probe.x, probe.y + 10);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ox - 0.5, oy - 0.5, VIEW_W * fit + 1, VIEW_H * fit + 1);
+    }
+  });
+})();
+</script>
+</body>
+</html>

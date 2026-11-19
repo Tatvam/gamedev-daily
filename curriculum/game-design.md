@@ -43,7 +43,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 4: Economy, progression and randomness
 
-- [ ] **Sources and sinks** — How currency enters and leaves a game economy, and what happens when the two are out of balance. Demo: An economy simulation with sliders for income sources and spending sinks and a graph of money held and prices over time.
+- [x] **Sources and sinks** — How currency enters and leaves a game economy, and what happens when the two are out of balance. Demo: An economy simulation with sliders for income sources and spending sinks and a graph of money held and prices over time. (published 2026-11-19, sources-and-sinks)
 - [ ] **Reward schedules** — How fixed and variable rewards by count or by time create different habits. Demo: Four chests pay out on fixed ratio, variable ratio, fixed interval and variable interval schedules while a chart records your clicking pattern on each.
 - [ ] **Upgrade curves** — How linear, exponential and diminishing curves for cost and power shape the time between upgrades. Demo: Sliders set cost growth and power growth, a chart shows the time to each next upgrade, and a small clicker lets you feel the curve.
 - [ ] **Experience and level curves** — How the experience needed per level controls the rhythm of rewards across a whole game. Demo: Edit a level curve formula with sliders and watch a simulated player's timeline mark each level-up across ten hours of play.

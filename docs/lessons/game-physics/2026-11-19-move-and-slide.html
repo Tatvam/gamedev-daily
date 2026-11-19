@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Move and slide · Game Dev Daily</title>
+<meta name="description" content="How a kinematic character casts, stops at the first hit and slides the leftover motion along the wall, pass after pass, so it never sticks or tunnels.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-19">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Move and slide</h1>
+  <p class="lede">How a kinematic character casts, stops at the first hit and slides the leftover motion along the wall, pass after pass, so it never sticks or tunnels.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hold up and right while your character touches the ceiling of a corridor. It should glide to the right. Instead it creeps along as if the ceiling were glue.</p>
+  <p>Yesterday's kinematic character walked through walls. Today it gets the loop that Godot calls <code>move_and_slide</code>: move, hit, slide, repeat.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Stopping at the first hit is the bug</h2>
+  <p>Each step a kinematic character gets a <dfn>motion</dfn>: its velocity times the timestep. Before moving, you <dfn>cast</dfn> its shape along that motion. A cast is a raycast that sweeps the whole shape. It reports the first wall touched, the <dfn>time of impact</dfn> <code>t</code> (the fraction of the motion, 0 to 1, before the touch), the contact point and the contact normal.</p>
+  <p>The obvious use is: travel the fraction <code>t</code>, then stop. That prevents tunnelling, but throws away everything after the hit.</p>
+  <p>Run one step. The character sits half a pixel below the ceiling and moves up and right at 250 px/s, so in 1/60 s it wants 2.95 px right and 2.95 px up. It touches the ceiling after <code>t = 0.5 / 2.95 = 0.17</code> of the motion, moves 0.5 px right, and loses the other 83 percent. Step after step it creeps at about 30 px/s instead of the 177 px/s its sideways speed promises.</p>
+
+  <h2>The loop: move, hit, slide, repeat</h2>
+  <p>The fix is to keep the leftover motion and spend it along the wall. One round of this is a <dfn>pass</dfn>:</p>
+  <ol>
+    <li>Cast the remaining motion. If nothing is hit, move all the way and stop.</li>
+    <li>Otherwise move to the hit, and leave a small gap between the shape and the wall.</li>
+    <li>Work out what is left and remove the part that points into the wall.</li>
+    <li>Use what remains as the motion for the next pass, up to a maximum number of passes.</li>
+  </ol>
+  <p>Step 3 is two short equations. The first is what the wall stopped you from doing:</p>
+<pre><code>left = motion * (1 - t)</code></pre>
+  <p>The second keeps only the part of that leftover which runs along the wall. Here <code>n</code> is the contact normal, a unit vector pointing out of the wall:</p>
+<pre><code>slide = left - (left · n) * n</code></pre>
+  <p>In words: <code>left · n</code> is how much of the leftover points into the wall (negative when it does), and subtracting that much of <code>n</code> cancels it. It is the slide from the <a href="2026-11-06-sliding-along-walls.html">sliding along walls</a> lesson, applied to what is left of one step.</p>
+  <p>At the ceiling: the leftover is (2.45, −2.45), the normal is (0, 1), so <code>left · n = −2.45</code> and the slide is (2.45, 0). A second pass moves it freely, the step covers its full 2.95 px to the right, and the character glides at 177 px/s.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 340" role="img" aria-label="A circle starts at the bottom left and wants to move up and to the right through a ceiling, wall A. Pass 1 moves it until it touches wall A. Pass 2 slides it along wall A until it touches a slanted wall B. Pass 3 slides it down along wall B. A dashed line shows where it would have ended with no walls.">
+      <path class="d-fill" d="M30 110 H420 L600 280 H630 V12 H30 Z"/>
+      <path class="d-stroke" d="M30 110 H420 L600 280"/>
+      <text class="d-text" x="40" y="98">wall A</text>
+      <text class="d-text" x="530" y="200">wall B</text>
+
+      <path class="d-dash" d="M100 310 L480 30"/>
+      <circle class="d-dash" cx="480" cy="30" r="16"/>
+      <text class="d-muted" x="502" y="35">no walls: here</text>
+
+      <circle class="d-box" cx="100" cy="310" r="16"/>
+      <text class="d-text" x="76" y="315" text-anchor="end">start</text>
+
+      <path class="d-accent" d="M100 310 L341.7 131.9"/>
+      <path class="d-accent-fill" d="M349.7 126 L344.3 135.6 L339.0 128.3 Z"/>
+      <text class="d-label" x="232" y="240">1. move to the first hit</text>
+      <circle class="d-dash" cx="349.7" cy="126" r="16"/>
+
+      <path class="d-good" d="M349.7 126 H403.6"/>
+      <path class="d-good-fill" d="M413.6 126 L403.6 121.5 L403.6 130.5 Z"/>
+      <text class="d-text" x="370" y="168" text-anchor="middle">2. slide along A</text>
+      <circle class="d-dash" cx="413.6" cy="126" r="16"/>
+
+      <path class="d-stroke" d="M413.6 126 L441.4 152.3"/>
+      <path class="d-text" d="M448.7 159.2 L438.3 155.6 L444.5 149.0 Z"/>
+      <circle class="d-accent-soft" cx="448.7" cy="159.2" r="16"/>
+      <text class="d-text" x="456" y="200" text-anchor="middle">3. slide along B</text>
+    </svg>
+    <figcaption>One step, three passes. Each pass starts where the last one stopped and moves only what the walls allowed. Without passes 2 and 3 the circle would stop at its first hit. The dashed line is where the motion would have ended if there were no walls.</figcaption>
+  </figure>
+
+  <h3>Why more than two passes</h3>
+  <p>One wall needs two passes: reach it, then slide. Each extra corner met in the same step costs one more. In the diagram, B meets A at an obtuse angle (wider than 90°), so a third pass slides along B.</p>
+  <p>In an acute corner (narrower than 90°), sliding along one wall points into the other and back again. The passes ping-pong into the corner while the leftover shrinks. That is why the loop has a maximum, after which the last scrap is dropped. Four or five is common.</p>
+
+  <h3>The skin</h3>
+  <p>If the character stopped exactly touching the wall, the next cast would start in contact, and rounding would decide whether that is a hit or an overlap. So the loop parks the shape slightly off the surface: the <dfn>skin</dfn> (Godot's safe margin, Unity's skin width). Here it is half a pixel, which is why the one-pass version crawls at 30 px/s instead of stopping completely.</p>
+
+  <div class="callout">
+    <p class="callout-title">Slide the velocity too</p>
+    <p>Remove the into-the-wall part from the stored velocity as well. Otherwise, in a platformer, the downward speed keeps growing while the character stands on the floor, and walking off a ledge drops it at that huge speed.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the room, then steer with the arrow keys or WASD, or hold a finger on the room. The coloured arrows are a look-ahead: the next 0.4 s cast as one motion, drawn pass by pass, with a normal at each hit and the dropped leftover dashed in red.</p>
+  <p>With <strong>Max passes</strong> at 1, press up and right against the ceiling: the character crawls. <strong>Run test</strong> repeats the same four diagonal pushes and reports the distance. Compare 1, 2 and 4 passes, then lower the <strong>Physics rate</strong> and watch one pass get worse.</p>
+
+  <figure class="demo wide" data-demo="slide">
+    <canvas id="slide"></canvas>
+    <figcaption>At the default speed and rate, one pass covers about 600 px of the 1625 px asked for. Two or more cover about 1180 px; the rest is the part of each diagonal push that points into a wall. In the narrow corners beside the ramp and the fin, every pass is spent ping-ponging.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's loop, with the same names and numbers. Checked by hand: a player at (100, 22.5) under the ceiling at y = 10 (radius 12, skin 0.5) with motion (2.946, −2.946) gets <code>t = 0.170</code>, stops at (100.5, 22.5), has <code>into = −2.446</code>, and pass 2 ends the step at (102.946, 22.5).</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local SPEED = 250          <span class="c">-- pixels per second</span>
+local SKIN = 0.5           <span class="c">-- gap kept between the body and any wall</span>
+local MAX_PASSES = 4
+local player = { x = 150, y = 150, vx = 0, vy = 0 }
+local accumulator = 0
+
+local function moveAndSlide(body, mx, my)
+  for pass = 1, MAX_PASSES do
+    if mx * mx + my * my &lt; 1e-6 then return end      <span class="c">-- nothing left to move</span>
+    local hit = castCircle(body.x, body.y, RADIUS, mx, my)
+    if not hit then                                  <span class="c">-- free: take all of it</span>
+      body.x, body.y = body.x + mx, body.y + my
+      return
+    end
+    <span class="c">-- 1. Move to the hit, then sit exactly SKIN pixels off the surface.</span>
+    local hx, hy = body.x + mx * hit.t, body.y + my * hit.t
+    local gap = (hx - hit.px) * hit.nx + (hy - hit.py) * hit.ny
+    body.x = hx + hit.nx * (RADIUS + SKIN - gap)
+    body.y = hy + hit.ny * (RADIUS + SKIN - gap)
+    <span class="c">-- 2. Keep what is left, minus the part that points into the wall.</span>
+<span class="k">    mx, my = mx * (1 - hit.t), my * (1 - hit.t)
+    local into = mx * hit.nx + my * hit.ny
+    mx, my = mx - into * hit.nx, my - into * hit.ny</span>
+    <span class="c">-- 3. The velocity loses the same part, so it stops pushing into the wall.</span>
+    local vin = body.vx * hit.nx + body.vy * hit.ny
+    if vin &lt; 0 then
+      body.vx, body.vy = body.vx - vin * hit.nx, body.vy - vin * hit.ny
+    end
+  end
+  <span class="c">-- Out of passes: whatever is still in (mx, my) is dropped.</span>
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local ix, iy = readInput()                       <span class="c">-- unit direction, or 0, 0</span>
+    player.vx, player.vy = ix * SPEED, iy * SPEED
+    moveAndSlide(player, player.vx * STEP, player.vy * STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, w in ipairs(walls) do
+    love.graphics.line(w.ax, w.ay, w.bx, w.by)
+  end
+  love.graphics.circle("line", player.x, player.y, RADIUS)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># CharacterBody2D runs this loop for you inside move_and_slide().</span>
+extends CharacterBody2D
+
+const SPEED := 250.0
+
+func _ready() -&gt; void:
+    motion_mode = MOTION_MODE_FLOATING   <span class="c"># top-down: no floor or ceiling rules</span>
+<span class="k">    max_slides = 4                       # the "Max passes" slider; 4 is the default</span>
+
+func _physics_process(delta: float) -&gt; void:
+    velocity = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down") * SPEED
+    move_and_slide()                     <span class="c"># uses velocity and delta itself</span>
+    for i in get_slide_collision_count():
+        print(get_slide_collision(i).get_normal())   <span class="c"># one per pass that hit</span>
+
+<span class="c"># The same loop by hand, with move_and_collide doing the cast and the move:</span>
+func my_move_and_slide(motion: Vector2) -&gt; void:
+    for i in max_slides:
+        var hit := move_and_collide(motion)
+        if hit == null:
+            return
+<span class="k">        motion = hit.get_remainder().slide(hit.get_normal())</span>
+        if velocity.dot(hit.get_normal()) &lt; 0.0:
+            velocity = velocity.slide(hit.get_normal())</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// CharacterController.Move casts, stops and slides along what it hits.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+public class TopDownMover : MonoBehaviour
+{
+    public float speed = 2.5f;           <span class="c">// metres per second</span>
+    CharacterController controller;
+
+    void Awake()
+    {
+        controller = GetComponent&lt;CharacterController&gt;();
+    }
+
+    void Update()
+    {
+        Vector3 input = new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical"));
+        input = Vector3.ClampMagnitude(input, 1f);
+<span class="k">        CollisionFlags flags = controller.Move(input * speed * Time.deltaTime);</span>
+        if ((flags &amp; CollisionFlags.Sides) != 0)
+        {
+            <span class="c">// touched a wall during this move</span>
+        }
+    }
+
+    void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        <span class="c">// Called for each surface Move touched.</span>
+        Debug.DrawRay(hit.point, hit.normal, Color.green);
+    }
+}</code></pre>
+  </div>
+
+  <p>The helpers: walls, a circle cast and input. Put this block above the loop. The cast tests each wall's flat side and its two ends, and keeps the earliest hit:</p>
+<pre><code>local RADIUS = 12
+local walls = {}
+local function wall(ax, ay, bx, by)
+  walls[#walls + 1] = { ax = ax, ay = ay, bx = bx, by = by }
+end
+wall(10, 10, 470, 10)     wall(470, 10, 470, 330)    <span class="c">-- the room</span>
+wall(470, 330, 10, 330)   wall(10, 330, 10, 10)
+wall(10, 130, 110, 10)                               <span class="c">-- cut corner</span>
+wall(200, 10, 240, 100)                              <span class="c">-- fin</span>
+wall(60, 330, 180, 190)                              <span class="c">-- ramp</span>
+wall(270, 170, 350, 170)  wall(350, 170, 350, 250)   <span class="c">-- pillar</span>
+wall(350, 250, 270, 250)  wall(270, 250, 270, 170)
+
+<span class="c">-- First wall a circle at (x, y) touches while moving by (mx, my).</span>
+<span class="c">-- Returns { t, nx, ny, px, py }: fraction, normal, contact point. Or nil.</span>
+local function castCircle(x, y, r, mx, my)
+  local best = nil
+  local function consider(t, nx, ny, px, py)
+    if best == nil or t &lt; best.t then
+      best = { t = t, nx = nx, ny = ny, px = px, py = py }
+    end
+  end
+  for _, w in ipairs(walls) do
+    local len = math.sqrt((w.bx - w.ax) ^ 2 + (w.by - w.ay) ^ 2)
+    local ux, uy = (w.bx - w.ax) / len, (w.by - w.ay) / len
+    local nx, ny = -uy, ux
+    local s = (x - w.ax) * nx + (y - w.ay) * ny       <span class="c">-- distance to the line</span>
+    if s &lt; 0 then nx, ny, s = -nx, -ny, -s end       <span class="c">-- normal faces the circle</span>
+    local d = mx * nx + my * ny
+    if d &lt; 0 then                                    <span class="c">-- flat side, moving towards it</span>
+      local t = math.max((s - r) / -d, 0)
+      local along = (x + mx * t - w.ax) * ux + (y + my * t - w.ay) * uy
+      if t &lt;= 1 and along &gt;= 0 and along &lt;= len then
+        consider(t, nx, ny, w.ax + ux * along, w.ay + uy * along)
+      end
+    end
+    for _, e in ipairs({ { w.ax, w.ay }, { w.bx, w.by } }) do   <span class="c">-- rounded ends</span>
+      local fx, fy = x - e[1], y - e[2]
+      local a = mx * mx + my * my
+      local b = fx * mx + fy * my
+      local disc = b * b - a * (fx * fx + fy * fy - r * r)
+      if b &lt; 0 and disc &gt;= 0 then
+        local t = math.max((-b - math.sqrt(disc)) / a, 0)
+        local qx, qy = fx + mx * t, fy + my * t
+        local ql = math.sqrt(qx * qx + qy * qy)
+        if t &lt;= 1 and ql &gt; 0 then consider(t, qx / ql, qy / ql, e[1], e[2]) end
+      end
+    end
+  end
+  return best
+end
+
+local function readInput()
+  local x, y = 0, 0
+  if love.keyboard.isDown("left", "a") then x = x - 1 end
+  if love.keyboard.isDown("right", "d") then x = x + 1 end
+  if love.keyboard.isDown("up", "w") then y = y - 1 end
+  if love.keyboard.isDown("down", "s") then y = y + 1 end
+  local len = math.sqrt(x * x + y * y)
+  if len &gt; 0 then return x / len, y / len end
+  return 0, 0
+end</code></pre>
+  <p>In Godot, <code>max_slides</code> is the pass limit and <code>safe_margin</code> the skin. Unity's <code>CharacterController</code> is 3D; its <code>skinWidth</code> is the skin, and Unity's examples call <code>Move</code> from <code>Update</code>. For Unity 2D, write the loop yourself around a cast such as <code>Rigidbody2D.Cast</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Dropping the leftover.</strong> "Hit something, so stop this step" is the sticky wall from the hook.</li>
+    <li><strong>Sliding without casting again.</strong> Applying the slide without a new cast works against one wall and walks through the second wall of a corner. Every pass casts.</li>
+    <li><strong>No skin.</strong> Parking exactly on the surface makes the next cast start in contact. Rounding then reports a hit at <code>t = 0</code> forever, or lets the character slip inside.</li>
+    <li><strong>Casting a zero motion.</strong> After a head-on hit the slide can be (0, 0), and the cast divides by the squared length of the motion. Stop when nothing is left.</li>
+    <li><strong>Too many passes.</strong> Each pass is a full cast. In an acute corner every pass is spent ping-ponging, and the character may shiver by a fraction of a pixel. Cap at 4 or 5; some controllers also stop when a slide points back into the previous wall.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> run this loop in <code>move_and_slide()</code>, with up to <code>max_slides</code> passes (4 by default), and report each hit through <code>get_slide_collision()</code>. In platformer mode the loop also sorts hits into floor, wall and ceiling.</p>
+  <p>Unity's <code>CharacterController.Move</code> slides along what it hits and reports contacts through <code>OnControllerColliderHit</code>. Its pass limit is internal and, as far as I know, undocumented.</p>
+  <p>The Quake engines, whose source id Software released, clip the player's velocity against each plane hit, with up to four "bumps" per move.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your project, count how many passes each player step uses and print the largest value each second while you hold a diagonal against a long wall and into a corner.</p>
+  <p>If it never goes above 1, your character stops at its first hit: wrap the move in the loop above, or switch to <code>move_and_slide</code> or <code>CharacterController.Move</code>. You are done when up and right against a ceiling moves the character sideways at its full horizontal speed.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Cast the shape along the motion and stop at the time of impact <code>t</code>.</li>
+    <li>Keep the leftover, <code>motion * (1 - t)</code>, remove its into-the-wall part, and cast the rest again.</li>
+    <li>One wall needs two passes, each extra corner one more. Acute corners eat them all, so cap at 4 or 5.</li>
+    <li>A small skin keeps the next cast from starting in contact.</li>
+    <li>Slide the stored velocity too, or the character keeps pushing into the wall.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the normals this loop reports, plus short downward casts, tell us reliably whether the character is standing on the ground.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference.</li>
+    <li>Unity documentation, <cite>CharacterController.Move</cite> in the Scripting API.</li>
+    <li>Kasper Fauerby, <cite>Improved Collision Detection and Response</cite> (2003). Sweeping a sphere through a level and sliding it, in 3D.</li>
+    <li>id Software, <cite>Quake III Arena</cite> source code, file <code>bg_slidemove.c</code>. Slide movement with a bump limit.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The world, in its own units (pixels at scale 1). Matches the Lua. ----
+  var WORLD_W = 480, WORLD_H = 340;
+  var RADIUS = 12;
+  var SKIN = 0.5;
+  var START_X = 150, START_Y = 150;
+  var LOOK_AHEAD = 0.4;   // seconds of motion in the debug look-ahead
+  var WALLS = [
+    [10, 10, 470, 10], [470, 10, 470, 330], [470, 330, 10, 330], [10, 330, 10, 10],
+    [10, 130, 110, 10],
+    [200, 10, 240, 100],
+    [60, 330, 180, 190],
+    [270, 170, 350, 170], [350, 170, 350, 250], [350, 250, 270, 250], [270, 250, 270, 170]
+  ];
+  var S = Math.SQRT1_2;
+  // Test run: seconds, then a unit input direction.
+  var SCRIPT = [[1.5, S, S], [2.0, -S, S], [1.5, S, -S], [1.5, -S, -S]];
+
+  // First wall a circle at (x, y) touches while moving by (mx, my).
+  function castCircle(x, y, r, mx, my) {
+    var best = null;
+    function consider(t, nx, ny, px, py) {
+      if (!best || t < best.t) best = { t: t, nx: nx, ny: ny, px: px, py: py };
+    }
+    for (var i = 0; i < WALLS.length; i++) {
+      var w = WALLS[i];
+      var ax = w[0], ay = w[1], bx = w[2], by = w[3];
+      var len = Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+      var ux = (bx - ax) / len, uy = (by - ay) / len;
+      var nx = -uy, ny = ux;
+      var s = (x - ax) * nx + (y - ay) * ny;
+      if (s < 0) { nx = -nx; ny = -ny; s = -s; }
+      var d = mx * nx + my * ny;
+      if (d < 0) {
+        var t = Math.max((s - r) / -d, 0);
+        var along = (x + mx * t - ax) * ux + (y + my * t - ay) * uy;
+        if (t <= 1 && along >= 0 && along <= len) consider(t, nx, ny, ax + ux * along, ay + uy * along);
+      }
+      for (var k = 0; k < 2; k++) {
+        var ex = k === 0 ? ax : bx, ey = k === 0 ? ay : by;
+        var fx = x - ex, fy = y - ey;
+        var a = mx * mx + my * my;
+        var b = fx * mx + fy * my;
+        var disc = b * b - a * (fx * fx + fy * fy - r * r);
+        if (b < 0 && disc >= 0 && a > 0) {
+          var te = Math.max((-b - Math.sqrt(disc)) / a, 0);
+          var qx = fx + mx * te, qy = fy + my * te;
+          var ql = Math.sqrt(qx * qx + qy * qy);
+          if (te <= 1 && ql > 0) consider(te, qx / ql, qy / ql, ex, ey);
+        }
+      }
+    }
+    return best;
+  }
+
+  // The loop from the lesson. Also records each pass for drawing.
+  function moveAndSlide(body, mx, my, maxPasses) {
+    var out = { passes: 0, segs: [], left: null };
+    for (var pass = 1; pass <= maxPasses; pass++) {
+      if (mx * mx + my * my < 1e-6) return out;
+      out.passes = pass;
+      var x0 = body.x, y0 = body.y;
+      var hit = castCircle(body.x, body.y, RADIUS, mx, my);
+      if (!hit) {
+        body.x += mx;
+        body.y += my;
+        out.segs.push({ x0: x0, y0: y0, x1: body.x, y1: body.y, hit: null });
+        return out;
+      }
+      var hx = body.x + mx * hit.t, hy = body.y + my * hit.t;
+      var gap = (hx - hit.px) * hit.nx + (hy - hit.py) * hit.ny;
+      body.x = hx + hit.nx * (RADIUS + SKIN - gap);
+      body.y = hy + hit.ny * (RADIUS + SKIN - gap);
+      out.segs.push({ x0: x0, y0: y0, x1: body.x, y1: body.y, hit: hit });
+      mx *= (1 - hit.t);
+      my *= (1 - hit.t);
+      var into = mx * hit.nx + my * hit.ny;
+      mx -= into * hit.nx;
+      my -= into * hit.ny;
+      var vin = body.vx * hit.nx + body.vy * hit.ny;
+      if (vin < 0) {
+        body.vx -= vin * hit.nx;
+        body.vy -= vin * hit.ny;
+      }
+    }
+    if (mx * mx + my * my >= 1e-6) out.left = { x: mx, y: my };
+    return out;
+  }
+
+  // ---- Demo state ----
+  var player, prevX, prevY, trail, accumulator, lastInfo, test, inputX, inputY;
+  var view = { k: 1, ox: 0, oy: 0 };
+
+  function reset() {
+    player = { x: START_X, y: START_Y, vx: 0, vy: 0 };
+    prevX = START_X;
+    prevY = START_Y;
+    trail = [{ x: START_X, y: START_Y }];
+    accumulator = 0;
+    lastInfo = null;
+    test = null;
+    inputX = 0;
+    inputY = 0;
+  }
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="slide"]');
+  var passes = ui.slider({ label: 'Max passes', min: 1, max: 5, step: 1, value: 1 });
+  var speed = ui.slider({ label: 'Speed', min: 50, max: 600, step: 10, value: 250, unit: ' px/s' });
+  var rate = ui.slider({ label: 'Physics rate', min: 5, max: 60, step: 1, value: 60, unit: ' steps per second' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var stepOut = ui.readout({ label: 'Last step' });
+  var testOut = ui.readout({ label: 'Test run' });
+  ui.button({ label: 'Run test', onClick: function () {
+    reset();
+    test = { phase: 0, time: 0, travelled: 0, wanted: 0 };
+    testOut.set('running...');
+  } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); testOut.set('not run yet'); } });
+  stepOut.set('no movement yet');
+  testOut.set('not run yet');
+
+  function readInput(s) {
+    if (test) {
+      var ph = SCRIPT[test.phase];
+      return { x: ph[1], y: ph[2] };
+    }
+    if (s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.k, wy = (s.pointer.y - view.oy) / view.k;
+      var dx = wx - player.x, dy = wy - player.y;
+      var dl = Math.sqrt(dx * dx + dy * dy);
+      if (dl > 6) return { x: dx / dl, y: dy / dl };
+      return { x: 0, y: 0 };
+    }
+    var x = 0, y = 0, keys = s.keys;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (keys.has('arrowup') || keys.has('w')) y -= 1;
+    if (keys.has('arrowdown') || keys.has('s')) y += 1;
+    var len = Math.sqrt(x * x + y * y);
+    if (len > 0) return { x: x / len, y: y / len };
+    return { x: 0, y: 0 };
+  }
+
+  function physicsStep(step, s) {
+    var input = readInput(s);
+    inputX = input.x;
+    inputY = input.y;
+    player.vx = input.x * speed.value;
+    player.vy = input.y * speed.value;
+    prevX = player.x;
+    prevY = player.y;
+    var info = moveAndSlide(player, player.vx * step, player.vy * step, passes.value);
+    var moved = Math.sqrt((player.x - prevX) * (player.x - prevX) + (player.y - prevY) * (player.y - prevY));
+    if (input.x !== 0 || input.y !== 0) {
+      lastInfo = info;
+      var dropped = info.left ? Math.sqrt(info.left.x * info.left.x + info.left.y * info.left.y) : 0;
+      stepOut.set(info.passes + ' of ' + passes.value + ' passes, moving ' +
+        Math.round(moved / step) + ' px/s, dropped ' + dropped.toFixed(1) + ' px');
+    }
+    if (moved > 0.01) {
+      var lastPoint = trail[trail.length - 1];
+      if (Math.abs(lastPoint.x - player.x) + Math.abs(lastPoint.y - player.y) > 1) {
+        trail.push({ x: player.x, y: player.y });
+        if (trail.length > 400) trail.shift();
+      }
+    }
+    if (test) {
+      test.travelled += moved;
+      test.wanted += speed.value * step;
+      test.time += step;
+      if (test.time >= SCRIPT[test.phase][0] - 1e-9) {
+        test.time = 0;
+        test.phase += 1;
+        if (test.phase >= SCRIPT.length) {
+          testOut.set('travelled ' + Math.round(test.travelled) + ' px of ' + Math.round(test.wanted) +
+            ' px wanted (' + passes.value + (passes.value === 1 ? ' pass' : ' passes') + ', ' + rate.value + ' steps/s)');
+          test = null;
+        } else {
+          testOut.set('running... ' + Math.round(test.travelled) + ' px so far');
+        }
+      }
+    }
+  }
+
+  function arrow(ctx, x0, y0, x1, y1, head) {
+    var dx = x1 - x0, dy = y1 - y0;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    if (len < 1e-6) return;
+    var ux = dx / len, uy = dy / len;
+    var h = Math.min(head, len * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - ux * h - uy * h * 0.5, y1 - uy * h + ux * h * 0.5);
+    ctx.lineTo(x1 - ux * h + uy * h * 0.5, y1 - uy * h - ux * h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function layout(s) {
+    var k = Math.min(s.width / WORLD_W, s.height / WORLD_H);
+    view.k = k;
+    view.ox = (s.width - WORLD_W * k) / 2;
+    view.oy = (s.height - WORLD_H * k) / 2;
+  }
+
+  DemoKit.canvas('#slide', {
+    aspect: WORLD_W / WORLD_H,
+    minHeight: 220,
+    maxHeight: 460,
+    drag: true,
+    keys: true,
+    label: 'A top-down room with a round character, a pillar, a ramp and slanted walls. Steer with the arrow keys or by holding the pointer. Coloured arrows show each slide pass of the look-ahead motion.',
+    update: function (dt, s) {
+      var step = 1 / rate.value;
+      accumulator += dt;
+      var guard = 0;
+      while (accumulator >= step && guard < 20) {
+        physicsStep(step, s);
+        accumulator -= step;
+        guard += 1;
+      }
+      if (guard === 20) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      layout(s);
+      var k = view.k;
+      ctx.save();
+      ctx.translate(view.ox, view.oy);
+      ctx.scale(k, k);
+      var px = 1 / k;   // one screen pixel in world units
+
+      // Floor of the room.
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(10, 10, 460, 320);
+
+      // Trail.
+      if (trail.length > 1) {
+        ctx.strokeStyle = c.ink3;
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 1.5 * px;
+        ctx.beginPath();
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (var i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Walls.
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 4 * px;
+      ctx.lineCap = 'round';
+      for (var w = 0; w < WALLS.length; w++) {
+        ctx.beginPath();
+        ctx.moveTo(WALLS[w][0], WALLS[w][1]);
+        ctx.lineTo(WALLS[w][2], WALLS[w][3]);
+        ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+
+      if (debug.value) {
+        // Position before the last step.
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1 * px;
+        ctx.setLineDash([3 * px, 3 * px]);
+        ctx.beginPath();
+        ctx.arc(prevX, prevY, RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Look-ahead: the next LOOK_AHEAD seconds cast as one motion, pass by pass.
+        if (inputX !== 0 || inputY !== 0) {
+          var ghost = { x: player.x, y: player.y, vx: inputX * speed.value, vy: inputY * speed.value };
+          var la = moveAndSlide(ghost, ghost.vx * LOOK_AHEAD, ghost.vy * LOOK_AHEAD, passes.value);
+          var palette = [c.topic, c.good, c.ink, c.warn, c.ink3];
+          ctx.font = (12 * px) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          for (var p = 0; p < la.segs.length; p++) {
+            var sg = la.segs[p];
+            var col = palette[p % palette.length];
+            ctx.strokeStyle = col;
+            ctx.fillStyle = col;
+            ctx.lineWidth = 2.5 * px;
+            arrow(ctx, sg.x0, sg.y0, sg.x1, sg.y1, 8 * px);
+            var mxp = (sg.x0 + sg.x1) / 2, myp = (sg.y0 + sg.y1) / 2;
+            var sl = Math.sqrt((sg.x1 - sg.x0) * (sg.x1 - sg.x0) + (sg.y1 - sg.y0) * (sg.y1 - sg.y0));
+            if (sl > 14 * px) {
+              var ox = -(sg.y1 - sg.y0) / sl * 9 * px, oy = (sg.x1 - sg.x0) / sl * 9 * px;
+              ctx.fillText(String(p + 1), mxp + ox, myp + oy);
+            }
+            if (sg.hit) {
+              ctx.lineWidth = 1 * px;
+              ctx.beginPath();
+              ctx.arc(sg.x1, sg.y1, RADIUS, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.strokeStyle = c.ink;
+              ctx.fillStyle = c.ink;
+              ctx.lineWidth = 1.5 * px;
+              arrow(ctx, sg.hit.px, sg.hit.py, sg.hit.px + sg.hit.nx * 22, sg.hit.py + sg.hit.ny * 22, 6 * px);
+            }
+          }
+          if (la.left) {
+            var ex = ghost.x, ey = ghost.y;
+            ctx.strokeStyle = c.bad;
+            ctx.fillStyle = c.bad;
+            ctx.lineWidth = 2 * px;
+            ctx.setLineDash([4 * px, 3 * px]);
+            arrow(ctx, ex, ey, ex + la.left.x, ey + la.left.y, 7 * px);
+            ctx.setLineDash([]);
+          }
+        }
+      }
+
+      // The character.
+      ctx.fillStyle = c.topic;
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2 * px;
+      ctx.stroke();
+
+      // Velocity after the slide (0.15 s worth).
+      if (debug.value && (player.vx !== 0 || player.vy !== 0)) {
+        ctx.strokeStyle = c.ink;
+        ctx.fillStyle = c.ink;
+        ctx.lineWidth = 2 * px;
+        arrow(ctx, player.x, player.y, player.x + player.vx * 0.15, player.y + player.vy * 0.15, 7 * px);
+      }
+      ctx.restore();
+
+    }
+  });
+})();
+</script>
+</body>
+</html>

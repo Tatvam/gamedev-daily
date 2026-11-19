@@ -43,7 +43,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 4: Time and rhythm
 
-- [ ] **Heartbeat Runner** — A rhythm runner where each step must land on the hero's heartbeat, and sprinting raises the heart rate so the beat you must follow gets faster. Demo: A runner advances on each well-timed key press to a pulsing heartbeat marker, with a sprint key that speeds the pulse and a rest zone that slows it.
+- [x] **Heartbeat Runner** — A rhythm runner where each step must land on the hero's heartbeat, and sprinting raises the heart rate so the beat you must follow gets faster. Demo: A runner advances on each well-timed key press to a pulsing heartbeat marker, with a sprint key that speeds the pulse and a rest zone that slows it. (published 2026-11-19, heartbeat-runner)
 - [ ] **Parcel Loop** — A time loop delivery game where a small town resets every sixty seconds, and only the player's knowledge of everyone's schedule carries over. Demo: A top-down town of a few streets with three residents walking fixed routes, three parcels to hand over in one loop, and a visible loop clock.
 - [ ] **Metronome Duel** — A rhythm strategy game where two fencers may only act on the beat, and each chooses attack, parry or feint in the moment before it. Demo: A duel against a simple computer rival with a swinging metronome, three keys for the three moves, and an outcome resolved on each beat by which move beats which.
 - [ ] **Polyrhythm Juggler** — A rhythm game where each juggled ball falls with its own period, so the two hands must keep different rhythms going at once. Demo: Two balls with different bounce periods are caught with left and right keys, with a third ball added after a streak and a timing accuracy bar.

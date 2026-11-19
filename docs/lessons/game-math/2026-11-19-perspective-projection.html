@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perspective projection: why does my 3D cube look flat? · Game Dev Daily</title>
+<meta name="description" content="How dividing x and y by depth makes distant things smaller, how the field of view sets the scale, and how a 3D point lands on a 2D screen.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-19">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-cam { color: var(--t-game-physics); font-weight: 650; }
+  .v-cube { color: var(--t-game-math); font-weight: 650; }
+  .v-a { color: var(--warn); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Perspective projection: why does my 3D cube look flat?</h1>
+  <p class="lede">How dividing x and y by depth makes distant things smaller, how the field of view sets the scale, and how a 3D point lands on a 2D screen.</p>
+</header>
+
+<section data-section="hook">
+  <p>You want a spinning wireframe cube in LÖVE, which only draws in 2D. You give each corner an x, a y and a z, draw it at (x, y) and ignore z. The cube comes out as a flat square: the back face sits exactly on top of the front face. Real eyes see far things smaller, and one division by depth is all that is missing.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Far things look smaller</h2>
+  <p>Your thumb at arm's length covers a whole car down the street: the car is not small, it is far. Turning a 3D point into a 2D screen point in a way that copies this is called <dfn>perspective projection</dfn>.</p>
+  <p>We work in <dfn>camera space</dfn>: the camera sits at the origin and every point is measured from it. Here x points right and y points <strong>down</strong>, as on the screen and in LÖVE, and the new axis z points straight ahead, into the screen. So z is the <dfn>depth</dfn>: how far in front of the camera a point is. Many engines use y up or look along −z instead; only some signs change.</p>
+
+  <h3>Divide by depth</h3>
+  <p>Look at the camera from the side, so you see y (down) and z (forward). Put a glass plate one unit in front of the eye, at z = 1. Where the straight line from the eye to a point passes through the plate is where the point appears.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Side view of a camera. The eye is on the left, the z axis points right and y points down. A vertical plate stands at z equals 1. Point P is 2 units below the axis at depth 4; point Q is also 2 units below but at depth 8. Lines from the eye to P and to Q cross the plate at 0.5 and 0.25 below the axis. The farther point lands closer to the centre.">
+      <!-- eye (50, 90), 70 px per unit, y down -->
+      <path class="d-dash" d="M50 90 L140 0 M50 90 L260 300"/>
+      <path class="d-stroke" d="M50 90 H630"/>
+      <path class="d-stroke" d="M622 85 L630 90 L622 95"/>
+      <text class="d-muted" x="628" y="112" text-anchor="end">z (forward)</text>
+      <path class="d-stroke" d="M50 90 V280"/>
+      <path class="d-stroke" d="M45 272 L50 280 L55 272"/>
+      <text class="d-muted" x="58" y="282">y ↓</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="120" y="74">1</text>
+        <text class="d-muted" x="330" y="74">4</text>
+        <text class="d-muted" x="610" y="74">8</text>
+      </g>
+      <path class="d-thin" d="M330 86 V94 M610 86 V94"/>
+      <circle cx="50" cy="90" r="7" style="fill: var(--t-game-physics)"/>
+      <text class="d-text" x="40" y="66" text-anchor="middle" style="fill: var(--t-game-physics)">eye</text>
+      <!-- plate at z = 1 -->
+      <path style="stroke: var(--t-game-physics); stroke-width: 3; fill: none" d="M120 40 V160"/>
+      <text class="d-text" x="120" y="178" text-anchor="middle" style="fill: var(--t-game-physics)">plate, z = 1</text>
+      <!-- rays -->
+      <path style="stroke: var(--warn); stroke-width: 2; fill: none" d="M50 90 L330 230"/>
+      <path style="stroke: var(--warn); stroke-width: 2; fill: none; stroke-dasharray: 6 4" d="M50 90 L610 230"/>
+      <circle cx="330" cy="230" r="6" style="fill: var(--warn)"/>
+      <circle cx="610" cy="230" r="6" style="fill: var(--warn)"/>
+      <circle cx="120" cy="125" r="4" class="d-accent-fill"/>
+      <circle cx="120" cy="107.5" r="4" class="d-accent-fill"/>
+      <text class="d-label" x="130" y="134">0.5</text>
+      <text class="d-label" x="130" y="104">0.25</text>
+      <text class="d-mono" x="330" y="256" text-anchor="middle">P: y 2, z 4</text>
+      <text class="d-mono" x="610" y="256" text-anchor="end">Q: y 2, z 8</text>
+      <text class="d-muted" x="330" y="280" text-anchor="middle">2 ÷ 4 = 0.5</text>
+      <text class="d-muted" x="610" y="280" text-anchor="end">2 ÷ 8 = 0.25</text>
+    </svg>
+    <figcaption>P and Q are both 2 units below the camera, but Q is twice as far away, so its line crosses the plate half as far from the centre.</figcaption>
+  </figure>
+
+  <p>The small triangle (eye to plate) and the big one (eye to point) have the same shape. The point goes y down over z forward, so on a plate one unit away it is y ÷ z down. The same holds for x:</p>
+<pre><code>plate x = x / z
+plate y = y / z</code></pre>
+  <p>Double the distance and the result halves. That is why far things look smaller.</p>
+
+  <h3>From the plate to pixels: the field of view</h3>
+  <p>The plate is in world units, the screen in pixels. The stretch between them comes from the <dfn>field of view</dfn> (fov): the angle from the top edge of the view to the bottom edge, seen from the eye.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 250" style="max-width: 360px; display: block; margin: 0 auto" role="img" aria-label="A right-angled triangle. From the eye on the left, a line of length f goes straight ahead to the centre of the screen. The screen is a vertical line on the right; its upper half has height H over 2. A line from the eye to the top of the screen makes the angle fov over 2 with the straight-ahead line. Below: tan of fov over 2 equals H over 2 divided by f.">
+      <path class="d-dash" d="M30 120 L320 10 M30 120 L320 230"/>
+      <path class="d-stroke" d="M30 120 H320"/>
+      <path style="stroke: var(--t-game-physics); stroke-width: 3; fill: none" d="M320 10 V230"/>
+      <circle cx="30" cy="120" r="6" style="fill: var(--t-game-physics)"/>
+      <path class="d-accent" d="M100 120 A70 70 0 0 0 95.4 95.1"/>
+      <text class="d-label" x="108" y="108">fov/2</text>
+      <text class="d-text" x="190" y="140" text-anchor="middle">f</text>
+      <text class="d-text" x="312" y="70" text-anchor="end">H/2</text>
+      <text class="d-mono" x="30" y="236">tan(fov/2) = (H/2) / f</text>
+      <text class="d-text" x="310" y="182" text-anchor="end" style="fill: var(--t-game-physics)">screen</text>
+    </svg>
+    <figcaption>Half the field of view, half the screen height H, and the focal length f make a right-angled triangle.</figcaption>
+  </figure>
+
+  <p>Picture the screen standing in front of the eye at the distance where it exactly fills the view. That distance, in pixels, is the <dfn>focal length</dfn> f. In the triangle above, tan(fov/2) = (H/2) / f, so:</p>
+<pre><code>f = (H / 2) / tan(fov / 2)</code></pre>
+  <p>Then a camera-space point (x, y, z) lands at:</p>
+<pre><code>screen x = W / 2 + f × x / z
+screen y = H / 2 + f × y / z</code></pre>
+  <p>W and H are the screen width and height in pixels; adding half of each moves the origin to the top-left corner.</p>
+
+  <h3>A worked example</h3>
+  <p>Screen 800 by 600, fov 90°. Half of 90° is 45°, and tan(45°) = 1, so f = 300 ÷ 1 = 300 pixels. A <span class="v-cube">cube</span> 2 units wide sits straight ahead with its front face at z = 4 and its back face at z = 6. Take its bottom-right front corner <span class="v-a">A = (1, 1, 4)</span>:</p>
+<pre><code>divide by depth:  (1 / 4, 1 / 4)              = (0.25, 0.25)
+times f = 300:    (75, 75)
+plus centre:      (400 + 75, 300 + 75)        = (475, 375)</code></pre>
+  <p>The matching back corner (1, 1, 6) gives 300 × 1/6 = 50, so (450, 350). The front face is 150 pixels wide and the back face only 100: the cube finally has depth.</p>
+  <p>Narrow the view to 60° and f grows to about 520: everything looks bigger, like a scope. Widen it to 120° and f drops to about 173: more fits and everything shrinks.</p>
+
+  <h3>Orthographic: no divide</h3>
+  <p>An <dfn>orthographic projection</dfn> skips the division and uses a fixed s pixels per unit: screen x = W/2 + s × x. Depth changes nothing, so parallel lines stay parallel. It suits maps, isometric views and editors. In the demo s = 100, so the view is 3 units from centre to top edge.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Points behind the camera</p>
+    <p>At z = 0 the division blows up, and negative z flips the signs, so a point behind you is drawn upside down in front of you. Never divide by a z below a small positive <dfn>near plane</dfn> distance (0.1 here). Cut a line that crosses it at that distance and draw only the front part.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is the side view; the right is what the camera sees. <strong>Drag</strong> the <span class="v-cube">cube</span> in the side view and watch it shrink as it moves away. Drag the <span class="v-cam">blue fov handle</span> to widen or narrow the view, and drag across the camera view to turn the cube. Keyboard: click a panel, then use the arrow keys.</p>
+  <p>Corner <span class="v-a">A</span>'s orange line crosses the plate at y ÷ z; the readouts show each step. Switch on <strong>orthographic</strong> and move the cube back: it no longer shrinks and the floor becomes one line. Then pull the cube closer than distance 1 and see edges cut at the near plane.</p>
+  <figure class="demo wide" data-demo="perspective">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="persp-side"></canvas><span class="demo-label">Side view</span></div>
+      <div class="demo-stage"><canvas id="persp-cam"></canvas><span class="demo-label">Camera view</span></div>
+    </div>
+    <figcaption>Camera space: x right, y down, z forward. The 2 unit cube sits on a floor 1 unit below the camera, with 1 unit grid squares. Screen numbers are for an 800 by 600 screen, origin top left.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A wireframe cube with perspective, near-plane cutting and an orthographic switch. Corner 3 in <code>CORNERS</code> is corner A in the demo.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Camera space: x right, y down, z forward (into the screen).</span>
+local NEAR = 0.1
+local fov = 90                   <span class="c">-- vertical field of view, degrees</span>
+local ortho = false
+local cube = { x = 0, y = 0, z = 5, turn = 0 }   <span class="c">-- centre, turn in degrees</span>
+local CORNERS = { {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1},
+                  {-1,-1, 1}, {1,-1, 1}, {1,1, 1}, {-1,1, 1} }
+local EDGES = { {1,2}, {2,3}, {3,4}, {4,1}, {5,6}, {6,7}, {7,8}, {8,5},
+                {1,5}, {2,6}, {3,7}, {4,8} }
+
+local function focalLength(fovDegrees, screenH)
+  return (screenH / 2) / math.tan(math.rad(fovDegrees) / 2)
+end
+
+local function project(p, f, w, h)
+  if ortho then return w / 2 + 100 * p.x, h / 2 + 100 * p.y end
+<span class="k">  return w / 2 + f * p.x / p.z, h / 2 + f * p.y / p.z</span>
+end
+
+<span class="c">-- Cut an edge at the near plane. Returns nil if all of it is behind.</span>
+local function clipEdge(a, b)
+  if a.z &lt; NEAR and b.z &lt; NEAR then return nil end
+  if a.z &lt; NEAR or b.z &lt; NEAR then
+    local t = (NEAR - a.z) / (b.z - a.z)
+    local m = { x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, z = NEAR }
+    if a.z &lt; NEAR then a = m else b = m end
+  end
+  return a, b
+end
+
+local function cornerInCamera(c)
+  local r = math.rad(cube.turn)
+  local cosA, sinA = math.cos(r), math.sin(r)
+  return { x = cube.x + c[1] * cosA - c[3] * sinA,
+           y = cube.y + c[2],
+           z = cube.z + c[1] * sinA + c[3] * cosA }
+end
+
+function love.update(dt)
+  if love.keyboard.isDown("up") then cube.z = cube.z + 3 * dt end
+  if love.keyboard.isDown("down") then cube.z = cube.z - 3 * dt end
+  cube.turn = cube.turn + 30 * dt
+end
+
+function love.keypressed(key)
+  if key == "o" then ortho = not ortho end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local f = focalLength(fov, h)
+  local pts = {}
+  for i = 1, 8 do pts[i] = cornerInCamera(CORNERS[i]) end
+  for _, e in ipairs(EDGES) do
+    local a, b = clipEdge(pts[e[1]], pts[e[2]])
+    if a then
+      local ax, ay = project(a, f, w, h)
+      local bx, by = project(b, f, w, h)
+      love.graphics.line(ax, ay, bx, by)
+    end
+  end
+end</code></pre>
+  </div>
+  <p>Up and down move the cube, O switches projection. Delete the <code>cube.turn</code> line to stop the spin; in an 800 by 600 window corner A then lands at (475, 375), as in the worked example.</p>
+  <p>Built-in versions: in Godot, <code>Camera3D.unproject_position(point)</code> gives the screen position of a 3D point. In Unity, <code>Camera.WorldToScreenPoint(point)</code>; <code>Camera.fieldOfView</code> is the vertical field of view in degrees and <code>Camera.orthographicSize</code> is half the view height in world units.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Points at or behind the camera.</strong> z = 0 divides by zero; negative z mirrors the point. Cut every edge at the near plane before dividing, as <code>clipEdge</code> does. Testing only an object's centre is not enough: half a cube can be behind you.</li>
+    <li><strong>tan of the whole angle, or of degrees.</strong> Use <em>half</em> the field of view, in radians. <code>math.tan(90)</code> in Lua gives about −2.0, not 1.</li>
+    <li><strong>Field of view near 0 or 180.</strong> At 180° f becomes 0; near 0° it becomes huge. Clamp it; the demo allows 30° to 150°. Wide views also stretch objects near the edges.</li>
+    <li><strong>Vertical or horizontal?</strong> Many games quote a horizontal field of view: tan(horizontal/2) = (W / H) × tan(vertical/2). On an 800 by 600 screen a vertical 90° is about 106° horizontally.</li>
+    <li><strong>Sign conventions.</strong> With y up or a camera looking along −z, a direct copy draws the world flipped. Check one known point, such as A.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every 3D game does this divide for every vertex. On a graphics card the projection is a 4 by 4 matrix that copies the depth into a fourth number, w, and the hardware divides by w: the <dfn>perspective divide</dfn>, the same y ÷ z with extra bookkeeping for the depth buffer.</p>
+  <p>Many PC games offer a field of view slider, and a zoomed scope is often just a narrower field of view. Orthographic cameras draw isometric and top-down views, minimaps, and the shadow maps of sunlight.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make a star field in LÖVE: 200 stars with random x and y from −10 to 10 and z from 1 to 20 (call <code>love.math.setRandomSeed(1)</code> first). Each frame subtract <code>8 * dt</code> from every z; below <code>NEAR</code>, send the star back to z = 20. Draw each at its projected position with radius <code>f * 0.05 / z</code>.</p>
+  <p>You are done when the stars stream outwards from the centre, growing as they pass, and changing <code>fov</code> from 90 to 60 zooms in.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Perspective is a divide: x / z and y / z put a point on a plate one unit in front of the eye.</li>
+    <li>The focal length f = (H/2) / tan(fov/2) turns plate units into pixels; a narrower view means a bigger f, which zooms in.</li>
+    <li>Screen point = screen centre + f × (x / z, y / z).</li>
+    <li>Orthographic projection skips the divide, so size does not change with distance.</li>
+    <li>Never divide by a z at or behind the near plane: cut edges there first.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, Euler angles and gimbal lock: how three angles turn an object in 3D, and why they can suddenly lose an axis.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on the camera and projection.</li>
+    <li>Eric Lengyel, <cite>Mathematics for 3D Game Programming and Computer Graphics</cite>, the section on projections.</li>
+    <li>Godot Engine documentation, the <cite>Camera3D</cite> class reference.</li>
+    <li>Unity Scripting API, <cite>Camera.fieldOfView</cite>, <cite>Camera.orthographicSize</cite> and <cite>Camera.WorldToScreenPoint</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Camera space: x right, y down, z forward. The camera view is an 800 x 600 virtual screen.
+  var VW = 800, VH = 600, NEAR = 0.1, ORTHO_S = 100, ZMAX = 14;
+  var cube = { x: 0, y: 0, z: 5, turn: 0 };
+  var fov = 90;
+  var ortho = false;
+  var CORNERS = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+                 [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+  var EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
+               [0, 4], [1, 5], [2, 6], [3, 7]];
+  var A = 2;                  // index of corner A, local (1, 1, -1)
+  var FLOOR_Y = 1;
+
+  var side = null, cam = null;
+  var outCache = {};
+  var SS = { w: 400, h: 300 };   // side view size, kept for pointer maths
+
+  function redraw() { if (side) side.redraw(); if (cam) cam.redraw(); }
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  // --- maths ---------------------------------------------------------------------------------
+  function focal() { return (VH / 2) / Math.tan(fov * Math.PI / 360); }
+  function corner(c) {
+    var r = cube.turn * Math.PI / 180, co = Math.cos(r), si = Math.sin(r);
+    return { x: cube.x + c[0] * co - c[2] * si, y: cube.y + c[1], z: cube.z + c[0] * si + c[2] * co };
+  }
+  function project(p) {
+    if (ortho) return { x: VW / 2 + ORTHO_S * p.x, y: VH / 2 + ORTHO_S * p.y };
+    var f = focal();
+    return { x: VW / 2 + f * p.x / p.z, y: VH / 2 + f * p.y / p.z };
+  }
+  function clipEdge(a, b) {
+    if (a.z < NEAR && b.z < NEAR) return null;
+    if (a.z < NEAR || b.z < NEAR) {
+      var t = (NEAR - a.z) / (b.z - a.z);
+      var m = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: NEAR };
+      if (a.z < NEAR) a = m; else b = m;
+    }
+    return [a, b];
+  }
+  function wrap180(v) {
+    while (v > 180) v -= 360;
+    while (v < -180) v += 360;
+    return v;
+  }
+
+  // --- formatting ----------------------------------------------------------------------------
+  function num(n, dp) {
+    var f = Math.pow(10, dp);
+    n = Math.round(n * f) / f;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n).toFixed(dp) : n.toFixed(dp);
+  }
+  function setOut(out, key, text) {
+    if (outCache[key] !== text) { outCache[key] = text; out.set(text); }
+  }
+
+  // --- controls ------------------------------------------------------------------------------
+  var ui = DemoKit.controls('[data-demo="perspective"]');
+  var sFov = ui.slider({ label: 'Field of view', min: 30, max: 150, step: 1, value: fov, unit: '°',
+    onInput: function (v) { fov = DemoKit.clamp(v, 30, 150); redraw(); } });
+  var sDist = ui.slider({ label: 'Cube distance (z of centre)', min: 0, max: ZMAX, step: 0.1, value: cube.z,
+    onInput: function (v) { cube.z = DemoKit.clamp(v, 0, ZMAX); redraw(); } });
+  var sTurn = ui.slider({ label: 'Cube turn', min: -180, max: 180, step: 1, value: 0, unit: '°',
+    onInput: function (v) { cube.turn = v; redraw(); } });
+  var tOrtho = ui.toggle({ label: 'Orthographic (no divide)', value: false,
+    onChange: function (v) { ortho = v; redraw(); } });
+  ui.button({ label: 'Reset', onClick: function () {
+    cube.x = 0; cube.y = 0; cube.z = 5; cube.turn = 0; fov = 90; ortho = false;
+    sFov.set(90); sDist.set(5); sTurn.set(0); tOrtho.set(false);
+    redraw();
+  } });
+  var outF = ui.readout({ label: 'Focal length f' });
+  var outA = ui.readout({ label: 'Corner A in camera space' });
+  var outD = ui.readout({ label: 'Divide by depth' });
+  var outS = ui.readout({ label: 'A on the 800 × 600 screen' });
+
+  function updateReadouts() {
+    var a = corner(CORNERS[A]);
+    if (ortho) {
+      setOut(outF, 'f', 'not used: orthographic, ' + ORTHO_S + ' px per unit');
+    } else {
+      setOut(outF, 'f', '300 / tan(' + num(fov / 2, 1) + '°) = ' + num(focal(), 1) + ' px');
+    }
+    setOut(outA, 'a', '(' + num(a.x, 2) + ', ' + num(a.y, 2) + ', ' + num(a.z, 2) + ')');
+    if (a.z < NEAR) {
+      setOut(outD, 'd', 'z is behind the near plane (0.1): not divided');
+      setOut(outS, 's', 'not drawn');
+      return;
+    }
+    var p = project(a);
+    if (ortho) setOut(outD, 'd', 'skipped: z is ignored');
+    else setOut(outD, 'd', 'x / z = ' + num(a.x / a.z, 3) + ', y / z = ' + num(a.y / a.z, 3));
+    setOut(outS, 's', '(' + num(p.x, 0) + ', ' + num(p.y, 0) + ')');
+  }
+
+  var LABEL = '600 12px ui-monospace, Menlo, Consolas, monospace';
+  var SMALL = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+  function label(ctx, text, x, y, color, bg, w, h) {
+    ctx.font = LABEL;
+    var tw = ctx.measureText(text).width;
+    var left = DemoKit.clamp(x, 4, Math.max(4, w - tw - 6));
+    var base = DemoKit.clamp(y, 15, h - 6);
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = bg;
+    ctx.fillRect(left - 3, base - 11, tw + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, left, base);
+  }
+
+  // --- side view -----------------------------------------------------------------------------
+  // Screen position of camera-space (z, y) in the side view.
+  function sideGeom(w, h) {
+    var ex = 28, ey = h / 2;
+    var k = (w - 44) / ZMAX;
+    return { ex: ex, ey: ey, k: k, R: Math.min(w * 0.4, h * 0.42) };
+  }
+  function fovHandle(g) {
+    var hr = fov * Math.PI / 360;
+    return { x: g.ex + g.R * Math.cos(hr), y: g.ey - g.R * Math.sin(hr) };
+  }
+  var press = null;   // { mode: 'fov' | 'cube', dz, dy }
+
+  function sideMove(p, s) {
+    if (!p.down || !press) return;
+    var g = sideGeom(s.width, s.height);
+    if (press.mode === 'fov') {
+      var dx = Math.max(1, p.x - g.ex);
+      var half = Math.atan2(g.ey - p.y, dx) * 180 / Math.PI;
+      fov = Math.round(DemoKit.clamp(half * 2, 30, 150));
+      sFov.set(fov);
+    } else {
+      cube.z = Math.round(DemoKit.clamp((p.x - g.ex) / g.k + press.dz, 0, ZMAX) * 10) / 10;
+      cube.y = Math.round(DemoKit.clamp((p.y - g.ey) / g.k + press.dy, -4, 4) * 10) / 10;
+      sDist.set(cube.z);
+    }
+    redraw();
+  }
+
+  side = DemoKit.canvas('#persp-side', {
+    aspect: 4 / 3,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'Side view of the camera and the cube. Drag the cube to change its distance and height, drag the blue handle to change the field of view. Arrow keys: left and right move the cube nearer or farther, up and down move it up or down.',
+    onDown: function (p, s) {
+      var g = sideGeom(s.width, s.height);
+      var hnd = fovHandle(g);
+      if (!ortho && Math.hypot(p.x - hnd.x, p.y - hnd.y) < 18) {
+        press = { mode: 'fov' };
+        return;
+      }
+      var pz = (p.x - g.ex) / g.k, py = (p.y - g.ey) / g.k;
+      var near = Math.hypot(pz - cube.z, py - cube.y) < 1.6;
+      press = { mode: 'cube', dz: near ? cube.z - pz : 0, dy: near ? cube.y - py : 0 };
+      sideMove(p, s);
+    },
+    onMove: function (p, s) { sideMove(p, s); },
+    onUp: function () { press = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') cube.z = Math.min(ZMAX, cube.z + 0.5);
+      else if (key === 'arrowleft') cube.z = Math.max(0, cube.z - 0.5);
+      else if (key === 'arrowdown') cube.y = Math.min(4, cube.y + 0.5);
+      else if (key === 'arrowup') cube.y = Math.max(-4, cube.y - 0.5);
+      else return;
+      cube.z = Math.round(cube.z * 10) / 10;
+      sDist.set(cube.z);
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors, w = s.width, h = s.height;
+      SS.w = w; SS.h = h;
+      var g = sideGeom(w, h);
+      var blue = cssVar('--t-game-physics', '#1f6fd6');
+      var i, X = function (z) { return g.ex + z * g.k; }, Y = function (y) { return g.ey + y * g.k; };
+      var tanH = Math.tan(fov * Math.PI / 360);
+
+      // View region
+      ctx.fillStyle = blue;
+      ctx.globalAlpha = 0.08;
+      ctx.beginPath();
+      if (ortho) {
+        ctx.rect(X(0), Y(-VH / 2 / ORTHO_S), ZMAX * g.k, VH / ORTHO_S * g.k);
+      } else {
+        ctx.moveTo(g.ex, g.ey);
+        ctx.lineTo(X(ZMAX), Y(-ZMAX * tanH));
+        ctx.lineTo(X(ZMAX), Y(ZMAX * tanH));
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = blue;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      if (ortho) {
+        ctx.moveTo(X(0), Y(-3)); ctx.lineTo(X(ZMAX), Y(-3));
+        ctx.moveTo(X(0), Y(3)); ctx.lineTo(X(ZMAX), Y(3));
+      } else {
+        ctx.moveTo(g.ex, g.ey); ctx.lineTo(X(ZMAX), Y(-ZMAX * tanH));
+        ctx.moveTo(g.ex, g.ey); ctx.lineTo(X(ZMAX), Y(ZMAX * tanH));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Axes and ticks
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(g.ex, g.ey); ctx.lineTo(w - 8, g.ey);
+      ctx.moveTo(w - 14, g.ey - 5); ctx.lineTo(w - 8, g.ey); ctx.lineTo(w - 14, g.ey + 5);
+      ctx.moveTo(g.ex, 30); ctx.lineTo(g.ex, h - 8);
+      ctx.moveTo(g.ex - 5, h - 14); ctx.lineTo(g.ex, h - 8); ctx.lineTo(g.ex + 5, h - 14);
+      for (i = 1; i <= ZMAX; i++) { ctx.moveTo(X(i), g.ey - 3); ctx.lineTo(X(i), g.ey + 3); }
+      ctx.stroke();
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'center';
+      for (i = 2; i <= ZMAX; i += 2) ctx.fillText(String(i), X(i), g.ey - 7);
+      ctx.textAlign = 'right';
+      ctx.fillText('z →', w - 8, g.ey + 18);
+      ctx.textAlign = 'left';
+      ctx.fillText('y ↓', g.ex + 10, h - 10);
+
+      // Floor at y = 1
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(g.ex, Y(FLOOR_Y)); ctx.lineTo(w - 8, Y(FLOOR_Y));
+      ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('floor', w - 8, Y(FLOOR_Y) + 16);
+      ctx.textAlign = 'left';
+
+      // Plate at z = 1 (perspective only)
+      if (!ortho) {
+        ctx.strokeStyle = blue;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(X(1), Y(-tanH)); ctx.lineTo(X(1), Y(tanH));
+        ctx.stroke();
+      }
+
+      // Cube edges seen from the side: (z, y)
+      var pts = [];
+      for (i = 0; i < 8; i++) pts.push(corner(CORNERS[i]));
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (i = 0; i < EDGES.length; i++) {
+        var a = pts[EDGES[i][0]], b = pts[EDGES[i][1]];
+        ctx.moveTo(X(a.z), Y(a.y)); ctx.lineTo(X(b.z), Y(b.y));
+      }
+      ctx.stroke();
+
+      // Corner A and its ray
+      var pa = pts[A];
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      if (ortho) { ctx.moveTo(X(0), Y(pa.y)); ctx.lineTo(X(pa.z), Y(pa.y)); }
+      else if (pa.z >= NEAR) { ctx.moveTo(g.ex, g.ey); ctx.lineTo(X(pa.z), Y(pa.y)); }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.warn;
+      ctx.beginPath();
+      ctx.arc(X(pa.z), Y(pa.y), 5, 0, 2 * Math.PI);
+      ctx.fill();
+      label(ctx, 'A', X(pa.z) + 8, Y(pa.y) + 16, c.warn, c.surface, w, h);
+      var hitY = pa.z >= NEAR ? pa.y / pa.z : 0;
+      if (!ortho && pa.z >= NEAR && Math.abs(hitY) <= tanH) {
+        ctx.fillStyle = c.topic;
+        ctx.beginPath();
+        ctx.arc(X(1), Y(hitY), 4, 0, 2 * Math.PI);
+        ctx.fill();
+        label(ctx, 'y/z = ' + num(hitY, 2), X(1) + 8, Y(hitY) + (hitY >= 0 ? 16 : -6), c.topic, c.surface, w, h);
+      }
+
+      // Camera eye and fov handle
+      ctx.fillStyle = blue;
+      ctx.beginPath();
+      ctx.arc(g.ex, g.ey, 7, 0, 2 * Math.PI);
+      ctx.fill();
+      if (!ortho) {
+        var hnd = fovHandle(g);
+        ctx.beginPath();
+        ctx.arc(hnd.x, hnd.y, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = c.surface;
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = blue;
+        ctx.stroke();
+        label(ctx, 'fov ' + fov + '°', hnd.x + 12, hnd.y + 4, blue, c.surface, w, h);
+      }
+    }
+  });
+
+  // --- camera view ---------------------------------------------------------------------------
+  var drag = null;
+  cam = DemoKit.canvas('#persp-cam', {
+    aspect: 4 / 3,
+    minHeight: 240,
+    maxHeight: 420,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'What the camera sees: the cube and the floor grid drawn with perspective or orthographic projection. Drag sideways or use the left and right arrow keys to turn the cube.',
+    onDown: function (p) { drag = { x: p.x }; },
+    onMove: function (p) {
+      if (!p.down || !drag) return;
+      cube.turn = Math.round(wrap180(cube.turn + (p.x - drag.x) * 0.6));
+      drag.x = p.x;
+      sTurn.set(cube.turn);
+      redraw();
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowleft') cube.turn = wrap180(cube.turn - 5);
+      else if (key === 'arrowright') cube.turn = wrap180(cube.turn + 5);
+      else return;
+      sTurn.set(cube.turn);
+      redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors, w = s.width, h = s.height;
+      var k = w / VW;              // canvas pixels per virtual screen pixel
+      var i, seg, pa, pb;
+      function line(a, b) {
+        seg = clipEdge(a, b);
+        if (!seg) return;
+        pa = project(seg[0]); pb = project(seg[1]);
+        ctx.moveTo(pa.x * k, pa.y * k); ctx.lineTo(pb.x * k, pb.y * k);
+      }
+
+      // Screen axes through the centre, and edge ticks every 100 px
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+      ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+      for (i = 100; i < VW; i += 100) { ctx.moveTo(i * k, h); ctx.lineTo(i * k, h - 6); }
+      for (i = 100; i < VH; i += 100) { ctx.moveTo(0, i * k); ctx.lineTo(6, i * k); }
+      ctx.stroke();
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText('x 400', w / 2 + 5, 36);
+      ctx.fillText('y 300', 10, h / 2 - 6);
+
+      // Floor grid at y = 1
+      ctx.strokeStyle = c.ink3;
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (i = -6; i <= 6; i++) line({ x: i, y: FLOOR_Y, z: 0.2 }, { x: i, y: FLOOR_Y, z: 20 });
+      for (i = 1; i <= 20; i++) line({ x: -6, y: FLOOR_Y, z: i }, { x: 6, y: FLOOR_Y, z: i });
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Cube
+      var pts = [];
+      for (i = 0; i < 8; i++) pts.push(corner(CORNERS[i]));
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (i = 0; i < EDGES.length; i++) line(pts[EDGES[i][0]], pts[EDGES[i][1]]);
+      ctx.stroke();
+
+      // Corner A
+      var a = pts[A];
+      if (a.z >= NEAR) {
+        var q = project(a);
+        ctx.fillStyle = c.warn;
+        ctx.beginPath();
+        ctx.arc(q.x * k, q.y * k, 5, 0, 2 * Math.PI);
+        ctx.fill();
+        label(ctx, 'A (' + num(q.x, 0) + ', ' + num(q.y, 0) + ')', q.x * k + 9, q.y * k + 16, c.warn, c.surface, w, h);
+      }
+      ctx.font = SMALL;
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'right';
+      ctx.fillText(ortho ? 'orthographic' : 'perspective, fov ' + fov + '°', w - 8, 18);
+      ctx.textAlign = 'left';
+
+      updateReadouts();
+    }
+  });
+})();
+</script>
+</body>
+</html>

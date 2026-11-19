@@ -40,7 +40,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Transform hierarchies** — How child objects inherit the transforms of their parents. Demo: sliders rotate the shoulder, elbow and wrist of a robot arm. (published 2026-11-16, transform-hierarchies)
 - [x] **Local space and world space** — How to convert points between the space of an object and the world using a transform and its inverse. Demo: move the mouse over a rotated ship to read the position in both spaces. (published 2026-11-17, local-world-space)
 - [x] **Cameras and world-to-screen** — How a camera is an inverse transform that pans, zooms and rotates the world. Demo: drag to pan and scroll to zoom a map, with click picking that converts the screen position back to world coordinates. (published 2026-11-18, camera-world-to-screen)
-- [ ] **Perspective projection** — How dividing by depth makes distant things smaller. Demo: sliders for field of view and camera distance change a wireframe cube, with a toggle for orthographic projection.
+- [x] **Perspective projection** — How dividing by depth makes distant things smaller. Demo: sliders for field of view and camera distance change a wireframe cube, with a toggle for orthographic projection. (published 2026-11-19, perspective-projection)
 
 ## Track 4: 3D rotation and randomness
 
