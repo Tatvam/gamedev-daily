@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cellular patterns: the distance to the nearest random point · Game Dev Daily</title>
+<meta name="description" content="Scatter one random point in every cell and measure the distance to the nearest one. That single number draws cells, scales, stones and cracks.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Cellular patterns: the distance to the nearest random point</h1>
+  <p class="lede">Scatter one random point in every cell and measure the distance to the nearest one. That single number draws cells, scales, stones and cracks.</p>
+</header>
+
+<section data-section="hook">
+  <p>Cracked dry mud, a lizard's scales, cobblestones, the bright web of light on the bottom of a pool. None of these look like yesterday's soft noise. They are made of <em>cells</em>: blobs with clear borders between them. A shader can draw all of them with one search and two distances.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every pixel asks: which point is closest to me?</h2>
+  <p>A fragment shader is a small function that runs once per pixel: a position goes in, a colour comes out. For a cellular pattern, the function in the middle answers one question. Somewhere on the screen there are scattered <dfn>feature points</dfn>. How far is this pixel from the nearest one?</p>
+  <p>Shade every pixel by that distance and you get dark spots at the points and bright ridges where two points are equally far away. The regions that share a nearest point are called <dfn>Voronoi cells</dfn>. The pattern is often called <dfn>Worley noise</dfn> or cellular noise, after Steven Worley, who described it for textures in 1996.</p>
+
+  <h3>Step 1: one point per grid cell</h3>
+  <p>A shader has no list of points, and checking a long list per pixel would be far too slow. So divide space into a grid, as in the last two lessons, and give each cell exactly one point. The hash invents it from the cell's coordinates, so every pixel that asks gets the same answer:</p>
+<pre><code>vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;
+vec2 i = floor(p);                  // which cell
+vec2 f = fract(p);                  // where inside it, 0 to 1
+vec2 pt = 0.5 + u_jitter * (hash2(i) - 0.5);   // this cell's point</code></pre>
+  <p><dfn>Jitter</dfn> says how far the point may wander from the centre of its cell. At 0 every point sits on its cell's centre and the cells come out as perfect squares. At 1 a point can be anywhere in its cell.</p>
+
+  <h3>Step 2: check the neighbours too</h3>
+  <p>The tempting shortcut is to measure only the distance to your own cell's point, <code>length(pt - f)</code>. It fails: a point just across the border is often closer than your own. The demo's stage 2 shows the result, circles that are sliced off at every cell edge.</p>
+  <p>The fix is to visit the 3 by 3 block of cells around the pixel and keep the smallest distance. That is nine points per pixel instead of millions.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="A 3 by 3 block of grid cells with one random point in each. A pixel p sits in the centre cell. A solid line joins p to the nearest point, which lies in the cell below, labelled F1. A thinner line joins p to the second nearest point, in p's own cell, labelled F2. On the right, the steps of the search and what F1, the cell id and F2 minus F1 are used for.">
+      <rect class="d-fill" x="30" y="30" width="210" height="210"/>
+      <path class="d-thin" d="M100 30 V240 M170 30 V240 M30 100 H240 M30 170 H240"/>
+      <rect class="d-stroke" x="100" y="100" width="70" height="70"/>
+
+      <circle class="d-stroke" cx="51" cy="72" r="4"/>
+      <circle class="d-stroke" cx="149" cy="51" r="4"/>
+      <circle class="d-stroke" cx="198" cy="79" r="4"/>
+      <circle class="d-stroke" cx="44" cy="121" r="4"/>
+      <circle class="d-stroke" cx="191" cy="128" r="4"/>
+      <circle class="d-stroke" cx="72" cy="205" r="4"/>
+      <circle class="d-stroke" cx="219" cy="212" r="4"/>
+
+      <path class="d-accent" d="M124 138 L128 178"/>
+      <path class="d-stroke" d="M124 138 L160 107"/>
+      <circle class="d-accent-fill" cx="128" cy="178" r="5"/>
+      <circle class="d-accent-fill" cx="160" cy="107" r="5"/>
+      <circle class="d-stroke" cx="124" cy="138" r="5"/>
+      <text class="d-label" x="114" y="152" text-anchor="end">p</text>
+      <text class="d-label" x="136" y="165">F1</text>
+      <text class="d-label" x="136" y="122" text-anchor="end">F2</text>
+      <text class="d-muted" x="135" y="266" text-anchor="middle">the 9 cells searched</text>
+
+      <text class="d-text" x="272" y="44">For every pixel:</text>
+      <text class="d-mono" x="272" y="70">1. i = floor(p), f = fract(p)</text>
+      <text class="d-mono" x="272" y="92">2. visit the 9 cells around i</text>
+      <text class="d-mono" x="272" y="114">3. keep the nearest distance F1</text>
+      <text class="d-mono" x="272" y="136">   and the second nearest F2</text>
+
+      <text class="d-text" x="272" y="180">What to do with them:</text>
+      <text class="d-mono" x="272" y="204">F1       spots, scales, bubbles</text>
+      <text class="d-mono" x="272" y="226">cell id  flat-coloured cells</text>
+      <text class="d-mono" x="272" y="248">F2 − F1  borders and cracks</text>
+    </svg>
+    <figcaption>The search for one pixel. Here the nearest point is not in the pixel's own cell, which is why the neighbours must be checked.</figcaption>
+  </figure>
+
+  <h3>Step 3: keep the two nearest</h3>
+<pre><code>float d1 = 8.0;   // nearest so far (F1)
+float d2 = 8.0;   // second nearest so far (F2)
+for (int y = -1; y &lt;= 1; y++) {
+  for (int x = -1; x &lt;= 1; x++) {
+    vec2 n = vec2(float(x), float(y));            // neighbour offset
+    float d = length(n + featurePoint(i + n) - f);
+    if (d &lt; d1) { d2 = d1; d1 = d; id = i + n; }
+    else if (d &lt; d2) { d2 = d; }
+  }
+}</code></pre>
+  <p>The start value 8.0 just means "further than any real point". Adding the offset <code>n</code> moves each neighbour's point into the pixel's cell space.</p>
+  <p>Three useful outputs fall out of the loop. <code>d1</code>, called <dfn>F1</dfn>, is the distance to the nearest point: shade by it for spots and domed scales. <code>id</code> is the cell that owns that point: hash it again and every Voronoi cell gets its own flat colour. <code>d2</code>, called <dfn>F2</dfn>, is the second nearest distance.</p>
+
+  <h3>Step 4: borders from F2 − F1</h3>
+  <p>On the border between two cells the pixel is equally far from both points, so F1 equals F2 there. <code>F2 − F1</code> is therefore 0 on every border and grows towards the middle of each cell. Threshold it with <code>smoothstep</code> and you have cracks:</p>
+<pre><code>float e = d2 - d1;
+float crack = 1.0 - smoothstep(u_width, u_width + 0.03, e);</code></pre>
+
+  <div class="callout">
+    <p class="callout-title">Which corner is (0, 0), and which colours</p>
+    <p>WebGL's <code>gl_FragCoord</code> starts at the bottom-left with y up. LÖVE's <code>screen_coords</code> and Godot's canvas <code>UV</code> start at the top-left with y down, so the code below flips y to match the demo. Unity's mesh UVs start at the bottom-left. The stone colours are display (sRGB) values; in a linear colour space project they come out lighter.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Step through the stages from 1 to 6. On stage 2, find the seams where a circle is cut off by a cell border; stage 3 removes them by checking the neighbours. Then set <em>Jitter</em> to 0 and watch the cells turn into a square grid, and slide it back up. Finally, drag the probe in the lower view to see which two points it picks.</p>
+
+  <figure class="demo wide" data-demo="cellular">
+    <canvas id="cell-shader"></canvas>
+    <canvas id="cell-probe"></canvas>
+    <figcaption>Top: the live shader, with red dots on the feature points. Bottom: a probe pixel with its 9 searched cells shaded; the solid line goes to the nearest point (F1), the dashed line to the second nearest (F2). Drag the probe, or focus the view and use the arrow keys. The bottom view uses its own random points.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over the whole window. Up and down change the cell count, left and right the jitter, and space starts or stops the moving points.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local scale = 5          <span class="c">-- cells across the height of the window</span>
+local jitter = 1.0       <span class="c">-- 0 = points on the cell centres, 1 = anywhere in the cell</span>
+local width = 0.05       <span class="c">-- crack width, in cells</span>
+local phase = 0          <span class="c">-- moves the points while moving is on</span>
+local moving = false
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_scale;
+uniform float u_jitter;
+uniform float u_width;
+uniform float u_phase;
+
+vec2 hash2(vec2 c)
+{
+  vec2 k = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
+  return fract(sin(k) * 43758.5453);
+}
+
+vec2 featurePoint(vec2 cell)
+{
+  vec2 o = 0.5 + 0.5 * sin(u_phase + 6.2831853 * hash2(cell));
+  return 0.5 + u_jitter * (o - 0.5);
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  // LÖVE's origin is the top-left: flip y so cell (0, 0) is bottom-left, as in the demo
+  vec2 pos = vec2(screen_coords.x, u_resolution.y - screen_coords.y);
+  vec2 p = pos / u_resolution.y * u_scale;
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+
+  float d1 = 8.0;
+  float d2 = 8.0;
+  vec2 id = i;
+  for (int y = -1; y &lt;= 1; y++) {
+    for (int x = -1; x &lt;= 1; x++) {
+      vec2 n = vec2(float(x), float(y));
+      float d = length(n + featurePoint(i + n) - f);
+      if (d &lt; d1) { d2 = d1; d1 = d; id = i + n; }
+      else if (d &lt; d2) { d2 = d; }
+    }
+  }
+  float e = d2 - d1;
+
+  vec2 h = hash2(id);
+  vec3 col = vec3(0.56, 0.53, 0.48) * (0.8 + 0.35 * h.x);   // each slab its own shade
+  col *= 1.1 - 0.5 * d1;                                    // lighter near its point
+  float crack = 1.0 - smoothstep(u_width, u_width + 0.03, e);
+  col = mix(col, vec3(0.13, 0.11, 0.10), crack);
+  return vec4(col, 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "space" then moving = not moving end
+  if key == "up" then scale = math.min(scale + 1, 24) end
+  if key == "down" then scale = math.max(scale - 1, 2) end
+  if key == "right" then jitter = math.min(jitter + 0.1, 1.0) end
+  if key == "left" then jitter = math.max(jitter - 0.1, 0.0) end
+end
+
+function love.update(dt)
+  if moving then
+<span class="k">    phase = (phase + 0.8 * dt) % (2 * math.pi)   <span class="c">-- sin repeats, so wrapping is invisible</span></span>
+  end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local pw, ph = love.graphics.getPixelDimensions()
+  shader:send("u_resolution", { pw, ph })
+  shader:send("u_scale", scale)
+  shader:send("u_jitter", jitter)
+  shader:send("u_width", width)
+  shader:send("u_phase", phase)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;   // the hash needs 32-bit floats
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_scale;    // cells across the height of the canvas
+uniform float u_jitter;   // 0 = points on the cell centres, 1 = anywhere in the cell
+uniform float u_width;    // crack width, in cells
+uniform float u_phase;    // moves the points; wrapped to 0..2 pi on the CPU
+uniform float u_stage;    // 0 cell position ... 5 final colour
+uniform float u_grid;     // 1 draws the cell borders
+uniform float u_dots;     // 1 draws the feature points
+
+vec2 hash2(vec2 c) {
+  vec2 k = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
+  return fract(sin(k) * 43758.5453);
+}
+
+// the feature point of a cell, 0 to 1 inside that cell
+vec2 featurePoint(vec2 cell) {
+  vec2 o = 0.5 + 0.5 * sin(u_phase + 6.2831853 * hash2(cell));
+  return 0.5 + u_jitter * (o - 0.5);
+}
+
+void main() {
+  vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;   // square cells, u_scale tall
+  vec2 i = floor(p);                                     // 1. which cell
+  vec2 f = fract(p);                                     //    where inside it
+
+  float d0 = length(featurePoint(i) - f);                // 2. own cell's point only
+
+  float d1 = 8.0;                                        // 3. nearest distance, F1
+  float d2 = 8.0;                                        //    second nearest, F2
+  vec2 id = i;                                           // 4. the cell that owns F1
+  for (int y = -1; y &lt;= 1; y++) {
+    for (int x = -1; x &lt;= 1; x++) {
+      vec2 n = vec2(float(x), float(y));
+      float d = length(n + featurePoint(i + n) - f);
+      if (d &lt; d1) {
+        d2 = d1;
+        d1 = d;
+        id = i + n;
+      } else if (d &lt; d2) {
+        d2 = d;
+      }
+    }
+  }
+  float e = d2 - d1;                                     // 5. 0 on every border
+
+  // 6. use it: cracked stone slabs
+  vec2 h = hash2(id);
+  vec3 col = vec3(0.56, 0.53, 0.48) * (0.8 + 0.35 * h.x);   // each slab its own shade
+  col *= 1.1 - 0.5 * d1;                                    // lighter near its point
+  float crack = 1.0 - smoothstep(u_width, u_width + 0.03, e);
+  col = mix(col, vec3(0.13, 0.11, 0.10), crack);
+
+  if (u_stage &lt; 4.5) col = vec3(e);
+  if (u_stage &lt; 3.5) col = 0.3 + 0.6 * vec3(h, fract(h.x + h.y));
+  if (u_stage &lt; 2.5) col = vec3(d1);
+  if (u_stage &lt; 1.5) col = vec3(d0);
+  if (u_stage &lt; 0.5) col = vec3(f, 0.0);
+
+  float cellPx = u_resolution.y / u_scale;
+  vec2 b = min(f, 1.0 - f) * cellPx;                     // pixels to the nearest cell border
+  float line = 1.0 - step(1.0, min(b.x, b.y));
+  col = mix(col, vec3(0.35, 0.65, 1.0), line * u_grid * 0.7);
+  float dotMask = 1.0 - smoothstep(3.0, 4.5, d1 * cellPx);
+  col = mix(col, vec3(1.0, 0.3, 0.2), dotMask * u_dots);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 rect_size = vec2(640.0, 360.0);  // set this to the ColorRect's size
+uniform float scale = 5.0;                    // cells across the height
+uniform float jitter : hint_range(0.0, 1.0) = 1.0;
+uniform float crack_width : hint_range(0.0, 0.2) = 0.05;
+uniform float speed = 0.0;                    // radians per second; 0 holds the points still
+
+vec2 hash2(vec2 c) {
+    vec2 k = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
+    return fract(sin(k) * 43758.5453);
+}
+
+vec2 feature_point(vec2 cell, float phase) {
+    vec2 o = 0.5 + 0.5 * sin(phase + 6.2831853 * hash2(cell));
+    return 0.5 + jitter * (o - 0.5);
+}
+
+void fragment() {
+    // UV starts at the top-left with y down: flip y to match the demo.
+    vec2 pos = vec2(UV.x, 1.0 - UV.y) * rect_size;
+    vec2 p = pos / rect_size.y * scale;
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float phase = mod(TIME * speed, 6.2831853);
+
+    float d1 = 8.0;
+    float d2 = 8.0;
+    vec2 id = i;
+    for (int y = -1; y &lt;= 1; y++) {
+        for (int x = -1; x &lt;= 1; x++) {
+            vec2 n = vec2(float(x), float(y));
+<span class="k">            float d = length(n + feature_point(i + n, phase) - f);</span>
+            if (d &lt; d1) { d2 = d1; d1 = d; id = i + n; }
+            else if (d &lt; d2) { d2 = d; }
+        }
+    }
+    float e = d2 - d1;
+
+    vec3 col = vec3(0.56, 0.53, 0.48) * (0.8 + 0.35 * hash2(id).x);
+    col *= 1.1 - 0.5 * d1;
+<span class="k">    float crack = 1.0 - smoothstep(crack_width, crack_width + 0.03, e);</span>
+    COLOR = vec4(mix(col, vec3(0.13, 0.11, 0.10), crack), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit cracked stone. Put it on a Quad.
+Shader "GameDevDaily/CellularStone"
+{
+    Properties
+    {
+        _Cells ("Cells across (x) and down (y)", Vector) = (8, 5, 0, 0)
+        _Jitter ("Jitter", Range(0, 1)) = 1
+        _CrackWidth ("Crack width (cells)", Range(0, 0.2)) = 0.05
+        _Speed ("Point speed (radians per second)", Float) = 0
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float4 _Cells;
+            float _Jitter;
+            float _CrackWidth;
+            float _Speed;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float2 hash2 (float2 c)
+            {
+                float2 k = float2(dot(c, float2(127.1, 311.7)), dot(c, float2(269.5, 183.3)));
+                return frac(sin(k) * 43758.5453);
+            }
+
+            float2 featurePoint (float2 cell, float phase)
+            {
+                float2 o = 0.5 + 0.5 * sin(phase + 6.2831853 * hash2(cell));
+                return 0.5 + _Jitter * (o - 0.5);
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                // Unity UVs start at the bottom-left, like gl_FragCoord in the demo.
+                float2 p = i.uv * _Cells.xy;
+                float2 cell = floor(p);
+                float2 f = frac(p);
+                float phase = frac(_Time.y * _Speed / 6.2831853) * 6.2831853;
+
+                float d1 = 8.0;
+                float d2 = 8.0;
+                float2 id = cell;
+                for (int y = -1; y &lt;= 1; y++)
+                {
+                    for (int x = -1; x &lt;= 1; x++)
+                    {
+                        float2 n = float2(x, y);
+<span class="k">                        float d = length(n + featurePoint(cell + n, phase) - f);</span>
+                        if (d &lt; d1) { d2 = d1; d1 = d; id = cell + n; }
+                        else if (d &lt; d2) { d2 = d; }
+                    }
+                }
+                float e = d2 - d1;
+
+                float3 col = float3(0.56, 0.53, 0.48) * (0.8 + 0.35 * hash2(id).x);
+                col *= 1.1 - 0.5 * d1;
+                float crack = 1.0 - smoothstep(_CrackWidth, _CrackWidth + 0.03, e);
+                return fixed4(lerp(col, float3(0.13, 0.11, 0.10), crack), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL spells <code>mix</code> as <code>lerp</code> and <code>fract</code> as <code>frac</code>. In URP you can skip the hand-written version: Shader Graph's <em>Voronoi</em> node takes a UV, an angle offset that moves the points and a cell density, and outputs the distance (<em>Out</em>) and a random value per cell (<em>Cells</em>). Godot's <code>FastNoiseLite</code> resource has a cellular noise type for CPU-side or baked use.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Checking only your own cell.</strong> The nearest point is often next door. Without the 3 by 3 search the pattern shows the square grid as seams, as on stage 2.</li>
+    <li><strong>Trusting 3 by 3 at full jitter.</strong> With jitter up to about 0.65 the nine cells always contain the nearest point. At 1, a point two cells away can occasionally be nearer, which shows up as a rare small glitch, and F2 is wrong more often than F1. A 5 by 5 search, 25 points, is exact for both, at nearly three times the cost.</li>
+    <li><strong>Expecting even cracks from F2 − F1.</strong> It is 0 on the border, but it is not the true distance to the border. It grows faster where the two points are far apart, so cracks come out thinner there and thicker where the points are close. An exact border distance needs a second pass over the neighbours; Inigo Quilez describes one.</li>
+    <li><strong><code>mediump</code> on phones.</strong> The sine hash needs 32-bit floats, as in the last two lessons. Request <code>highp</code> and keep the cell coordinates small.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Per pixel the search does nine hashes, nine point offsets and nine square roots. In this demo that is 36 sines, because each hash and each moving offset costs two. Fine for one layer on a phone, but heavier than value noise. Two savings: compare squared distances inside the loop and take the two square roots only at the end, and drop the moving <code>sin</code> when the points do not move. A cellular pattern in 3D searches 27 cells, so if the pattern never changes, bake it into a texture instead.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Steven Worley published the technique as "A Cellular Texture Basis Function" at SIGGRAPH 1996, and it has been a standard procedural texture since. Engines and tools ship it ready-made: Unity Shader Graph's Voronoi node, Godot's <code>FastNoiseLite</code> cellular type, and Blender's Voronoi texture node, which offers F1, F2 and a distance-to-edge mode. Typical game uses are stylised water caustics (bright F2 − F1 borders, with the points moving), cracked ground, scales and stained glass.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Turn the LÖVE program into stained glass.</p>
+  <ol>
+    <li>Replace the stone colour with a bright colour per cell: <code>vec3 col = 0.3 + 0.7 * vec3(h, fract(h.x + h.y));</code>.</li>
+    <li>Keep the crack line but make it thicker and darker, like lead: set <code>width</code> to <code>0.08</code> in the Lua and the crack colour to <code>vec3(0.05)</code>.</li>
+    <li>Change the distance from <code>length(v)</code> to <code>abs(v.x) + abs(v.y)</code>, the <dfn>Manhattan distance</dfn>, and see how the cell shapes change.</li>
+  </ol>
+  <p>You are done when the window shows coloured panes separated by dark borders, and you can say how the borders changed when you switched to Manhattan distance.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Cellular noise is the distance from a pixel to the nearest of a set of scattered points.</li>
+    <li>One hashed point per grid cell plus a search of the 3 by 3 neighbours makes it cheap enough for a shader.</li>
+    <li>F1 gives spots and scales, the id of the nearest cell gives flat cell colours, and F2 − F1 gives borders and cracks.</li>
+    <li>Jitter goes from a square grid at 0 to irregular cells at 1.</li>
+    <li>It costs nine distance checks per pixel: fine for one layer, worth baking when it never changes.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, procedural materials: layering several scales of noise and shaping them to build wood, marble and clouds.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steven Worley, <cite>A Cellular Texture Basis Function</cite>, SIGGRAPH 1996.</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Cellular Noise".</li>
+    <li>Inigo Quilez, articles on Voronoi patterns and on the exact distance to Voronoi edges.</li>
+    <li>Unity documentation, <cite>Voronoi Node</cite> (Shader Graph).</li>
+    <li>Godot documentation, <cite>FastNoiseLite</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;   // the hash needs 32-bit floats",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_scale;    // cells across the height of the canvas",
+    "uniform float u_jitter;   // 0 = points on the cell centres, 1 = anywhere in the cell",
+    "uniform float u_width;    // crack width, in cells",
+    "uniform float u_phase;    // moves the points; wrapped to 0..2 pi on the CPU",
+    "uniform float u_stage;    // 0 cell position ... 5 final colour",
+    "uniform float u_grid;     // 1 draws the cell borders",
+    "uniform float u_dots;     // 1 draws the feature points",
+    "",
+    "vec2 hash2(vec2 c) {",
+    "  vec2 k = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));",
+    "  return fract(sin(k) * 43758.5453);",
+    "}",
+    "",
+    "// the feature point of a cell, 0 to 1 inside that cell",
+    "vec2 featurePoint(vec2 cell) {",
+    "  vec2 o = 0.5 + 0.5 * sin(u_phase + 6.2831853 * hash2(cell));",
+    "  return 0.5 + u_jitter * (o - 0.5);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = gl_FragCoord.xy / u_resolution.y * u_scale;   // square cells, u_scale tall",
+    "  vec2 i = floor(p);                                     // 1. which cell",
+    "  vec2 f = fract(p);                                     //    where inside it",
+    "",
+    "  float d0 = length(featurePoint(i) - f);                // 2. own cell's point only",
+    "",
+    "  float d1 = 8.0;                                        // 3. nearest distance, F1",
+    "  float d2 = 8.0;                                        //    second nearest, F2",
+    "  vec2 id = i;                                           // 4. the cell that owns F1",
+    "  for (int y = -1; y <= 1; y++) {",
+    "    for (int x = -1; x <= 1; x++) {",
+    "      vec2 n = vec2(float(x), float(y));",
+    "      float d = length(n + featurePoint(i + n) - f);",
+    "      if (d < d1) {",
+    "        d2 = d1;",
+    "        d1 = d;",
+    "        id = i + n;",
+    "      } else if (d < d2) {",
+    "        d2 = d;",
+    "      }",
+    "    }",
+    "  }",
+    "  float e = d2 - d1;                                     // 5. 0 on every border",
+    "",
+    "  // 6. use it: cracked stone slabs",
+    "  vec2 h = hash2(id);",
+    "  vec3 col = vec3(0.56, 0.53, 0.48) * (0.8 + 0.35 * h.x);   // each slab its own shade",
+    "  col *= 1.1 - 0.5 * d1;                                    // lighter near its point",
+    "  float crack = 1.0 - smoothstep(u_width, u_width + 0.03, e);",
+    "  col = mix(col, vec3(0.13, 0.11, 0.10), crack);",
+    "",
+    "  if (u_stage < 4.5) col = vec3(e);",
+    "  if (u_stage < 3.5) col = 0.3 + 0.6 * vec3(h, fract(h.x + h.y));",
+    "  if (u_stage < 2.5) col = vec3(d1);",
+    "  if (u_stage < 1.5) col = vec3(d0);",
+    "  if (u_stage < 0.5) col = vec3(f, 0.0);",
+    "",
+    "  float cellPx = u_resolution.y / u_scale;",
+    "  vec2 b = min(f, 1.0 - f) * cellPx;                     // pixels to the nearest cell border",
+    "  float line = 1.0 - step(1.0, min(b.x, b.y));",
+    "  col = mix(col, vec3(0.35, 0.65, 1.0), line * u_grid * 0.7);",
+    "  float dotMask = 1.0 - smoothstep(3.0, 4.5, d1 * cellPx);",
+    "  col = mix(col, vec3(1.0, 0.3, 0.2), dotMask * u_dots);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var TAU = Math.PI * 2;
+  var SPEED = 0.8;       // radians per second, the same as the Lua
+  var phase = 0;
+  var handle = null;
+  var probeView = null;
+
+  var COST = {
+    '0': 'floor and fract only: almost free',
+    '1': '1 point per pixel: 1 hash, 1 square root',
+    'search': '9 cells per pixel: 9 hashes, 36 sines, 9 square roots'
+  };
+
+  var ui = DemoKit.controls('[data-demo="cellular"]');
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Position in the cell: fract(p)' },
+      { value: '1', label: '2. Own cell’s point only (seams)' },
+      { value: '2', label: '3. Nearest of 9 points: F1' },
+      { value: '3', label: '4. Which point is nearest: cell id' },
+      { value: '4', label: '5. Borders: F2 − F1' },
+      { value: '5', label: '6. Use it: cracked stone' }
+    ],
+    value: '2',
+    onChange: changed
+  });
+  var scale = ui.slider({ label: 'Cell count (cells tall)', min: 2, max: 24, step: 1, value: 5, onInput: changed });
+  var jitter = ui.slider({ label: 'Jitter', min: 0, max: 1, step: 0.05, value: 1, onInput: changed });
+  var width = ui.slider({ label: 'Crack width (stage 6)', min: 0, max: 0.2, step: 0.01, value: 0.05, unit: ' cells', onInput: changed });
+  var grid = ui.toggle({ label: 'Show cell borders', value: true, onChange: changed });
+  var dots = ui.toggle({ label: 'Show feature points', value: true, onChange: changed });
+  var move = ui.toggle({ label: 'Move the points', value: false, onChange: changed });
+  var cost = ui.readout({ label: 'Cost' });
+  var probeOut = ui.readout({ label: 'Probe' });
+
+  function changed() {
+    var v = stage.value;
+    cost.set(v === '0' || v === '1' ? COST[v] : COST.search);
+    if (handle) handle.redraw();
+    if (probeView) probeView.redraw();
+  }
+
+  handle = DemoKit.shader('#cell-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 400,
+    label: 'A live fragment shader that draws a cellular pattern from one random point per grid cell. The Stage menu shows the position inside each cell, the distance to the cell’s own point only, the distance to the nearest of nine points, a flat colour per nearest point, the border value F2 minus F1, and a cracked stone surface made from them. Sliders set the cell count, the jitter and the crack width; toggles show the cell borders, the points, and make the points move.',
+    uniforms: {
+      u_scale: function () { return scale.value; },
+      u_jitter: function () { return jitter.value; },
+      u_width: function () { return width.value; },
+      u_phase: function () { return phase; },
+      u_stage: function () { return Number(stage.value); },
+      u_grid: function () { return grid.value ? 1 : 0; },
+      u_dots: function () { return dots.value ? 1 : 0; }
+    },
+    update: function (dt) {
+      if (move.value) {
+        phase = (phase + SPEED * dt) % TAU;
+        if (probeView) probeView.redraw();
+      }
+    }
+  });
+
+  // Probe view: its own seeded random values per cell, the same point formula as the shader.
+  var MAX_COLS = 12, ROWS = 4;
+  var rand = DemoKit.rng(7);
+  var R = [];
+  for (var k = 0; k < MAX_COLS * ROWS; k++) R.push([rand(), rand()]);
+
+  var probe = { x: 2.4, y: 1.6 };   // in cell units, y up
+  var layout = { x0: 0, y0: 0, cs: 1, cols: 4 };
+
+  function featurePoint(cx, cy) {
+    var r = R[cy * MAX_COLS + cx];
+    var j = jitter.value;
+    var ox = 0.5 + 0.5 * Math.sin(phase + TAU * r[0]);
+    var oy = 0.5 + 0.5 * Math.sin(phase + TAU * r[1]);
+    return { x: cx + 0.5 + j * (ox - 0.5), y: cy + 0.5 + j * (oy - 0.5) };
+  }
+
+  function clampProbe() {
+    probe.x = DemoKit.clamp(probe.x, 1, layout.cols - 1 - 1e-3);
+    probe.y = DemoKit.clamp(probe.y, 1, ROWS - 1 - 1e-3);
+  }
+
+  function setProbe(p) {
+    if (layout.cs <= 0) return;
+    probe.x = (p.x - layout.x0) / layout.cs;
+    probe.y = ROWS - (p.y - layout.y0) / layout.cs;
+    clampProbe();
+    probeView.redraw();
+  }
+
+  probeView = DemoKit.canvas('#cell-probe', {
+    height: 250,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A grid of cells, each with one random point. A probe pixel can be dragged or moved with the arrow keys. The 3 by 3 block of cells around it is shaded, a solid line joins it to the nearest point and a dashed line to the second nearest. The distances are shown in the Probe readout.',
+    onDown: function (p) { setProbe(p); },
+    onMove: function (p) { if (p.down) setProbe(p); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.1;
+      if (key === 'arrowleft') probe.x -= step;
+      else if (key === 'arrowright') probe.x += step;
+      else if (key === 'arrowup') probe.y += step;
+      else if (key === 'arrowdown') probe.y -= step;
+      else return;
+      clampProbe();
+      probeView.redraw();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var top = 30, pad = 10;
+      var cols = Math.max(4, Math.min(MAX_COLS, Math.floor((s.width - 2 * pad) / 60)));
+      var cs = Math.max(10, Math.min((s.width - 2 * pad) / cols, (s.height - top - pad) / ROWS));
+      layout.cols = cols;
+      layout.cs = cs;
+      layout.x0 = (s.width - cols * cs) / 2;
+      layout.y0 = top;
+      clampProbe();
+
+      function X(x) { return layout.x0 + x * cs; }
+      function Y(y) { return layout.y0 + (ROWS - y) * cs; }
+
+      var ci = Math.floor(probe.x), cj = Math.floor(probe.y);
+
+      // the 9 searched cells
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(X(ci - 1), Y(cj + 2), 3 * cs, 3 * cs);
+
+      // grid
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      var a;
+      for (a = 0; a <= cols; a++) { ctx.moveTo(X(a), Y(0)); ctx.lineTo(X(a), Y(ROWS)); }
+      for (a = 0; a <= ROWS; a++) { ctx.moveTo(X(0), Y(a)); ctx.lineTo(X(cols), Y(a)); }
+      ctx.stroke();
+      ctx.strokeStyle = c.ink3;
+      ctx.strokeRect(X(ci), Y(cj + 1), cs, cs);
+
+      // all points, and the search
+      var best1 = null, best2 = null, d1 = 1e9, d2 = 1e9;
+      var gx, gy;
+      for (gy = 0; gy < ROWS; gy++) {
+        for (gx = 0; gx < cols; gx++) {
+          var pt = featurePoint(gx, gy);
+          var inBlock = Math.abs(gx - ci) <= 1 && Math.abs(gy - cj) <= 1;
+          ctx.fillStyle = inBlock ? c.ink2 : c.ink3;
+          ctx.beginPath();
+          ctx.arc(X(pt.x), Y(pt.y), inBlock ? 4 : 2.5, 0, TAU);
+          ctx.fill();
+          if (!inBlock) continue;
+          var d = Math.hypot(pt.x - probe.x, pt.y - probe.y);
+          if (d < d1) { d2 = d1; best2 = best1; d1 = d; best1 = pt; }
+          else if (d < d2) { d2 = d; best2 = pt; }
+        }
+      }
+
+      if (best2) {
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(X(probe.x), Y(probe.y));
+        ctx.lineTo(X(best2.x), Y(best2.y));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (best1) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(X(probe.x), Y(probe.y));
+        ctx.lineTo(X(best1.x), Y(best1.y));
+        ctx.stroke();
+      }
+
+      // the probe
+      ctx.fillStyle = c.surface;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(X(probe.x), Y(probe.y), 6, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+
+      // legend
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      var lx = layout.x0;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(lx, 12, 16, 3);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('F1', lx + 22, 14);
+      ctx.strokeStyle = c.warn;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(lx + 46, 14);
+      ctx.lineTo(lx + 64, 14);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText('F2', lx + 70, 14);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(lx + 96, 7, 14, 14);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('searched', lx + 116, 14);
+
+      probeOut.set('F1 = ' + d1.toFixed(2) + ', F2 = ' + d2.toFixed(2) +
+        ', F2 − F1 = ' + (d2 - d1).toFixed(2) + ' cells');
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

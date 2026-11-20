@@ -44,7 +44,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 4: Tiles and environments
 
 - [x] **Tiles and the tile grid** — How a game world is assembled from a small set of repeated square tiles. Demo: paint a small level with four procedural tiles and see the tile index array update. (published 2026-11-19, tiles-and-tile-grid)
-- [ ] **Seamless tiling** — How to make the edges of a tile match so that it repeats without visible seams. Demo: edit a tile in a small editor while a 3x3 repeated preview and an offset toggle reveal the seams.
+- [x] **Seamless tiling** — How to make the edges of a tile match so that it repeats without visible seams. Demo: edit a tile in a small editor while a 3x3 repeated preview and an offset toggle reveal the seams. (published 2026-11-20, seamless-tiling)
 - [ ] **Breaking up repetition** — How tile variants and scattered details hide the grid in large areas. Demo: a slider sets the number of grass variants from 1 to 4 and a button reshuffles the field.
 - [ ] **Edges and corners of a platform tileset** — How a set of nine pieces made of corners, edges and a centre builds platforms of any size. Demo: drag to resize a platform and watch the nine pieces highlight as they are reused.
 - [ ] **Autotiling with a 4-bit mask** — How checking four neighbours lets the game pick the right tile from a set of 16 automatically. Demo: paint terrain with the mouse and see the mask number and chosen tile of each cell.

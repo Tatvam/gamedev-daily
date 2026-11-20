@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NES bank switching: a big cartridge through a small window · Game Dev Daily</title>
+<meta name="description" content="How mapper chips in NES cartridges swapped 16 KB banks into the console's 32 KB view of the cartridge, so games could grow far past that limit.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-20">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .bank-message { margin: 0; padding: 10px 16px; font-size: 0.875rem; color: var(--ink); border-top: 1px solid var(--line); min-height: 3em; }
+</style>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>NES bank switching: a big cartridge through a small window</h1>
+  <p class="lede">How mapper chips in NES cartridges swapped 16 KB banks into the console's 32 KB view of the cartridge, so games could grow far past that limit.</p>
+</header>
+
+<section data-section="hook">
+  <p>Super Mario Bros. fits in about 40 kilobytes. Games released a few years later on the same console held several times that much, yet the processor could still see only 32 KB of the cartridge at once. The extra room came from chips inside the cartridge that change <em>which</em> 32 KB it sees.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: 64 KB of addresses, half for the cartridge</h2>
+  <p>The NES processor is a version of the 6502. It names every byte it can read or write with a 16-bit <dfn>address</dfn>, a number from <code>$0000</code> to <code>$FFFF</code> (the <code>$</code> marks hexadecimal). That gives 64 KB of <dfn>address space</dfn>, the full list of addresses, and the whole machine has to share it.</p>
+  <p>The bottom half belongs to the console: 2 KB of working memory, the graphics chip's registers, and the sound and controller ports. The top half, <code>$8000</code> to <code>$FFFF</code>, is wired to the cartridge's program <dfn>ROM</dfn> (read-only memory). So the processor can see at most 32 KB of game code and data. Graphics live on a second bus with an 8 KB slot of their own.</p>
+  <p>A cartridge with exactly 32 KB of program and 8 KB of graphics needs no extra parts. Fans call that board NROM, and Super Mario Bros. uses it. Anything bigger has nowhere to go.</p>
+
+  <h2>The trick: a window and a switch</h2>
+  <p>The fix is to put more ROM on the cartridge than the console can address, cut it into equal pieces called <dfn>banks</dfn>, and add a small chip that decides which bank answers when the processor reads a given address. That chip is called a <dfn>mapper</dfn>.</p>
+  <p>The simplest common layout, used by the board known as UxROM, splits the cartridge's 32 KB slot in two:</p>
+  <ul>
+    <li><code>$8000</code>–<code>$BFFF</code> is a 16 KB <dfn>switchable window</dfn>. Any bank can be placed there.</li>
+    <li><code>$C000</code>–<code>$FFFF</code> is <dfn>fixed</dfn> to the last bank of the cartridge and never changes.</li>
+  </ul>
+  <p>To choose a bank, the game writes its number to an address in the ROM area. ROM cannot be written, so the write would normally do nothing, but the mapper catches the number and holds it in its <dfn>register</dfn>, a tiny one-value memory. From the next read on, the window shows the new bank. A switch costs one store instruction.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="A 128 KB cartridge cut into eight 16 KB banks numbered 0 to 7. The mapper register holds 3, so bank 3 is connected to the switchable window at addresses 8000 to BFFF. Bank 7 is always connected to the fixed area at C000 to FFFF. The lower half of the 64 KB address space belongs to the console.">
+      <text class="d-text" x="20" y="22">Cartridge ROM: 128 KB as eight 16 KB banks</text>
+      <rect class="d-box" x="20" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-box" x="94" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-box" x="168" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-accent-soft" x="242" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-box" x="316" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-box" x="390" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-box" x="464" y="34" width="66" height="40" rx="4"/>
+      <rect class="d-fill" x="538" y="34" width="82" height="40" rx="4"/>
+      <text class="d-text" x="53" y="59" text-anchor="middle">0</text>
+      <text class="d-text" x="127" y="59" text-anchor="middle">1</text>
+      <text class="d-text" x="201" y="59" text-anchor="middle">2</text>
+      <text class="d-label" x="275" y="59" text-anchor="middle">3</text>
+      <text class="d-text" x="349" y="59" text-anchor="middle">4</text>
+      <text class="d-text" x="423" y="59" text-anchor="middle">5</text>
+      <text class="d-text" x="497" y="59" text-anchor="middle">6</text>
+      <text class="d-text" x="579" y="59" text-anchor="middle">7 fixed</text>
+
+      <path class="d-accent" d="M275 74 C275 110 410 100 410 124"/>
+      <rect class="d-box" x="330" y="124" width="160" height="32" rx="6"/>
+      <text class="d-text" x="410" y="145" text-anchor="middle">mapper register: 3</text>
+      <path class="d-accent" d="M410 156 V204"/>
+      <path class="d-thin" d="M579 74 V204"/>
+      <text class="d-muted" x="40" y="140">a write of 3 to any address</text>
+      <text class="d-muted" x="40" y="158">from $8000 up sets the register</text>
+
+      <text class="d-text" x="20" y="196">CPU address space: 64 KB</text>
+      <rect class="d-fill" x="20" y="204" width="300" height="44"/>
+      <rect class="d-accent-soft" x="320" y="204" width="150" height="44"/>
+      <rect class="d-fill" x="470" y="204" width="150" height="44"/>
+      <text class="d-muted" x="170" y="231" text-anchor="middle">console: RAM, graphics, sound, input</text>
+      <text class="d-text" x="395" y="231" text-anchor="middle">window: bank 3</text>
+      <text class="d-text" x="545" y="231" text-anchor="middle">fixed: bank 7</text>
+      <text class="d-mono" x="20" y="268">$0000</text>
+      <text class="d-mono" x="320" y="268" text-anchor="middle">$8000</text>
+      <text class="d-mono" x="470" y="268" text-anchor="middle">$C000</text>
+      <text class="d-mono" x="620" y="268" text-anchor="end">$FFFF</text>
+      <text class="d-muted" x="20" y="292">The processor still sees 32 KB of cartridge, but which 32 KB is now a choice.</text>
+    </svg>
+    <figcaption>A UxROM-style layout. Eight banks wait on the cartridge; the mapper connects one of them to the window and the last one to the fixed area.</figcaption>
+  </figure>
+
+  <h3>Why one bank must stay fixed</h3>
+  <p>The processor reads its instructions from the same address space. If the code that performs a switch sits in the window, the switch pulls that code out from under the processor, and its next instruction comes from another bank's data.</p>
+  <p>So switching code and the main loop go in the fixed bank. It sits at the top for a second reason: on power-on or an interrupt, the 6502 reads where to jump from the last six bytes, <code>$FFFA</code>–<code>$FFFF</code>, which must exist whatever the window holds.</p>
+
+  <div class="callout">
+    <p class="callout-title">Graphics too</p>
+    <p>Many UxROM games have RAM instead of ROM in the 8 KB graphics slot and copy tiles into it from the program banks. Other mappers switch graphics banks directly.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap a bank, or use the slider, to place it in the window (with the canvas focused, number and arrow keys work too). Press <em>Step</em> to run a routine that loads a map from bank 3 and music from bank 5. Then move the routine into the window and run it again: the first switch removes the running code. Finally pick <em>No mapper</em>.</p>
+
+  <figure class="demo wide" data-demo="bank-switch">
+    <canvas id="bank-switch"></canvas>
+    <p class="bank-message" id="bank-message" aria-live="polite">The window at $8000 shows bank 0. Bank 7 is fixed at $C000.</p>
+    <figcaption>The speckled strip in each bank is a stand-in for its bytes. The same pattern appears in the address bar wherever that bank is visible, so you can see the swap happen. PC is the program counter: the address of the next instruction.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A small UxROM-style mapper in Lua, with the same numbers as the demo: eight 16 KB banks, bank 7 fixed, a map in bank 3 and music in bank 5. Each bank is filled with its own number, so a read shows which bank answered.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A UxROM-style mapper: 16 KB banks, the last one fixed at $C000.</span>
+local BANK_SIZE  = 16384
+local BANK_COUNT = 8                    <span class="c">-- 128 KB of ROM</span>
+local FIXED      = BANK_COUNT - 1       <span class="c">-- bank 7</span>
+
+local rom = {}                          <span class="c">-- rom[bank][offset], counted from 0</span>
+for b = 0, BANK_COUNT - 1 do
+  rom[b] = {}
+  for i = 0, BANK_SIZE - 1 do rom[b][i] = b end
+end
+
+local selected = 0                      <span class="c">-- the mapper's one register</span>
+
+local function cpuRead(addr)
+  if addr &gt;= 0xC000 then return rom[FIXED][addr - 0xC000] end
+<span class="k">  if addr &gt;= 0x8000 then return rom[selected][addr - 0x8000] end</span>
+  return 0                              <span class="c">-- console RAM and ports: not modelled</span>
+end
+
+local function cpuWrite(addr, value)
+  if addr &gt;= 0x8000 then
+<span class="k">    selected = value % BANK_COUNT       -- a write to "ROM" picks the bank</span>
+  end
+end
+
+<span class="c">-- On real hardware this routine lives in the fixed bank,</span>
+<span class="c">-- so switching never removes it from under the processor.</span>
+local function loadFromBank(bank, first, count)
+  local previous = selected
+  cpuWrite(0x8000, bank)
+  local out = {}
+  for i = 0, count - 1 do
+    out[#out + 1] = cpuRead(0x8000 + first + i)
+  end
+  cpuWrite(0x8000, previous)            <span class="c">-- put the window back</span>
+  return out
+end
+
+local map, music = {}, {}
+
+function love.load()
+  map   = loadFromBank(3, 0, 16)
+  music = loadFromBank(5, 0, 16)
+end
+
+function love.keypressed(key)
+  local n = tonumber(key)
+  if n and n &gt;= 0 and n &lt; BANK_COUNT then cpuWrite(0x8000, n) end
+end
+
+function love.draw()
+  love.graphics.print("Window $8000 shows bank " .. selected, 10, 10)
+  love.graphics.print("Byte at $8000: " .. cpuRead(0x8000), 10, 30)
+  love.graphics.print("Byte at $C000: " .. cpuRead(0xC000), 10, 50)
+  love.graphics.print("Map came from bank " .. map[1] ..
+                      ", music from bank " .. music[1], 10, 70)
+end</code></pre>
+  </div>
+  <p>The program keeps its own copy of the register in <code>selected</code>. On the real boards the register cannot be read back, so games kept that copy in RAM for the same reason: to know what to restore.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Switching away your own code.</strong> As the demo shows, code that changes the window must not live in the window.</li>
+    <li><strong>Interrupts in the middle.</strong> The NES fires an interrupt at the start of every vertical blank. Its handler must be in the fixed bank, and if it switches banks it must put back the bank it found, or the main program resumes reading the wrong data.</li>
+    <li><strong>Bus conflicts.</strong> On the original UxROM boards, a write to the ROM area also makes the ROM put its own byte on the data bus. If that byte differs from the bank number being written, the two collide. Games avoided this by writing each bank number to an address in ROM that already holds that same number, usually a small table of 0, 1, 2 and so on.</li>
+    <li><strong>Data across a bank edge.</strong> A level that runs from bank 3 into bank 4 cannot be read in one pass, because the two are never in the window together. Keep each asset inside one bank.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Fan documentation of NES boards lists Mega Man, Castlevania, Contra, DuckTales and Metal Gear among the games on UxROM boards. Nintendo's MMC1 chip, used in The Legend of Zelda, Metroid and Mega Man 2, offered finer control, including switching graphics and choosing which half of the slot stays fixed. The MMC3, introduced in 1988 and used in Super Mario Bros. 3, switched smaller 8 KB program banks and added a counter that can interrupt the processor at a chosen scanline, which is how that game keeps its status bar still while the level scrolls.</p>
+  <p>The Game Boy uses the same idea with chips called memory bank controllers, but it fixes the <em>first</em> bank at the bottom of its cartridge area and switches the one above it. Expanded memory on DOS PCs did the same with a 64 KB page frame filled by 16 KB pages.</p>
+  <p>The window never went away. Operating systems map pages of virtual memory into a process, games stream textures through a fixed memory pool, and audio middleware loads and unloads sound banks to fit a budget. The rules stay the same: a fixed core that is always present, a window filled on purpose, and care that nothing in use is swapped out.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the code into <code>main.lua</code>. Add a second switchable window: split the cartridge into 8 KB banks, give the processor two windows at <code>$8000</code> and <code>$A000</code> with one register each, and keep the top 16 KB fixed. Then write <code>loadLevel</code>, which reads a map stored across two neighbouring banks by placing them in the two windows side by side. You are done when a level split across banks 3 and 4 loads in one pass and the bytes it returns show both bank numbers in order.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>The NES processor sees only 32 KB of cartridge program ROM, at <code>$8000</code>–<code>$FFFF</code>.</li>
+    <li>A mapper chip cuts a larger ROM into banks and connects a chosen bank to a window of addresses.</li>
+    <li>The game selects a bank by writing its number to the ROM area; the mapper catches the write.</li>
+    <li>Switching code, interrupt handlers and the start-up addresses live in a bank that never moves.</li>
+    <li>Modern streaming follows the same pattern: a fixed core plus a window whose contents you manage.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we move from cartridges to compact discs, and how Myst was arranged around the slow seek times of early CD-ROM drives.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: no source page could be opened in this session, so none are linked. The memory map, bank layout and interrupt addresses are widely documented. The game lists and the MMC3 date come from search summaries of the NESdev Wiki; check them there. The demo's bank contents and addresses are this page's own.</p>
+  <ul>
+    <li>NESdev Wiki, <cite>CPU memory map</cite>. What answers at each address range of the NES processor.</li>
+    <li>NESdev Wiki, <cite>UxROM</cite>, <cite>MMC1</cite> and <cite>MMC3</cite>. Board-by-board descriptions of banks, registers and bus conflicts, with lists of games.</li>
+    <li>NESdev Wiki, <cite>Cartridge and mappers' history</cite>. How cartridge boards grew over the console's life.</li>
+    <li>Nathan Altice, <cite>I Am Error: The Nintendo Family Computer / Entertainment System Platform</cite> (MIT Press). A study of the hardware, including cartridge memory.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var SHORT = ['menus', 'map A', 'map B', 'map C', 'enemies', 'music', 'tiles', 'map D',
+               'map E', 'bosses', 'scenes', 'sound fx', 'tiles 2', 'ending', 'spare'];
+  var KIND = ['code', 'map', 'map', 'map', 'code', 'music', 'gfx', 'map',
+              'map', 'code', 'gfx', 'music', 'gfx', 'gfx', 'spare'];
+  var MAP_BANK = 3;
+  var MUSIC_BANK = 5;
+  var OFFSETS = [0x10, 0x15, 0x1d, 0x22, 0x2a];
+
+  var st = {
+    cart: '128',
+    count: 8,
+    selected: 0,
+    where: 'fixed',
+    run: { active: false, next: 0, crashed: false, reading: false, done: false }
+  };
+
+  var msgEl = document.getElementById('bank-message');
+  function say(t) { msgEl.textContent = t; }
+  function hex(n) { return '$' + ('0000' + n.toString(16).toUpperCase()).slice(-4); }
+  function fixedBank() { return st.count - 1; }
+  function noMapper() { return st.cart === 'none'; }
+
+  function bankName(b) {
+    if (noMapper()) return b === 0 ? 'lower half' : 'upper half';
+    if (b === fixedBank()) return 'fixed';
+    return SHORT[b] || 'spare';
+  }
+  function bankKind(b) {
+    if (noMapper()) return 'code';
+    if (b === fixedBank()) return 'fixed';
+    return KIND[b] || 'spare';
+  }
+
+  var ui = DemoKit.controls('[data-demo="bank-switch"]');
+  var cartSel = ui.select({
+    label: 'Cartridge',
+    value: '128',
+    options: [
+      { value: 'none', label: 'No mapper (32 KB)' },
+      { value: '128', label: 'Mapper, 128 KB (8 banks)' },
+      { value: '256', label: 'Mapper, 256 KB (16 banks)' }
+    ],
+    onChange: function (v) { setCart(v); }
+  });
+  var bankSlider = ui.slider({
+    label: 'Bank in the $8000 window', min: 0, max: 7, step: 1, value: 0,
+    format: function (v) { return 'bank ' + v; },
+    onInput: function (v) { pickBank(v, true); }
+  });
+  var whereSel = ui.select({
+    label: 'Load routine lives in',
+    value: 'fixed',
+    options: [
+      { value: 'fixed', label: 'the fixed bank ($C000)' },
+      { value: 'window', label: 'bank 0, in the window ($8000)' }
+    ],
+    onChange: function (v) { st.where = v; resetRun(); say(v === 'fixed'
+      ? 'The routine is in bank ' + fixedBank() + ', which never leaves $C000. Press Step.'
+      : 'The routine is in bank 0, which is only visible while bank 0 is in the window. Press Step.'); handle.redraw(); }
+  });
+  ui.button({ label: 'Step', onClick: step });
+  var seenOut = ui.readout({ label: 'Visible to the CPU now' });
+  var reachOut = ui.readout({ label: 'Reachable by switching' });
+
+  function resetRun() {
+    st.run.active = false; st.run.next = 0; st.run.crashed = false;
+    st.run.reading = false; st.run.done = false;
+  }
+
+  function updateReadouts() {
+    seenOut.set('32 KB');
+    reachOut.set(noMapper() ? '32 KB of 32 KB' : (st.count * 16) + ' KB of ' + (st.count * 16) + ' KB');
+  }
+
+  function setCart(v) {
+    st.cart = v;
+    st.count = v === 'none' ? 2 : (v === '256' ? 16 : 8);
+    st.selected = 0;
+    resetRun();
+    bankSlider.el.max = String(noMapper() ? 1 : st.count - 1);
+    bankSlider.el.disabled = noMapper();
+    bankSlider.set(0);
+    whereSel.el.disabled = noMapper();
+    updateReadouts();
+    if (noMapper()) {
+      say('No mapper: the cartridge is wired straight to $8000-$FFFF. Its 32 KB is all the processor can ever see, so maps, music and code must share it.');
+    } else {
+      say('A ' + (st.count * 16) + ' KB cartridge in ' + st.count + ' banks. Bank ' + fixedBank() + ' is fixed at $C000; any bank can go in the window.');
+    }
+    handle.redraw();
+  }
+
+  function pickBank(b, fromSlider) {
+    if (noMapper()) {
+      say('No mapper: there is nothing to switch. Bank 0 is always at $8000 and bank 1 at $C000.');
+      handle.redraw();
+      return;
+    }
+    b = Math.max(0, Math.min(st.count - 1, b));
+    var wasRunning = st.run.active;
+    resetRun();
+    st.selected = b;
+    if (!fromSlider) bankSlider.set(b);
+    var text = 'Wrote ' + b + ' to $8000. Bank ' + b + ' (' + bankName(b) + ') now fills $8000-$BFFF.';
+    if (b === fixedBank()) text += ' Bank ' + b + ' is now visible twice: in the window and at $C000.';
+    if (wasRunning) text += ' The load routine was stopped.';
+    say(text);
+    handle.redraw();
+  }
+
+  function base() { return st.where === 'fixed' ? 0xC000 : 0x8000; }
+
+  function step() {
+    var r = st.run;
+    if (noMapper()) {
+      say('With no mapper there is no bank 3 or bank 5 to load from. Everything the game needs has to fit in the 32 KB that is already visible.');
+      return;
+    }
+    if (!r.active || r.done || r.crashed) {
+      resetRun();
+      r.active = true;
+      if (st.where === 'window') {
+        st.selected = 0;
+        bankSlider.set(0);
+        say('The main loop calls the load routine at ' + hex(base() + OFFSETS[0]) + '. That address is in the window, so bank 0 is switched in first.');
+      } else {
+        say('The main loop calls the load routine at ' + hex(base() + OFFSETS[0]) + ', in the fixed bank ' + fixedBank() + '.');
+      }
+      handle.redraw();
+      return;
+    }
+    var i = r.next;
+    r.reading = false;
+    if (st.where === 'window' && i === 1) {
+      r.crashed = true;
+      say('Crash. The processor fetches its next instruction from ' + hex(base() + OFFSETS[1]) +
+        ', but that address now holds bank 3\'s map bytes, not the routine. It runs data as code. Press Step to start again.');
+      handle.redraw();
+      return;
+    }
+    if (i === 0 || i === 2) {
+      var b = i === 0 ? MAP_BANK : MUSIC_BANK;
+      st.selected = b;
+      bankSlider.set(b);
+      say('Write ' + b + ' to $8000. ROM ignores the write, but the mapper latches it: bank ' + b + ' (' + bankName(b) + ') now fills the window.' +
+        (st.where === 'window' ? ' Bank 0, which held this routine, is gone from view.' : ' The routine keeps running from $C000, untouched.'));
+    } else if (i === 1 || i === 3) {
+      r.reading = true;
+      say('Copy ' + (i === 1 ? 'the map' : 'the music') + ' from $8000-$BFFF into RAM. The window shows bank ' + st.selected + ', so that is the data copied.');
+    } else {
+      r.done = true;
+      say('Return to the main loop. Both loads worked because the code that did the switching never left the address space. Press Step to run again.');
+    }
+    r.next = i + 1;
+    handle.redraw();
+  }
+
+  // ---------- drawing ----------
+  var layout = { tiles: [] };
+
+  function bytes(ctx, x, y, w, h, bank, color) {
+    var rng = DemoKit.rng(1983 + bank * 7);
+    var cols = 12, rows = 4;
+    var cw = w / cols, ch = h / rows;
+    ctx.fillStyle = color;
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        ctx.globalAlpha = 0.15 + 0.7 * rng();
+        ctx.fillRect(x + c * cw, y + r * ch, Math.ceil(cw) - 1, Math.ceil(ch) - 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function kindColor(c, k) {
+    if (k === 'map') return c.good;
+    if (k === 'music') return c.warn;
+    if (k === 'gfx') return c.ink2;
+    if (k === 'spare') return c.ink3;
+    return c.topic;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var W = s.width, pad = 10;
+    var narrow = W < 560;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+
+    // Title
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText(noMapper() ? 'Cartridge ROM: 32 KB, no mapper'
+      : 'Cartridge ROM: ' + (st.count * 16) + ' KB in ' + st.count + ' banks of 16 KB', pad, 18);
+
+    // Tiles
+    var cols = noMapper() ? 2 : (narrow ? 4 : 8);
+    var gap = 8;
+    var tw = (W - pad * 2 - gap * (cols - 1)) / cols;
+    var th = 50;
+    var top = 28;
+    layout.tiles = [];
+    var winBank = st.selected;
+    var crashed = st.run.crashed;
+    for (var b = 0; b < st.count; b++) {
+      var col = b % cols, row = Math.floor(b / cols);
+      var x = pad + col * (tw + gap), y = top + row * (th + gap);
+      layout.tiles.push({ x: x, y: y, w: tw, h: th });
+      var isWin = !noMapper() && b === winBank;
+      var isFixed = noMapper() || b === fixedBank();
+      roundRect(ctx, x, y, tw, th, 5);
+      ctx.fillStyle = isWin ? c.surface2 : c.surface;
+      ctx.fill();
+      ctx.lineWidth = isWin ? 2.5 : 1;
+      ctx.strokeStyle = isWin ? c.topic : (isFixed ? c.ink2 : c.line);
+      ctx.stroke();
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'left';
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.fillText('bank ' + b, x + 6, y + 15);
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(bankName(b), x + 6, y + 30);
+      bytes(ctx, x + 6, y + 36, tw - 12, 9, b, kindColor(c, bankKind(b)));
+    }
+    var rows = Math.ceil(st.count / cols);
+    var tilesBottom = top + rows * (th + gap) - gap;
+
+    // Address bar geometry
+    var bx = pad, bw = W - pad * 2;
+    var mapperY = tilesBottom + 26, mapperH = 28;
+    var barY = mapperY + mapperH + 40, barH = 44;
+    function ax(addr) { return bx + bw * addr / 0x10000; }
+    var winX = ax(0x8000), fixX = ax(0xC000), endX = ax(0x10000);
+    var winC = (winX + fixX) / 2, fixC = (fixX + endX) / 2;
+
+    // Connectors
+    function curve(fromTile, tx, ty, color, width) {
+      var fx = fromTile.x + fromTile.w / 2, fy = fromTile.y + fromTile.h;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.bezierCurveTo(fx, fy + 40, tx, ty - 40, tx, ty);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+    var winTile = layout.tiles[noMapper() ? 0 : winBank];
+    var fixTile = layout.tiles[noMapper() ? 1 : fixedBank()];
+    curve(fixTile, fixC, barY, c.ink3, 1.5);
+    if (noMapper()) {
+      curve(winTile, winC, barY, c.ink3, 1.5);
+    } else {
+      curve(winTile, winC, mapperY, c.topic, 2.5);
+      ctx.beginPath();
+      ctx.moveTo(winC, mapperY + mapperH);
+      ctx.lineTo(winC, barY);
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    // Mapper box
+    var mw = Math.min(170, bw * 0.46);
+    var mx = Math.max(bx, Math.min(winC - mw / 2, bx + bw - mw));
+    roundRect(ctx, mx, mapperY, mw, mapperH, 6);
+    ctx.fillStyle = c.surface;
+    ctx.fill();
+    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = noMapper() ? c.line : c.ink2;
+    ctx.stroke();
+    ctx.fillStyle = noMapper() ? c.ink3 : c.ink;
+    ctx.textAlign = 'center';
+    ctx.fillText(noMapper() ? 'no mapper: fixed wires' : 'mapper register: ' + winBank, mx + mw / 2, mapperY + 18);
+
+    // Address bar
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText('CPU address space: 64 KB', bx, barY - 8);
+    var segs = [[0x0000, 0x2000, 'RAM'], [0x2000, 0x4000, 'PPU'], [0x4000, 0x6000, 'I/O'], [0x6000, 0x8000, '']];
+    for (var k = 0; k < segs.length; k++) {
+      var sx = ax(segs[k][0]), sw = ax(segs[k][1]) - sx;
+      var ramGlow = k === 0 && st.run.reading;
+      ctx.fillStyle = ramGlow ? c.topic : c.surface2;
+      ctx.globalAlpha = ramGlow ? 0.35 : 1;
+      ctx.fillRect(sx, barY, sw, barH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx + 0.5, barY + 0.5, sw - 1, barH - 1);
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      if (segs[k][2]) ctx.fillText(segs[k][2], sx + sw / 2, barY + barH / 2 + 4);
+    }
+    if (st.run.reading) {
+      ctx.fillStyle = c.ink;
+      ctx.textAlign = 'center';
+      ctx.fillText('copy', ax(0x1000), barY + barH - 6);
+    }
+    // Window and fixed regions with the byte pattern of the bank they show
+    var winShown = noMapper() ? 0 : winBank;
+    var fixShown = noMapper() ? 1 : fixedBank();
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(winX, barY, fixX - winX, barH);
+    ctx.fillRect(fixX, barY, endX - fixX, barH);
+    bytes(ctx, winX + 3, barY + 3, fixX - winX - 6, barH - 6, winShown, kindColor(c, bankKind(winShown)));
+    bytes(ctx, fixX + 3, barY + 3, endX - fixX - 6, barH - 6, fixShown, kindColor(c, bankKind(fixShown)));
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = noMapper() ? c.ink3 : (crashed ? c.bad : c.topic);
+    ctx.strokeRect(winX + 1, barY + 1, fixX - winX - 2, barH - 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = c.ink3;
+    ctx.strokeRect(fixX + 1, barY + 1, endX - fixX - 2, barH - 2);
+
+    // Hex labels
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = c.ink2;
+    var hy = barY + barH + 15;
+    ctx.textAlign = 'left'; ctx.fillText('$0000', bx, hy);
+    ctx.textAlign = 'center'; ctx.fillText('$8000', winX, hy); ctx.fillText('$C000', fixX, hy);
+    ctx.textAlign = 'right'; ctx.fillText('$FFFF', endX, hy);
+    ctx.font = '12px system-ui, sans-serif';
+    var ly = hy + 17;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = noMapper() ? c.ink : (crashed ? c.bad : c.topic);
+    ctx.fillText((noMapper() ? 'bank ' : 'window: ') + winShown, winC, ly);
+    ctx.fillStyle = c.ink;
+    ctx.fillText((noMapper() ? 'bank ' : 'fixed: ') + fixShown, fixC, ly);
+
+    // Program counter marker
+    var py = ly + 10;
+    var lineIdx = Math.min(st.run.next, OFFSETS.length - 1);
+    if (st.run.active && !noMapper()) {
+      var pcAddr = base() + OFFSETS[lineIdx];
+      var px = ax(pcAddr);
+      ctx.fillStyle = crashed ? c.bad : c.ink;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px - 6, py + 9);
+      ctx.lineTo(px + 6, py + 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.textAlign = px > W - 90 ? 'right' : 'left';
+      ctx.fillText('PC ' + hex(pcAddr), px + (px > W - 90 ? -10 : 10), py + 10);
+    }
+
+    // Program listing
+    var ty = py + 36;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.font = '600 12px system-ui, sans-serif';
+    if (noMapper()) {
+      ctx.fillText('No mapper: no banks to switch.', bx, ty);
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Code, maps and music share these 32 KB.', bx, ty + 18);
+      return;
+    }
+    ctx.fillText(st.where === 'fixed' ? 'Load routine, in fixed bank ' + fixedBank()
+      : 'Load routine, in bank 0 (window)', bx, ty);
+    ctx.font = '12px ui-monospace, monospace';
+    var lines = ['write 3 to $8000', 'copy map from window', 'write 5 to $8000', 'copy music from window', 'return'];
+    for (var n = 0; n < lines.length; n++) {
+      var yy = ty + 20 + n * 18;
+      var addr = hex(base() + OFFSETS[n]);
+      var isNext = st.run.active && !st.run.done && !crashed && n === st.run.next;
+      var doneLine = st.run.active && n < st.run.next;
+      var deadLine = crashed && n >= 1;
+      if (isNext) {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(bx - 4, yy - 13, Math.min(bw, 300), 18);
+      }
+      ctx.fillStyle = deadLine ? c.ink3 : (isNext ? c.topic : (doneLine ? c.ink2 : c.ink));
+      var mark = isNext ? '> ' : (doneLine ? '+ ' : '  ');
+      ctx.fillText(mark + addr + '  ' + lines[n], bx, yy);
+      if (deadLine) {
+        var tw2 = ctx.measureText(mark + addr + '  ' + lines[n]).width;
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(bx + 14, yy - 4);
+        ctx.lineTo(bx + tw2, yy - 4);
+        ctx.stroke();
+      }
+    }
+    if (crashed) {
+      ctx.fillStyle = c.bad;
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.fillText('at ' + hex(base() + OFFSETS[1]) + ': bank 3 map bytes run as code', bx, ty + 20 + lines.length * 18 + 4);
+    }
+  }
+
+  function hitTile(p) {
+    for (var i = 0; i < layout.tiles.length; i++) {
+      var t = layout.tiles[i];
+      if (p.x >= t.x && p.x <= t.x + t.w && p.y >= t.y && p.y <= t.y + t.h) return i;
+    }
+    return -1;
+  }
+
+  var handle = DemoKit.canvas('#bank-switch', {
+    height: 590,
+    animate: false,
+    keys: true,
+    label: 'Cartridge banks above, the CPU address space below. Click a bank, or press a number key, to place it in the switchable window.',
+    draw: draw,
+    onDown: function (p) {
+      var i = hitTile(p);
+      if (i >= 0) pickBank(i, false);
+    },
+    onKey: function (key, down) {
+      if (!down) return;
+      if (/^[0-9]$/.test(key)) { pickBank(parseInt(key, 10), false); return; }
+      if (key === 'arrowright' || key === 'arrowup') pickBank(st.selected + 1, false);
+      else if (key === 'arrowleft' || key === 'arrowdown') pickBank(st.selected - 1, false);
+      else if (key === 'enter' || key === 'space' || key === ' ') step();
+    },
+    onResize: function () { handle && handle.redraw(); }
+  });
+
+  updateReadouts();
+})();
+</script>
+</body>
+</html>

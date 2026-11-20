@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground detection · Game Dev Daily</title>
+<meta name="description" content="How to decide whether a character stands on the floor with a short shape cast and a floor angle, and why a centre ray or raw contacts fail.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Ground detection</h1>
+  <p class="lede">How to decide whether a character stands on the floor with a short shape cast and a floor angle, and why a centre ray or raw contacts fail.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character stands on the very edge of a ledge, clearly on solid ground, and the jump button does nothing. On a ramp it works one moment and not the next. Elsewhere the player hops up a cliff that was meant to be a wall.</p>
+  <p>All three bugs come from one question: is the character on the ground? This lesson asks it four ways and shows where each breaks.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Grounded is a question you ask every step</h2>
+  <p>A character is <dfn>grounded</dfn> when something it may stand on is directly under it. Jumps, friction and animations all read this flag, so a wrong answer shows up everywhere.</p>
+  <p>Ask the question once per physics step, after the character has moved, and keep the answer for the next step's input. Two quick answers are tempting and both are wrong:</p>
+  <ul>
+    <li><strong>"Vertical speed is zero."</strong> At the top of every jump the speed passes through zero, so the player gets a free jump in mid-air.</li>
+    <li><strong>"The body touched something."</strong> Walls count too, so pressing jump against a wall climbs it.</li>
+  </ul>
+
+  <h3>1. A ray from the centre</h3>
+  <p>Cast a ray straight down from the centre. The character is grounded if the ray hits within the radius plus a small <dfn>probe distance</dfn>, the extra length that reaches past the feet:</p>
+<pre><code>grounded = rayDown(x, y, RADIUS + PROBE) ~= nil</code></pre>
+  <p>In words: is there floor within 15 pixels straight below my middle? On flat ground the floor is 12.25 pixels away (the radius of 12 plus a 0.25 pixel gap called the skin, from the last lesson), so the ray hits.</p>
+  <p>It fails in two places. On a ledge the body rests on the corner while its centre hangs over the drop, so the ray finds nothing. On a slope of angle θ, the distance straight down to the surface grows to <code>12.25 / cos θ</code>. At 40° that is 16.0 pixels, so the 15 pixel ray misses while the character is plainly standing.</p>
+
+  <h3>2. Cast the whole shape</h3>
+  <p>A <dfn>shape cast</dfn> sweeps the body's own shape, not a thin line. Move the circle <code>PROBE</code> pixels down without really moving it, and see if it hits anything:</p>
+<pre><code>hit = castCircle(x, y, RADIUS, 0, PROBE)</code></pre>
+  <p>Now any part of the feet counts: the ledge corner and the 40° slope are found. But the cast does not judge what it found. A 60° slope the character should slide down counts as ground, and a player who mashes jump hops up it.</p>
+
+  <h3>3. Add a floor angle</h3>
+  <p>The hit reports a contact normal <code>n</code>, a unit vector pointing out of the surface. A surface is a floor if its normal points mostly up:</p>
+<pre><code>floor = dot(up, n) &gt;= cos(MAX_FLOOR_ANGLE)</code></pre>
+  <p>In words: the angle between the normal and straight up must be at most the <dfn>maximum floor angle</dfn>. With 45°, the limit is cos 45° ≈ 0.71. Flat ground gives 1.0, a 40° slope gives cos 40° ≈ 0.77 (floor), a 60° slope gives 0.5 (not floor) and a wall gives 0.</p>
+  <p>In screen coordinates y grows downwards, so up is (0, −1) and <code>dot(up, n)</code> is simply <code>-ny</code>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 285" role="img" aria-label="Left: a shaded cone 45 degrees either side of straight up. Normals for flat ground and a 40 degree slope fall inside the cone and are green; normals for a 60 degree slope and a wall fall outside and are red. Right: a circle resting on a ledge corner with its centre past the edge. A ray from the centre goes down into empty space, while the circle cast touches the corner.">
+      <text class="d-text" x="160" y="30" text-anchor="middle">Floor or not?</text>
+      <path class="d-accent-soft" d="M160 200 L75.1 115.1 A120 120 0 0 1 244.9 115.1 Z"/>
+      <path class="d-good" d="M160.0 200.0 L160.0 109.0"/>
+      <path class="d-good-fill" d="M160.0 100.0 L164.5 109.0 L155.5 109.0 Z"/>
+      <path class="d-good" d="M160.0 200.0 L101.5 130.3"/>
+      <path class="d-good-fill" d="M95.7 123.4 L105.0 127.4 L98.1 133.2 Z"/>
+      <path class="d-bad" d="M160.0 200.0 L238.8 154.5"/>
+      <path class="d-bad-fill" d="M246.6 150.0 L241.1 158.4 L236.6 150.6 Z"/>
+      <path class="d-bad" d="M160.0 200.0 L69.0 200.0"/>
+      <path class="d-bad-fill" d="M60.0 200.0 L69.0 195.5 L69.0 204.5 Z"/>
+      <text class="d-text" x="160" y="68" text-anchor="middle">flat, 0°</text>
+      <text class="d-text" x="68" y="110" text-anchor="end">40° slope</text>
+      <text class="d-text" x="254" y="155">60° slope</text>
+      <text class="d-text" x="64" y="224">wall, 90°</text>
+      <text class="d-label" x="160" y="252" text-anchor="middle">floor: normal within 45° of up</text>
+      <text class="d-mono" x="160" y="272" text-anchor="middle">-ny ≥ cos 45° ≈ 0.71</text>
+
+      <text class="d-text" x="485" y="30" text-anchor="middle">On a ledge</text>
+      <path class="d-fill" d="M340 150 H470 V250 H630 V280 H340 Z"/>
+      <path class="d-stroke" d="M340 150 H470 V250 H630"/>
+      <circle class="d-dash" cx="482" cy="134.5" r="30"/>
+      <circle class="d-accent-soft" cx="482" cy="122.5" r="30"/>
+      <path class="d-bad" d="M482 122.5 V164.5" stroke-dasharray="5 4"/>
+      <path class="d-bad" d="M477 159.5 L487 169.5 M487 159.5 L477 169.5"/>
+      <circle class="d-good-fill" cx="470" cy="150" r="4"/>
+      <path class="d-good" d="M470.0 150.0 L484.4 117.0"/>
+      <path class="d-good-fill" d="M487.6 109.7 L488.1 118.6 L480.7 115.4 Z"/>
+      <text class="d-text" x="522" y="96">cast: touches</text>
+      <text class="d-text" x="522" y="113">the corner, floor</text>
+      <text class="d-text" x="496" y="198">ray: nothing</text>
+      <text class="d-text" x="496" y="215">below the centre</text>
+    </svg>
+    <figcaption>Left: the floor cone. Only normals inside it make the character grounded. Right: on a ledge the centre ray falls into the gap, while the dashed circle, the same shape moved down by the probe, still touches the corner. That corner's normal is about 24° from up, so it counts as floor.</figcaption>
+  </figure>
+
+  <h3>4. Read the contacts you already have</h3>
+  <p>Move and slide already reports every hit with its normal. If any of them passes the floor angle test, the character is grounded. This costs nothing extra, and it is how Godot's <code>is_on_floor()</code> works.</p>
+  <p>Its weakness: it only knows what this step touched. Walking down a 40° slope at 120 px/s, the ground drops 2 × tan 40° ≈ 1.7 pixels per step, faster than gravity can pull a body from rest. The character hops down a few pixels in the air, and the contact check says "grounded" about one step in six. A 3 pixel probe bridges that gap.</p>
+
+  <div class="callout">
+    <p class="callout-title">Game rule, not physics</p>
+    <p>A real foot does not grip a 44° slope and slip on a 46° one. The sharp cut-off is a design choice that makes control predictable. Pick the angle per game, then build every slope either clearly below it or clearly above it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the scene, then walk with the arrow keys or A and D and jump with Space or W. On touch, hold a finger beside the character to walk and above it to jump. The strips record all four checks every step; only the one you choose decides jumps.</p>
+  <p>Start with <strong>Centre ray</strong>: stand on the 40° slope, or edge right until the character rests on the ledge corner, and try to jump. Switch to <strong>Shape cast, any angle</strong> and hold jump while pushing right into the 60° slope: you reach the high platform. Then try <strong>Contact normals</strong> and walk down the 40° slope while watching its strip.</p>
+
+  <figure class="demo wide" data-demo="ground">
+    <canvas id="ground"></canvas>
+    <figcaption>Filled strip: grounded on that step. Below the character: the ray (red or green), the shape cast (dashed circle) and the floor cone. Only <strong>Shape cast + floor angle</strong> stays solid on the ledge and both walkable slopes yet refuses the 60° slope. At probe 0 the ray and casts never see the ground, because of the skin.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The four checks and the step that uses them, with the demo's names and numbers. Checked by hand on flat ground: the centre is 12.25 pixels above the floor, the ray of length 15 hits, and the cast hits at <code>t = 0.25 / 3 = 0.083</code> with <code>ny = -1</code>, so <code>-ny = 1 ≥ 0.71</code>.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, GRAVITY, JUMP, WALK = 1 / 60, 1800, 460, 120
+local RADIUS = 12
+local PROBE = 3                                 <span class="c">-- how far below the feet to look</span>
+local FLOOR_MIN_UP = math.cos(math.rad(45))     <span class="c">-- maximum floor angle 45 degrees</span>
+local player = { x = 60, y = 247.75, vy = 0, grounded = true }
+local accumulator = 0
+
+<span class="c">-- y grows downwards, so up is (0, -1) and dot(up, n) is -ny.</span>
+local function isFloor(nx, ny)
+<span class="k">  return -ny &gt;= FLOOR_MIN_UP</span>
+end
+
+<span class="c">-- (rayDown, castCircle and moveAndSlide go here, see below.)</span>
+
+local function groundByRay(body)                <span class="c">-- 1. centre ray</span>
+  return rayDown(body.x, body.y, RADIUS + PROBE) ~= nil
+end
+
+local function groundByCast(body, checkAngle)   <span class="c">-- 2. and 3. shape cast</span>
+<span class="k">  local hit = castCircle(body.x, body.y, RADIUS, 0, PROBE)</span>
+  if hit == nil then return false end
+  if not checkAngle then return true end
+<span class="k">  return isFloor(hit.nx, hit.ny)</span>
+end
+
+local function groundByContacts(hits)           <span class="c">-- 4. this step's contacts</span>
+  for _, hit in ipairs(hits) do
+    if isFloor(hit.nx, hit.ny) then return true end
+  end
+  return false
+end
+
+local function step(body, ix, jump)
+  if jump and body.grounded then body.vy = -JUMP end   <span class="c">-- answer from last step</span>
+  body.vy = body.vy + GRAVITY * STEP
+  local hits = {}
+  moveAndSlide(body, ix * WALK * STEP, 0, false, hits)  <span class="c">-- walk</span>
+  moveAndSlide(body, 0, body.vy * STEP, true, hits)     <span class="c">-- fall</span>
+<span class="k">  body.grounded = groundByCast(body, true)</span>             <span class="c">-- ask after moving</span>
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local ix = 0
+    if love.keyboard.isDown("left", "a") then ix = ix - 1 end
+    if love.keyboard.isDown("right", "d") then ix = ix + 1 end
+    step(player, ix, love.keyboard.isDown("space", "w", "up"))
+    accumulator = accumulator - STEP
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code>extends CharacterBody2D
+
+const PROBE := 3.0
+
+func _ready() -&gt; void:
+    floor_max_angle = deg_to_rad(45.0)   <span class="c"># 45 degrees is also the default</span>
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.y += 1800.0 * delta
+    velocity.x = Input.get_axis("ui_left", "ui_right") * 120.0
+    move_and_slide()
+
+    <span class="c"># 4. Contact normals: did move_and_slide touch a floor?</span>
+    var by_contacts := is_on_floor()
+
+    <span class="c"># 3. Shape cast + floor angle: test a short move down without moving.</span>
+    var probe := KinematicCollision2D.new()
+<span class="k">    var by_cast := test_move(global_transform, Vector2(0, PROBE), probe) \
+        and probe.get_angle(up_direction) &lt;= floor_max_angle</span>
+
+    if Input.is_action_just_pressed("ui_accept") and by_cast:
+        velocity.y = -460.0</code></pre>
+<pre data-lang="C# (Unity)"><code>using UnityEngine;
+
+[RequireComponent(typeof(CircleCollider2D))]
+public class GroundProbe2D : MonoBehaviour
+{
+    public float probe = 0.03f;          <span class="c">// metres below the collider</span>
+    public float maxFloorAngle = 45f;    <span class="c">// degrees</span>
+    public LayerMask groundLayers;       <span class="c">// leave the player's own layer out</span>
+
+    public bool IsGrounded { get; private set; }
+    CircleCollider2D circle;
+
+    void Awake()
+    {
+        circle = GetComponent&lt;CircleCollider2D&gt;();
+    }
+
+    void FixedUpdate()
+    {
+        Vector2 centre = circle.bounds.center;
+        float radius = circle.bounds.extents.x;
+<span class="k">        RaycastHit2D hit = Physics2D.CircleCast(centre, radius, Vector2.down, probe, groundLayers);
+        IsGrounded = hit.collider != null &amp;&amp; Vector2.Angle(hit.normal, Vector2.up) &lt;= maxFloorAngle;</span>
+    }
+}</code></pre>
+  </div>
+
+  <p>The helpers. <code>castCircle</code> is the circle cast from the <a href="2026-11-19-move-and-slide.html">move and slide</a> lesson, used with this lesson's terrain. <code>moveAndSlide</code> is the same loop with two platformer changes: falling onto a floor stops instead of sliding, and walking never slides up a wall or a steep slope.</p>
+<pre><code>local SKIN = 0.25
+
+<span class="c">-- Distance straight down to the nearest wall segment, or nil.</span>
+local function rayDown(x, y, length)
+  local best = nil
+  for _, w in ipairs(walls) do
+    if w.ax ~= w.bx and x &gt;= math.min(w.ax, w.bx) and x &lt;= math.max(w.ax, w.bx) then
+      local sy = w.ay + (x - w.ax) * (w.by - w.ay) / (w.bx - w.ax)
+      local dist = sy - y
+      if dist &gt;= 0 and dist &lt;= length and (best == nil or dist &lt; best) then
+        best = dist
+      end
+    end
+  end
+  return best
+end
+
+local function moveAndSlide(body, mx, my, falling, hits)
+  for pass = 1, 4 do
+    if mx * mx + my * my &lt; 1e-8 then return end
+    local hit = castCircle(body.x, body.y, RADIUS, mx, my)
+    if not hit then
+      body.x, body.y = body.x + mx, body.y + my
+      return
+    end
+    hits[#hits + 1] = hit
+    local floor = isFloor(hit.nx, hit.ny)
+    if falling and floor then                   <span class="c">-- stop SKIN short, no sideways creep</span>
+      local safe = math.max(hit.t - SKIN / -(mx * hit.nx + my * hit.ny), 0)
+      body.x, body.y = body.x + mx * safe, body.y + my * safe
+      body.vy = 0
+      return
+    end
+    local hx, hy = body.x + mx * hit.t, body.y + my * hit.t
+    local gap = (hx - hit.px) * hit.nx + (hy - hit.py) * hit.ny
+    body.x = hx + hit.nx * (RADIUS + SKIN - gap)
+    body.y = hy + hit.ny * (RADIUS + SKIN - gap)
+    mx, my = mx * (1 - hit.t), my * (1 - hit.t)
+    local into = mx * hit.nx + my * hit.ny
+    mx, my = mx - into * hit.nx, my - into * hit.ny
+    if not falling and not floor and my &lt; 0 then return end   <span class="c">-- no wall climbing</span>
+    local vin = body.vy * hit.ny
+    if vin &lt; 0 then body.vy = body.vy - vin * hit.ny end
+  end
+end</code></pre>
+  <p>In Unity 2D, <code>Physics2D.BoxCast</code> does the same job for a box collider.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Probing from one point.</strong> A single centre ray misses ledges and slopes. If you must use rays, cast two or three across the width of the feet, or cast the shape.</li>
+    <li><strong>A probe shorter than the skin.</strong> The body parks a skin's width above the floor, so a zero probe never touches it. Make the probe a few times the skin.</li>
+    <li><strong>A probe that is too long.</strong> It reports ground while the character is still visibly falling, so jumps fire early. Keep it to a few pixels.</li>
+    <li><strong>Hitting yourself.</strong> A cast that starts inside the player's own collider reports the player. Use layers or masks to leave the player out of the query.</li>
+    <li><strong>Trusting one step.</strong> Even a good check can flicker on bumpy ground. Give jumps a short grace period after leaving the ground (coyote time) rather than loosening the check.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot's <code>CharacterBody2D</code> sets its floor flag from the collisions of <code>move_and_slide()</code>, using <code>floor_max_angle</code>, which defaults to 45°. Unity's <code>CharacterController.isGrounded</code> reports whether the last <code>Move</code> touched the ground, and its <code>slopeLimit</code> also defaults to 45°.</p>
+  <p>In the released Quake III Arena source, <code>PM_GroundTrace</code> traces the player's box a quarter of a unit down and accepts the surface only if the normal's up component is at least <code>MIN_WALK_NORMAL</code>, 0.7: a shape cast plus a floor angle of about 45°.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your project, print the grounded flag every physics step as <code>#</code> or <code>.</code>, with a new line each second. Walk down your steepest walkable slope, stand on a ledge corner and jump at a wall.</p>
+  <p>Dots on the slope or ledge, or <code>#</code> at the wall, mean the check needs a shape cast and a floor angle. You are done when the slope and ledge print solid lines and the wall prints only dots.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Ask "am I grounded?" once per step, after moving, and use the answer for the next step's input.</li>
+    <li>A ray from the centre misses ledges and slopes. Cast the whole shape a few pixels down instead.</li>
+    <li>A hit is only a floor if its normal passes <code>dot(up, n) ≥ cos(maxFloorAngle)</code>. Without this, steep slopes and walls become ladders.</li>
+    <li>Contacts from move and slide are free but only know this step. A short probe covers small gaps.</li>
+    <li>The probe must be longer than the skin and short enough that early jumps go unnoticed.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, snapping to the ground: why characters launch off the top of a slope and hop down it, and how a snap distance keeps them attached.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference: <code>is_on_floor</code>, <code>floor_max_angle</code> and <code>test_move</code>.</li>
+    <li>Unity documentation, <cite>CharacterController.isGrounded</cite> and <cite>Physics2D.CircleCast</cite> in the Scripting API.</li>
+    <li>id Software, <cite>Quake III Arena</cite> source code, file <code>bg_pmove.c</code>, function <code>PM_GroundTrace</code>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The world. Matches the Lua: pixels, y grows downwards. ----
+  var RADIUS = 12, SKIN = 0.25, GRAVITY = 1800, JUMP = 460, WALK = 120, STEP = 1 / 60;
+  var START_X = 60, START_Y = 247.75;
+  var VIEW_X = 0, VIEW_Y = 30, VIEW_W = 640, VIEW_H = 270;
+  var HISTORY = 120;
+  var D = Math.PI / 180;
+
+  var PTS = (function () {
+    var p = [[10, 40], [10, 260], [130, 260]];
+    p.push([210, 260 - 80 * Math.tan(20 * D)]);      // 20 degree slope up
+    p.push([260, p[3][1]]);                          // plateau, ends in a ledge
+    p.push([260, 290]);
+    p.push([320, 290]);                              // pit floor
+    p.push([320 + 60 / Math.tan(40 * D), 230]);      // 40 degree slope up
+    p.push([430, 230]);
+    p.push([430 + 70 / Math.tan(60 * D), 160]);      // 60 degree slope up
+    p.push([630, 160]);                              // high platform
+    p.push([630, 40]);
+    return p;
+  })();
+  var WALLS = [];
+  for (var i = 0; i + 1 < PTS.length; i++) WALLS.push([PTS[i][0], PTS[i][1], PTS[i + 1][0], PTS[i + 1][1]]);
+
+  var METHODS = ['ray', 'cast', 'castAngle', 'contact'];
+  var NAMES = { ray: 'Centre ray', cast: 'Cast', castAngle: 'Cast + angle', contact: 'Contacts' };
+
+  // First wall a circle at (x, y) touches while moving by (mx, my).
+  function castCircle(x, y, r, mx, my) {
+    var best = null;
+    function consider(t, nx, ny, px, py) {
+      if (!best || t < best.t) best = { t: t, nx: nx, ny: ny, px: px, py: py };
+    }
+    for (var i = 0; i < WALLS.length; i++) {
+      var w = WALLS[i], ax = w[0], ay = w[1], bx = w[2], by = w[3];
+      var len = Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+      var ux = (bx - ax) / len, uy = (by - ay) / len;
+      var nx = -uy, ny = ux;
+      var s = (x - ax) * nx + (y - ay) * ny;
+      if (s < 0) { nx = -nx; ny = -ny; s = -s; }
+      var d = mx * nx + my * ny;
+      if (d < 0) {
+        var t = Math.max((s - r) / -d, 0);
+        var along = (x + mx * t - ax) * ux + (y + my * t - ay) * uy;
+        if (t <= 1 && along >= 0 && along <= len) consider(t, nx, ny, ax + ux * along, ay + uy * along);
+      }
+      for (var k = 0; k < 2; k++) {
+        var ex = k === 0 ? ax : bx, ey = k === 0 ? ay : by;
+        var fx = x - ex, fy = y - ey;
+        var a = mx * mx + my * my, b = fx * mx + fy * my;
+        var disc = b * b - a * (fx * fx + fy * fy - r * r);
+        if (b < 0 && disc >= 0 && a > 0) {
+          var te = Math.max((-b - Math.sqrt(disc)) / a, 0);
+          var qx = fx + mx * te, qy = fy + my * te, ql = Math.sqrt(qx * qx + qy * qy);
+          if (te <= 1 && ql > 0) consider(te, qx / ql, qy / ql, ex, ey);
+        }
+      }
+    }
+    return best;
+  }
+
+  // Distance straight down from (x, y) to the nearest segment, at most len.
+  function rayDown(x, y, len) {
+    var best = null;
+    for (var i = 0; i < WALLS.length; i++) {
+      var w = WALLS[i], ax = w[0], ay = w[1], bx = w[2], by = w[3];
+      if (ax === bx) continue;
+      if (x < Math.min(ax, bx) || x > Math.max(ax, bx)) continue;
+      var sy = ay + (x - ax) * (by - ay) / (bx - ax);
+      var dist = sy - y;
+      if (dist >= 0 && dist <= len && (!best || dist < best.dist)) best = { dist: dist, px: x, py: sy };
+    }
+    return best;
+  }
+
+  function isFloor(nx, ny, minUp) { return -ny >= minUp - 1e-9; }
+
+  function moveAndSlide(body, mx, my, falling, minUp, hits) {
+    for (var pass = 0; pass < 4; pass++) {
+      if (mx * mx + my * my < 1e-8) return;
+      var hit = castCircle(body.x, body.y, RADIUS, mx, my);
+      if (!hit) { body.x += mx; body.y += my; return; }
+      hits.push(hit);
+      var floor = isFloor(hit.nx, hit.ny, minUp);
+      if (falling && floor) {
+        var safe = Math.max(hit.t - SKIN / -(mx * hit.nx + my * hit.ny), 0);
+        body.x += mx * safe;
+        body.y += my * safe;
+        body.vy = 0;
+        return;
+      }
+      var hx = body.x + mx * hit.t, hy = body.y + my * hit.t;
+      var gap = (hx - hit.px) * hit.nx + (hy - hit.py) * hit.ny;
+      body.x = hx + hit.nx * (RADIUS + SKIN - gap);
+      body.y = hy + hit.ny * (RADIUS + SKIN - gap);
+      mx *= 1 - hit.t;
+      my *= 1 - hit.t;
+      var into = mx * hit.nx + my * hit.ny;
+      mx -= into * hit.nx;
+      my -= into * hit.ny;
+      if (!falling && !floor && my < 0) return;
+      var vin = body.vy * hit.ny;
+      if (vin < 0) body.vy -= vin * hit.ny;
+    }
+  }
+
+  // ---- Demo state ----
+  var body, history, accumulator;
+  var view = { k: 1, ox: 0, oy: 0 };
+
+  function reset() {
+    body = { x: START_X, y: START_Y, vy: 0, hits: [], ground: { ray: true, cast: true, castAngle: true, contact: true },
+      rayHit: null, castHit: null };
+    history = [];
+    accumulator = 0;
+  }
+  reset();
+
+  var ui = DemoKit.controls('[data-demo="ground"]');
+  var method = ui.select({ label: 'Ground check (decides jumps)', value: 'ray', options: [
+    { value: 'ray', label: 'Centre ray' },
+    { value: 'cast', label: 'Shape cast, any angle' },
+    { value: 'castAngle', label: 'Shape cast + floor angle' },
+    { value: 'contact', label: 'Contact normals + floor angle' }
+  ] });
+  var angle = ui.slider({ label: 'Max floor angle', min: 0, max: 89, step: 1, value: 45, unit: '°' });
+  var probe = ui.slider({ label: 'Probe distance', min: 0, max: 10, step: 0.5, value: 3, unit: ' px' });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var out = ui.readout({ label: 'Grounded' });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  function readInput(s) {
+    var x = 0, jump = false, keys = s.keys;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (keys.has('space') || keys.has('w') || keys.has('arrowup')) jump = true;
+    if (s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.k + VIEW_X;
+      var wy = (s.pointer.y - view.oy) / view.k + VIEW_Y;
+      if (wx < body.x - 8) x = -1;
+      else if (wx > body.x + 8) x = 1;
+      if (wy < body.y - 30) jump = true;
+    }
+    return { x: x, jump: jump };
+  }
+
+  function physicsStep(s) {
+    var minUp = Math.cos(angle.value * D);
+    var input = readInput(s);
+    if (input.jump && body.ground[method.value]) body.vy = -JUMP;
+    body.vy += GRAVITY * STEP;
+    var hits = [];
+    moveAndSlide(body, input.x * WALK * STEP, 0, false, minUp, hits);
+    moveAndSlide(body, 0, body.vy * STEP, true, minUp, hits);
+    // Safety net for the demo only: never let the character leave the room.
+    if (!(body.y < 300) || !(body.x > 10 && body.x < 630)) { reset(); return; }
+
+    var p = probe.value;
+    var ray = rayDown(body.x, body.y, RADIUS + p);
+    var cast = castCircle(body.x, body.y, RADIUS, 0, p);
+    var contact = false;
+    for (var i = 0; i < hits.length; i++) if (isFloor(hits[i].nx, hits[i].ny, minUp)) contact = true;
+    body.hits = hits;
+    body.rayHit = ray;
+    body.castHit = cast;
+    body.ground = { ray: !!ray, cast: !!cast, castAngle: !!cast && isFloor(cast.nx, cast.ny, minUp), contact: contact };
+    history.push({ ray: body.ground.ray, cast: body.ground.cast, castAngle: body.ground.castAngle, contact: contact });
+    if (history.length > HISTORY) history.shift();
+
+    var g = body.ground[method.value];
+    var text = g ? 'yes' : 'no';
+    if (cast) text += ', surface below at ' + Math.round(Math.acos(DemoKit.clamp(-cast.ny, -1, 1)) / D) + '°';
+    out.set(text);
+  }
+
+  function arrow(ctx, x0, y0, x1, y1, head) {
+    var dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    if (len < 1e-6) return;
+    var ux = dx / len, uy = dy / len, h = Math.min(head, len * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - ux * h - uy * h * 0.5, y1 - uy * h + ux * h * 0.5);
+    ctx.lineTo(x1 - ux * h + uy * h * 0.5, y1 - uy * h - ux * h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  var STRIP_H = 82;
+
+  function layout(s) {
+    var k = Math.min(s.width / VIEW_W, (s.height - STRIP_H) / VIEW_H);
+    view.k = k;
+    view.ox = (s.width - VIEW_W * k) / 2;
+    view.oy = 4;
+  }
+
+  function drawWorld(ctx, s) {
+    var c = s.colors, k = view.k, px = 1 / k;
+    var minUp = Math.cos(angle.value * D);
+    ctx.save();
+    ctx.translate(view.ox, view.oy);
+    ctx.scale(k, k);
+    ctx.translate(-VIEW_X, -VIEW_Y);
+
+    // Terrain.
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath();
+    ctx.moveTo(PTS[0][0], PTS[0][1]);
+    for (var i = 1; i < PTS.length; i++) ctx.lineTo(PTS[i][0], PTS[i][1]);
+    ctx.lineTo(640, 40);
+    ctx.lineTo(640, 300);
+    ctx.lineTo(0, 300);
+    ctx.lineTo(0, 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2 * px;
+    ctx.beginPath();
+    ctx.moveTo(PTS[0][0], PTS[0][1]);
+    for (var j = 1; j < PTS.length; j++) ctx.lineTo(PTS[j][0], PTS[j][1]);
+    ctx.stroke();
+
+    // Slope labels below each slope's middle, coloured by whether the floor angle accepts them.
+    ctx.font = (12 * px) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    var labels = [[3, 20], [7, 40], [9, 60]];   // index of the slope's top point, angle
+    for (var l = 0; l < labels.length; l++) {
+      var p0 = PTS[labels[l][0] - 1], p1 = PTS[labels[l][0]];
+      var ok = Math.cos(labels[l][1] * D) >= minUp - 1e-9;
+      ctx.fillStyle = ok ? c.good : c.bad;
+      ctx.fillText(labels[l][1] + '°', (p0[0] + p1[0]) / 2 + 6 * px, (p0[1] + p1[1]) / 2 + 20 * px);
+    }
+    if (k > 0.75) {
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('ledge', 236, PTS[4][1] + 18 * px);
+    }
+
+    var g = body.ground[method.value];
+
+    if (debug.value) {
+      // Shape cast: the circle moved down by the probe.
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1 * px;
+      ctx.setLineDash([3 * px, 3 * px]);
+      ctx.beginPath();
+      ctx.arc(body.x, body.y + probe.value, RADIUS, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Floor cone and normal at the cast's hit.
+      if (body.castHit) {
+        var h = body.castHit, a = angle.value * D, cr = 26;
+        ctx.fillStyle = c.topic;
+        ctx.globalAlpha = 0.14;
+        ctx.beginPath();
+        ctx.moveTo(h.px, h.py);
+        ctx.arc(h.px, h.py, cr, -Math.PI / 2 - a, -Math.PI / 2 + a);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        var fl = isFloor(h.nx, h.ny, minUp);
+        ctx.strokeStyle = fl ? c.good : c.bad;
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = 2 * px;
+        arrow(ctx, h.px, h.py, h.px + h.nx * 22, h.py + h.ny * 22, 6 * px);
+      }
+
+      // Contact normals from this step's movement.
+      ctx.strokeStyle = c.ink;
+      ctx.fillStyle = c.ink;
+      ctx.lineWidth = 1.25 * px;
+      for (var n = 0; n < body.hits.length; n++) {
+        var ht = body.hits[n];
+        arrow(ctx, ht.px, ht.py, ht.px + ht.nx * 14, ht.py + ht.ny * 14, 5 * px);
+      }
+
+      // Centre ray.
+      ctx.strokeStyle = body.rayHit ? c.good : c.bad;
+      ctx.lineWidth = 2 * px;
+      ctx.beginPath();
+      ctx.moveTo(body.x, body.y);
+      ctx.lineTo(body.x, body.y + RADIUS + probe.value);
+      ctx.stroke();
+    }
+
+    // The character: solid when the chosen check says grounded.
+    ctx.fillStyle = c.topic;
+    ctx.globalAlpha = g ? 0.85 : 0.15;
+    ctx.beginPath();
+    ctx.arc(body.x, body.y, RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2 * px;
+    ctx.stroke();
+    if (debug.value) {
+      ctx.fillStyle = c.ink;
+      ctx.beginPath();
+      ctx.arc(body.x, body.y, 1.8 * px, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Hint.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink3;
+    var hint = 'Arrows/AD walk, Space jumps, or hold the pointer';
+    if (ctx.measureText(hint).width > s.width - 30 * k - 16) hint = 'Arrows walk, Space jumps';
+    ctx.fillText(hint, view.ox + 18 * k, view.oy + 22);
+  }
+
+  function drawStrips(ctx, s) {
+    var c = s.colors;
+    var top = s.height - STRIP_H + 8;
+    var labelW = 86, x0 = 8 + labelW, x1 = s.width - 92;
+    if (x1 - x0 < 60) x1 = s.width - 8;
+    var cell = (x1 - x0) / HISTORY, rowH = 12, gap = 6;
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textBaseline = 'middle';
+    for (var r = 0; r < METHODS.length; r++) {
+      var m = METHODS[r], y = top + r * (rowH + gap);
+      var chosen = m === method.value;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = chosen ? c.topic : c.ink2;
+      ctx.font = (chosen ? '600 ' : '') + '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillText(NAMES[m], 8, y + rowH / 2);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(x0, y, x1 - x0, rowH);
+      ctx.fillStyle = chosen ? c.topic : c.ink3;
+      var offset = HISTORY - history.length;
+      for (var i = 0; i < history.length; i++) {
+        if (history[i][m]) ctx.fillRect(x0 + (offset + i) * cell, y, Math.ceil(cell), rowH);
+      }
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  DemoKit.canvas('#ground', {
+    aspect: 1.75,
+    minHeight: 250,
+    maxHeight: 480,
+    drag: true,
+    keys: true,
+    label: 'A side view of a circular character on terrain with flat ground, a 20 degree slope, a ledge, a pit, a 40 degree slope, a 60 degree slope and a high platform. Walk with the arrow keys and jump with Space. Strips below record which of four ground checks report grounded on each step.',
+    update: function (dt, s) {
+      accumulator += dt;
+      var guard = 0;
+      while (accumulator >= STEP && guard < 10) {
+        physicsStep(s);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 10) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      layout(s);
+      drawWorld(ctx, s);
+      drawStrips(ctx, s);
+    }
+  });
+})();
+</script>
+</body>
+</html>

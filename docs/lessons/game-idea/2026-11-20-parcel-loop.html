@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parcel Loop: deliver before the town forgets · Game Dev Daily</title>
+<meta name="description" content="A time loop delivery game where a small town resets every minute and only your memory of everyone's schedule carries over. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Parcel Loop: deliver before the town forgets</h1>
+  <p class="lede">A time loop delivery game where a small town resets every minute and only your memory of everyone's schedule carries over. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are the courier of a town stuck in the same sixty seconds. Three parcels, three people who are only out of doors for a few seconds each, and when the minute ends the parcels are back on your counter and nobody remembers you, so the only thing you get to keep is knowing where everyone will be.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: watch, remember, intercept</h2>
+  <p>The town is a small grid of streets seen from above. You carry three parcels, one each for Ada, Bram and Cleo. A parcel is handed over the moment you stand next to its owner while they are out on the street. Indoors they are out of reach.</p>
+  <p>It is dusk, so you only see people within a few blocks of your lantern. The houses are marked on the map, but not when anyone comes out. That gap is the game. A <dfn>time loop</dfn> is a stretch of time that repeats from the same starting state; here it lasts sixty seconds, and it resets everything except the player.</p>
+  <p>Every ten seconds you are walking a street, scanning the edge of your light and asking "who should be near here, right now?" Every minute you play one loop: a scouting run while you are still learning, a planned route once you know enough. Every session is a week of towns, each with new parcels for the same people, so the schedule you learned on Monday pays off again on Tuesday.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: walk and look, spot a resident and note when and where, then hand over a parcel or plan to be there next loop, which leads back to walking. Beside it, two longer loops: every minute one sixty second loop that resets the town, and every session a week of towns with new parcels for the same people.">
+      <defs>
+        <marker id="pl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Walk and look</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">lantern shows a few blocks</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Spot someone</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">note when and where</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Hand it over</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">or plan for next loop</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#pl-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#pl-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#pl-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one loop, then the</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">town resets</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a week of towns,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">same people, new parcels</text>
+    </svg>
+    <figcaption>The short loop turns sightings into knowledge; the minute loop turns knowledge into a route.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>The town runs on a script.</strong> Each resident follows a fixed <dfn>schedule</dfn>: a list of times and street corners, with stretches spent indoors. The schedule is identical in every loop.</li>
+    <li><strong>Hand-over is automatic.</strong> Come within 0.7 of a tile of an outdoor resident and their parcel is delivered. No button, no menu: being in the right place at the right time is the whole skill.</li>
+    <li><strong>The clock waits for you.</strong> A loop starts on your first step, so you can always plan before you move.</li>
+    <li><strong>Sixty seconds, then reset.</strong> At 60 seconds the town, the residents and your parcels return to where they began, and you stand at the post office again.</li>
+    <li><strong>Goal.</strong> Deliver all three parcels inside one loop. After that, deliver them sooner.</li>
+  </ul>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the local who knows the town better than it knows itself: you are on the corner when Cleo opens her door, every time. The constraint is that nothing you do survives the reset. There are no upgrades, no keys, no map markers. Progress lives only in the player's head, so the first loop is a scouting trip and the fifth is a performance.</p>
+  <p>Delivery is a good fit for this because it turns the schedule into a route-planning puzzle with no combat or dialogue to write. Three people with short outdoor windows in different corners already force a choice of order.</p>
+  <p>The hardest part to build is not the code. It is authoring schedules that are learnable: windows short enough to need a plan, long enough to hit once you have one, and placed so that at least two orders work. Expect to spend most of your time with a timeline sheet, not a code editor.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Treat the first loop as a scouting run: walk around, see who appears where and at what time on the clock. When the town resets, use what you saw to plan a route that catches all three. If you get stuck, switch off the fog to watch everyone at once.</p>
+
+  <figure class="demo wide" data-demo="parcel-loop">
+    <canvas id="parcel-loop"></canvas>
+    <figcaption>Controls: tap or click any street to walk there. With the keyboard, click the canvas, then use the arrow keys or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>; holding a direction at a corner turns you as soon as the street allows. <kbd>R</kbd> or the Restart button starts again from loop 1. The clock starts on your first step. The letters on the blocks are the residents' doors; the dashed circle is your lantern. The parcels you still carry are shown top right.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: a schedule lookup and a reset that forgets everything except the loop count. Each schedule is a list of <dfn>keyframes</dfn>, moments where the resident is at a known corner. Between two keyframes they walk in a straight line; after a keyframe marked <code>inside</code> they are behind a door until the next one. Drawing and grid walking are left out. The names and numbers are the demo's.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local LOOP, REACH = 60, 0.7
+local residents = {
+  { name = "Ada",  keys = { {t=0, c=0, r=0}, {t=9, c=6, r=0, inside=true} } },
+  { name = "Bram", keys = { {t=0, c=12, r=2, inside=true}, {t=20, c=12, r=2},
+                            {t=22, c=12, r=4}, {t=32, c=6, r=4, inside=true} } },
+  { name = "Cleo", keys = { {t=0, c=2, r=8, inside=true}, {t=26, c=2, r=8}, {t=28, c=0, r=8},
+                            {t=31, c=0, r=6, inside=true}, {t=48, c=10, r=0}, {t=50, c=8, r=0},
+                            {t=53, c=8, r=3, inside=true} } },
+}
+local courier = { x = 6, y = 8 }
+local clock, loopNumber, waiting, delivered = 0, 1, true, {}
+local function moveCourier(dt) end        <span class="c">-- walk the street grid at 3.5 tiles per second</span>
+<span class="k">local function positionAt(keys, t)
+  local k = 1
+  while keys[k + 1] and keys[k + 1].t &lt;= t do k = k + 1 end
+  local a, b = keys[k], keys[k + 1]
+  if a.inside then return nil end         -- indoors: nobody to hand a parcel to
+  if not b then return a.c, a.r end
+  local f = (t - a.t) / (b.t - a.t)
+  return a.c + (b.c - a.c) * f, a.r + (b.r - a.r) * f
+end</span>
+local function resetTown()
+  clock, delivered, waiting = 0, {}, true <span class="c">-- the town forgets...</span>
+  courier.x, courier.y = 6, 8
+  loopNumber = loopNumber + 1             <span class="c">-- ...and only the count of loops goes on</span>
+end
+function love.update(dt)
+  if waiting then return end              <span class="c">-- the clock starts on your first step</span>
+  clock = clock + dt
+  if clock &gt;= LOOP then resetTown() return end
+  moveCourier(dt)
+  for i, p in ipairs(residents) do
+    local x, y = positionAt(p.keys, clock)
+    if x and not delivered[i] and (x - courier.x)^2 + (y - courier.y)^2 &lt; REACH^2 then
+      delivered[i] = true
+    end
+  end
+end
+function love.keypressed(key) waiting = false end</code></pre>
+  </div>
+  <p>The highlighted function is the whole town. Because a position is computed from the clock, not stepped forward frame by frame, the town cannot drift between loops: second 26 is the same second 26 every time. That is what makes the player's memory trustworthy, and it lets you jump to any moment for testing by setting <code>clock</code> directly.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A timeline from 0 to 60 seconds with one row per resident. Ada is outdoors from 0 to 9 seconds. Bram is outdoors from 20 to 32 seconds. Cleo is outdoors from 26 to 31 seconds and again from 48 to 53 seconds.">
+      <text class="d-text" x="12" y="55">Ada</text>
+      <text class="d-text" x="12" y="105">Bram</text>
+      <text class="d-text" x="12" y="155">Cleo</text>
+      <path class="d-thin" d="M80 40 H620 M80 90 H620 M80 140 H620"/>
+      <rect class="d-accent-fill" x="80" y="40" width="81" height="20" rx="4"/>
+      <text class="d-muted" x="170" y="55">top street, heading east</text>
+      <rect class="d-accent-fill" x="260" y="90" width="108" height="20" rx="4"/>
+      <text class="d-muted" x="376" y="105">east edge, then middle street</text>
+      <rect class="d-accent-fill" x="314" y="140" width="45" height="20" rx="4"/>
+      <text class="d-muted" x="367" y="155">south-west</text>
+      <rect class="d-accent-fill" x="512" y="140" width="45" height="20" rx="4"/>
+      <text class="d-muted" x="534" y="130" text-anchor="middle">north</text>
+      <path class="d-stroke" d="M80 185 H620"/>
+      <path class="d-thin" d="M80 185 V192 M170 185 V192 M260 185 V192 M350 185 V192 M440 185 V192 M530 185 V192 M620 185 V192"/>
+      <text class="d-muted" x="80" y="208" text-anchor="middle">0 s</text>
+      <text class="d-muted" x="170" y="208" text-anchor="middle">10</text>
+      <text class="d-muted" x="260" y="208" text-anchor="middle">20</text>
+      <text class="d-muted" x="350" y="208" text-anchor="middle">30</text>
+      <text class="d-muted" x="440" y="208" text-anchor="middle">40</text>
+      <text class="d-muted" x="530" y="208" text-anchor="middle">50</text>
+      <text class="d-muted" x="620" y="208" text-anchor="middle">60</text>
+    </svg>
+    <figcaption>Spoiler: the demo's schedule sheet. The bars are the only times each person can receive a parcel. Bram and Cleo overlap at 26 to 31 seconds, which is the decision that makes a route interesting.</figcaption>
+  </figure>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The first loop feels like a waste.</strong> If nothing happens during scouting, players feel punished for not knowing. Make the first loop give something: in the demo, a player who heads north meets Ada almost at once. Test it by watching a new player's first loop: do they deliver at least one parcel?</li>
+    <li><strong>Memory overload.</strong> Three people with one or two windows each is easy to hold in your head; ten people with five windows each is homework. If testers start writing notes on paper, either add an in-game notebook or cut people. Count how many windows a player can recall after two loops.</li>
+    <li><strong>Waiting is the best strategy.</strong> If the winning plan is "stand at a door for twenty seconds", the loop turns dull. Space windows so the good route keeps you moving. Time your own best run and note how many seconds you stood still.</li>
+    <li><strong>A single solution.</strong> When only one order works, the puzzle becomes a lock with one key and replays add nothing. Aim for at least two winning orders per town. Check with a schedule sheet like the one above before you build the level.</li>
+    <li><strong>Unfair misses.</strong> A parcel missed by a hair after a 50 second plan stings. A generous reach (0.7 of a tile here) and a clear delivery flash matter more than they seem.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Time loops where knowledge is the progress are well explored. In <cite>Outer Wilds</cite> the solar system resets after about twenty-two minutes and what you learned is all you keep. <cite>The Legend of Zelda: Majora's Mask</cite> repeats three days in a town whose residents follow their own schedules, and helping them means being in the right place at the right hour. <cite>Minit</cite> gives you sixty seconds per life.</p>
+  <p>Parcel Loop takes that idea and shrinks it to one minute, one map and one verb. There is no story to uncover and nothing to collect between loops: the schedule itself is the puzzle, and delivery is simply the reason to be on a corner at a time. I have not checked every small time loop game, so a design very close to this may already exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a grid of streets, circles for the residents, a square for the courier and the loop clock printed on screen. Skip the fog at first. Write one town with three residents on paper as a schedule sheet before you type a number.</p>
+  <p>Give it to a friend with no explanation beyond "deliver the parcels". The one question: <strong>on their second loop, do they go somewhere on purpose before they can see anyone there?</strong> If they do, they are playing from memory and the idea works. If they only react to what is on screen, add the fog, or make the windows shorter.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one town, three residents, three parcels, fog, a loop clock and a best delivery time.</li>
+    <li><strong>One-month version:</strong> five towns across a week, residents who react when you deliver (a delivered parcel changes where someone goes next), and an optional notebook that fills with sightings.</li>
+    <li><strong>Cut first:</strong> dialogue, story and any upgrades that persist between loops. They weaken the rule that only your memory carries over.</li>
+    <li><strong>Hardest part:</strong> schedule authoring. Build a small timeline view of every resident early; it is your level editor.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: a parcel that changes the town once delivered, so Bram stays home after his gift arrives, and the order of deliveries rewrites the schedule you memorised.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Raph Koster, <cite>A Theory of Fun for Game Design</cite> (Paraglyph Press, 2004). On fun as learning patterns, which is what a loop asks the player to do.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On puzzles, and on giving the player a sense of progress.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). On rules as a system that creates meaningful choices.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var COLS = 13, ROWS = 9, LOOP = 60, SPEED = 3.5, REACH = 0.7, SIGHT = 4;
+  var START = [6, 8], POST = [6, 7];
+  var RESIDENTS = [
+    { name: 'Ada', letter: 'A', color: 'topic', doors: [[6, 1]],
+      keys: [{ t: 0, c: 0, r: 0 }, { t: 9, c: 6, r: 0, inside: true }] },
+    { name: 'Bram', letter: 'B', color: 'warn', doors: [[11, 2], [6, 3]],
+      keys: [{ t: 0, c: 12, r: 2, inside: true }, { t: 20, c: 12, r: 2 }, { t: 22, c: 12, r: 4 },
+             { t: 32, c: 6, r: 4, inside: true }] },
+    { name: 'Cleo', letter: 'C', color: 'good', doors: [[2, 7], [1, 6], [10, 1], [9, 3]],
+      keys: [{ t: 0, c: 2, r: 8, inside: true }, { t: 26, c: 2, r: 8 }, { t: 28, c: 0, r: 8 },
+             { t: 31, c: 0, r: 6, inside: true }, { t: 48, c: 10, r: 0 }, { t: 50, c: 8, r: 0 },
+             { t: 53, c: 8, r: 3, inside: true }] }
+  ];
+  var DIRS = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1],
+               arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
+
+  var cx, cy, tx, ty, lastMove, path, dirStack;
+  var clock, waiting, won, delivered, flash, loopNo, bestCount, bestTime = null;
+  var msg, msgBad, handle = null;
+
+  function walkable(c, r) {
+    return c >= 0 && c < COLS && r >= 0 && r < ROWS && (c % 4 === 0 || r % 4 === 0);
+  }
+
+  function posAt(keys, t) {
+    var k = 0;
+    while (k + 1 < keys.length && keys[k + 1].t <= t) k++;
+    var a = keys[k], b = keys[k + 1];
+    if (a.inside) return null;
+    if (!b) return { x: a.c, y: a.r };
+    var f = (t - a.t) / (b.t - a.t);
+    return { x: a.c + (b.c - a.c) * f, y: a.r + (b.r - a.r) * f };
+  }
+
+  function resetTown() {
+    cx = tx = START[0]; cy = ty = START[1];
+    lastMove = null; path = [];
+    clock = 0; waiting = true; won = false;
+    delivered = [false, false, false]; flash = [0, 0, 0];
+  }
+
+  function restart() {
+    loopNo = 1; bestCount = 0; dirStack = [];
+    resetTown();
+    msg = 'Loop 1. Step out to start the clock.'; msgBad = false;
+    if (handle) handle.redraw();
+  }
+
+  function countDelivered() {
+    return delivered.filter(Boolean).length;
+  }
+
+  // Breadth-first search over street tiles; returns the tiles to visit after (fc, fr).
+  function findPath(fc, fr, gc, gr) {
+    var prev = {}, queue = [[fc, fr]], key = function (c, r) { return c + ',' + r; };
+    prev[key(fc, fr)] = null;
+    while (queue.length) {
+      var cur = queue.shift();
+      if (cur[0] === gc && cur[1] === gr) break;
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+        var nc = cur[0] + d[0], nr = cur[1] + d[1];
+        if (walkable(nc, nr) && !(key(nc, nr) in prev)) { prev[key(nc, nr)] = cur; queue.push([nc, nr]); }
+      });
+    }
+    var out = [], node = [gc, gr];
+    if (!(key(gc, gr) in prev)) return out;
+    while (node && !(node[0] === fc && node[1] === fr)) { out.unshift(node); node = prev[key(node[0], node[1])]; }
+    return out;
+  }
+
+  function chooseNext() {
+    var dir = dirStack.length ? DIRS[dirStack[dirStack.length - 1]] : null;
+    if (dir) {
+      if (walkable(cx + dir[0], cy + dir[1])) return dir;
+      if (lastMove && walkable(cx + lastMove[0], cy + lastMove[1])) return lastMove;  // keep going to the corner
+      return null;
+    }
+    if (path.length) {
+      var n = path.shift();
+      return [n[0] - cx, n[1] - cy];
+    }
+    return null;
+  }
+
+  function moveCourier(dt) {
+    var step = SPEED * dt;
+    while (step > 0) {
+      if (cx === tx && cy === ty) {
+        var d = chooseNext();
+        if (!d) break;
+        tx = cx + d[0]; ty = cy + d[1]; lastMove = d;
+      }
+      var dist = Math.abs(tx - cx) + Math.abs(ty - cy);
+      if (dist <= step) { cx = tx; cy = ty; step -= dist; }
+      else { cx += Math.sign(tx - cx) * step; cy += Math.sign(ty - cy) * step; step = 0; }
+    }
+  }
+
+  function update(dt) {
+    for (var i = 0; i < 3; i++) flash[i] = Math.max(0, flash[i] - dt);
+    if (won) return;
+    if (waiting) {
+      // The clock starts on the courier's first real step, not on any key.
+      moveCourier(dt);
+      if (cx !== START[0] || cy !== START[1]) { waiting = false; msg = ''; }
+      return;
+    }
+    clock += dt;
+    if (clock >= LOOP) {
+      bestCount = Math.max(bestCount, countDelivered());
+      loopNo++;
+      resetTown();
+      dirStack = [];
+      msg = 'Loop ' + loopNo + '. The town reset; you remember.'; msgBad = true;
+      return;
+    }
+    moveCourier(dt);
+    RESIDENTS.forEach(function (p, i) {
+      var q = posAt(p.keys, clock);
+      if (!q || delivered[i]) return;
+      var dx = q.x - cx, dy = q.y - cy;
+      if (dx * dx + dy * dy < REACH * REACH) {
+        delivered[i] = true; flash[i] = 0.8;
+        msg = 'Parcel for ' + p.name + ' delivered at ' + clock.toFixed(1) + ' s'; msgBad = false;
+        if (countDelivered() === 3) {
+          won = true; bestCount = 3;
+          if (bestTime === null || clock < bestTime) bestTime = clock;
+          msg = 'All three by ' + clock.toFixed(1) + ' s! Restart to go faster.';
+        }
+      }
+    });
+  }
+
+  function layout(s) {
+    var tile = Math.max(8, Math.min((s.width - 16) / COLS, (s.height - 116) / ROWS, 30));
+    return { tile: tile, ox: Math.round((s.width - tile * COLS) / 2), oy: 52 };
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height, L = layout(s), T = L.tile;
+    var fog = !noFog.value;
+    function px(col) { return L.ox + (col + 0.5) * T; }
+    function py(row) { return L.oy + (row + 0.5) * T; }
+    ctx.textBaseline = 'alphabetic';
+
+    // HUD: loop and clock, parcels still carried
+    ctx.fillStyle = c.ink; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('Loop ' + loopNo + '   ' + clock.toFixed(1) + ' / ' + LOOP + ' s', 10, 20);
+    RESIDENTS.forEach(function (p, i) {
+      var bx = w - 10 - (3 - i) * 26;
+      ctx.fillStyle = delivered[i] ? c.surface2 : c[p.color];
+      ctx.fillRect(bx, 6, 20, 18);
+      ctx.fillStyle = delivered[i] ? c.ink3 : c.bg; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(delivered[i] ? '✓' : p.letter, bx + 10, 20);
+    });
+    var barW = w - 20;
+    ctx.fillStyle = c.surface2; ctx.fillRect(10, 30, barW, 8);
+    ctx.fillStyle = clock > 50 ? c.bad : c.topic; ctx.fillRect(10, 30, barW * clock / LOOP, 8);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+    for (var k = 1; k < 6; k++) {
+      ctx.beginPath(); ctx.moveTo(10 + barW * k / 6, 28); ctx.lineTo(10 + barW * k / 6, 40); ctx.stroke();
+    }
+
+    // Map: blocks, streets, fog
+    for (var r = 0; r < ROWS; r++) {
+      for (var col = 0; col < COLS; col++) {
+        var x = L.ox + col * T, y = L.oy + r * T;
+        ctx.fillStyle = walkable(col, r) ? c.bg : c.surface2;
+        ctx.fillRect(x, y, T, T);
+        if (fog && Math.hypot(col - cx, r - cy) > SIGHT) {
+          ctx.fillStyle = c.ink; ctx.globalAlpha = 0.16; ctx.fillRect(x, y, T, T); ctx.globalAlpha = 1;
+        }
+      }
+    }
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.strokeRect(L.ox + 0.5, L.oy + 0.5, T * COLS - 1, T * ROWS - 1);
+
+    // Doors and post office
+    ctx.font = '700 ' + Math.round(T * 0.45) + 'px ' + FONT; ctx.textAlign = 'center';
+    function door(d, color, letter) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.strokeRect(px(d[0]) - T * 0.3, py(d[1]) - T * 0.3, T * 0.6, T * 0.6);
+      ctx.fillStyle = color; ctx.fillText(letter, px(d[0]), py(d[1]) + T * 0.16);
+    }
+    door(POST, c.ink3, 'P');
+    RESIDENTS.forEach(function (p) {
+      p.doors.forEach(function (d) { door(d, c[p.color], p.letter); });
+    });
+
+    // Lantern
+    if (fog) {
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.arc(px(cx), py(cy), SIGHT * T, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Residents
+    RESIDENTS.forEach(function (p, i) {
+      var q = posAt(p.keys, clock);
+      if (!q) return;
+      if (fog && Math.hypot(q.x - cx, q.y - cy) > SIGHT) return;
+      var rad = T * 0.36 * (1 + flash[i] * 0.5);
+      ctx.globalAlpha = delivered[i] && flash[i] === 0 ? 0.45 : 1;
+      ctx.fillStyle = c[p.color];
+      ctx.beginPath(); ctx.arc(px(q.x), py(q.y), rad, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = c.bg; ctx.font = '700 ' + Math.round(T * 0.42) + 'px ' + FONT;
+      ctx.fillText(delivered[i] ? '✓' : p.letter, px(q.x), py(q.y) + T * 0.15);
+      ctx.globalAlpha = 1;
+    });
+
+    // Courier
+    var cs = T * 0.56;
+    ctx.fillStyle = c.ink; ctx.fillRect(px(cx) - cs / 2, py(cy) - cs / 2, cs, cs);
+    ctx.fillStyle = c.bg; ctx.font = '700 ' + Math.round(T * 0.38) + 'px ' + FONT;
+    ctx.fillText(String(3 - countDelivered()), px(cx), py(cy) + T * 0.13);
+
+    // Messages
+    var my = L.oy + ROWS * T + 22;
+    ctx.textAlign = 'left'; ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = won ? c.good : (msgBad ? c.warn : c.ink2);
+    if (msg && ctx.measureText(msg).width > w - 20) ctx.font = '600 11px ' + FONT;
+    if (msg) ctx.fillText(msg, 10, my);
+    ctx.fillStyle = c.ink3; ctx.font = '12px ' + FONT;
+    ctx.fillText(bestTime !== null ? 'Best: all three by ' + bestTime.toFixed(1) + ' s'
+      : 'Best so far: ' + bestCount + ' of 3 in one loop', 10, my + 22);
+  }
+
+  var ui = DemoKit.controls('[data-demo="parcel-loop"]');
+  ui.button({ label: 'Restart (R)', onClick: restart });
+  var noFog = ui.toggle({ label: 'Show everyone (no fog)', value: false, onChange: function () { if (handle) handle.redraw(); } });
+
+  restart();
+  handle = DemoKit.canvas('#parcel-loop', {
+    height: 360,
+    keys: true,
+    label: 'Parcel Loop prototype: a top-down town grid with a courier, three residents who come and go on a fixed schedule, a sixty second loop clock and three parcels to deliver.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) {
+      if (won) return;
+      var L = layout(s);
+      var col = Math.floor((p.x - L.ox) / L.tile), row = Math.floor((p.y - L.oy) / L.tile);
+      if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+      if (!walkable(col, row)) {
+        var sc = Math.min(12, Math.round(col / 4) * 4), sr = Math.min(8, Math.round(row / 4) * 4);
+        if (Math.abs(sc - col) <= Math.abs(sr - row)) col = sc; else row = sr;
+      }
+      dirStack = [];
+      path = findPath(tx, ty, col, row);
+    },
+    onKey: function (key, isDown) {
+      if (key === 'r' && isDown) { restart(); return; }
+      var dir = DIRS[key];
+      if (!dir) return;
+      dirStack = dirStack.filter(function (k) { return k !== key; });
+      if (!isDown) return;
+      dirStack.push(key);
+      path = [];
+      // Reverse at once when pressing back the way you came, even between tiles.
+      if ((cx !== tx || cy !== ty) && lastMove && lastMove[0] === -dir[0] && lastMove[1] === -dir[1]) {
+        tx = tx + dir[0]; ty = ty + dir[1]; lastMove = dir;
+      }
+    }
+  });
+  var cv = document.getElementById('parcel-loop');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>

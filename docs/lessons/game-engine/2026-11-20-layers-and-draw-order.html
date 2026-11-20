@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layers and draw order: who is drawn on top · Game Dev Daily</title>
+<meta name="description" content="How 2D engines decide which sprite is drawn on top with layers, order numbers and Y sorting, and how Godot and Unity express the same sort key.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-20">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Layers and draw order: who is drawn on top</h1>
+  <p class="lede">How 2D engines decide which sprite is drawn on top with layers, order numbers and Y sorting, and how Godot and Unity express the same sort key.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your hero walks up behind a tree and is drawn on top of its trunk, as if standing in front of it. You raise the tree's order number to fix it, and now the hero walks <em>in front</em> of the tree and vanishes behind it. No single number is right, because the right answer changes as the hero moves.</p>
+</section>
+
+<section data-section="concept">
+  <h2>2D engines paint, they do not measure depth</h2>
+  <p>A 3D renderer can keep a depth value for every pixel and let the nearest surface win. Most 2D sprites are partly transparent, so engines draw them in the simplest possible way: one after another, each painted over what is already there. This is the <dfn>painter's algorithm</dfn>. Whatever is drawn last ends up on top.</p>
+  <p>So "which sprite is on top" is really "in what order does the engine draw them". Every frame the engine builds a <dfn>draw list</dfn> of visible sprites and sorts it. The question is only what it sorts by.</p>
+
+  <h2>The sort key</h2>
+  <p>Both engines, and any engine you write yourself, compare sprites with a <dfn>sort key</dfn>: a short list of values checked in order, where the first value that differs decides.</p>
+  <ol>
+    <li><strong>Layer.</strong> A coarse bucket such as Ground, Objects or Interface. Everything on a lower layer is drawn before everything on a higher one, no matter what else is true.</li>
+    <li><strong>Order within the layer.</strong> A whole number for fine control inside a bucket. Higher is drawn later, so it is on top.</li>
+    <li><strong>Y position</strong>, only when Y sorting is switched on. A lower y on screen (further up) is drawn first.</li>
+    <li><strong>Scene order.</strong> If everything else ties, the object that comes first in the scene is drawn first. This is the fallback, and it is why ordering "just works" until objects start moving.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Four boxes in a row joined by arrows: layer, then order in layer, then Y if Y sort is on, then scene order. Below, the player and a tree are compared: they tie on layer and order, the tree's y of 215 is less than the player's y of 230, so the tree is drawn first and the player is on top.">
+      <defs>
+        <marker id="dr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="14" y="24">Compare two sprites: the first value that differs decides</text>
+      <rect class="d-box" x="14" y="40" width="130" height="56" rx="8"/>
+      <text class="d-text" x="79" y="64" text-anchor="middle">1. layer</text>
+      <text class="d-muted" x="79" y="84" text-anchor="middle">coarse bucket</text>
+      <rect class="d-box" x="174" y="40" width="130" height="56" rx="8"/>
+      <text class="d-text" x="239" y="64" text-anchor="middle">2. order</text>
+      <text class="d-muted" x="239" y="84" text-anchor="middle">within layer</text>
+      <rect class="d-accent-soft" x="334" y="40" width="130" height="56" rx="8"/>
+      <text class="d-text" x="399" y="64" text-anchor="middle">3. y</text>
+      <text class="d-muted" x="399" y="84" text-anchor="middle">if Y sort is on</text>
+      <rect class="d-box" x="494" y="40" width="130" height="56" rx="8"/>
+      <text class="d-text" x="559" y="64" text-anchor="middle">4. scene order</text>
+      <text class="d-muted" x="559" y="84" text-anchor="middle">last tie-break</text>
+      <path class="d-accent" d="M144 68 H172" marker-end="url(#dr-arrow)"/>
+      <path class="d-accent" d="M304 68 H332" marker-end="url(#dr-arrow)"/>
+      <path class="d-accent" d="M464 68 H492" marker-end="url(#dr-arrow)"/>
+
+      <text class="d-text" x="14" y="140">tree</text>
+      <text class="d-mono" x="79" y="140" text-anchor="middle">1</text>
+      <text class="d-mono" x="239" y="140" text-anchor="middle">0</text>
+      <text class="d-mono" x="399" y="140" text-anchor="middle">215</text>
+      <text class="d-mono" x="559" y="140" text-anchor="middle">4</text>
+      <text class="d-text" x="14" y="170">player</text>
+      <text class="d-mono" x="79" y="170" text-anchor="middle">1</text>
+      <text class="d-mono" x="239" y="170" text-anchor="middle">0</text>
+      <text class="d-mono" x="399" y="170" text-anchor="middle">230</text>
+      <text class="d-mono" x="559" y="170" text-anchor="middle">2</text>
+      <text class="d-muted" x="79" y="200" text-anchor="middle">tie</text>
+      <text class="d-muted" x="239" y="200" text-anchor="middle">tie</text>
+      <text class="d-label" x="399" y="200" text-anchor="middle">215 &lt; 230</text>
+      <text class="d-muted" x="559" y="200" text-anchor="middle">not reached</text>
+      <text class="d-text" x="320" y="236" text-anchor="middle">The tree is drawn first, so the player, standing lower on screen, is on top.</text>
+    </svg>
+    <figcaption>The same comparison is used to sort the whole draw list. Layer and order are numbers you set; y changes every frame as things move, which is exactly what a walking character needs.</figcaption>
+  </figure>
+
+  <h2>Faking depth with Y sorting</h2>
+  <p>In a top-down or three-quarter view, the ground recedes up the screen. Something whose feet are higher on the screen is further away, so it should be drawn first. <dfn>Y sorting</dfn> puts that rule into the sort key: compare the y of each sprite's <dfn>sort point</dfn>, usually its feet.</p>
+  <p>The sort point matters as much as the switch. A tree is tall and a character is short. If you compare the centres of their images, a character standing just behind the trunk has a lower centre than the tree, and is drawn in front of it. Put the origin, or pivot, of every sprite at the point where it touches the ground.</p>
+
+  <h2>How each engine names the same key</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Key</th><th>Godot 4</th><th>Unity (2022 LTS, Unity 6)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Layer</td><td><code>CanvasLayer</code> nodes, by their <code>layer</code> number. The main scene is layer 0</td><td>Sorting Layers, defined in Tags and Layers, set with <code>sortingLayerName</code></td></tr>
+      <tr><td>Order</td><td><code>z_index</code> on any 2D node, relative to its parent by default (<code>z_as_relative</code>)</td><td>Order in Layer, <code>sortingOrder</code> on the renderer</td></tr>
+      <tr><td>Y sort</td><td><code>y_sort_enabled</code> on a parent sorts its children by their origin's y</td><td>Transparency Sort Mode set to Custom Axis (0, 1, 0), or set <code>sortingOrder</code> from y yourself</td></tr>
+      <tr><td>Tie-break</td><td>Tree order: parents before children, earlier siblings first</td><td>Not something to rely on; give ties a distinct order</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>In <strong>Godot</strong>, the scene tree is the draw list. A parent is drawn before its children and siblings are drawn top to bottom, so reordering nodes in the Scene dock changes what is on top. <code>z_index</code> overrides tree order inside one canvas layer, and y sorting reorders the children of the node that has it switched on. A <code>CanvasLayer</code> is a separate canvas with its own transform, which is why a HUD inside one is always on top and ignores the camera. A <code>z_index</code> never lifts a node out of its canvas layer.</p>
+  <p>In <strong>Unity</strong>, scene order is not part of the 2D contract. Sprites are sorted by Sorting Layer, then Order in Layer, then, for anything still tied, by their distance along the transparency sort axis. In the Built-in pipeline that axis is in the Graphics project settings; in URP with the 2D Renderer it is on the 2D Renderer Data asset. A <code>SortingGroup</code> component makes a multi-sprite character sort as one unit, so its arm cannot slip between the layers of a tree.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Use layers for things that are always above or below each other: ground, world, overhead, interface. Use Y sorting for things that move around each other. Reach for a manual order number only to settle a specific tie.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click the scene and walk the blue character with the arrow keys or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, or drag it. The small numbers are the draw list: 1 is painted first. With Y sort off, walk behind a tree, then raise the player's order to 1 and walk in front of one. Then switch Y sort on and walk around again.</p>
+  <p>Finally, change the sort point to the centre of each image and stand just behind a trunk. Put the player on the Ground layer to see that a layer beats everything else, including Y.</p>
+
+  <figure class="demo wide" data-demo="draw-order">
+    <canvas id="draw-order"></canvas>
+    <figcaption>The dashed line marks the player's sort y while Y sort is on: sprites whose dot is above it are drawn before the player. The model is one canvas with two layers and leaves out batching, transparency between sprites, nested sorting and engine-specific tie rules.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The Lua is a LÖVE 11 program with the demo's scene: a puddle on layer 0, the player and four trees and two rocks on layer 1, the player moving at 120 pixels per second. Everything an engine does is in <code>drawsBefore</code>. Press <kbd>Y</kbd> to toggle Y sorting.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Arrow keys move, Y toggles Y sorting.</span>
+local SPEED = 120
+local ySort = false                  <span class="c">-- off at the start, as in the demo</span>
+local sprites = {}                       <span class="c">-- the scene, in scene order</span>
+
+local function add(kind, layer, order, x, y)
+  local s = { kind = kind, layer = layer, order = order, x = x, y = y, id = #sprites + 1 }
+  table.insert(sprites, s)
+  return s
+end
+
+add("puddle", 0, 0, 330, 250)            <span class="c">-- layer 0: ground</span>
+local player = add("player", 1, 0, 200, 230)
+add("tree", 1, 0, 110, 150)              <span class="c">-- x, y is where each one meets the ground</span>
+add("tree", 1, 0, 210, 215)
+add("tree", 1, 0, 330, 140)
+add("tree", 1, 0, 410, 230)
+add("rock", 1, 0, 290, 205)
+add("rock", 1, 0, 70, 250)
+
+local function drawsBefore(a, b)
+<span class="k">  if a.layer ~= b.layer then return a.layer &lt; b.layer end
+  if a.order ~= b.order then return a.order &lt; b.order end
+  if ySort and a.y ~= b.y then return a.y &lt; b.y end
+  return a.id &lt; b.id                     -- scene order breaks every tie</span>
+end
+
+function love.update(dt)
+  local k = love.keyboard.isDown
+  if k("left") then player.x = player.x - SPEED * dt end
+  if k("right") then player.x = player.x + SPEED * dt end
+  if k("up") then player.y = player.y - SPEED * dt end
+  if k("down") then player.y = player.y + SPEED * dt end
+end
+
+function love.keypressed(key)
+  if key == "y" then ySort = not ySort end
+end
+
+local function drawSprite(s)             <span class="c">-- every shape is drawn up from its feet</span>
+  if s.kind == "puddle" then
+    love.graphics.setColor(0.3, 0.5, 0.9, 0.5)
+    love.graphics.ellipse("fill", s.x, s.y, 34, 12)
+  elseif s.kind == "player" then
+    love.graphics.setColor(0.2, 0.4, 0.9)
+    love.graphics.rectangle("fill", s.x - 9, s.y - 26, 18, 26)
+    love.graphics.circle("fill", s.x, s.y - 31, 7)
+  elseif s.kind == "tree" then
+    love.graphics.setColor(0.5, 0.3, 0.1)
+    love.graphics.rectangle("fill", s.x - 5, s.y - 14, 10, 14)
+    love.graphics.setColor(0.1, 0.5, 0.2)
+    love.graphics.polygon("fill", s.x - 24, s.y - 14, s.x, s.y - 70, s.x + 24, s.y - 14)
+  else
+    love.graphics.setColor(0.5, 0.5, 0.5)
+    love.graphics.ellipse("fill", s.x, s.y - 9, 17, 9)
+  end
+end
+
+function love.draw()
+  love.graphics.clear(0.75, 0.85, 0.6)
+  local list = {}
+  for i = 1, #sprites do list[i] = sprites[i] end
+<span class="k">  table.sort(list, drawsBefore)           -- build the draw list
+  for i = 1, #list do drawSprite(list[i]) end   -- painter's algorithm</span>
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># draw_order.gd for Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Arrow keys move, Enter (ui_accept) toggles Y sorting.</span>
+extends Node2D
+
+const SPEED := 120.0
+var world := Node2D.new()
+var player := Polygon2D.new()
+var label := Label.new()
+
+func make_tree(pos: Vector2) -&gt; Polygon2D:
+    var tree := Polygon2D.new()
+    <span class="c"># Points are relative to the node's origin, which sits where the trunk meets the ground.</span>
+    tree.polygon = PackedVector2Array([Vector2(-5, 0), Vector2(-5, -14), Vector2(-24, -14),
+        Vector2(0, -70), Vector2(24, -14), Vector2(5, -14), Vector2(5, 0)])
+    tree.color = Color(0.1, 0.5, 0.2)
+    tree.position = pos
+    return tree
+
+func _ready() -&gt; void:
+<span class="k">    world.y_sort_enabled = true      # sort world's children by their origin's y</span>
+    add_child(world)
+
+    var puddle := Polygon2D.new()
+    puddle.polygon = PackedVector2Array([Vector2(-34, 0), Vector2(0, -12), Vector2(34, 0), Vector2(0, 12)])
+    puddle.color = Color(0.3, 0.5, 0.9, 0.5)
+    puddle.position = Vector2(330, 250)
+<span class="k">    puddle.z_index = -1              # a lower z beats Y sorting: always under everything</span>
+    world.add_child(puddle)
+
+    player.polygon = PackedVector2Array([Vector2(-9, 0), Vector2(-9, -38), Vector2(9, -38), Vector2(9, 0)])
+    player.color = Color(0.2, 0.4, 0.9)
+    player.position = Vector2(200, 230)
+    world.add_child(player)
+    for pos in [Vector2(110, 150), Vector2(210, 215), Vector2(330, 140), Vector2(410, 230)]:
+        world.add_child(make_tree(pos))
+
+    var hud := CanvasLayer.new()     <span class="c"># layer 1 by default: above the main canvas, ignores cameras</span>
+    hud.add_child(label)
+    add_child(hud)
+
+func _process(delta: float) -&gt; void:
+    player.position += Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down") * SPEED * delta
+    if Input.is_action_just_pressed("ui_accept"):
+        world.y_sort_enabled = not world.y_sort_enabled
+    label.text = "Y sort: %s" % world.y_sort_enabled</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// SortByY.cs. Unity 2022 LTS or Unity 6, any render pipeline.</span>
+<span class="c">// Add it to the player and to every tree sprite. Set each sprite's pivot to Bottom</span>
+<span class="c">// in its import settings so transform.position is where it meets the ground.</span>
+<span class="c">// Tick Is Player on the player. Uses the Input Manager ("Horizontal" and "Vertical");</span>
+<span class="c">// if Active Input Handling is set to the Input System package only, switch it to Both.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(SpriteRenderer))]
+public class SortByY : MonoBehaviour
+{
+    public bool isPlayer;
+    public float speed = 3f;          <span class="c">// units per second</span>
+    public int baseOrder = 0;         <span class="c">// added on top, to settle a specific tie</span>
+    SpriteRenderer sr;
+
+    void Awake()
+    {
+        sr = GetComponent&lt;SpriteRenderer&gt;();
+        sr.sortingLayerName = "Default";   <span class="c">// or a layer you made in Tags and Layers</span>
+    }
+
+    void Update()
+    {
+        if (!isPlayer) return;
+        var move = new Vector3(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"), 0f);
+        transform.position += move.normalized * speed * Time.deltaTime;
+    }
+
+    void LateUpdate()   <span class="c">// after everything has moved this frame</span>
+    {
+        <span class="c">// Unity's y points up, so a higher y is further away and must get a lower order.</span>
+<span class="k">        sr.sortingOrder = baseOrder + Mathf.RoundToInt(-transform.position.y * 100f);</span>
+    }
+}</code></pre>
+  </div>
+  <p>The Unity script writes y into Order in Layer, which works in every pipeline and is easy to inspect. The setting-only alternative is Transparency Sort Mode set to Custom Axis with axis (0, 1, 0) and each sprite's Sprite Sort Point set to Pivot; then sprites with equal layer and order are sorted by y with no script at all. In the Godot version, notice there is no sorting code: switching <code>y_sort_enabled</code> on the parent is the whole feature.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Pivot in the middle of the image.</strong> Y sorting compares origins. With centred pivots, tall objects sort too early and characters pop in front of trunks. Move the pivot, or the sprite's offset, so the origin is at the feet.</li>
+    <li><strong>Layers that should have been Y sort.</strong> Fixing one overlap by raising an order number breaks the opposite overlap. If two things can walk around each other, they belong in the same layer with Y sorting.</li>
+    <li><strong>An unstable tie-break.</strong> Two sprites with exactly the same key may swap from frame to frame and flicker. Lua's <code>table.sort</code> is not stable, which is why the Lua adds <code>id</code> as a last key. In Unity, give overlapping props distinct orders.</li>
+    <li><strong>Relative z_index surprises in Godot.</strong> With <code>z_as_relative</code> on, a child's final z is its parent's plus its own, so a node set to 1 can still be under a sibling branch whose parent is at 2.</li>
+    <li><strong>Overflowing Order in Layer.</strong> In Unity it is stored as a 16-bit number, from −32768 to 32767. Multiplying y by 100 is safe only within about ±327 units of the origin; use a smaller factor for large maps.</li>
+    <li><strong>Sorting cost.</strong> Sorting a few hundred sprites per frame is cheap. Sorting changes the order of draws, though, and a draw list that alternates between textures can break batching, which is two lessons away.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Top-down and three-quarter view games, from farming games to action RPGs, need characters to walk both in front of and behind trees, houses and each other, which is what Y sorting is for. Godot's <code>TileMapLayer</code> can take part in Y sorting too, so tall tiles such as walls and trees sort against characters.</p>
+  <p>Interfaces are almost always a separate layer drawn last: a <code>CanvasLayer</code> in Godot, a Screen Space canvas in Unity. Parallax backgrounds are the opposite case, layers drawn first and scrolled at a fraction of the camera speed.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take a scene with a character and at least three tall props. Check where each sprite's origin is and move it to the feet. Then switch on Y sorting (in Godot, <code>y_sort_enabled</code> on the common parent; in Unity, the Custom Axis setting or the script above). You are done when the character can circle every prop and is hidden behind it exactly while its feet are above the prop's base.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>2D engines use the painter's algorithm: the draw list is sorted and the last sprite drawn is on top.</li>
+    <li>The sort key is checked in order: layer, order within the layer, y when Y sorting is on, then scene order.</li>
+    <li>Layers are for things that are always above or below; Y sorting is for things that move around each other.</li>
+    <li>Y sorting compares origins, so put each sprite's pivot where it touches the ground.</li>
+    <li>Godot spells the key as CanvasLayer, <code>z_index</code>, <code>y_sort_enabled</code> and tree order; Unity as Sorting Layer, Order in Layer and the transparency sort axis.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Now that you know how the draw list is ordered, the next lesson asks how engines leave things out of it entirely: culling objects the camera cannot see.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CanvasItem</cite> and <cite>CanvasLayer</cite> class references, and the tutorial <cite>Canvas layers</cite> (Godot 4).</li>
+    <li>Unity Technologies, Unity Manual page <cite>2D Sorting</cite>, and the Scripting API pages for <cite>Renderer.sortingOrder</cite> and <cite>SortingGroup</cite>.</li>
+    <li>LÖVE wiki, <cite>table.sort</cite> usage notes and <cite>love.graphics.polygon</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 480, H = 300;             // scene size in world pixels
+  var SPEED = 120;                  // player speed, pixels per second
+  var NAMES = { puddle: 'puddle', player: 'player', tree: 'tree', rock: 'rock' };
+  var HEIGHTS = { puddle: 12, player: 38, tree: 70, rock: 18 };
+
+  var sprites = [];
+  function add(kind, layer, order, x, y) {
+    var s = { kind: kind, layer: layer, order: order, x: x, y: y, id: sprites.length + 1 };
+    sprites.push(s);
+    return s;
+  }
+  add('puddle', 0, 0, 330, 250);
+  var player = add('player', 1, 0, 200, 230);
+  add('tree', 1, 0, 110, 150);
+  add('tree', 1, 0, 210, 215);
+  add('tree', 1, 0, 330, 140);
+  add('tree', 1, 0, 410, 230);
+  add('rock', 1, 0, 290, 205);
+  add('rock', 1, 0, 70, 250);
+
+  var ySort = false;
+  var sortPoint = 'feet';
+
+  function sortY(s) {
+    return sortPoint === 'feet' ? s.y : s.y - HEIGHTS[s.kind] / 2;
+  }
+
+  function drawsBefore(a, b) {
+    if (a.layer !== b.layer) return a.layer - b.layer;
+    if (a.order !== b.order) return a.order - b.order;
+    if (ySort) {
+      var ay = sortY(a), by = sortY(b);
+      if (ay !== by) return ay - by;
+    }
+    return a.id - b.id;
+  }
+
+  function drawList() {
+    var list = sprites.slice();
+    list.sort(drawsBefore);
+    return list;
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="draw-order"]');
+  ui.toggle({ label: 'Y sort', value: false, onChange: function (v) { ySort = v; } });
+  ui.slider({ label: 'Player order in layer (trees are 0)', min: -1, max: 1, step: 1, value: 0,
+    onInput: function (v) { player.order = v; } });
+  ui.select({ label: 'Player layer', value: '1',
+    options: [{ value: '0', label: 'Ground (0)' }, { value: '1', label: 'Objects (1)' }],
+    onChange: function (v) { player.layer = Number(v); } });
+  ui.select({ label: 'Sort point', value: 'feet',
+    options: [{ value: 'feet', label: 'Feet (pivot at the base)' }, { value: 'centre', label: 'Centre of the image' }],
+    onChange: function (v) { sortPoint = v; } });
+  var numbers = ui.toggle({ label: 'Show draw order', value: true });
+  var keyOut = ui.readout({ label: 'Player sort key' });
+  var rankOut = ui.readout({ label: 'Player is drawn' });
+
+  var layout = { k: 1, ox: 0, oy: 0 };
+  function toWorld(p) {
+    return { x: (p.x - layout.ox) / layout.k, y: (p.y - layout.oy) / layout.k };
+  }
+  function clampPlayer() {
+    player.x = DemoKit.clamp(player.x, 12, W - 12);
+    player.y = DemoKit.clamp(player.y, 42, H - 4);
+  }
+  function movePlayerTo(p) {
+    var w = toWorld(p);
+    player.x = w.x;
+    player.y = w.y + 4;   // grab the character a little above its feet
+    clampPlayer();
+  }
+
+  function ellipse(ctx, x, y, rx, ry) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSprite(ctx, s, c) {
+    if (s.kind === 'puddle') {
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = c.topic;
+      ellipse(ctx, s.x, s.y, 34, 12);
+      ctx.globalAlpha = 1;
+    } else if (s.kind === 'player') {
+      ctx.fillStyle = c.topic;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.rect(s.x - 9, s.y - 26, 18, 26);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - 31, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (s.kind === 'tree') {
+      ctx.fillStyle = c.warn;
+      ctx.fillRect(s.x - 5, s.y - 14, 10, 14);
+      ctx.fillStyle = c.good;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(s.x - 24, s.y - 14);
+      ctx.lineTo(s.x, s.y - 70);
+      ctx.lineTo(s.x + 24, s.y - 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = c.ink3;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y - 9, 17, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  DemoKit.canvas('#draw-order', {
+    aspect: 16 / 10,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    keys: true,
+    label: 'A top-down scene with a character, four trees, two rocks and a puddle. Arrow keys or W A S D move the character; dragging moves it too. Numbers show the order in which sprites are drawn.',
+    update: function (dt, s) {
+      var k = s.keys;
+      if (!k || k.size === 0) return;
+      var dx = 0, dy = 0;
+      if (k.has('arrowleft') || k.has('a')) dx -= 1;
+      if (k.has('arrowright') || k.has('d')) dx += 1;
+      if (k.has('arrowup') || k.has('w')) dy -= 1;
+      if (k.has('arrowdown') || k.has('s')) dy += 1;
+      player.x += dx * SPEED * dt;
+      player.y += dy * SPEED * dt;
+      clampPlayer();
+    },
+    onDown: function (p) { movePlayerTo(p); },
+    onMove: function (p) { if (p.down) movePlayerTo(p); },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var k = Math.min(s.width / W, s.height / H);
+      if (k <= 0) return;
+      var ox = (s.width - W * k) / 2, oy = (s.height - H * k) / 2;
+      layout = { k: k, ox: ox, oy: oy };
+
+      var list = drawList();
+
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.scale(k, k);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+
+      if (ySort) {
+        var py = sortY(player);
+        ctx.strokeStyle = c.topic;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(W, py);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      for (var i = 0; i < list.length; i++) drawSprite(ctx, list[i], c);
+
+      // Sort points and draw-order badges sit above everything so they stay readable.
+      for (i = 0; i < list.length; i++) {
+        var sp = list[i];
+        var y = sortY(sp);
+        ctx.fillStyle = sp === player ? c.topic : c.ink;
+        ctx.beginPath();
+        ctx.arc(sp.x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        if (numbers.value) {
+          var bx = sp.x + 13, by = y - 6;
+          ctx.fillStyle = c.surface;
+          ctx.strokeStyle = sp === player ? c.topic : c.ink3;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(bx, by, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = c.ink;
+          ctx.font = '600 11px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(i + 1), bx, by + 0.5);
+        }
+      }
+      ctx.restore();
+
+      var rank = list.indexOf(player) + 1;
+      keyOut.set('layer ' + player.layer + ', order ' + player.order +
+        (ySort ? ', y ' + Math.round(sortY(player)) : ', y ignored') + ', scene position ' + player.id);
+      rankOut.set(rank + ' of ' + list.length + (rank === list.length ? ' (on top of everything)' : ''));
+    }
+  });
+})();
+</script>
+</body>
+</html>
