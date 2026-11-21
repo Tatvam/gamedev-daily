@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Culling: drawing only what the camera sees · Game Dev Daily</title>
+<meta name="description" content="How engines skip objects outside the camera with a bounding box test, why that test has its own cost, and how a grid makes it cheaper.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-21">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Culling: drawing only what the camera sees</h1>
+  <p class="lede">How engines skip objects outside the camera with a bounding box test, why that test has its own cost, and how a grid makes it cheaper.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your level has two thousand props, and the camera shows about two hundred of them at a time. If the engine sent all two thousand to the graphics card every frame, ninety percent of that work would produce pixels nobody sees. It does not, and knowing how it avoids that work tells you when the shortcut breaks: a sprite that pops in late at the edge of the screen, or an enemy that is invisible yet still eats frame time.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Culling is a cheap question asked before an expensive job</h2>
+  <p><dfn>Culling</dfn> means removing objects from the draw list before they are drawn. The most common kind is <dfn>frustum culling</dfn>: skip anything outside the camera's view. In 3D the view is a pyramid with its tip cut off, called the <dfn>frustum</dfn>. In 2D it is simply a rectangle. The idea is the same in both, so this lesson stays in 2D.</p>
+  <p>Testing an object's exact shape against the view would cost almost as much as drawing it. Instead every object carries a <dfn>bounding box</dfn>: the smallest axis-aligned rectangle that contains everything it could draw. The engine compares boxes, not shapes.</p>
+  <p>Two boxes do not overlap when one of them is entirely to one side of the other. That gives four comparisons per object, and no square roots or loops:</p>
+<pre><code>visible = box.right &gt; view.left and box.left &lt; view.right
+      and box.bottom &gt; view.top and box.top &lt; view.bottom</code></pre>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="A camera view rectangle with three objects. A is inside the view and is drawn. B has its centre just outside the right edge but its bounding box overlaps the view, so it is drawn. C's box is completely to the right of the view, so it is skipped. A text column lists the four comparisons.">
+      <text class="d-label" x="30" y="30">camera view</text>
+      <rect class="d-accent-soft" x="30" y="40" width="270" height="180" rx="4"/>
+
+      <rect class="d-dash" x="86" y="96" width="48" height="48"/>
+      <circle class="d-accent-fill" cx="110" cy="120" r="24"/>
+      <text class="d-text" x="110" y="170" text-anchor="middle">A: drawn</text>
+
+      <rect class="d-dash" x="288" y="145" width="60" height="60"/>
+      <circle class="d-accent-fill" cx="318" cy="175" r="30" opacity="0.75"/>
+      <circle class="d-bad-fill" cx="318" cy="175" r="3"/>
+      <text class="d-text" x="318" y="242" text-anchor="middle">B: drawn</text>
+      <text class="d-muted" x="318" y="260" text-anchor="middle">centre outside, box overlaps</text>
+
+      <rect class="d-dash" x="350" y="60" width="40" height="40"/>
+      <circle class="d-stroke" cx="370" cy="80" r="20"/>
+      <text class="d-text" x="370" y="126" text-anchor="middle">C: skipped</text>
+
+      <text class="d-label" x="425" y="60">Skip if the box is</text>
+      <text class="d-text" x="425" y="86">fully left of the view,</text>
+      <text class="d-text" x="425" y="108">fully right of it,</text>
+      <text class="d-text" x="425" y="130">fully above it,</text>
+      <text class="d-text" x="425" y="152">or fully below it.</text>
+      <text class="d-label" x="425" y="186">Otherwise draw it.</text>
+      <text class="d-muted" x="425" y="214">Dashed squares are the</text>
+      <text class="d-muted" x="425" y="232">bounding boxes. The test</text>
+      <text class="d-muted" x="425" y="250">never looks at the shape.</text>
+    </svg>
+    <figcaption>B is the case that matters. Its centre point is off screen, but part of it is visible. A test that only checks centres would skip B, and B would pop into view late. Boxes make the test conservative: it may draw a few things that turn out to be invisible, and it never skips something that is visible.</figcaption>
+  </figure>
+
+  <h2>The test is not free</h2>
+  <p>Four comparisons are cheap, but they still run for every object in the scene, every frame, for every camera. With a few thousand sprites that is nothing. With hundreds of thousands of objects in a large open world, the loop over all of them shows up in a profiler before the drawing does. Culling turns "draw everything" into "test everything", and testing everything is the next bottleneck.</p>
+  <p>The fix is a <dfn>spatial partition</dfn>: a structure that sorts objects by where they are, so you can ask "what is near this rectangle?" without looking at everything. The simplest is a uniform grid. Each cell keeps a list of the objects whose boxes touch it. To cull, find the cells the view overlaps and test only the objects in those lists.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A grid of 6 by 4 cells. The camera view overlaps 6 of the 24 cells, which are highlighted. Objects in those cells are tested; objects in other cells are never looked at.">
+      <g>
+        <rect class="d-fill" x="20" y="20" width="300" height="200"/>
+        <rect class="d-accent-soft" x="120" y="70" width="150" height="100"/>
+        <path class="d-thin" d="M70 20 V220 M120 20 V220 M170 20 V220 M220 20 V220 M270 20 V220 M20 70 H320 M20 120 H320 M20 170 H320"/>
+      </g>
+      <rect class="d-accent" x="128" y="82" width="104" height="76"/>
+      <circle class="d-accent-fill" cx="152" cy="104" r="6"/>
+      <circle class="d-accent-fill" cx="204" cy="140" r="6"/>
+      <circle class="d-stroke" cx="250" cy="134" r="6"/>
+      <circle class="d-stroke" cx="140" cy="164" r="5"/>
+      <circle class="d-muted" cx="45" cy="45" r="5"/>
+      <circle class="d-muted" cx="296" cy="46" r="5"/>
+      <circle class="d-muted" cx="58" cy="194" r="5"/>
+      <circle class="d-muted" cx="300" cy="200" r="5"/>
+      <circle class="d-muted" cx="185" cy="40" r="5"/>
+      <circle class="d-muted" cx="90" cy="140" r="5"/>
+      <circle class="d-muted" cx="230" cy="198" r="5"/>
+
+      <text class="d-label" x="350" y="44">1. Find the cells the view</text>
+      <text class="d-label" x="368" y="62">touches: 6 of 24.</text>
+      <text class="d-text" x="350" y="96">2. Test only the objects listed</text>
+      <text class="d-text" x="368" y="114">in those cells: 4 tests.</text>
+      <text class="d-text" x="350" y="148">3. Draw the ones that pass: 2.</text>
+      <text class="d-muted" x="350" y="186">The 7 grey dots elsewhere are</text>
+      <text class="d-muted" x="350" y="204">never tested at all. Without the</text>
+      <text class="d-muted" x="350" y="222">grid, all 11 would be.</text>
+    </svg>
+    <figcaption>The grid does not replace the box test, it decides who takes it. Hollow dots sit in a highlighted cell but outside the view: tested, then skipped.</figcaption>
+  </figure>
+
+  <h2>What the engines do for you</h2>
+  <p>Both engines frustum-cull automatically. You do not write the loop above in Godot or Unity; you only need to know it is there, because it shapes what you should and should not do.</p>
+  <p><strong>Godot 4</strong> culls 2D canvas items against the viewport using each item's bounding rectangle, and culls 3D geometry against the camera frustum. To react to visibility in your own code, add a <code>VisibleOnScreenNotifier2D</code> (or the 3D version) with a <code>rect</code> you choose; it emits <code>screen_entered</code> and <code>screen_exited</code> and answers <code>is_on_screen()</code>. Its sibling <code>VisibleOnScreenEnabler2D</code> goes one step further and switches a target node's processing off while it is off screen.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6) culls every <code>Renderer</code> by its bounds, once per camera. A script on the same GameObject receives <code>OnBecameVisible</code> and <code>OnBecameInvisible</code>, and <code>Renderer.isVisible</code> reports the current state. For many objects that have no renderer of their own, the <code>CullingGroup</code> API lets you register bounding spheres and be told when they change visibility.</p>
+
+  <div class="callout warn">
+    <p class="callout-title">Culled is not paused</p>
+    <p>Culling skips the <em>drawing</em>. An off-screen object's scripts, animation and physics keep running unless you, or an option such as Unity's Animator culling mode or Godot's enabler node, stop them. Who owns that decision is you.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left panel is the whole world, a thousand objects seen from above. The blue rectangle is the camera; drag it, or click the world panel and use the arrow keys. The right panel is what the camera shows. Start with culling set to "Test every object" and watch the counters, then switch to "Grid" and see the tests drop while the drawn count stays the same. Turn culling off to see how many draws are wasted.</p>
+  <p>Finally tick "Test only the centre point" and move the camera slowly: objects on the edges of the right panel appear late and vanish early.</p>
+
+  <figure class="demo wide" data-demo="culling">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="culling-world"></canvas><span class="demo-label">World</span></div>
+      <div class="demo-stage"><canvas id="culling-view"></canvas><span class="demo-label">Camera view</span></div>
+    </div>
+    <figcaption>In the world panel, coloured dots are drawn, dark grey dots were tested and skipped, faint dots were never tested, red dots are drawn but off screen (wasted), and red rings are visible objects wrongly skipped. In grid mode the cells being searched are tinted. The model leaves out what a real engine adds: 3D frustums, occlusion, multiple cameras, shadows and moving objects that must be re-filed in the grid.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers: a 2000 by 1200 pixel world, a thousand circles with half-sizes from 4 to 20 pixels, 200 pixel grid cells and an 800 by 600 camera, the size of LÖVE's default window. The random positions differ from the demo's because the generators differ. Press <kbd>M</kbd> to cycle between off, every and grid and watch the counters in the corner.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Arrow keys move the camera, M cycles the culling mode.</span>
+local WORLD_W, WORLD_H, CELL = 2000, 1200, 200
+local COLS, ROWS = WORLD_W / CELL, WORLD_H / CELL     <span class="c">-- 10 by 6 cells</span>
+local SPEED = 600
+local cam = { x = 1000, y = 600, w = 800, h = 600 }  <span class="c">-- x, y is the centre</span>
+local objects, grid = {}, {}
+local modes = { "off", "every", "grid" }
+local mode = 2
+local frame, tested, drawn = 0, 0, 0
+
+local function cellOf(v, cells)
+  return math.max(0, math.min(math.floor(v / CELL), cells - 1))
+end
+
+function love.load()
+  local rng = love.math.newRandomGenerator(7)
+  for i = 0, COLS * ROWS - 1 do grid[i] = {} end
+  for i = 1, 1000 do
+    local o = { x = rng:random() * WORLD_W, y = rng:random() * WORLD_H,
+                r = 4 + rng:random() * 16, seen = 0 }
+    objects[i] = o
+    <span class="c">-- file it in every cell its box touches, not just the cell of its centre</span>
+    for cy = cellOf(o.y - o.r, ROWS), cellOf(o.y + o.r, ROWS) do
+      for cx = cellOf(o.x - o.r, COLS), cellOf(o.x + o.r, COLS) do
+        table.insert(grid[cy * COLS + cx], o)
+      end
+    end
+  end
+end
+
+function love.update(dt)
+  local k = love.keyboard.isDown
+  if k("left") then cam.x = cam.x - SPEED * dt end
+  if k("right") then cam.x = cam.x + SPEED * dt end
+  if k("up") then cam.y = cam.y - SPEED * dt end
+  if k("down") then cam.y = cam.y + SPEED * dt end
+  cam.x = math.max(cam.w / 2, math.min(cam.x, WORLD_W - cam.w / 2))
+  cam.y = math.max(cam.h / 2, math.min(cam.y, WORLD_H - cam.h / 2))
+end
+
+function love.keypressed(key)
+  if key == "m" then mode = mode % 3 + 1 end
+end
+
+local function visible(o, left, top)
+<span class="k">  return o.x + o.r &gt; left and o.x - o.r &lt; left + cam.w
+     and o.y + o.r &gt; top and o.y - o.r &lt; top + cam.h</span>
+end
+
+local function consider(o, left, top)
+  tested = tested + 1
+  if visible(o, left, top) then
+    drawn = drawn + 1
+    love.graphics.circle("fill", o.x, o.y, o.r)
+  end
+end
+
+function love.draw()
+  frame = frame + 1
+  tested, drawn = 0, 0
+  local left, top = cam.x - cam.w / 2, cam.y - cam.h / 2
+  love.graphics.push()
+  love.graphics.translate(-left, -top)
+  if modes[mode] == "off" then
+    for _, o in ipairs(objects) do
+      drawn = drawn + 1
+      love.graphics.circle("fill", o.x, o.y, o.r)
+    end
+  elseif modes[mode] == "every" then
+    for _, o in ipairs(objects) do consider(o, left, top) end
+  else
+<span class="k">    for cy = cellOf(top, ROWS), cellOf(top + cam.h, ROWS) do
+      for cx = cellOf(left, COLS), cellOf(left + cam.w, COLS) do
+        for _, o in ipairs(grid[cy * COLS + cx]) do
+          if o.seen ~= frame then          -- in two cells, still tested once
+            o.seen = frame
+            consider(o, left, top)
+          end
+        end
+      end
+    end</span>
+  end
+  love.graphics.pop()
+  love.graphics.print(modes[mode] .. "  tested " .. tested .. "  drawn " .. drawn, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># culling_field.gd for Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Godot already skips drawing items whose bounds are off screen. The notifiers</span>
+<span class="c"># let this script read the same answer. Arrow keys move the camera.</span>
+extends Node2D
+
+const WORLD := Vector2(2000, 1200)
+const SPEED := 600.0
+var camera := Camera2D.new()
+var notifiers: Array[VisibleOnScreenNotifier2D] = []
+var label := Label.new()
+
+func _ready() -&gt; void:
+    var rng := RandomNumberGenerator.new()
+    rng.seed = 7
+    for i in 1000:
+        var r := rng.randf_range(4.0, 20.0)
+        var dot := Polygon2D.new()
+        dot.polygon = PackedVector2Array([Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)])
+        dot.position = Vector2(rng.randf_range(0.0, WORLD.x), rng.randf_range(0.0, WORLD.y))
+        var notifier := VisibleOnScreenNotifier2D.new()
+<span class="k">        notifier.rect = Rect2(-r, -r, 2.0 * r, 2.0 * r)   # the box used for the test</span>
+        dot.add_child(notifier)
+        notifiers.append(notifier)
+        add_child(dot)
+    camera.position = WORLD / 2.0
+    add_child(camera)
+    camera.make_current()
+    var hud := CanvasLayer.new()
+    hud.add_child(label)
+    add_child(hud)
+
+func _process(delta: float) -&gt; void:
+    camera.position += Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down") * SPEED * delta
+    var on_screen := 0
+    for n in notifiers:
+<span class="k">        if n.is_on_screen():</span>
+            on_screen += 1
+    label.text = "on screen: %d of %d" % [on_screen, notifiers.size()]</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// CullingField.cs. Unity 2022 LTS or Unity 6, 2D template.</span>
+<span class="c">// Add it to any GameObject and press Play. Unity culls every Renderer by its</span>
+<span class="c">// bounds on its own; isVisible lets the script read the result.</span>
+<span class="c">// Uses the Input Manager ("Horizontal" and "Vertical"); if Active Input Handling is</span>
+<span class="c">// set to the Input System package only, switch it to Both.</span>
+using UnityEngine;
+
+public class CullingField : MonoBehaviour
+{
+    public int count = 1000;
+    public Vector2 worldSize = new Vector2(20f, 12f);   <span class="c">// 100 pixels per unit</span>
+    public float cameraSpeed = 6f;
+    SpriteRenderer[] renderers;
+
+    void Start()
+    {
+        <span class="c">// A 1 by 1 unit white square made from Unity's built-in 4 by 4 white texture.</span>
+        var sprite = Sprite.Create(Texture2D.whiteTexture, new Rect(0, 0, 4, 4),
+                                   new Vector2(0.5f, 0.5f), 4f);
+        Random.InitState(7);
+        renderers = new SpriteRenderer[count];
+        for (int i = 0; i &lt; count; i++)
+        {
+            var go = new GameObject("Object " + i);
+            go.transform.position = new Vector3(Random.Range(0f, worldSize.x),
+                                                Random.Range(0f, worldSize.y), 0f);
+            go.transform.localScale = Vector3.one * Random.Range(0.08f, 0.4f);
+            renderers[i] = go.AddComponent&lt;SpriteRenderer&gt;();
+            renderers[i].sprite = sprite;
+        }
+    }
+
+    void Update()
+    {
+        var move = new Vector3(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"), 0f);
+        Camera.main.transform.position += move * cameraSpeed * Time.deltaTime;
+
+        int visible = 0;
+        foreach (var r in renderers)
+<span class="k">            if (r.isVisible) visible++;   // any camera, including the Scene view</span>
+        if (Time.frameCount % 30 == 0) Debug.Log($"visible {visible} of {count}");
+    }
+}</code></pre>
+  </div>
+  <p>The Godot and Unity versions contain no culling code, only code that <em>reads</em> the engine's answer: there is no loop over boxes of your own. The Godot camera shows the window's size in pixels, so with an 800 by 600 window it matches the Lua camera. Unity's default 2D camera is 10 units tall (1000 pixels at this scale) and starts at the world's corner, so its counts will differ from the Lua program's.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Bounds that are too small.</strong> If something draws outside its box, the test can skip it while part of it is on screen. Common causes are shaders that move vertices (wind on grass, a wobble effect), particles that drift far from their emitter, and a hand-sized notifier <code>rect</code> on a large sprite. Make the box cover everything the object can draw. Godot's 3D geometry has an <code>extra_cull_margin</code> for this.</li>
+    <li><strong>Testing points instead of boxes.</strong> The "centre only" toggle in the demo shows the result: objects pop in at the edges. Always test the full box.</li>
+    <li><strong>Expecting culling to save update time.</strong> A thousand off-screen enemies still run their scripts. If their updates are expensive, pause them with visibility callbacks, but keep anything the player can notice (a timer, a patrol that should arrive on cue) running or simulated cheaply.</li>
+    <li><strong>Visibility in the Unity editor.</strong> <code>OnBecameVisible</code> and <code>isVisible</code> count every camera, and in the editor the Scene view is a camera. An object can look "visible" in Play mode only because the Scene view shows it. Test with the Scene view closed or pointed elsewhere.</li>
+    <li><strong>Grids and moving objects.</strong> Anything that moves must be taken out of its old cells and filed in new ones when it crosses a border. Engines do this for their own structures; your own grid needs the same bookkeeping.</li>
+    <li><strong>Cell size.</strong> Cells much smaller than the view mean many cells to visit and objects listed in several of them. Cells much larger than the view mean testing nearly everything again. A cell somewhere around a quarter of the view, as in the demo, is a reasonable start; measure rather than guess.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Frustum culling is always on in Godot and Unity. The variations are the extra kinds layered on top.</p>
+  <p><dfn>Occlusion culling</dfn> skips objects that are inside the view but hidden behind something else, such as rooms behind a wall. Unity can bake occlusion data for a scene, and Godot 4 supports occlusion culling with <code>OccluderInstance3D</code> nodes. Quake precomputed a potentially visible set for each area of a level, a list of which other areas could ever be seen from it, which is the same idea solved ahead of time.</p>
+  <p><dfn>Distance culling</dfn> drops small objects far from the camera: Godot 4's visibility ranges on 3D geometry and Unity's per-layer cull distances on the camera both do this.</p>
+  <p>Tile-based 2D games often skip per-object tests completely. Because tiles sit on a grid, the range of visible tiles can be computed directly from the camera rectangle, which is the grid idea from this lesson with one object per cell.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick an object in your project that does work every frame, such as an animated enemy or a particle emitter. Give it a visibility check: a <code>VisibleOnScreenNotifier2D</code> in Godot, or <code>OnBecameVisible</code> and <code>OnBecameInvisible</code> in Unity. Print a line each time it enters or leaves the screen, then make its update return early while it is off screen. You are done when the log shows the switch at the moment it crosses the edge, with no visible pop. If it pops, its bounds are too small.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Frustum culling skips objects whose bounding box does not overlap the camera view. In 2D the test is four comparisons.</li>
+    <li>Test boxes, not centres, and make each box cover everything the object can draw, or it will pop at the edges.</li>
+    <li>The test itself runs for every object every frame. A spatial partition such as a grid limits it to objects near the view.</li>
+    <li>Godot and Unity cull automatically; you read their answer through <code>VisibleOnScreenNotifier2D</code> or <code>OnBecameVisible</code> and <code>Renderer.isVisible</code>.</li>
+    <li>Culling saves drawing, not updating. Pausing off-screen logic is a separate decision you own.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Culling decides how many things are drawn; the next lesson looks at how they are drawn, and why a hundred sprites that share a texture cost far less than a hundred that do not: draw calls and batching.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, class references for <cite>VisibleOnScreenNotifier2D</cite> and <cite>VisibleOnScreenEnabler2D</cite>, and the manual page <cite>Occlusion culling</cite> (Godot 4).</li>
+    <li>Unity Technologies, Unity Manual pages <cite>Occlusion culling</cite> and <cite>CullingGroup API</cite>, and the Scripting API pages <cite>MonoBehaviour.OnBecameVisible</cite> and <cite>Renderer.isVisible</cite>.</li>
+    <li>Tomas Akenine-Möller, Eric Haines and Naty Hoffman, <cite>Real-Time Rendering</cite>, the chapter on culling techniques.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter "Spatial Partition".</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var WORLD_W = 2000, WORLD_H = 1200, CELL = 200;
+  var COLS = WORLD_W / CELL, ROWS = WORLD_H / CELL;   // 10 by 6
+  var MAX = 2000, SPEED = 600, ASPECT = 0.75;        // camera height = width * 0.75
+
+  // States, set by cull() every frame.
+  var UNTESTED = 0, SKIPPED = 1, DRAWN = 2, WASTED = 3, WRONG = 4;
+
+  var rand = DemoKit.rng(7);
+  var all = [];
+  for (var i = 0; i < MAX; i++) {
+    all.push({ x: rand() * WORLD_W, y: rand() * WORLD_H, r: 4 + rand() * 16,
+      kind: i % 3, seen: 0, state: UNTESTED });
+  }
+
+  var objects = [], grid = [];
+  function cellOf(v, cells) {
+    return Math.max(0, Math.min(Math.floor(v / CELL), cells - 1));
+  }
+  function rebuild(n) {
+    objects = all.slice(0, n);
+    grid = [];
+    for (var c = 0; c < COLS * ROWS; c++) grid.push([]);
+    for (var j = 0; j < objects.length; j++) {
+      var o = objects[j];
+      for (var cy = cellOf(o.y - o.r, ROWS); cy <= cellOf(o.y + o.r, ROWS); cy++) {
+        for (var cx = cellOf(o.x - o.r, COLS); cx <= cellOf(o.x + o.r, COLS); cx++) {
+          grid[cy * COLS + cx].push(o);
+        }
+      }
+    }
+  }
+  rebuild(1000);
+
+  var cam = { x: 1000, y: 600, w: 800, h: 600 };   // x, y is the centre
+  function clampCam() {
+    cam.h = cam.w * ASPECT;
+    cam.x = DemoKit.clamp(cam.x, cam.w / 2, WORLD_W - cam.w / 2);
+    cam.y = DemoKit.clamp(cam.y, cam.h / 2, WORLD_H - cam.h / 2);
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="culling"]');
+  var mode = ui.select({ label: 'Culling', value: 'every', options: [
+    { value: 'off', label: 'Off: draw everything' },
+    { value: 'every', label: 'Test every object' },
+    { value: 'grid', label: 'Grid: test nearby cells only' }
+  ] });
+  var centreOnly = ui.toggle({ label: 'Test only the centre point (bug)', value: false });
+  ui.slider({ label: 'Objects', min: 200, max: MAX, step: 100, value: 1000,
+    onInput: function (v) { rebuild(v); } });
+  ui.slider({ label: 'Camera width', min: 400, max: 1600, step: 50, value: 800, unit: ' px',
+    onInput: function (v) { cam.w = v; clampCam(); } });
+  var outTested = ui.readout({ label: 'Visibility tests' });
+  var outDrawn = ui.readout({ label: 'Objects drawn' });
+  var outWasted = ui.readout({ label: 'Drawn but off screen' });
+  var outWrong = ui.readout({ label: 'Visible but skipped' });
+
+  var stamp = 0;
+  var stats = { tested: 0, drawn: 0, wasted: 0, wrong: 0 };
+  var view = { left: 0, top: 0, right: 0, bottom: 0, c0: 0, c1: 0, r0: 0, r1: 0 };
+
+  function test(o) {
+    stats.tested++;
+    var truly = o.x + o.r > view.left && o.x - o.r < view.right &&
+                o.y + o.r > view.top && o.y - o.r < view.bottom;
+    var pass = centreOnly.value
+      ? (o.x > view.left && o.x < view.right && o.y > view.top && o.y < view.bottom)
+      : truly;
+    if (pass) { stats.drawn++; o.state = DRAWN; }
+    else if (truly) { stats.wrong++; o.state = WRONG; }
+    else o.state = SKIPPED;
+  }
+
+  function cull() {
+    stamp++;
+    view.left = cam.x - cam.w / 2;
+    view.top = cam.y - cam.h / 2;
+    view.right = view.left + cam.w;
+    view.bottom = view.top + cam.h;
+    view.c0 = cellOf(view.left, COLS); view.c1 = cellOf(view.right, COLS);
+    view.r0 = cellOf(view.top, ROWS); view.r1 = cellOf(view.bottom, ROWS);
+    stats.tested = 0; stats.drawn = 0; stats.wasted = 0; stats.wrong = 0;
+    var j, o;
+    if (mode.value === 'off') {
+      for (j = 0; j < objects.length; j++) {
+        o = objects[j];
+        stats.drawn++;
+        var on = o.x + o.r > view.left && o.x - o.r < view.right &&
+                 o.y + o.r > view.top && o.y - o.r < view.bottom;
+        if (on) o.state = DRAWN; else { o.state = WASTED; stats.wasted++; }
+      }
+    } else if (mode.value === 'every') {
+      for (j = 0; j < objects.length; j++) test(objects[j]);
+    } else {
+      for (j = 0; j < objects.length; j++) objects[j].state = UNTESTED;
+      for (var cy = view.r0; cy <= view.r1; cy++) {
+        for (var cx = view.c0; cx <= view.c1; cx++) {
+          var list = grid[cy * COLS + cx];
+          for (j = 0; j < list.length; j++) {
+            o = list[j];
+            if (o.seen !== stamp) { o.seen = stamp; test(o); }
+          }
+        }
+      }
+    }
+    outTested.set(mode.value === 'off' ? '0 (nothing is tested)'
+      : stats.tested + ' of ' + objects.length + ' objects');
+    outDrawn.set(String(stats.drawn));
+    outWasted.set(String(stats.wasted));
+    outWrong.set(String(stats.wrong));
+  }
+
+  function kindColor(c, o) {
+    return o.kind === 0 ? c.topic : (o.kind === 1 ? c.good : c.warn);
+  }
+
+  function dot(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---- World panel ----
+  var layout = { k: 1, ox: 0, oy: 0 };
+  var dragOffset = null;
+  function toWorld(p) {
+    return { x: (p.x - layout.ox) / layout.k, y: (p.y - layout.oy) / layout.k };
+  }
+
+  DemoKit.canvas('#culling-world', {
+    aspect: WORLD_W / WORLD_H,
+    minHeight: 180,
+    maxHeight: 360,
+    drag: true,
+    keys: true,
+    label: 'Overview of a world with many small objects and a camera rectangle. Drag the rectangle or use the arrow keys to move the camera.',
+    update: function (dt, s) {
+      var k = s.keys;
+      if (!k || k.size === 0) return;
+      var dx = 0, dy = 0;
+      if (k.has('arrowleft') || k.has('a')) dx -= 1;
+      if (k.has('arrowright') || k.has('d')) dx += 1;
+      if (k.has('arrowup') || k.has('w')) dy -= 1;
+      if (k.has('arrowdown') || k.has('s')) dy += 1;
+      cam.x += dx * SPEED * dt;
+      cam.y += dy * SPEED * dt;
+      clampCam();
+    },
+    onDown: function (p) {
+      var w = toWorld(p);
+      var inside = Math.abs(w.x - cam.x) <= cam.w / 2 && Math.abs(w.y - cam.y) <= cam.h / 2;
+      dragOffset = inside ? { x: cam.x - w.x, y: cam.y - w.y } : { x: 0, y: 0 };
+      cam.x = w.x + dragOffset.x;
+      cam.y = w.y + dragOffset.y;
+      clampCam();
+    },
+    onMove: function (p) {
+      if (!p.down || !dragOffset) return;
+      var w = toWorld(p);
+      cam.x = w.x + dragOffset.x;
+      cam.y = w.y + dragOffset.y;
+      clampCam();
+    },
+    onUp: function () { dragOffset = null; },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var k = Math.min(s.width / WORLD_W, s.height / WORLD_H);
+      if (k <= 0) return;
+      var ox = (s.width - WORLD_W * k) / 2, oy = (s.height - WORLD_H * k) / 2;
+      layout = { k: k, ox: ox, oy: oy };
+      cull();
+
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(0, 0, WORLD_W * k, WORLD_H * k);
+
+      // Cells searched in grid mode.
+      if (mode.value === 'grid') {
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(view.c0 * CELL * k, view.r0 * CELL * k,
+          (view.c1 - view.c0 + 1) * CELL * k, (view.r1 - view.r0 + 1) * CELL * k);
+        ctx.globalAlpha = 1;
+      }
+      // Grid lines.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      var g;
+      for (g = 1; g < COLS; g++) { ctx.moveTo(g * CELL * k, 0); ctx.lineTo(g * CELL * k, WORLD_H * k); }
+      for (g = 1; g < ROWS; g++) { ctx.moveTo(0, g * CELL * k); ctx.lineTo(WORLD_W * k, g * CELL * k); }
+      ctx.stroke();
+
+      // Objects.
+      for (var j = 0; j < objects.length; j++) {
+        var o = objects[j];
+        var x = o.x * k, y = o.y * k, r = Math.max(1.3, o.r * k);
+        if (o.state === DRAWN) {
+          ctx.fillStyle = kindColor(c, o);
+          dot(ctx, x, y, r);
+        } else if (o.state === WASTED) {
+          ctx.fillStyle = c.bad;
+          dot(ctx, x, y, r);
+        } else if (o.state === SKIPPED) {
+          ctx.fillStyle = c.ink2;
+          dot(ctx, x, y, r);
+        } else if (o.state === WRONG) {
+          ctx.strokeStyle = c.bad;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = c.ink3;
+          dot(ctx, x, y, r);
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Camera rectangle.
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(view.left * k, view.top * k, cam.w * k, cam.h * k);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, WORLD_W * k - 1, WORLD_H * k - 1);
+      ctx.restore();
+    }
+  });
+
+  // ---- Camera panel ----
+  DemoKit.canvas('#culling-view', {
+    aspect: 4 / 3,
+    minHeight: 180,
+    maxHeight: 360,
+    label: 'What the camera shows: only the objects that passed the visibility test are drawn.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      cull();
+      var k = Math.min(s.width / cam.w, s.height / cam.h);
+      if (k <= 0) return;
+      var ox = (s.width - cam.w * k) / 2, oy = (s.height - cam.h * k) / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ox, oy, cam.w * k, cam.h * k);
+      ctx.clip();
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(ox, oy, cam.w * k, cam.h * k);
+      ctx.translate(ox - view.left * k, oy - view.top * k);
+      for (var j = 0; j < objects.length; j++) {
+        var o = objects[j];
+        if (o.state !== DRAWN && o.state !== WASTED) continue;
+        ctx.fillStyle = kindColor(c, o);
+        dot(ctx, o.x * k, o.y * k, o.r * k);
+      }
+      ctx.restore();
+    }
+  });
+})();
+</script>
+</body>
+</html>

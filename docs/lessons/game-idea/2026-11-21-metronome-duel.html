@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metronome Duel: commit late, strike on the beat · Game Dev Daily</title>
+<meta name="description" content="A rhythm fencing duel where moves land only on the beat, and committing early lets your rival read you. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-21">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Metronome Duel: commit late, strike on the beat</h1>
+  <p class="lede">A rhythm fencing duel where moves land only on the beat, and committing early lets your rival read you. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>Two fencers face each other while a metronome ticks, and every move lands on the tick. You can choose attack, parry or feint whenever you like during the swing, but the moment you choose, your body gives it away, so the best fencer is the one who waits longest and still makes the beat.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: watch the swing, hold your nerve, commit</h2>
+  <p>The duel happens on a <dfn>piste</dfn>, the narrow strip fencers fight on. A metronome swings above it. Each swing ends in a <dfn>beat</dfn>, and on the beat both fencers' moves are revealed and compared. Moves exist only on beats: there is no free movement, no health bar, no combo.</p>
+  <p>Every ten seconds you play about eight beats. On each one you watch the swing and the rival's stance, and decide when to <dfn>commit</dfn>, which means locking in your move for this beat. Every minute you win or lose a <dfn>touch</dfn>, a point scored by driving the other fencer off their end of the piste, while the tempo speeds up. Every session is a ladder of rivals, each with a different habit to learn.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: watch the swing and the rival, commit a move late in the swing, and the beat resolves and pushes someone back, which leads back to watching. Beside it, two longer loops: every minute a touch is scored as the tempo rises, and every session a ladder of rivals with different habits.">
+      <defs>
+        <marker id="md-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Watch the swing</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">and the rival's stance</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Commit late</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">attack, parry or feint</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Beat resolves</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">loser steps back</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#md-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#md-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#md-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every beat</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a touch is scored,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">the tempo climbs</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a ladder of rivals,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">each with a habit</text>
+    </svg>
+    <figcaption>The beat loop is a guessing game under time pressure. The longer loops turn the guesses into knowledge about one opponent.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Three moves in a triangle.</strong> Attack beats feint, because a feint is a slow fake that leaves you open. Feint beats parry, because it draws the parry and then lands. Parry beats attack, because a blocked attack opens the attacker to a counter. Equal moves clash and nothing happens.</li>
+    <li><strong>Standing still is allowed, but risky.</strong> If you commit nothing, an attack hits you. A parry or feint against nobody does nothing.</li>
+    <li><strong>The winner of a beat steps forward.</strong> The loser steps back one mark. Three net steps push someone off the end of the piste: that is a touch. First to three touches wins the bout.</li>
+    <li><strong>One commit per beat, no take-backs.</strong> Right after a beat comes a short recovery when you cannot commit at all.</li>
+    <li><strong>The swing has two zones.</strong> A commit in the first part of the swing is <em>seen</em>: the other fencer knows your move. A commit in the last 40 percent, the <dfn>hidden zone</dfn>, stays secret until the beat. This rule applies to both fencers.</li>
+    <li><strong>The tempo climbs.</strong> Each beat is 4 percent shorter than the last, from 50 to about 86 beats per minute, and slows down again after a touch.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 150" role="img" aria-label="One swing of the metronome from beat to beat, as a bar. The first 15 percent is recovery when you cannot commit. From 15 to 60 percent is the seen zone, where a commit is visible to the rival. From 60 to 100 percent is the hidden zone, where a commit stays secret until the beat.">
+      <rect class="d-fill" x="40" y="40" width="84" height="44" rx="4"/>
+      <rect class="d-accent-soft" x="124" y="40" width="252" height="44" rx="4"/>
+      <rect class="d-accent-fill" x="376" y="40" width="224" height="44" rx="4"/>
+      <text class="d-text" x="82" y="67" text-anchor="middle">recover</text>
+      <text class="d-text" x="250" y="67" text-anchor="middle">seen: the rival reads you</text>
+      <path class="d-stroke" d="M600 28 V96"/>
+      <text class="d-label" x="600" y="20" text-anchor="middle">beat</text>
+      <path class="d-stroke" d="M40 28 V96"/>
+      <text class="d-muted" x="40" y="20" text-anchor="middle">beat</text>
+      <text class="d-muted" x="488" y="118" text-anchor="middle">hidden: safe, but the beat is close</text>
+      <text class="d-muted" x="124" y="118" text-anchor="middle">0.15</text>
+      <text class="d-muted" x="376" y="138" text-anchor="middle">0.6</text>
+      <path class="d-thin" d="M376 96 V124"/>
+    </svg>
+    <figcaption>One swing, measured as a fraction from 0 to 1. Waiting buys secrecy; waiting too long means you stand still when the beat arrives.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>Plenty of games are rock, paper, scissors underneath. The twist here is that <em>timing is information</em>. The rhythm skill (hitting a window before the beat) and the mind game (picking the right move) are tied together by one rule: the earlier you act, the more you reveal. That gives the player two fantasies at once, the cool nerve of a fencer who waits, and the pounce on a rival who showed their hand too soon.</p>
+  <p>The rival plays by the same rule. It sometimes commits early, and you can see its move and counter it. It gets impatient when cornered near its own end of the piste, so pressing forward makes it easier to read. When it cannot see you, it falls back on a <dfn>habit</dfn>: half the time it assumes you will repeat your last move and picks the counter to it. A habit is a pattern a player can notice and exploit, which is what turns a random triangle into a duel.</p>
+  <p>The hardest part to build is the rivals. The code is small; making each rival feel like a person with a readable style, without being either random or a mind reader, takes many playtests.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Start the bout and watch the metronome arc. Try committing early once and see the rival counter you. Then wait for the dark part of the arc before you choose. When the rival's stance shows a letter, it committed in the open: counter it. When it shows a question mark, think about what you did last beat.</p>
+
+  <figure class="demo wide" data-demo="metronome-duel">
+    <canvas id="metronome-duel"></canvas>
+    <figcaption>Controls: tap a move pad on the canvas, or click the canvas and press <kbd>A</kbd> to attack, <kbd>P</kbd> to parry, <kbd>F</kbd> to feint (or <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>). The first press starts the metronome without committing. <kbd>R</kbd> or the Restart button starts a new bout. The arc above the metronome shows recovery (pale), the seen zone (tinted) and the hidden zone (dark). Your stance box says whether the rival saw your commit. First to three touches wins.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: a commit that remembers <em>when</em> it happened, and a rival that uses that time. <code>phase</code> runs from 0 to 1 across one swing, so the zones do not change as the tempo rises. Drawing, the touch counter and the bout ending are left out. The names and numbers are the demo's.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local MOVES   = { "attack", "parry", "feint" }
+local BEATS   = { attack = "feint", feint = "parry", parry = "attack" } <span class="c">-- beats the one it names</span>
+local COUNTER = { attack = "parry", parry = "feint", feint = "attack" } <span class="c">-- what beats it</span>
+local KEYS    = { a = "attack", p = "parry", f = "feint" }
+local SHOW, RECOVER, READ, HABIT = 0.6, 0.15, 0.75, 0.5
+local beat, phase, piste, lastYours = 1.2, 0, 0, nil
+local you, rival = {}, { at = 0.5 }
+
+local function wins(a, b)
+  return a ~= nil and (BEATS[a] == b or (a == "attack" and b == nil))
+end
+local function rivalTiming()
+  if piste &gt;= 2 then return 0.25 + love.math.random() * 0.5 end <span class="c">-- cornered: impatient</span>
+  return 0.4 + love.math.random() * 0.55
+end
+<span class="k">local function rivalChoose()
+  if you.move and you.at &lt; SHOW and love.math.random() &lt; READ then
+    return COUNTER[you.move]             -- it saw you commit early
+  end
+  if lastYours and love.math.random() &lt; HABIT then
+    return COUNTER[lastYours]            -- it expects you to repeat yourself
+  end
+  return MOVES[love.math.random(3)]
+end</span>
+function love.keypressed(key)
+  if KEYS[key] and not you.move and phase &gt;= RECOVER then
+    you.move, you.at = KEYS[key], phase  <span class="c">-- locked in, with a timestamp</span>
+  end
+end
+function love.update(dt)
+  phase = phase + dt / beat
+  if not rival.move and phase &gt;= rival.at then rival.move = rivalChoose() end
+  if phase &gt;= 1 then                     <span class="c">-- the beat: both moves resolve at once</span>
+    if wins(you.move, rival.move) then piste = piste + 1
+    elseif wins(rival.move, you.move) then piste = piste - 1 end
+    lastYours, phase = you.move, 0
+    beat = math.max(0.7, beat * 0.96)
+    if math.abs(piste) &gt;= 3 then piste, beat, lastYours = 0, 1.2, nil end <span class="c">-- a touch</span>
+    you, rival = {}, { at = rivalTiming() }
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted function is the whole personality of the rival. Change <code>READ</code> and <code>HABIT</code> and you have a different opponent: a high <code>READ</code> punishes early commits hard, a high <code>HABIT</code> makes a rival that is easy to bait once you notice it. A ladder of rivals can be little more than a table of these two numbers plus a timing range.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>It collapses into pure guessing.</strong> If the rival never shows a move and has no habit, every beat is a coin flip with three sides, and players feel they won or lost by luck. Test by playing twenty beats with your eyes closed, pressing a random key in the hidden zone. If your results look like your real play, the rival is not readable enough.</li>
+    <li><strong>The rival reads you too well.</strong> A rival that counters every early commit makes the seen zone feel like a trap rather than a choice. The demo reads you three times out of four. Watch new players: if they stop ever committing early, lower <code>READ</code> or make early commits pay, for example with a stronger push.</li>
+    <li><strong>The tempo outruns the reading.</strong> At high tempo the hidden zone is under a third of a second, and there is no time to think. The duel becomes a reflex test. Cap the tempo where a tester can still name the rival's habit out loud.</li>
+    <li><strong>Unclear resolution.</strong> If players cannot tell <em>why</em> they lost a beat, they cannot learn. Always show both moves for a moment after the beat, in words or with clear poses. Ask testers after a bout which move beats which; if they hesitate, the feedback is too quiet.</li>
+    <li><strong>Waiting has no cost.</strong> If committing at the last instant is always best, the seen zone is dead space. Give early commits something, such as a bonus step, or a rival that attacks the hesitant more often.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>A triangle of moves where each beats one and loses to another is a long-standing structure in fighting games, where attacks, blocks and throws are often described this way. David Sirlin's card game <cite>Yomi</cite> is built on fighting-game choices revealed simultaneously, and its name is the Japanese word for reading the opponent's mind. <cite>Crypt of the NecroDancer</cite> showed that a game can require every action to fall on the beat of the music.</p>
+  <p>Metronome Duel sits between those. The moves are revealed together on the beat, but the moment you chose is part of the game: committing is a timing skill, and its timing leaks information. I do not know of a game built around that exact rule, though I have not checked every rhythm fighting game, so something close may already exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with two rectangles for fencers, a line for the piste, a rotating line for the metronome and the moves printed as words over each fencer. Draw the hidden zone as a coloured arc. Leave out touches and tempo changes; just count beats won and lost.</p>
+  <p>Play it against a friend on one keyboard, then against the rival. The one question: <strong>after two minutes, can the player tell you the rival's habit?</strong> If they can, and they start baiting it on purpose, the duel works. If they only describe it as random, raise <code>HABIT</code> or make the rival commit early more often.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one rival, the three moves, the seen and hidden zones, the piste and touches, with clear move reveals on each beat.</li>
+    <li><strong>One-month version:</strong> a ladder of five rivals with different <code>READ</code>, <code>HABIT</code> and timing values, a local two-player mode with split keys, and animated poses so moves read without text.</li>
+    <li><strong>Cut first:</strong> extra moves, special abilities and stamina. Every new move weakens the triangle that the reading depends on.</li>
+    <li><strong>Hardest part:</strong> rival design. Keep their behaviour in data, not code, so you can tune a rival between playtests without rewriting it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the music change the rules, so that on an off-beat accent only feints are allowed, and the player has to read the score as well as the rival.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>David Sirlin, <cite>Playing to Win: Becoming the Champion</cite>. On competitive play and on reading an opponent's habits.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). The chapter on games as game theory systems covers simultaneous choices and payoffs.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On balancing choices so that no option dominates.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MOVES = ['attack', 'parry', 'feint'];
+  var LABEL = { attack: 'Attack', parry: 'Parry', feint: 'Feint' };
+  var LETTER = { attack: 'A', parry: 'P', feint: 'F' };
+  var BEATS = { attack: 'feint', feint: 'parry', parry: 'attack' };
+  var COUNTER = { attack: 'parry', parry: 'feint', feint: 'attack' };
+  var KEYMAP = { a: 'attack', '1': 'attack', p: 'parry', '2': 'parry', f: 'feint', '3': 'feint' };
+  var SHOW = 0.6, RECOVER = 0.15, READ = 0.75, HABIT = 0.5;
+  var START_BEAT = 1.2, MIN_BEAT = 0.7, SPEEDUP = 0.96, EDGE = 3, TO_WIN = 3;
+  var SWING = 0.6;   // half the metronome's arc, in radians
+
+  var rand, mode, beat, phase, dir, piste, you, rival, lastYours, touches, pause, flash;
+  var msg, tone, handle = null;
+
+  function wins(a, b) { return !!a && (BEATS[a] === b || (a === 'attack' && !b)); }
+
+  function rivalTiming() {
+    if (piste >= EDGE - 1) return 0.25 + rand() * 0.5;   // cornered: impatient
+    return 0.4 + rand() * 0.55;
+  }
+
+  function rivalChoose() {
+    if (you.move && you.at < SHOW && rand() < READ) { rival.read = true; return COUNTER[you.move]; }
+    if (lastYours && rand() < HABIT) return COUNTER[lastYours];
+    return MOVES[Math.floor(rand() * 3)];
+  }
+
+  function newExchange() {
+    you = { move: null, at: 0 };
+    rival = { move: null, at: rivalTiming(), read: false };
+  }
+
+  function restart() {
+    rand = DemoKit.rng(21);
+    mode = 'idle'; beat = START_BEAT; phase = 0; dir = 1; piste = 0;
+    lastYours = null; touches = [0, 0]; pause = 0; flash = 0;
+    newExchange();
+    say('Press A, P or F, or tap a move, to start the metronome.', 'ink2');
+    if (handle) handle.redraw();
+  }
+
+  function say(text, t) { msg = text; tone = t; }
+
+  function begin() {
+    mode = 'play'; phase = 0;
+    say('Wait for the dark part of the arc, then commit.', 'ink2');
+    if (handle) handle.play();
+  }
+
+  function commit(move) {
+    if (mode === 'over') { restart(); begin(); return; }
+    if (mode === 'idle') { begin(); return; }
+    if (mode !== 'play') return;
+    if (you.move) { say('Already committed. No take-backs.', 'warn'); return; }
+    if (phase < RECOVER) { say('Too soon: still recovering from the last beat.', 'warn'); return; }
+    you.move = move; you.at = phase;
+    if (phase < SHOW) say('Committed in the open. The rival can see your ' + move + '.', 'warn');
+    else say('Committed in the hidden zone.', 'ink2');
+  }
+
+  function resolve() {
+    var y = you.move, r = rival.move;
+    if (wins(y, r)) {
+      piste += 1;
+      say('Your ' + y + ' beats their ' + r + '. They step back.', 'good');
+    } else if (wins(r, y)) {
+      piste -= 1;
+      say(y ? 'Their ' + r + ' beats your ' + y + '.' + (rival.read ? ' It read you.' : '')
+            : 'You stood still and their attack landed.', 'bad');
+    } else {
+      say(y ? 'Clash: ' + y + ' meets ' + r + '.' : 'You stood still; their ' + r + ' found nothing.', 'ink2');
+    }
+    flash = 0.3;
+    lastYours = y;
+    phase = 0; dir = -dir;
+    beat = practice.value ? START_BEAT : Math.max(MIN_BEAT, beat * SPEEDUP);
+    if (Math.abs(piste) >= EDGE) {
+      var scored = piste > 0;
+      touches[scored ? 0 : 1] += 1;
+      piste = 0; beat = START_BEAT; lastYours = null;
+      if (touches[0] >= TO_WIN || touches[1] >= TO_WIN) {
+        mode = 'over';
+        if (touches[0] >= TO_WIN) say('You win the bout ' + touches[0] + ' to ' + touches[1] + '! Press a move to fence again.', 'good');
+        else say('The rival wins ' + touches[1] + ' to ' + touches[0] + '. Press a move to try again.', 'bad');
+      } else {
+        mode = 'touch'; pause = 1.4;
+        say(scored ? 'Touch! You drove them off the piste.' : 'Touch for the rival: you ran out of piste.', scored ? 'good' : 'bad');
+      }
+    }
+    newExchange();
+  }
+
+  function update(dt) {
+    flash = Math.max(0, flash - dt);
+    if (mode === 'touch') {
+      pause -= dt;
+      if (pause <= 0) { mode = 'play'; phase = 0; newExchange(); say('En garde.', 'ink2'); }
+      return;
+    }
+    if (mode !== 'play') return;
+    phase += dt / beat;
+    if (!rival.move && phase >= rival.at) rival.move = rivalChoose();
+    if (phase >= 1) resolve();
+  }
+
+  function layout(s) {
+    var R = Math.min(100, s.width * 0.28);
+    var py = 44 + R + 24;
+    var pisteY = py + 104;
+    var msgY = pisteY + 36;
+    var padY = msgY + 30;
+    return { R: R, py: py, pisteY: pisteY, msgY: msgY, padY: padY, padH: 44 };
+  }
+
+  function angleAt(p) { return -dir * SWING * Math.cos(Math.PI * p); }
+
+  function arc(ctx, x, y, rad, p0, p1) {
+    var a0 = angleAt(p0) - Math.PI / 2, a1 = angleAt(p1) - Math.PI / 2;
+    ctx.beginPath(); ctx.arc(x, y, rad, a0, a1, a1 < a0); ctx.stroke();
+  }
+
+  function stanceBox(ctx, c, x, y, text, color, filled) {
+    ctx.fillStyle = filled ? color : c.surface;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.fillRect(x - 16, y - 13, 32, 26); ctx.strokeRect(x - 16, y - 13, 32, 26);
+    ctx.fillStyle = filled ? c.bg : color; ctx.font = '700 15px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText(text, x, y + 5);
+  }
+
+  function wrap(ctx, text, maxW) {
+    if (ctx.measureText(text).width <= maxW) return [text];
+    var words = text.split(' '), a = '', i = 0;
+    while (i < words.length && ctx.measureText(a + words[i]).width <= maxW) { a += words[i] + ' '; i++; }
+    return [a.trim(), words.slice(i).join(' ')];
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, L = layout(s), cx = w / 2;
+    ctx.textBaseline = 'alphabetic';
+
+    // HUD: touches and tempo
+    ctx.font = '600 14px ' + FONT; ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left'; ctx.fillText('You', 10, 22);
+    ctx.textAlign = 'right'; ctx.fillText('Rival', w - 10, 22);
+    for (var k = 0; k < TO_WIN; k++) {
+      ctx.fillStyle = k < touches[0] ? c.topic : c.surface2;
+      ctx.beginPath(); ctx.arc(46 + k * 16, 17, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = k < touches[1] ? c.warn : c.surface2;
+      ctx.beginPath(); ctx.arc(w - 56 - k * 16, 17, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.textAlign = 'center'; ctx.fillStyle = c.ink2; ctx.font = '12px ' + FONT;
+    ctx.fillText(Math.round(60 / beat) + ' bpm', cx, 22);
+
+    // Metronome: zone arc, rod and weight
+    var R = L.R, py = L.py, band = R + 14;
+    ctx.lineWidth = 10; ctx.lineCap = 'butt';
+    ctx.strokeStyle = c.surface2; arc(ctx, cx, py, band, 0, RECOVER);
+    ctx.globalAlpha = 0.35; ctx.strokeStyle = c.topic; arc(ctx, cx, py, band, RECOVER, SHOW);
+    ctx.globalAlpha = 1; ctx.strokeStyle = c.ink2; arc(ctx, cx, py, band, SHOW, 1);
+    var endA = angleAt(1);
+    ctx.fillStyle = c.ink3; ctx.font = '12px ' + FONT;
+    ctx.textAlign = endA > 0 ? 'left' : 'right';
+    ctx.fillText('beat', cx + Math.sin(endA) * (band + 10), py - Math.cos(endA) * (band + 10));
+    var ang = angleAt(Math.min(phase, 1));
+    var hidden = mode === 'play' && phase >= SHOW;
+    ctx.strokeStyle = hidden ? c.ink : c.ink2; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, py);
+    ctx.lineTo(cx + Math.sin(ang) * R, py - Math.cos(ang) * R); ctx.stroke();
+    ctx.fillStyle = c.topic;
+    ctx.fillRect(cx + Math.sin(ang) * R * 0.62 - 9, py - Math.cos(ang) * R * 0.62 - 6, 18, 12);
+    ctx.fillStyle = c.ink2;
+    ctx.beginPath(); ctx.moveTo(cx - 26, py + 14); ctx.lineTo(cx + 26, py + 14); ctx.lineTo(cx + 12, py - 4);
+    ctx.lineTo(cx - 12, py - 4); ctx.closePath(); ctx.fill();
+    if (flash > 0) {
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 2; ctx.globalAlpha = flash / 0.3;
+      ctx.beginPath(); ctx.arc(cx, py, 20 + (0.3 - flash) * 80, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Piste with marks; the ends are where touches happen
+    var y = L.pisteY, left = 24, right = w - 24, step = (right - left) / (2 * EDGE);
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 2; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    for (var m = 0; m <= 2 * EDGE; m++) {
+      var mx = left + m * step, end = m === 0 || m === 2 * EDGE;
+      ctx.strokeStyle = end ? c.bad : c.ink3; ctx.lineWidth = end ? 3 : 1;
+      ctx.beginPath(); ctx.moveTo(mx, y - (end ? 10 : 5)); ctx.lineTo(mx, y + (end ? 10 : 5)); ctx.stroke();
+    }
+    var contact = cx + piste * step, gap = Math.min(30, step * 0.6);
+    var fx = [contact - gap, contact + gap], cols = [c.topic, c.warn];
+    for (var f = 0; f < 2; f++) {
+      ctx.fillStyle = cols[f];
+      ctx.beginPath(); ctx.arc(fx[f], y - 16, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = cols[f]; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(fx[f] + (f ? -10 : 10), y - 18); ctx.lineTo(contact + (f ? 4 : -4), y - 28); ctx.stroke();
+    }
+
+    // Stances: your move, and the rival's if it committed in the open
+    var sy = y - 52;
+    if (you.move) stanceBox(ctx, c, fx[0], sy, LETTER[you.move], c.topic, true);
+    else stanceBox(ctx, c, fx[0], sy, '·', c.ink3, false);
+    if (rival.move && rival.at < SHOW) stanceBox(ctx, c, fx[1], sy, LETTER[rival.move], c.warn, true);
+    else stanceBox(ctx, c, fx[1], sy, rival.move ? '?' : '·', rival.move ? c.warn : c.ink3, false);
+    if (you.move) {
+      ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillStyle = you.at < SHOW ? c.bad : c.good;
+      ctx.fillText(you.at < SHOW ? 'seen' : 'hidden', fx[0], sy - 19);
+    }
+
+    // Message
+    ctx.font = '600 13px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillStyle = c[tone] || c.ink2;
+    var lines = wrap(ctx, msg, w - 20);
+    ctx.fillText(lines[0], 10, L.msgY - (lines.length > 1 ? 8 : 0));
+    if (lines.length > 1) ctx.fillText(lines[1], 10, L.msgY + 9);
+
+    // Move pads, also the touch controls
+    var pw = (w - 20 - 16) / 3;
+    for (var i = 0; i < 3; i++) {
+      var px = 10 + i * (pw + 8), mv = MOVES[i], chosen = you.move === mv;
+      ctx.globalAlpha = you.move && !chosen ? 0.45 : 1;
+      ctx.fillStyle = chosen ? c.topic : c.surface2;
+      ctx.fillRect(px, L.padY, pw, L.padH);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(px + 0.5, L.padY + 0.5, pw - 1, L.padH - 1);
+      ctx.fillStyle = chosen ? c.bg : c.ink; ctx.font = '700 13px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(LABEL[mv] + ' (' + LETTER[mv] + ')', px + pw / 2, L.padY + 27);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = c.ink3; ctx.font = '12px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('A beats F, F beats P, P beats A', 10, L.padY + L.padH + 20);
+  }
+
+  var ui = DemoKit.controls('[data-demo="metronome-duel"]');
+  ui.button({ label: 'Restart (R)', onClick: restart });
+  var practice = ui.toggle({ label: 'Practice tempo (no speed-up)', value: false });
+
+  restart();
+  handle = DemoKit.canvas('#metronome-duel', {
+    height: 430,
+    keys: true,
+    label: 'Metronome Duel prototype: a metronome swings over a fencing strip, and you commit attack, parry or feint before each beat against a computer rival. Committing early lets the rival see your move.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) {
+      var L = layout(s);
+      if (p.y >= L.padY && p.y <= L.padY + L.padH) {
+        var pw = (s.width - 36) / 3;
+        var i = Math.floor((p.x - 10) / (pw + 8));
+        if (i >= 0 && i < 3) { commit(MOVES[i]); return; }
+      }
+      if (mode === 'idle') begin();
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'r') { restart(); return; }
+      if (KEYMAP[key]) commit(KEYMAP[key]);
+      else if ((key === 'space' || key === 'enter') && mode === 'idle') begin();
+    }
+  });
+  var cv = document.getElementById('metronome-duel');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>

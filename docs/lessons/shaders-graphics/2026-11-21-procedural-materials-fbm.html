@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Procedural materials: wood, marble and clouds from layered noise · Game Dev Daily</title>
+<meta name="description" content="Add several octaves of noise, each finer and fainter, then bend rings, stripes or a threshold with it: wood, marble and clouds from one recipe.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-21">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Procedural materials: wood, marble and clouds from layered noise</h1>
+  <p class="lede">Add several octaves of noise, each finer and fainter, then bend rings, stripes or a threshold with it: wood, marble and clouds from one recipe.</p>
+</header>
+
+<section data-section="hook">
+  <p>Plain noise looks like blurry fog. Real surfaces have big shapes with smaller detail on top: a cloud has billows, and the billows have ragged edges. This lesson builds that layered detail, then shapes it into wood, marble and a cloudy sky without a texture file.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Layer the noise, then shape it</h2>
+  <p>A fragment shader is a small function that runs once per pixel: a position goes in, a colour comes out. For a procedural material the middle of that function has two jobs. First, make a rich noise value <code>n</code> for this pixel. Second, push that value through a <dfn>shaping function</dfn>, a line of maths that turns plain noise into the look of one material. A colour ramp at the end picks the colour.</p>
+
+  <h3>Step 1: one octave is too smooth</h3>
+  <p>Value noise blends random numbers stored on the corners of a grid. One grid size gives one size of feature and nothing smaller, while real materials have detail at every scale.</p>
+
+  <h3>Step 2: add octaves</h3>
+  <p>So add several copies of the noise. Each copy is an <dfn>octave</dfn>: it has twice the frequency of the one before (its grid cells are half as big) and half the amplitude (it moves the total half as much). The sum is called <dfn>fractal Brownian motion</dfn>, or <dfn>fBm</dfn>. The factor between frequencies, 2 here, is called the <dfn>lacunarity</dfn>; the factor between amplitudes, 0.5 here, is the <dfn>gain</dfn>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 310" role="img" aria-label="Three rows of smooth random curves. The first octave has wide, tall waves. The second has waves twice as narrow and half as tall. The third is twice as narrow again and half as tall again. Below a dashed line, their sum: a curve with the big shape of the first octave and the small wiggles of the others.">
+      <text class="d-text" x="16" y="46">Octave 1</text>
+      <text class="d-muted" x="16" y="64">freq 1, amp 0.5</text>
+      <path class="d-thin" d="M170 50 H620"/>
+      <path class="d-stroke" d="M170.0 22.6 L173.8 22.6 L177.5 22.6 L181.2 22.7 L185.0 22.7 L188.8 22.7 L192.5 22.7 L196.2 22.7 L200.0 22.7 L203.8 22.7 L207.5 22.8 L211.2 22.8 L215.0 22.8 L218.8 22.8 L222.5 22.9 L226.2 22.9 L230.0 22.9 L233.8 22.9 L237.5 23.0 L241.2 23.0 L245.0 23.0 L248.8 23.0 L252.5 23.0 L256.2 23.1 L260.0 23.1 L263.8 23.1 L267.5 23.1 L271.2 23.1 L275.0 23.1 L278.8 23.1 L282.5 23.1 L286.2 23.3 L290.0 23.8 L293.8 24.6 L297.5 25.7 L301.2 27.1 L305.0 28.7 L308.8 30.5 L312.5 32.5 L316.2 34.7 L320.0 37.0 L323.8 39.4 L327.5 42.0 L331.2 44.6 L335.0 47.2 L338.8 49.9 L342.5 52.5 L346.2 55.2 L350.0 57.8 L353.8 60.3 L357.5 62.7 L361.2 65.1 L365.0 67.2 L368.8 69.2 L372.5 71.0 L376.2 72.6 L380.0 74.0 L383.8 75.1 L387.5 75.9 L391.2 76.4 L395.0 76.6 L398.8 76.6 L402.5 76.6 L406.2 76.6 L410.0 76.5 L413.8 76.5 L417.5 76.4 L421.2 76.4 L425.0 76.3 L428.8 76.2 L432.5 76.2 L436.2 76.1 L440.0 76.0 L443.8 75.9 L447.5 75.8 L451.2 75.8 L455.0 75.7 L458.8 75.6 L462.5 75.5 L466.2 75.4 L470.0 75.3 L473.8 75.3 L477.5 75.2 L481.2 75.1 L485.0 75.1 L488.8 75.0 L492.5 75.0 L496.2 75.0 L500.0 74.9 L503.8 74.9 L507.5 74.9 L511.2 74.8 L515.0 74.3 L518.8 73.6 L522.5 72.7 L526.2 71.6 L530.0 70.2 L533.8 68.7 L537.5 67.0 L541.2 65.2 L545.0 63.2 L548.8 61.2 L552.5 59.1 L556.2 56.9 L560.0 54.6 L563.8 52.4 L567.5 50.1 L571.2 47.9 L575.0 45.7 L578.8 43.6 L582.5 41.5 L586.2 39.6 L590.0 37.8 L593.8 36.1 L597.5 34.6 L601.2 33.2 L605.0 32.1 L608.8 31.1 L612.5 30.4 L616.2 30.0 L620.0 29.9"/>
+
+      <text class="d-text" x="16" y="114">Octave 2</text>
+      <text class="d-muted" x="16" y="132">freq 2, amp 0.25</text>
+      <path class="d-thin" d="M170 118 H620"/>
+      <path class="d-stroke" d="M170.0 128.2 L173.8 128.1 L177.5 127.9 L181.2 127.4 L185.0 126.8 L188.8 126.1 L192.5 125.4 L196.2 124.6 L200.0 123.8 L203.8 123.0 L207.5 122.2 L211.2 121.5 L215.0 120.9 L218.8 120.5 L222.5 120.2 L226.2 120.1 L230.0 120.1 L233.8 120.1 L237.5 120.2 L241.2 120.3 L245.0 120.4 L248.8 120.5 L252.5 120.6 L256.2 120.7 L260.0 120.8 L263.8 120.9 L267.5 121.0 L271.2 121.1 L275.0 121.1 L278.8 121.2 L282.5 121.2 L286.2 121.1 L290.0 120.7 L293.8 120.2 L297.5 119.5 L301.2 118.6 L305.0 117.7 L308.8 116.7 L312.5 115.8 L316.2 114.8 L320.0 113.9 L323.8 113.0 L327.5 112.3 L331.2 111.8 L335.0 111.4 L338.8 111.3 L342.5 111.2 L346.2 110.9 L350.0 110.5 L353.8 109.9 L357.5 109.2 L361.2 108.4 L365.0 107.6 L368.8 106.8 L372.5 106.0 L376.2 105.3 L380.0 104.6 L383.8 104.0 L387.5 103.6 L391.2 103.3 L395.0 103.2 L398.8 103.2 L402.5 103.2 L406.2 103.3 L410.0 103.4 L413.8 103.5 L417.5 103.6 L421.2 103.8 L425.0 103.9 L428.8 104.0 L432.5 104.2 L436.2 104.3 L440.0 104.4 L443.8 104.5 L447.5 104.5 L451.2 104.5 L455.0 104.7 L458.8 105.1 L462.5 105.8 L466.2 106.7 L470.0 107.7 L473.8 108.8 L477.5 110.0 L481.2 111.2 L485.0 112.4 L488.8 113.5 L492.5 114.5 L496.2 115.4 L500.0 116.1 L503.8 116.5 L507.5 116.7 L511.2 116.7 L515.0 116.8 L518.8 117.0 L522.5 117.2 L526.2 117.4 L530.0 117.7 L533.8 118.0 L537.5 118.3 L541.2 118.6 L545.0 118.9 L548.8 119.1 L552.5 119.3 L556.2 119.5 L560.0 119.6 L563.8 119.7 L567.5 119.7 L571.2 119.9 L575.0 120.2 L578.8 120.6 L582.5 121.0 L586.2 121.5 L590.0 122.0 L593.8 122.6 L597.5 123.1 L601.2 123.6 L605.0 124.0 L608.8 124.4 L612.5 124.7 L616.2 124.9 L620.0 125.0"/>
+
+      <text class="d-text" x="16" y="168">Octave 3</text>
+      <text class="d-muted" x="16" y="186">freq 4, amp 0.125</text>
+      <path class="d-thin" d="M170 172 H620"/>
+      <path class="d-stroke" d="M170.0 174.7 L173.8 174.7 L177.5 174.6 L181.2 174.4 L185.0 174.2 L188.8 174.0 L192.5 173.9 L196.2 173.8 L200.0 173.7 L203.8 173.0 L207.5 171.8 L211.2 170.3 L215.0 168.8 L218.8 167.5 L222.5 166.5 L226.2 166.1 L230.0 166.4 L233.8 167.1 L237.5 168.1 L241.2 169.1 L245.0 170.2 L248.8 171.0 L252.5 171.5 L256.2 171.6 L260.0 171.6 L263.8 171.5 L267.5 171.4 L271.2 171.3 L275.0 171.2 L278.8 171.1 L282.5 171.1 L286.2 171.3 L290.0 171.9 L293.8 172.8 L297.5 173.8 L301.2 174.7 L305.0 175.5 L308.8 175.9 L312.5 176.0 L316.2 176.3 L320.0 176.8 L323.8 177.4 L327.5 178.0 L331.2 178.6 L335.0 179.0 L338.8 179.1 L342.5 178.9 L346.2 178.3 L350.0 177.6 L353.8 176.7 L357.5 175.8 L361.2 175.1 L365.0 174.7 L368.8 174.7 L372.5 174.9 L376.2 175.4 L380.0 175.9 L383.8 176.5 L387.5 177.0 L391.2 177.3 L395.0 177.4 L398.8 177.2 L402.5 176.5 L406.2 175.5 L410.0 174.4 L413.8 173.3 L417.5 172.4 L421.2 171.9 L425.0 171.8 L428.8 171.1 L432.5 169.9 L436.2 168.5 L440.0 167.1 L443.8 165.8 L447.5 164.9 L451.2 164.5 L455.0 164.8 L458.8 165.4 L462.5 166.2 L466.2 167.2 L470.0 168.1 L473.8 168.9 L477.5 169.3 L481.2 169.5 L485.0 170.2 L488.8 171.3 L492.5 172.7 L496.2 174.2 L500.0 175.5 L503.8 176.4 L507.5 176.8 L511.2 176.3 L515.0 174.9 L518.8 173.0 L522.5 170.9 L526.2 168.9 L530.0 167.2 L533.8 166.2 L537.5 166.1 L541.2 166.2 L545.0 166.5 L548.8 166.8 L552.5 167.0 L556.2 167.3 L560.0 167.5 L563.8 167.5 L567.5 167.6 L571.2 167.7 L575.0 167.9 L578.8 168.1 L582.5 168.2 L586.2 168.4 L590.0 168.5 L593.8 168.5 L597.5 168.2 L601.2 167.8 L605.0 167.3 L608.8 166.8 L612.5 166.4 L616.2 166.0 L620.0 165.9"/>
+
+      <path class="d-dash" d="M16 206 H620"/>
+      <text class="d-label" x="16" y="258">Sum: fBm</text>
+      <text class="d-muted" x="16" y="276">big shape + detail</text>
+      <path class="d-accent" d="M170.0 250.6 L173.8 250.4 L177.5 250.0 L181.2 249.4 L185.0 248.6 L188.8 247.8 L192.5 246.9 L196.2 246.0 L200.0 245.1 L203.8 243.6 L207.5 241.7 L211.2 239.6 L215.0 237.5 L218.8 235.7 L222.5 234.5 L226.2 234.0 L230.0 234.3 L233.8 235.1 L237.5 236.2 L241.2 237.3 L245.0 238.5 L248.8 239.5 L252.5 240.1 L256.2 240.3 L260.0 240.4 L263.8 240.4 L267.5 240.4 L271.2 240.4 L275.0 240.4 L278.8 240.4 L282.5 240.4 L286.2 240.6 L290.0 241.4 L293.8 242.5 L297.5 243.9 L301.2 245.4 L305.0 246.8 L308.8 248.1 L312.5 249.2 L316.2 250.7 L320.0 252.6 L323.8 254.8 L327.5 257.3 L331.2 259.9 L335.0 262.6 L338.8 265.3 L342.5 267.6 L346.2 269.4 L350.0 270.7 L353.8 271.8 L357.5 272.7 L361.2 273.5 L365.0 274.5 L368.8 275.7 L372.5 276.9 L376.2 278.2 L380.0 279.4 L383.8 280.5 L387.5 281.4 L391.2 281.9 L395.0 282.2 L398.8 281.9 L402.5 281.2 L406.2 280.3 L410.0 279.2 L413.8 278.2 L417.5 277.4 L421.2 277.0 L425.0 276.9 L428.8 276.3 L432.5 275.2 L436.2 273.9 L440.0 272.4 L443.8 271.1 L447.5 270.2 L451.2 269.7 L455.0 270.0 L458.8 271.0 L462.5 272.5 L466.2 274.2 L470.0 276.1 L473.8 277.9 L477.5 279.5 L481.2 280.8 L485.0 282.6 L488.8 284.8 L492.5 287.2 L496.2 289.5 L500.0 291.4 L503.8 292.8 L507.5 293.3 L511.2 292.7 L515.0 291.0 L518.8 288.6 L522.5 285.8 L526.2 282.8 L530.0 280.1 L533.8 277.9 L537.5 276.4 L541.2 275.0 L545.0 273.5 L548.8 272.0 L552.5 270.4 L556.2 268.6 L560.0 266.7 L563.8 264.5 L567.5 262.4 L571.2 260.5 L575.0 258.8 L578.8 257.2 L582.5 255.8 L586.2 254.4 L590.0 253.2 L593.8 252.0 L597.5 250.8 L601.2 249.5 L605.0 248.3 L608.8 247.3 L612.5 246.4 L616.2 245.9 L620.0 245.7"/>
+    </svg>
+    <figcaption>Three octaves of the same noise, drawn to the same vertical scale. Each one is twice as busy and half as strong as the one above; their sum keeps the outline of the first and gains the detail of the rest.</figcaption>
+  </figure>
+
+  <p>In GLSL it is a loop. The loop bound must be a constant in WebGL 1, so the loop always runs six times and an <code>if</code> skips the octaves the slider has switched off:</p>
+<pre><code>float fbm(vec2 p) {
+  float sum = 0.0;
+  float amp = 0.5;
+  float total = 0.0;
+  for (int k = 0; k &lt; 6; k++) {
+    if (float(k) &lt; u_octaves) {
+      sum += amp * valueNoise(p);
+      total += amp;
+    }
+    p = p * 2.0 + vec2(5.3, 1.7);   // twice the frequency, and a shift
+    amp *= 0.5;                     // half the amplitude
+  }
+  return sum / total;               // back to 0..1
+}</code></pre>
+  <p>The shift <code>vec2(5.3, 1.7)</code> stops each octave's grid corners landing on the corners of the one before. Dividing by <code>total</code> keeps the result between 0 and 1 for any octave count.</p>
+
+  <h3>Step 3: shape it into a material</h3>
+  <p>fBm alone still looks like fog, only crisper. What makes a material is a simple pattern that the noise bends. The demo uses one stretched coordinate <code>s</code>: the pixel's position with x divided by a <dfn>stretch</dfn> factor, so features come out longer along x, like wood grain or layered cloud.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A pipeline of five boxes: stretched position s, fBm noise n, shape t, contrast, colour ramp. Below it, the shaping line for each material: wood uses fract of the ring distance plus noise, marble uses the square root of the absolute sine of a diagonal plus noise, clouds use smoothstep of noise plus height.">
+      <rect class="d-box" x="10" y="20" width="104" height="52" rx="6"/>
+      <text class="d-text" x="62" y="42" text-anchor="middle">position</text>
+      <text class="d-mono" x="62" y="60" text-anchor="middle">s</text>
+      <path class="d-stroke" d="M114 46 H136"/>
+      <rect class="d-box" x="136" y="20" width="104" height="52" rx="6"/>
+      <text class="d-text" x="188" y="42" text-anchor="middle">noise</text>
+      <text class="d-mono" x="188" y="60" text-anchor="middle">n = fbm(s)</text>
+      <path class="d-stroke" d="M240 46 H262"/>
+      <rect class="d-accent-soft" x="262" y="20" width="116" height="52" rx="6"/>
+      <text class="d-text" x="320" y="42" text-anchor="middle">shape</text>
+      <text class="d-mono" x="320" y="60" text-anchor="middle">t = shape(s, n)</text>
+      <path class="d-stroke" d="M378 46 H400"/>
+      <rect class="d-box" x="400" y="20" width="104" height="52" rx="6"/>
+      <text class="d-text" x="452" y="42" text-anchor="middle">contrast</text>
+      <text class="d-mono" x="452" y="60" text-anchor="middle">around 0.5</text>
+      <path class="d-stroke" d="M504 46 H526"/>
+      <rect class="d-box" x="526" y="20" width="104" height="52" rx="6"/>
+      <text class="d-text" x="578" y="42" text-anchor="middle">colour</text>
+      <text class="d-mono" x="578" y="60" text-anchor="middle">mix(c0, c1, t)</text>
+
+      <text class="d-label" x="20" y="118">Wood</text>
+      <text class="d-mono" x="100" y="118">fract(1.5 * r + 2.0 * n)</text>
+      <text class="d-muted" x="100" y="138">r = distance to the ring centre, below the picture</text>
+      <text class="d-label" x="20" y="170">Marble</text>
+      <text class="d-mono" x="100" y="170">sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)))</text>
+      <text class="d-muted" x="100" y="190">dark veins where the sine crosses zero</text>
+      <text class="d-label" x="20" y="222">Clouds</text>
+      <text class="d-mono" x="100" y="222">smoothstep(0.35, 0.65, n + 0.1 * s.y)</text>
+      <text class="d-muted" x="100" y="242">a soft threshold, with more cloud higher up</text>
+    </svg>
+    <figcaption>The same pipeline for all three materials. Only the highlighted shaping line and the two ramp colours change.</figcaption>
+  </figure>
+
+  <p><strong>Wood.</strong> Without noise, <code>fract(1.5 * r)</code> draws concentric rings: a sawtooth that climbs from 0 to 1 across each ring, then drops back. The ramp makes each ring darken and end in a sharp edge, as growth rings do. Adding <code>2.0 * n</code> before the <code>fract</code> pushes each ring in or out by a different amount everywhere, and the stretch turns the circles into long grain.</p>
+  <p><strong>Marble.</strong> <code>sin</code> of a diagonal position makes straight stripes. Adding <code>8.0 * n</code> inside the sine bends them into swirls; this is the classic marble recipe from Ken Perlin's 1985 paper, with plain fBm standing in for his "turbulence". <code>abs</code> is 0 where the sine crosses zero, and <code>sqrt</code> lifts everything else towards 1, so the crossings become thin dark veins.</p>
+  <p><strong>Clouds.</strong> Here the noise is the shape. <code>smoothstep</code> turns noise above 0.65 into solid cloud, noise below 0.35 into clear sky, and blends between. Adding <code>0.1 * s.y</code> makes the sky cloudier towards the top.</p>
+  <p>Finally, <dfn>contrast</dfn> scales <code>t</code> away from 0.5 and clamps it: above 1 it sharpens edges and thins the veins, below 1 it flattens everything towards the middle colour.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which corner is (0, 0), and which colours</p>
+    <p>WebGL's <code>gl_FragCoord</code> starts at the bottom-left with y up, and the demo moves (0, 0) to the centre. LÖVE's <code>screen_coords</code> and Godot's canvas <code>UV</code> start at the top-left with y down, so the code below flips y; Unity's mesh UVs start at the bottom-left. The ramp colours are display (sRGB) values; in a Unity project set to linear colour space they come out lighter.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Step through stages 1 to 5 for each material. On stage 2, slide <em>Octaves</em> from 1 to 6 and watch soft blobs gain ragged edges; the graph shows the same along one line. Stage 3 switches the noise off: plain rings, straight stripes, a sky gradient. Then try <em>Stretch</em> at 1 and at 6 on wood, and <em>Contrast</em> at 3 on marble.</p>
+
+  <figure class="demo wide" data-demo="materials">
+    <canvas id="mat-shader"></canvas>
+    <canvas id="mat-graph"></canvas>
+    <figcaption>Top: the live shader. Bottom: the fBm value along one horizontal line, with the current octave count (solid) and one octave fewer (dashed), so you can see what the last octave added.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the shader is a string with the <code>effect</code> entry point, drawn over the whole window. Keys 1, 2 and 3 pick wood, marble or clouds, up and down change the octaves, left and right the stretch, A and Z the contrast, and space starts or stops the drift.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local material = 0       <span class="c">-- 0 wood, 1 marble, 2 clouds</span>
+local octaves = 5        <span class="c">-- layers of noise, 1 to 6</span>
+local stretch = 3.0      <span class="c">-- 1 = round features, more = longer along x</span>
+local contrast = 1.0     <span class="c">-- 1 = unchanged</span>
+local drift = 0          <span class="c">-- slides the noise while drifting is on</span>
+local drifting = false
+local shader
+
+local pixelcode = [[
+uniform vec2 u_resolution;
+uniform float u_material;
+uniform float u_octaves;
+uniform float u_stretch;
+uniform float u_contrast;
+uniform float u_drift;
+
+float hash(vec2 c)
+{
+  c = mod(c, 64.0);
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float valueNoise(vec2 p)
+{
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p)
+{
+  float sum = 0.0;
+  float amp = 0.5;
+  float total = 0.0;
+  for (int k = 0; k &lt; 6; k++) {
+    if (float(k) &lt; u_octaves) {
+      sum += amp * valueNoise(p);
+      total += amp;
+    }
+    p = p * 2.0 + vec2(5.3, 1.7);
+    amp *= 0.5;
+  }
+  return sum / total;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  // LÖVE's origin is the top-left: flip y so up is +y, as in the demo
+  vec2 pos = vec2(screen_coords.x, u_resolution.y - screen_coords.y);
+  vec2 p = (pos - 0.5 * u_resolution) / u_resolution.y * 4.0;
+  vec2 s = vec2(p.x / u_stretch, p.y);
+  float n = fbm(s + vec2(u_drift, 0.0));
+
+  float t;
+  vec3 c0;      // colour at t = 0
+  vec3 c1;      // colour at t = 1
+  if (u_material &lt; 0.5) {
+    t = fract(length(s - vec2(0.0, -2.6)) * 1.5 + 2.0 * n);
+    c0 = vec3(0.82, 0.60, 0.36);
+    c1 = vec3(0.47, 0.28, 0.14);
+  } else if (u_material &lt; 1.5) {
+    t = sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)));
+    c0 = vec3(0.28, 0.30, 0.36);
+    c1 = vec3(0.94, 0.93, 0.90);
+  } else {
+    t = smoothstep(0.35, 0.65, n + 0.1 * s.y);
+    c0 = mix(vec3(0.55, 0.75, 0.95), vec3(0.25, 0.47, 0.85), clamp(0.5 + 0.25 * p.y, 0.0, 1.0));
+    c1 = vec3(0.97, 0.97, 1.0);
+  }
+  t = clamp((t - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  return vec4(mix(c0, c1, t), 1.0) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "1" then material = 0; stretch = 3.0 end
+  if key == "2" then material = 1; stretch = 1.5 end
+  if key == "3" then material = 2; stretch = 2.0 end
+  if key == "up" then octaves = math.min(octaves + 1, 6) end
+  if key == "down" then octaves = math.max(octaves - 1, 1) end
+  if key == "right" then stretch = math.min(stretch + 0.5, 6.0) end
+  if key == "left" then stretch = math.max(stretch - 0.5, 1.0) end
+  if key == "a" then contrast = math.min(contrast * 1.25, 4.0) end
+  if key == "z" then contrast = math.max(contrast / 1.25, 0.25) end
+  if key == "space" then drifting = not drifting end
+end
+
+function love.update(dt)
+  if drifting then
+<span class="k">    drift = (drift + 0.2 * dt) % 64   <span class="c">-- the noise repeats every 64 cells, so wrapping is invisible</span></span>
+  end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local pw, ph = love.graphics.getPixelDimensions()
+  shader:send("u_resolution", { pw, ph })
+  shader:send("u_material", material)
+  shader:send("u_octaves", octaves)
+  shader:send("u_stretch", stretch)
+  shader:send("u_contrast", contrast)
+  shader:send("u_drift", drift)
+  love.graphics.setShader(shader)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;   // the hash needs 32-bit floats
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_material;  // 0 wood, 1 marble, 2 clouds
+uniform float u_octaves;   // how many layers of noise, 1 to 6
+uniform float u_stretch;   // 1 = round features, more = longer along x
+uniform float u_contrast;  // 1 = unchanged
+uniform float u_drift;     // slides the noise; wrapped to 0..64 on the CPU
+uniform float u_stage;     // 0 one octave ... 4 final colour
+
+const float PERIOD = 64.0;   // the noise repeats every 64 cells, so the drift can wrap
+
+float hash(vec2 c) {
+  c = mod(c, PERIOD);
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// fractal Brownian motion: each octave has twice the frequency and half the amplitude
+float fbm(vec2 p) {
+  float sum = 0.0;
+  float amp = 0.5;
+  float total = 0.0;
+  for (int k = 0; k &lt; 6; k++) {
+    if (float(k) &lt; u_octaves) {
+      sum += amp * valueNoise(p);
+      total += amp;
+    }
+    p = p * 2.0 + vec2(5.3, 1.7);   // shift so the octaves' grids do not line up
+    amp *= 0.5;
+  }
+  return sum / total;               // back to the 0..1 range
+}
+
+// turn the noise into a material's pattern, 0..1
+float shape(vec2 s, float n) {
+  if (u_material &lt; 0.5) return fract(length(s - vec2(0.0, -2.6)) * 1.5 + 2.0 * n);  // wood rings
+  if (u_material &lt; 1.5) return sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)));          // marble veins
+  return smoothstep(0.35, 0.65, n + 0.1 * s.y);                                       // clouds
+}
+
+// colour ramp: dark to light for each material
+vec3 ramp(float t, float y) {
+  if (u_material &lt; 0.5) return mix(vec3(0.82, 0.60, 0.36), vec3(0.47, 0.28, 0.14), t);
+  if (u_material &lt; 1.5) return mix(vec3(0.28, 0.30, 0.36), vec3(0.94, 0.93, 0.90), t);
+  vec3 sky = mix(vec3(0.55, 0.75, 0.95), vec3(0.25, 0.47, 0.85), clamp(0.5 + 0.25 * y, 0.0, 1.0));
+  return mix(sky, vec3(0.97, 0.97, 1.0), t);
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y * 4.0;  // 4 cells tall, (0, 0) in the centre
+  vec2 s = vec2(p.x / u_stretch, p.y);       // 1. stretch along x
+  vec2 q = s + vec2(u_drift, 0.0);           //    where the noise is read
+
+  float n1 = valueNoise(q);                  // 2. one octave
+  float n = fbm(q);                          // 3. several octaves
+  float t = shape(s, n);                     // 4. shape it
+  t = clamp((t - 0.5) * u_contrast + 0.5, 0.0, 1.0);   //    contrast around 0.5
+  vec3 col = ramp(t, p.y);                   // 5. colour
+
+  if (u_stage &lt; 3.5) col = vec3(t);
+  if (u_stage &lt; 2.5) col = vec3(shape(s, 0.5));
+  if (u_stage &lt; 1.5) col = vec3(n);
+  if (u_stage &lt; 0.5) col = vec3(n1);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a ColorRect.
+shader_type canvas_item;
+
+uniform vec2 rect_size = vec2(640.0, 360.0);   // set this to the ColorRect's size
+uniform int material_type : hint_range(0, 2) = 0;   // 0 wood, 1 marble, 2 clouds
+uniform int octaves : hint_range(1, 6) = 5;
+uniform float stretch : hint_range(1.0, 6.0) = 3.0;
+uniform float contrast : hint_range(0.25, 4.0) = 1.0;
+uniform float drift_speed = 0.0;               // noise cells per second
+
+float hash(vec2 c) {
+    c = mod(c, 64.0);
+    return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float value_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    float total = 0.0;
+    for (int k = 0; k &lt; octaves; k++) {   // Godot allows a uniform loop bound
+<span class="k">        sum += amp * value_noise(p);</span>
+        total += amp;
+<span class="k">        p = p * 2.0 + vec2(5.3, 1.7);</span>
+<span class="k">        amp *= 0.5;</span>
+    }
+    return sum / total;
+}
+
+void fragment() {
+    // UV starts at the top-left with y down: flip y to match the demo.
+    vec2 pos = vec2(UV.x, 1.0 - UV.y) * rect_size;
+    vec2 p = (pos - 0.5 * rect_size) / rect_size.y * 4.0;
+    vec2 s = vec2(p.x / stretch, p.y);
+    float n = fbm(s + vec2(mod(TIME * drift_speed, 64.0), 0.0));
+
+    float t;
+    vec3 c0;
+    vec3 c1;
+    if (material_type == 0) {
+        t = fract(length(s - vec2(0.0, -2.6)) * 1.5 + 2.0 * n);
+        c0 = vec3(0.82, 0.60, 0.36);
+        c1 = vec3(0.47, 0.28, 0.14);
+    } else if (material_type == 1) {
+        t = sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)));
+        c0 = vec3(0.28, 0.30, 0.36);
+        c1 = vec3(0.94, 0.93, 0.90);
+    } else {
+        t = smoothstep(0.35, 0.65, n + 0.1 * s.y);
+        c0 = mix(vec3(0.55, 0.75, 0.95), vec3(0.25, 0.47, 0.85), clamp(0.5 + 0.25 * p.y, 0.0, 1.0));
+        c1 = vec3(0.97, 0.97, 1.0);
+    }
+    t = clamp((t - 0.5) * contrast + 0.5, 0.0, 1.0);
+    COLOR = vec4(mix(c0, c1, t), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, unlit marble only. Put it on a Quad.
+Shader "GameDevDaily/ProceduralMarble"
+{
+    Properties
+    {
+        _Cells ("Noise cells across (x) and down (y)", Vector) = (7, 4, 0, 0)
+        [IntRange] _Octaves ("Octaves", Range(1, 6)) = 5
+        _Stretch ("Stretch", Range(1, 6)) = 1.5
+        _Contrast ("Contrast", Range(0.25, 4)) = 1
+    }
+    SubShader
+    {
+        Tags { "RenderType" = "Opaque" }
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float4 _Cells;
+            float _Octaves;
+            float _Stretch;
+            float _Contrast;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float hash (float2 c)
+            {
+                c = c - 64.0 * floor(c / 64.0);   // GLSL mod; HLSL fmod differs below zero
+                return frac(sin(dot(c, float2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            float valueNoise (float2 p)
+            {
+                float2 i = floor(p);
+                float2 f = frac(p);
+                float2 u = f * f * (3.0 - 2.0 * f);
+                return lerp(lerp(hash(i), hash(i + float2(1, 0)), u.x),
+                            lerp(hash(i + float2(0, 1)), hash(i + float2(1, 1)), u.x), u.y);
+            }
+
+            float fbm (float2 p)
+            {
+                float sum = 0.0;
+                float amp = 0.5;
+                float total = 0.0;
+                for (int k = 0; k &lt; 6; k++)
+                {
+                    if ((float)k &lt; _Octaves)
+                    {
+                        sum += amp * valueNoise(p);
+                        total += amp;
+                    }
+                    p = p * 2.0 + float2(5.3, 1.7);
+                    amp *= 0.5;
+                }
+                return sum / total;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                // Unity UVs start at the bottom-left with y up, like gl_FragCoord in the demo.
+                float2 p = (i.uv - 0.5) * _Cells.xy;
+                float2 s = float2(p.x / _Stretch, p.y);
+                float n = fbm(s);
+<span class="k">                float t = sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)));</span>
+                t = saturate((t - 0.5) * _Contrast + 0.5);
+                float3 col = lerp(float3(0.28, 0.30, 0.36), float3(0.94, 0.93, 0.90), t);
+                return fixed4(col, 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>HLSL spells <code>mix</code> as <code>lerp</code> and <code>fract</code> as <code>frac</code>. The Unity version shows marble only; the other shaping lines drop in unchanged. In URP Shader Graph, the <em>Simple Noise</em> node is value noise that, according to its documentation, already sums three octaves; follow it with <em>Sine</em>, <em>Absolute</em> and <em>Square Root</em> nodes for marble.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Octaves smaller than a pixel.</strong> Once an octave's cells are smaller than about two pixels it adds only shimmer, at full price. The demo's readout shows the finest cell size.</li>
+    <li><strong>Not normalising the sum.</strong> Without the divide by <code>total</code>, every threshold you tuned moves when you change the octave count.</li>
+    <li><strong>Grids that line up.</strong> With plain <code>p * 2.0</code> all the grids share a corner at the origin, where a faint cross can appear. Shift or rotate each octave.</li>
+    <li><strong><code>mediump</code> on phones.</strong> By the sixth octave the coordinates are 32 times larger, and the sine hash needs 32-bit floats. Request <code>highp</code> and keep coordinates small, which is why the drift wraps at 64.</li>
+    <li><strong>HLSL <code>fmod</code> is not GLSL <code>mod</code>.</strong> For negative numbers <code>fmod</code> keeps the sign, so the left half of the picture would hash differently. Use <code>c - 64.0 * floor(c / 64.0)</code>.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One octave of value noise is four hashes, which means four sines, plus a few mixes. Five octaves is twenty sines per pixel before any shaping. Fine on a sprite, heavy across a full phone screen of two to three million pixels. If the material does not move, render it once at load time (in LÖVE, into a <code>love.graphics.newCanvas</code>) and draw that instead. Keep the live version for things that change, such as drifting clouds.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Ken Perlin's 1985 SIGGRAPH paper "An Image Synthesizer" introduced noise and summed octaves of it, and showed marble made by bending a sine with it. The book <cite>Texturing and Modeling: A Procedural Approach</cite> by Ebert, Musgrave, Peachey, Perlin and Worley collects these recipes, including fBm. The same idea sits behind the octave settings of common noise tools: Godot's <code>FastNoiseLite</code> has an FBM fractal type with octaves, lacunarity and gain, Blender's Noise Texture node has a <em>Detail</em> input, and Adobe Substance 3D Designer builds tiling game materials from graphs of noise and shaping steps. Procedural terrain height maps often start from fBm: big hills with smaller bumps on top.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a fourth material to the LÖVE program: lava.</p>
+  <ol>
+    <li>Add a branch for <code>u_material</code> 3 that uses <code>t = 1.0 - 6.0 * abs(n - 0.5);</code>. This folds the noise around its middle value, so where n is close to 0.5 the result is bright and everywhere else it is dark.</li>
+    <li>Use <code>c0 = vec3(0.15, 0.02, 0.0)</code> and <code>c1 = vec3(1.0, 0.6, 0.1)</code>, and bind key 4 to <code>material = 3</code> with <code>stretch = 1.0</code>.</li>
+    <li>Turn on the drift and raise the contrast to about 2.5.</li>
+  </ol>
+  <p>You are done when the window shows thin bright cracks winding through dark rock, and you can say which octave count makes them look ragged rather than smooth.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>fBm adds octaves of noise, each with twice the frequency and half the amplitude of the last.</li>
+    <li>Divide by the total amplitude so the result stays between 0 and 1 for any octave count.</li>
+    <li>A material is a simple pattern bent by the noise: rings with <code>fract</code>, stripes with <code>sin</code>, or a threshold with <code>smoothstep</code>.</li>
+    <li>Stretch the coordinates for grain and layers; contrast sharpens or softens the result.</li>
+    <li>Each octave costs a full noise evaluation: stop near 2 pixels per cell, and bake materials that never change.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the 2D game effects begin with the hit flash: mixing a sprite's colour towards white for a moment when it takes damage.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Ken Perlin, <cite>An Image Synthesizer</cite>, SIGGRAPH 1985.</li>
+    <li>David S. Ebert, F. Kenton Musgrave, Darwyn Peachey, Ken Perlin and Steven Worley, <cite>Texturing and Modeling: A Procedural Approach</cite>.</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Fractal Brownian Motion".</li>
+    <li>Inigo Quilez, article on fBm.</li>
+    <li>Godot documentation, <cite>FastNoiseLite</cite>.</li>
+    <li>Unity documentation, <cite>Simple Noise Node</cite> (Shader Graph).</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;   // the hash needs 32-bit floats",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_material;  // 0 wood, 1 marble, 2 clouds",
+    "uniform float u_octaves;   // how many layers of noise, 1 to 6",
+    "uniform float u_stretch;   // 1 = round features, more = longer along x",
+    "uniform float u_contrast;  // 1 = unchanged",
+    "uniform float u_drift;     // slides the noise; wrapped to 0..64 on the CPU",
+    "uniform float u_stage;     // 0 one octave ... 4 final colour",
+    "",
+    "const float PERIOD = 64.0;   // the noise repeats every 64 cells, so the drift can wrap",
+    "",
+    "float hash(vec2 c) {",
+    "  c = mod(c, PERIOD);",
+    "  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);",
+    "}",
+    "",
+    "float valueNoise(vec2 p) {",
+    "  vec2 i = floor(p);",
+    "  vec2 f = fract(p);",
+    "  vec2 u = f * f * (3.0 - 2.0 * f);",
+    "  float a = hash(i);",
+    "  float b = hash(i + vec2(1.0, 0.0));",
+    "  float c = hash(i + vec2(0.0, 1.0));",
+    "  float d = hash(i + vec2(1.0, 1.0));",
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+    "}",
+    "",
+    "// fractal Brownian motion: each octave has twice the frequency and half the amplitude",
+    "float fbm(vec2 p) {",
+    "  float sum = 0.0;",
+    "  float amp = 0.5;",
+    "  float total = 0.0;",
+    "  for (int k = 0; k < 6; k++) {",
+    "    if (float(k) < u_octaves) {",
+    "      sum += amp * valueNoise(p);",
+    "      total += amp;",
+    "    }",
+    "    p = p * 2.0 + vec2(5.3, 1.7);   // shift so the octaves' grids do not line up",
+    "    amp *= 0.5;",
+    "  }",
+    "  return sum / total;               // back to the 0..1 range",
+    "}",
+    "",
+    "// turn the noise into a material's pattern, 0..1",
+    "float shape(vec2 s, float n) {",
+    "  if (u_material < 0.5) return fract(length(s - vec2(0.0, -2.6)) * 1.5 + 2.0 * n);  // wood rings",
+    "  if (u_material < 1.5) return sqrt(abs(sin(2.0 * s.x + s.y + 8.0 * n)));          // marble veins",
+    "  return smoothstep(0.35, 0.65, n + 0.1 * s.y);                                       // clouds",
+    "}",
+    "",
+    "// colour ramp: dark to light for each material",
+    "vec3 ramp(float t, float y) {",
+    "  if (u_material < 0.5) return mix(vec3(0.82, 0.60, 0.36), vec3(0.47, 0.28, 0.14), t);",
+    "  if (u_material < 1.5) return mix(vec3(0.28, 0.30, 0.36), vec3(0.94, 0.93, 0.90), t);",
+    "  vec3 sky = mix(vec3(0.55, 0.75, 0.95), vec3(0.25, 0.47, 0.85), clamp(0.5 + 0.25 * y, 0.0, 1.0));",
+    "  return mix(sky, vec3(0.97, 0.97, 1.0), t);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y * 4.0;  // 4 cells tall, (0, 0) in the centre",
+    "  vec2 s = vec2(p.x / u_stretch, p.y);       // 1. stretch along x",
+    "  vec2 q = s + vec2(u_drift, 0.0);           //    where the noise is read",
+    "",
+    "  float n1 = valueNoise(q);                  // 2. one octave",
+    "  float n = fbm(q);                          // 3. several octaves",
+    "  float t = shape(s, n);                     // 4. shape it",
+    "  t = clamp((t - 0.5) * u_contrast + 0.5, 0.0, 1.0);   //    contrast around 0.5",
+    "  vec3 col = ramp(t, p.y);                   // 5. colour",
+    "",
+    "  if (u_stage < 3.5) col = vec3(t);",
+    "  if (u_stage < 2.5) col = vec3(shape(s, 0.5));",
+    "  if (u_stage < 1.5) col = vec3(n);",
+    "  if (u_stage < 0.5) col = vec3(n1);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var DRIFT_SPEED = 0.2;   // noise cells per second, the same as the Lua
+  var PERIOD = 64;         // the noise repeats every 64 cells
+  var CELLS_TALL = 4;      // octave 1 has 4 cells across the canvas height
+  var drift = 0;
+  var handle = null;
+  var graph = null;
+
+  // a suggested stretch for each material, the same as the Lua keys 1, 2, 3
+  var STRETCH = { '0': 3, '1': 1.5, '2': 2 };
+
+  var ui = DemoKit.controls('[data-demo="materials"]');
+  var material = ui.select({
+    label: 'Material',
+    options: [
+      { value: '0', label: 'Wood' },
+      { value: '1', label: 'Marble' },
+      { value: '2', label: 'Clouds' }
+    ],
+    value: '0',
+    onChange: function (v) {
+      stretch.set(STRETCH[v]);
+      changed();
+    }
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. One octave of noise' },
+      { value: '1', label: '2. fBm: several octaves' },
+      { value: '2', label: '3. Shape with the noise off' },
+      { value: '3', label: '4. Shape with the noise: t' },
+      { value: '4', label: '5. Colour ramp' }
+    ],
+    value: '4',
+    onChange: changed
+  });
+  var octaves = ui.slider({ label: 'Octaves', min: 1, max: 6, step: 1, value: 5, onInput: changed });
+  var stretch = ui.slider({ label: 'Stretch along x', min: 1, max: 6, step: 0.25, value: 3, onInput: changed });
+  var contrast = ui.slider({ label: 'Contrast', min: 0.25, max: 4, step: 0.05, value: 1, onInput: changed });
+  var moving = ui.toggle({ label: 'Drift the noise', value: false, onChange: changed });
+  var cost = ui.readout({ label: 'Cost' });
+  var finest = ui.readout({ label: 'Finest octave cell' });
+
+  function changed() {
+    var k = octaves.value;
+    var used = Number(stage.value) === 0 ? 1 : k;
+    cost.set(used + (used === 1 ? ' octave: ' : ' octaves: ') + (4 * used) + ' hashes (sines) per pixel');
+    if (handle) {
+      var px = handle.state.height / CELLS_TALL / Math.pow(2, used - 1);
+      finest.set(px.toFixed(1) + ' px tall' + (px < 2 ? ' (too small to see)' : ''));
+      handle.redraw();
+    }
+    if (graph) graph.redraw();
+  }
+
+  handle = DemoKit.shader('#mat-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 400,
+    label: 'A live fragment shader that builds a procedural material. The Material menu picks wood, marble or clouds. The Stage menu shows one octave of value noise, the sum of several octaves, the material pattern with the noise switched off, the shaped value, and the final colours. Sliders set the octave count, the stretch along x and the contrast; a toggle makes the noise drift.',
+    uniforms: {
+      u_material: function () { return Number(material.value); },
+      u_octaves: function () { return octaves.value; },
+      u_stretch: function () { return stretch.value; },
+      u_contrast: function () { return contrast.value; },
+      u_drift: function () { return drift; },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onResize: function () { changed(); },
+    update: function (dt) {
+      if (moving.value) drift = (drift + DRIFT_SPEED * dt) % PERIOD;
+    }
+  });
+
+  // ---- 1D graph: the same fBm along one line, computed on the CPU ----
+  var rand = DemoKit.rng(21);
+  var table = [];
+  for (var i = 0; i < PERIOD; i++) table.push(rand());
+
+  function value1(x) {
+    var i0 = Math.floor(x);
+    var f = x - i0;
+    var u = f * f * (3 - 2 * f);
+    var a = table[((i0 % PERIOD) + PERIOD) % PERIOD];
+    var b = table[(((i0 + 1) % PERIOD) + PERIOD) % PERIOD];
+    return a + (b - a) * u;
+  }
+  function fbm1(x, count) {
+    var sum = 0, amp = 0.5, total = 0;
+    for (var k = 0; k < count; k++) {
+      sum += amp * value1(x);
+      total += amp;
+      x = x * 2 + 5.3;
+      amp *= 0.5;
+    }
+    return sum / total;
+  }
+
+  graph = DemoKit.canvas('#mat-graph', {
+    height: 170,
+    animate: false,
+    label: 'A graph of the noise value along one horizontal line, from 0 at the bottom to 1 at the top. The solid curve uses the current octave count, the dashed curve one octave fewer.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 30, right = s.width - 12, top = 30, bottom = s.height - 16;
+      var k = octaves.value;
+      var span = 8;   // noise cells shown across the graph
+
+      function Y(v) { return bottom - v * (bottom - top); }
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(0)); ctx.lineTo(right, Y(0));
+      ctx.moveTo(left, Y(1)); ctx.lineTo(right, Y(1));
+      ctx.stroke();
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(left, Y(0.5)); ctx.lineTo(right, Y(0.5));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('1', left - 8, Y(1));
+      ctx.fillText('0', left - 8, Y(0));
+
+      function curve(count) {
+        ctx.beginPath();
+        var steps = Math.max(2, Math.round(right - left));
+        for (var j = 0; j <= steps; j++) {
+          var x = left + (right - left) * j / steps;
+          var v = fbm1(j / steps * span, count);
+          if (j === 0) ctx.moveTo(x, Y(v)); else ctx.lineTo(x, Y(v));
+        }
+        ctx.stroke();
+      }
+
+      if (k > 1) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        curve(k - 1);
+        ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      curve(k);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink2;
+      var label = k + (k === 1 ? ' octave' : ' octaves');
+      if (k > 1) label += ' (dashed: ' + (k - 1) + ')';
+      ctx.fillText(label, left, 14);
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

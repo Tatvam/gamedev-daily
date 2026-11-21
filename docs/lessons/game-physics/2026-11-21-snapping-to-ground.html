@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapping to the ground · Game Dev Daily</title>
+<meta name="description" content="Why a running character launches off the top of a slope and hops down the other side, and how a short downward snap keeps its feet on the ground.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-21">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Snapping to the ground</h1>
+  <p class="lede">Why a running character launches off the top of a slope and hops down the other side, and how a short downward snap keeps its feet on the ground.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character sprints up a hill and, at the top, takes off like a ski jumper. On the way down it skips in little hops, the run animation flickers to "falling", and the jump button only works on some of the hops. The collision code is fine: nothing tells the character to come back down.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Why a grounded character leaves the ground</h2>
+  <p>On a floor, the character walks along the surface's <dfn>tangent</dfn> (the direction along the floor) with gravity off, as in <a href="2026-11-08-walking-on-slopes.html">slopes</a>. It moves with <a href="2026-11-19-move-and-slide.html">move and slide</a>, then runs the <a href="2026-11-20-ground-detection.html">ground check</a>: a circle cast 1 pixel down and a 45° floor angle.</p>
+  <p>Each step is a straight line. Where the ground bends <em>away</em> from the feet, the line leaves the surface:</p>
+  <ul>
+    <li><strong>Over the top of a slope.</strong> Walking up a 35° hill at 300 px/s, the velocity along the slope has an upward part of <code>300 × sin 35° ≈ 172</code> px/s. Past the top the ground check says "in the air", gravity switches on, and that upward speed carries the body about <code>172² / (2 × 1800) ≈ 8</code> pixels above the top. That is the ski jump.</li>
+    <li><strong>Onto a down slope.</strong> Running off a flat top onto a 35° down slope, the velocity is horizontal. The ground falls away at <code>300 × tan 35° ≈ 210</code> px/s, and gravity needs <code>210 / 1800 ≈ 0.12</code> seconds to fall that fast. Until then the character is in the air, where jumping fails.</li>
+  </ul>
+  <p>Real physics agrees with the bug: a fast car does leave the road over a sharp hilltop. But players expect a runner's feet to stay down, so here the game answer and the physical answer part ways.</p>
+
+  <h2>The fix: look down, then move down</h2>
+  <p>A <dfn>ground snap</dfn> is one extra move at the end of the step. If the character was grounded when the step began, did not jump, and is not grounded now, cast its shape straight down by the <dfn>snap distance</dfn>. If the cast hits a floor, move the character down onto it and call it grounded again.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left, without snap: a circle walks up a slope; past the top its velocity still points up along the slope, and its path arcs above the flat top with a gap under it. Right, with snap: the circle moves past the top and ends a little above the floor, a short cast downward finds the floor, the circle moves down onto it, and its new velocity runs along the flat floor.">
+      <text class="d-text" x="160" y="26" text-anchor="middle">Without snap</text>
+      <path class="d-fill" d="M20 230 L150 140 H300 V250 H20 Z"/>
+      <path class="d-stroke" d="M20 230 L150 140 H300"/>
+      <circle class="d-dash" cx="101.7" cy="156.4" r="14"/>
+      <path class="d-dash" d="M142 128.5 Q199.5 88.7 270 126"/>
+      <path class="d-accent" d="M142 128.5 L183.1 100.1"/>
+      <path class="d-accent" d="M171.8 101.8 L183.1 100.1 L177.4 110"/>
+      <circle class="d-accent-soft" cx="210" cy="106" r="14"/>
+      <path class="d-bad" d="M210 122 V138"/>
+      <text class="d-text" x="220" y="160">in the air</text>
+      <text class="d-label" x="140" y="72" text-anchor="middle">velocity still</text>
+      <text class="d-label" x="140" y="88" text-anchor="middle">points uphill</text>
+
+      <text class="d-text" x="480" y="26" text-anchor="middle">With snap</text>
+      <path class="d-fill" d="M340 230 L470 140 H620 V250 H340 Z"/>
+      <path class="d-stroke" d="M340 230 L470 140 H620"/>
+      <circle class="d-dash" cx="490" cy="103" r="14"/>
+      <path class="d-accent" d="M490 103 V120"/>
+      <path class="d-accent" d="M485 113 L490 121 L495 113"/>
+      <circle class="d-accent-soft" cx="490" cy="126" r="14"/>
+      <path class="d-good" d="M504 126 H560"/>
+      <path class="d-good" d="M552 121 L561 126 L552 131"/>
+      <text class="d-muted" x="398" y="54">1. move: ends above the floor</text>
+      <text class="d-muted" x="398" y="70">2. cast down by the snap distance</text>
+      <text class="d-label" x="512" y="112">3. move down</text>
+      <text class="d-text" x="510" y="162">new velocity</text>
+      <text class="d-text" x="510" y="178">along the floor</text>
+      <text class="d-mono" x="320" y="262" text-anchor="middle">drop = t × SNAP − SKIN / (−ny)</text>
+    </svg>
+    <figcaption>Left: the straight-line step carries the uphill velocity past the top, and the body flies. Right: the same step ends a little above the floor (dashed), the downward cast finds the floor, and the body moves onto it. Next step it walks along the new floor's tangent.</figcaption>
+  </figure>
+
+  <p>The cast returns <code>t</code>, the fraction of the snap distance travelled before touching, so the floor is <code>t × SNAP</code> below. The character should stop a skin's width short along the normal <code>n</code>, and moving down by <code>d</code> closes that gap by <code>d × (−ny)</code>:</p>
+<pre><code>drop = t * SNAP - SKIN / -ny</code></pre>
+  <p>In words: go down to the floor, minus the skin converted to a vertical distance. On flat ground <code>−ny = 1</code>, so a floor 2 pixels down gives a drop of 1.75.</p>
+
+  <h3>Three conditions</h3>
+  <ul>
+    <li><strong>Grounded at the start of the step.</strong> Snapping keeps contact that existed; it must not yank a falling character onto a floor.</li>
+    <li><strong>Did not jump this step.</strong> A jump at 460 px/s rises 7.7 pixels in its first step. An 8 pixel snap finds the floor and pulls the character back: the jump is eaten.</li>
+    <li><strong>The hit is a floor.</strong> The same angle test as ground detection, so the character never clings to a steep face.</li>
+  </ul>
+
+  <h3>Choosing the snap distance</h3>
+  <p>The snap must cover how far the ground falls away in one step. Onto a 35° down slope at 300 px/s, a 5 pixel step leaves the floor up to <code>5 × tan 35° ≈ 3.5</code> pixels below. A round body rolls over the corner, so the demo's largest snap is only 1.3 pixels. One lap of the demo's hill:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Run speed</th><th>No snap</th><th>Snap 2 px</th><th>Snap 4 px</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">150 px/s</td><td>9 steps in the air, 1.5 px gap</td><td>0 steps</td><td>0 steps</td></tr>
+      <tr><td class="num">300 px/s</td><td>34 steps in the air, 13.3 px gap</td><td>0 steps</td><td>0 steps</td></tr>
+      <tr><td class="num">450 px/s</td><td>46 steps in the air, 45.4 px gap</td><td>33 steps, 45.4 px gap</td><td>0 steps</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>A short snap fails all at once: after one miss the character is airborne, so the next step does not snap either.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Start with about twice <code>topSpeed × step × tan(maxFloorAngle)</code>: at 300 px/s and 45°, 2 × 5 × 1 = 10 pixels. Then tune it: long enough that the steepest crest never launches you at top speed, short enough that drops you want to fall off stay falls.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The character runs the hill by itself and each lap is scored. With snapping off, watch the hollow red rings: the ski jump off the top, the hop onto the down slope, the flight over the bump. Switch <strong>Snap to ground</strong> on and the gaps close.</p>
+  <p>Then set the run speed to 450 and the snap distance to 2: the hops come back. Finally, switch on <strong>Snap on the jump step too</strong> and press Space: with a snap above 7.7 pixels the jump vanishes. Click the scene to use the keyboard (arrows or A and D, Space or W to jump). On touch, hold beside the character to walk and above it to jump.</p>
+
+  <figure class="demo wide" data-demo="snap">
+    <canvas id="snap"></canvas>
+    <figcaption>Trail: filled dots are steps on the ground, small squares are steps saved by a snap, hollow red rings are steps in the air. The dashed circle is the snap cast and the arrow is the velocity. Changing a setting starts a new lap so the scores stay comparable.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step, with its names and numbers. <code>castCircle</code> and <code>moveAndSlide</code> are unchanged from the <a href="2026-11-19-move-and-slide.html">move and slide</a> lesson, with a skin of 0.25 pixels.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, GRAVITY, JUMP, RUN = 1 / 60, 1800, 460, 300
+local RADIUS, SKIN, PROBE = 12, 0.25, 1
+local SNAP = 8                                  <span class="c">-- snap distance in pixels</span>
+local FLOOR_MIN_UP = math.cos(math.rad(45))
+local player = { x = 40, y = 237.75, vx = 0, vy = 0, grounded = true, gnx = 0, gny = -1 }
+local accumulator = 0
+
+local function isFloor(nx, ny)
+  return -ny &gt;= FLOOR_MIN_UP
+end
+
+local function snapToGround(body)
+<span class="k">  local hit = castCircle(body.x, body.y, RADIUS, 0, SNAP)</span>
+  if hit == nil or not isFloor(hit.nx, hit.ny) then return false end
+<span class="k">  body.y = body.y + math.max(hit.t * SNAP - SKIN / -hit.ny, 0)</span>
+  body.gnx, body.gny = hit.nx, hit.ny
+  return true
+end
+
+local function step(body, ix, jump)
+  local wasGrounded, jumped = body.grounded, false
+  if body.grounded and jump then
+    body.vx, body.vy = ix * RUN, -JUMP
+    jumped = true
+  elseif body.grounded then                     <span class="c">-- along the floor, no gravity</span>
+    body.vx, body.vy = -body.gny * ix * RUN, body.gnx * ix * RUN
+  else
+    body.vx = ix * RUN
+    body.vy = body.vy + GRAVITY * STEP
+  end
+  moveAndSlide(body, body.vx * STEP, body.vy * STEP)
+
+  local hit = castCircle(body.x, body.y, RADIUS, 0, PROBE)   <span class="c">-- ground check</span>
+  body.grounded = hit ~= nil and isFloor(hit.nx, hit.ny)
+  if body.grounded then
+    body.gnx, body.gny = hit.nx, hit.ny
+<span class="k">  elseif wasGrounded and not jumped then
+    body.grounded = snapToGround(body)</span>
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local ix = 0
+    if love.keyboard.isDown("left", "a") then ix = ix - 1 end
+    if love.keyboard.isDown("right", "d") then ix = ix + 1 end
+    step(player, ix, love.keyboard.isDown("space", "w"))
+    accumulator = accumulator - STEP
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: move_and_slide() snaps for you.</span>
+extends CharacterBody2D
+
+const RUN := 300.0
+const GRAVITY := 1800.0
+const JUMP := 460.0
+
+func _ready() -&gt; void:
+    floor_max_angle = deg_to_rad(45.0)
+<span class="k">    floor_snap_length = 8.0   # pixels; the default is 1</span>
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.x = Input.get_axis("ui_left", "ui_right") * RUN
+    if not is_on_floor():
+        velocity.y += GRAVITY * delta
+    elif Input.is_action_just_pressed("ui_accept"):
+<span class="k">        velocity.y = -JUMP    # moving up: the snap is skipped this step</span>
+    move_and_slide()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity's CharacterController has no snap setting, so cast down yourself.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+public class GroundSnap : MonoBehaviour
+{
+    public float snapDistance = 0.08f;   <span class="c">// metres</span>
+    public LayerMask groundLayers;       <span class="c">// leave the player's own layer out</span>
+    CharacterController controller;
+    bool wasGrounded;
+
+    void Awake()
+    {
+        controller = GetComponent&lt;CharacterController&gt;();
+    }
+
+    <span class="c">// Call right after this frame's controller.Move(...).</span>
+    public void SnapAfterMove(bool jumpedThisFrame)
+    {
+        bool grounded = controller.isGrounded;
+        if (!grounded &amp;&amp; wasGrounded &amp;&amp; !jumpedThisFrame)
+        {
+            Vector3 feet = transform.TransformPoint(controller.center)
+                + Vector3.down * (controller.height * 0.5f - controller.radius);
+<span class="k">            if (Physics.SphereCast(feet, controller.radius, Vector3.down, out RaycastHit hit,
+                    snapDistance, groundLayers)
+                &amp;&amp; Vector3.Angle(hit.normal, Vector3.up) &lt;= controller.slopeLimit)
+            {
+                controller.Move(Vector3.down * hit.distance);
+                grounded = true;
+            }</span>
+        }
+        wasGrounded = grounded;
+    }
+}</code></pre>
+  </div>
+  <p>One step by hand: the character has just passed the top and its circle sits 2 pixels above flat ground. The 1 pixel probe misses, so <code>grounded</code> is false. It was grounded and did not jump, so the snap casts 8 pixels down and hits at <code>t = 2 / 8 = 0.25</code> with <code>ny = −1</code>. The drop is <code>0.25 × 8 − 0.25 / 1 = 1.75</code>, which leaves the usual 0.25 pixel skin.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Snapping after a jump.</strong> The jump step must skip the snap, or any snap longer than the first step of the jump swallows it. Godot skips it when the velocity points up; the Lua above uses a <code>jumped</code> flag, because in this model walking up a slope also has an upward velocity, and it must still snap at the top.</li>
+    <li><strong>A snap no longer than the ground probe.</strong> If the probe already looked 1 pixel down, a 1 pixel snap finds nothing new. Set the demo's snap to 1 and nothing changes.</li>
+    <li><strong>A snap that is too long.</strong> Small drops you meant to fall off become instant teleports down.</li>
+    <li><strong>A long probe instead of a snap.</strong> A 10 pixel probe says "grounded" while the character floats, and with gravity off on floors it walks on air. The probe answers a question; the snap moves the body.</li>
+    <li><strong>Keeping the old velocity.</strong> After a snap past the top, the stored velocity still points uphill. Recompute it from the new floor next step, or remove the part pointing away from the floor.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot 4's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> have <code>floor_snap_length</code>, which <code>move_and_slide()</code> uses to keep the body on slopes, and <code>apply_floor_snap()</code> to snap on demand. Godot 3 had <code>move_and_slide_with_snap()</code>, which took a snap vector; the usual pattern was to pass a zero vector on the frame you jumped, the same rule as the <code>jumped</code> flag here.</p>
+  <p>Unity's <code>CharacterController</code> has no snap distance. Projects add a downward cast like the one above, or keep a small downward speed while grounded, as in the <a href="2026-11-08-walking-on-slopes.html">slopes</a> lesson: a weak snap that reaches only as far as that speed moves in one frame.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your project, build a short ramp up and a ramp down, and count the physics steps your character spends not grounded while running over it at top speed. Add the snap with the three conditions, starting from the rule of thumb.</p>
+  <p>You are done when the count is zero at top speed, a jump from the ramp still reaches its full height, and walking off a real ledge still falls.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A straight-line step leaves the ground wherever the ground bends away: over a hilltop and onto a down slope.</li>
+    <li>A ground snap casts down by a short distance after the move and puts the character back on the floor it finds.</li>
+    <li>Snap only if the character was grounded, did not jump this step, and the hit is a floor.</li>
+    <li>The snap distance must exceed how far the ground falls away in one step at top speed, and stay shorter than drops you want to fall off.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, steps and stairs: how a character climbs small ledges without jumping, which is the same idea pointed upwards.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference: <code>floor_snap_length</code>, <code>apply_floor_snap</code> and <code>move_and_slide</code>.</li>
+    <li>Godot Engine 3 documentation, <cite>KinematicBody2D</cite> class reference: <code>move_and_slide_with_snap</code>.</li>
+    <li>Unity documentation, <cite>CharacterController</cite> and <cite>Physics.SphereCast</cite> in the Scripting API.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The world. Matches the Lua: pixels, y grows downwards. ----
+  var RADIUS = 12, SKIN = 0.25, PROBE = 1, GRAVITY = 1800, JUMP = 460, STEP = 1 / 60;
+  var START_X = 40, START_Y = 250 - RADIUS - SKIN, LAP_END = 600;
+  var VIEW_X = 0, VIEW_Y = 40, VIEW_W = 640, VIEW_H = 260;
+  var TRAIL = 150;
+  var D = Math.PI / 180;
+  var MIN_UP = Math.cos(45 * D);
+
+  var PTS = (function () {
+    var p = [[10, 40], [10, 250], [70, 250]];
+    function slope(deg, dy) {
+      var l = p[p.length - 1];
+      p.push([l[0] + Math.abs(dy) / Math.tan(deg * D), l[1] + dy]);
+    }
+    function flat(x) { p.push([x, p[p.length - 1][1]]); }
+    slope(35, -80);                       // 35 degree hill up
+    flat(p[p.length - 1][0] + 30);        // short top
+    slope(35, 80);                        // 35 degree down
+    flat(380);
+    slope(25, -16);                       // small bump
+    slope(25, 16);
+    flat(480);
+    slope(20, 30);                        // gentle 20 degree down
+    flat(630);
+    p.push([630, 40]);
+    return p;
+  })();
+  var WALLS = [];
+  for (var i = 0; i + 1 < PTS.length; i++) WALLS.push([PTS[i][0], PTS[i][1], PTS[i + 1][0], PTS[i + 1][1]]);
+
+  // First wall a circle at (x, y) touches while moving by (mx, my). t is a fraction of the move.
+  function castCircle(x, y, r, mx, my) {
+    var best = null;
+    function consider(t, nx, ny, px, py) {
+      if (!best || t < best.t) best = { t: t, nx: nx, ny: ny, px: px, py: py };
+    }
+    for (var i = 0; i < WALLS.length; i++) {
+      var w = WALLS[i], ax = w[0], ay = w[1], bx = w[2], by = w[3];
+      var len = Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+      var ux = (bx - ax) / len, uy = (by - ay) / len;
+      var nx = -uy, ny = ux;
+      var s = (x - ax) * nx + (y - ay) * ny;
+      if (s < 0) { nx = -nx; ny = -ny; s = -s; }
+      var d = mx * nx + my * ny;
+      if (d < 0) {
+        var t = Math.max((s - r) / -d, 0);
+        var along = (x + mx * t - ax) * ux + (y + my * t - ay) * uy;
+        if (t <= 1 && along >= 0 && along <= len) consider(t, nx, ny, ax + ux * along, ay + uy * along);
+      }
+      for (var k = 0; k < 2; k++) {
+        var ex = k === 0 ? ax : bx, ey = k === 0 ? ay : by;
+        var fx = x - ex, fy = y - ey;
+        var a = mx * mx + my * my, b = fx * mx + fy * my;
+        var disc = b * b - a * (fx * fx + fy * fy - r * r);
+        if (b < 0 && disc >= 0 && a > 0) {
+          var te = Math.max((-b - Math.sqrt(disc)) / a, 0);
+          var qx = fx + mx * te, qy = fy + my * te, ql = Math.sqrt(qx * qx + qy * qy);
+          if (te <= 1 && ql > 0) consider(te, qx / ql, qy / ql, ex, ey);
+        }
+      }
+    }
+    return best;
+  }
+
+  function isFloor(nx, ny) { return -ny >= MIN_UP - 1e-9; }
+
+  function moveAndSlide(body, mx, my) {
+    for (var pass = 0; pass < 4; pass++) {
+      if (mx * mx + my * my < 1e-8) return;
+      var hit = castCircle(body.x, body.y, RADIUS, mx, my);
+      if (!hit) { body.x += mx; body.y += my; return; }
+      var hx = body.x + mx * hit.t, hy = body.y + my * hit.t;
+      var gap = (hx - hit.px) * hit.nx + (hy - hit.py) * hit.ny;
+      body.x = hx + hit.nx * (RADIUS + SKIN - gap);
+      body.y = hy + hit.ny * (RADIUS + SKIN - gap);
+      mx *= 1 - hit.t;
+      my *= 1 - hit.t;
+      var into = mx * hit.nx + my * hit.ny;
+      mx -= into * hit.nx;
+      my -= into * hit.ny;
+      var vin = body.vx * hit.nx + body.vy * hit.ny;
+      if (vin < 0) { body.vx -= vin * hit.nx; body.vy -= vin * hit.ny; }
+    }
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="snap"]');
+  var snapOn = ui.toggle({ label: 'Snap to ground', value: false, onChange: newLap });
+  var snapDist = ui.slider({ label: 'Snap distance', min: 0, max: 20, step: 0.5, value: 8, unit: ' px', onInput: newLap });
+  var run = ui.slider({ label: 'Run speed', min: 60, max: 480, step: 30, value: 300, unit: ' px/s', onInput: newLap });
+  var auto = ui.toggle({ label: 'Auto run', value: true });
+  var snapJump = ui.toggle({ label: 'Snap on the jump step too (bug)', value: false, onChange: newLap });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var thisLap = ui.readout({ label: 'This lap' });
+  var lastLap = ui.readout({ label: 'Last lap' });
+  ui.button({ label: 'Reset', onClick: function () { newLap(); lastLap.set('none yet'); } });
+
+  // ---- Demo state ----
+  var body, trail, stats, accumulator = 0;
+  var view = { k: 1, ox: 0, oy: 0 };
+
+  function newLap() {
+    body = { x: START_X, y: START_Y, vx: 0, vy: 0, grounded: true, gnx: 0, gny: -1, snapped: false };
+    trail = [];
+    stats = { air: 0, gap: 0 };
+    showStats();
+  }
+
+  function describe(st) {
+    if (st.air === 0) return '0 steps in the air';
+    return st.air + ' steps in the air, highest gap ' + st.gap.toFixed(1) + ' px';
+  }
+  function showStats() { thisLap.set(describe(stats)); }
+
+  newLap();
+  lastLap.set('none yet');
+
+  function readInput(s) {
+    var x = 0, jump = false, keys = s.keys;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (keys.has('space') || keys.has('w') || keys.has('arrowup')) jump = true;
+    if (s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.k + VIEW_X;
+      var wy = (s.pointer.y - view.oy) / view.k + VIEW_Y;
+      if (wy < body.y - 30) jump = true;
+      else if (wx < body.x - 8) x = -1;
+      else if (wx > body.x + 8) x = 1;
+    }
+    if (x === 0 && auto.value) x = 1;
+    return { x: x, jump: jump };
+  }
+
+  function physicsStep(s) {
+    var input = readInput(s);
+    var speed = run.value;
+    var wasGrounded = body.grounded, jumped = false;
+
+    if (body.grounded && input.jump) {
+      body.vx = input.x * speed;
+      body.vy = -JUMP;
+      jumped = true;
+    } else if (body.grounded) {
+      body.vx = -body.gny * input.x * speed;   // along the floor tangent, no gravity
+      body.vy = body.gnx * input.x * speed;
+    } else {
+      body.vx = input.x * speed;
+      body.vy += GRAVITY * STEP;
+    }
+    moveAndSlide(body, body.vx * STEP, body.vy * STEP);
+
+    var hit = castCircle(body.x, body.y, RADIUS, 0, PROBE);
+    body.grounded = !!hit && isFloor(hit.nx, hit.ny);
+    body.snapped = false;
+    if (body.grounded) {
+      body.gnx = hit.nx;
+      body.gny = hit.ny;
+    } else if (snapOn.value && wasGrounded && (!jumped || snapJump.value) && snapDist.value > 0) {
+      var h = castCircle(body.x, body.y, RADIUS, 0, snapDist.value);
+      if (h && isFloor(h.nx, h.ny)) {
+        body.y += Math.max(h.t * snapDist.value - SKIN / -h.ny, 0);
+        body.gnx = h.nx;
+        body.gny = h.ny;
+        body.grounded = true;
+        body.snapped = true;
+      }
+    }
+
+    // Safety net for the demo only: never let the character leave the room.
+    if (!(body.y < 300 && body.y > 0) || !(body.x > 10 && body.x < 630)) { newLap(); return; }
+
+    if (!body.grounded) {
+      stats.air += 1;
+      var below = castCircle(body.x, body.y, RADIUS, 0, 300);
+      if (below) stats.gap = Math.max(stats.gap, below.t * 300 - SKIN);
+    }
+    trail.push({ x: body.x, y: body.y, state: body.snapped ? 'snap' : (body.grounded ? 'ground' : 'air') });
+    if (trail.length > TRAIL) trail.shift();
+    showStats();
+
+    if (body.x >= LAP_END) {
+      lastLap.set(describe(stats));
+      newLap();
+    }
+  }
+
+  function arrow(ctx, x0, y0, x1, y1, head) {
+    var dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    if (len < 1e-6) return;
+    var ux = dx / len, uy = dy / len, h = Math.min(head, len * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - ux * h - uy * h * 0.5, y1 - uy * h + ux * h * 0.5);
+    ctx.lineTo(x1 - ux * h + uy * h * 0.5, y1 - uy * h - ux * h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function layout(s) {
+    var k = Math.min(s.width / VIEW_W, (s.height - 8) / VIEW_H);
+    view.k = k;
+    view.ox = (s.width - VIEW_W * k) / 2;
+    view.oy = 4;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    layout(s);
+    var k = view.k, px = 1 / k;
+    ctx.save();
+    ctx.translate(view.ox, view.oy);
+    ctx.scale(k, k);
+    ctx.translate(-VIEW_X, -VIEW_Y);
+
+    // Terrain.
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath();
+    ctx.moveTo(PTS[0][0], PTS[0][1]);
+    for (var i = 1; i < PTS.length; i++) ctx.lineTo(PTS[i][0], PTS[i][1]);
+    ctx.lineTo(640, 40);
+    ctx.lineTo(640, 300);
+    ctx.lineTo(0, 300);
+    ctx.lineTo(0, 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 2 * px;
+    ctx.beginPath();
+    ctx.moveTo(PTS[0][0], PTS[0][1]);
+    for (var j = 1; j < PTS.length; j++) ctx.lineTo(PTS[j][0], PTS[j][1]);
+    ctx.stroke();
+
+    // Slope labels.
+    ctx.font = (12 * px) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink3;
+    var labels = [[3, '35°', 14], [5, '35°', 14], [7, '25°', 16], [10, '20°', 16]];
+    for (var l = 0; l < labels.length; l++) {
+      var p0 = PTS[labels[l][0] - 1], p1 = PTS[labels[l][0]];
+      ctx.fillText(labels[l][1], (p0[0] + p1[0]) / 2, Math.max(p0[1], p1[1]) + labels[l][2] * px + 4);
+    }
+    ctx.setLineDash([3 * px, 4 * px]);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1 * px;
+    ctx.beginPath();
+    ctx.moveTo(LAP_END, 120);
+    ctx.lineTo(LAP_END, 268);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('lap end', LAP_END - 8, 112);
+
+    // Trail of earlier positions.
+    for (var t = 0; t < trail.length; t++) {
+      var p = trail[t];
+      if (p.state === 'air') {
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 1.5 * px;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.6 * px, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.state === 'snap') {
+        ctx.fillStyle = c.warn;
+        ctx.fillRect(p.x - 3 * px, p.y - 3 * px, 6 * px, 6 * px);
+      } else {
+        ctx.fillStyle = c.topic;
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.8 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    if (debug.value) {
+      // The snap cast: the circle moved down by the snap distance.
+      if (snapOn.value && snapDist.value > 0) {
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 1 * px;
+        ctx.setLineDash([3 * px, 3 * px]);
+        ctx.beginPath();
+        ctx.arc(body.x, body.y + snapDist.value, RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Velocity, drawn as the distance covered in 0.1 s.
+      ctx.strokeStyle = c.ink;
+      ctx.fillStyle = c.ink;
+      ctx.lineWidth = 1.5 * px;
+      arrow(ctx, body.x, body.y, body.x + body.vx * 0.1, body.y + body.vy * 0.1, 6 * px);
+    }
+
+    // The character: solid on the ground, faint in the air.
+    ctx.fillStyle = c.topic;
+    ctx.globalAlpha = body.grounded ? 0.85 : 0.2;
+    ctx.beginPath();
+    ctx.arc(body.x, body.y, RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2 * px;
+    ctx.stroke();
+    ctx.restore();
+
+    // Status and hint.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = body.grounded ? c.good : c.bad;
+    var status = body.grounded ? (body.snapped ? 'grounded (snapped)' : 'grounded') : 'in the air';
+    ctx.fillText(status, view.ox + 22 * k, view.oy + 18);
+    ctx.fillStyle = c.ink3;
+    var hint = 'Arrows/AD walk, Space jumps, or hold the pointer';
+    if (ctx.measureText(hint).width > s.width * 0.55) hint = 'Space jumps';
+    ctx.fillText(hint, view.ox + 22 * k, view.oy + 34);
+  }
+
+  DemoKit.canvas('#snap', {
+    aspect: 2.2,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    keys: true,
+    label: 'A side view of a round character running over a 35 degree hill, a small bump and a gentle 20 degree slope. A trail shows which steps were on the ground, saved by a ground snap, or in the air. Toggle snapping and change the snap distance and run speed.',
+    update: function (dt, s) {
+      accumulator += dt;
+      var guard = 0;
+      while (accumulator >= STEP && guard < 10) {
+        physicsStep(s);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 10) accumulator = 0;
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

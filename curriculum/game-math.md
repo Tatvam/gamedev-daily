@@ -45,7 +45,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 ## Track 4: 3D rotation and randomness
 
 - [x] **Euler angles and gimbal lock** — How three angles describe a 3D rotation and why they can lose an axis. Demo: three angle sliders rotate a wireframe plane inside gimbal rings until two rings line up. (published 2026-11-20, euler-angles-gimbal-lock)
-- [ ] **Quaternion intuition** — How a quaternion stores a rotation as an axis and an angle without gimbal lock. Demo: drag an axis and an angle slider to rotate a wireframe cube and read the four quaternion numbers.
+- [x] **Quaternion intuition** — How a quaternion stores a rotation as an axis and an angle without gimbal lock. Demo: drag an axis and an angle slider to rotate a wireframe cube and read the four quaternion numbers. (published 2026-11-21, quaternion-axis-angle)
 - [ ] **Slerp** — How spherical interpolation blends between two rotations at constant speed. Demo: a t slider blends two orientations in an A/B comparison against interpolated Euler angles.
 - [ ] **Pseudo-random numbers and seeds** — How a generator makes repeatable sequences from a seed. Demo: type a seed to generate a small dungeon layout and press a button to confirm that the same seed always gives the same result.
 - [ ] **Hashing coordinates** — How a hash turns a grid position into a repeatable random value without storing anything. Demo: pan across an endless star field generated from cell coordinates with a seed slider.
