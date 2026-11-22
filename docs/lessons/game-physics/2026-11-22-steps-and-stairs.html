@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steps and stairs · Game Dev Daily</title>
+<meta name="description" content="Why a 2 pixel lip stops a box character dead, and how trying the move again raised by a step height lets it climb stairs without jumping.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Steps and stairs</h1>
+  <p class="lede">Why a 2 pixel lip stops a box character dead, and how trying the move again raised by a step height lets it climb stairs without jumping.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character runs across a room and stops dead at the edge of a rug two pixels thick. On a staircase the player has to jump onto every single step. Soon the level designer is hiding an invisible ramp over every stair in the game, just so people can walk up them.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Why a tiny lip is a wall</h2>
+  <p>The collision code does not know how tall an obstacle is. It only sees the face the character runs into. The side of a step is a vertical face, so its contact normal is horizontal, and move and slide removes all of the horizontal motion. A 2 pixel lip blocks a box exactly as well as a 200 pixel wall.</p>
+  <p>Round shapes escape a little. A circle touches the corner of a step with a tilted normal, so the slide turns part of its motion upwards and it rolls over a low lip. If the corner sits <code>h</code> pixels above the bottom of a circle of radius <code>r</code>, the normal leans away from straight up by an angle <code>θ</code> where:</p>
+<pre><code>cos θ = (r - h) / r</code></pre>
+  <p>In words: the higher the corner, the more the normal tips over towards horizontal. With a 45° floor limit, the corner only counts as floor while <code>h</code> is at most 0.29 × <code>r</code>. For the 12 pixel circle from the last two lessons that is 3.5 pixels. A real stair is still a wall.</p>
+
+  <h2>The fix: try the move again, raised</h2>
+  <p>The <dfn>step height</dfn> (Unity calls it the step offset) is the tallest rise a character may walk up without jumping. When the ordinary move is blocked, the character tries the same move again in three parts:</p>
+  <ol>
+    <li><strong>Up</strong> by the step height, stopping early if a ceiling is in the way.</li>
+    <li><strong>Forward</strong> by the full horizontal move.</li>
+    <li><strong>Down</strong> by the same distance it went up, landing on whatever is below.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Left: a box walks into the side of a step and is blocked. Right: the same box is moved up by the step height, then forward over the step, then down onto the top of the step.">
+      <text class="d-text" x="20" y="24">Flat move: blocked</text>
+      <path class="d-stroke" d="M20 210 H130 V180 H290"/>
+      <rect class="d-fill" x="130" y="180" width="160" height="30"/>
+      <rect class="d-accent-soft" x="84" y="142" width="44" height="68" rx="3"/>
+      <path class="d-bad" d="M106 176 H150"/>
+      <path class="d-bad" d="M144 170 L156 182 M156 170 L144 182"/>
+      <text class="d-muted" x="150" y="234">the side of the step</text>
+      <text class="d-muted" x="150" y="248">has a sideways normal</text>
+
+      <text class="d-text" x="340" y="24">Step up: up, forward, down</text>
+      <path class="d-stroke" d="M340 210 H450 V180 H620"/>
+      <rect class="d-fill" x="450" y="180" width="170" height="30"/>
+      <rect class="d-accent-soft" x="404" y="142" width="44" height="68" rx="3"/>
+      <rect class="d-box d-dash" x="404" y="96" width="44" height="68" rx="3"/>
+      <rect class="d-box d-dash" x="474" y="96" width="44" height="68" rx="3"/>
+      <rect class="d-accent-fill" x="474" y="112" width="44" height="68" rx="3"/>
+      <path class="d-accent" d="M426 140 V104"/>
+      <path class="d-accent" d="M420 112 L426 102 L432 112"/>
+      <text class="d-label" x="418" y="88" text-anchor="end">1 up</text>
+      <path class="d-accent" d="M452 76 H486"/>
+      <path class="d-accent" d="M478 70 L488 76 L478 82"/>
+      <text class="d-label" x="470" y="62" text-anchor="middle">2 forward</text>
+      <path class="d-accent" d="M536 100 V124"/>
+      <path class="d-accent" d="M530 116 L536 126 L542 116"/>
+      <text class="d-label" x="546" y="116">3 down</text>
+      <path class="d-thin" d="M386 210 V164 M380 210 H392 M380 164 H392"/>
+      <text class="d-muted" x="378" y="192" text-anchor="end">step</text>
+      <text class="d-muted" x="378" y="206" text-anchor="end">height</text>
+      <path class="d-thin" d="M630 210 V180 M624 210 H636 M624 180 H636"/>
+      <text class="d-muted" x="636" y="234" text-anchor="end">rise</text>
+    </svg>
+    <figcaption>Left: the side of the step stops the box like any wall. Right: raised by the step height, the box's feet are above the top of the step, so the forward move is free. The down move then drops it onto the step, here by the step height minus the rise.</figcaption>
+  </figure>
+
+  <p>The raised attempt replaces the flat one only if two things are true: the down move landed on something, and the raised attempt got further forward than the flat one. If the rise is taller than the step height, the raised box hits the same face and gains nothing, so the flat result stands. That gives the rule:</p>
+<pre><code>climbs if rise &lt;= math.min(STEP_HEIGHT, headroom)</code></pre>
+  <p>In words: the step must be no taller than the step height, and there must be room above the head to lift that far.</p>
+  <p>Step up only when the character was <strong>on the ground</strong> at the start of the step. In the air the same trick lets a character climb a wall a few pixels at a time.</p>
+
+  <h3>One step by hand</h3>
+  <p>The demo's character is a box 20 pixels wide and 36 tall, running at 240 pixels per second, so it moves 4 pixels per 1/60 second step. Its right edge is at x = 109 and its feet at y = 290 (y grows downwards). The first step starts at x = 110 with a 2 pixel rise, and the step height is 12.</p>
+  <ul>
+    <li>Flat move: only 1 pixel is free before the face. Blocked.</li>
+    <li>Up: nothing above, so the feet rise from 290 to 278.</li>
+    <li>Forward: the feet are above the step top at 288, so all 4 pixels are free. The right edge reaches 113.</li>
+    <li>Down by 12: the step top stops it after 10. The feet end at 288.</li>
+  </ul>
+  <p>It landed, and 4 pixels beats 1, so the character is now standing on the step, 2 pixels higher, without losing any speed.</p>
+
+  <h3>Going down</h3>
+  <p>Walking down stairs, the character walks off each edge and falls, hopping from step to step. That is the ground snap from the previous lesson. Use the step height as the snap distance, so that any step you can climb up, you can also walk down.</p>
+
+  <div class="callout">
+    <p class="callout-title">Correct versus good</p>
+    <p>The step is a teleport: the body rises 12 pixels in one step. For the collision code that is exactly right. On screen it is a jolt, and the camera jolts with it. Games commonly draw the character, or move the camera, a little behind the physics body and let the drawing catch up over a few frames. The physics stays sharp and the picture stays smooth.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The character runs right by itself over steps with rises of 2, 8, 14, 20 and 26 pixels, then down a staircase of five 14 pixel steps. With <strong>Step up</strong> off, the 2 pixel lip stops it dead. Switch it on: it climbs 2 and 8 and stops at 14, because the step height is 12. Raise the slider until it gets over everything, or press Space to jump the tall ones.</p>
+  <p>Then switch <strong>Step down</strong> off to see the hops on the way down, and turn on <strong>Slow motion</strong> with <strong>Smooth the drawing</strong> off and then on to see the jolt and its cure. Click the scene to use the keyboard (arrows or A and D, Space or W to jump). On touch, hold beside the character to walk and above it to jump.</p>
+
+  <figure class="demo wide" data-demo="steps">
+    <canvas id="steps"></canvas>
+    <figcaption>The dashed line in front of the character is the step height: any step whose top is below it can be climbed. The dashed box is the last raised attempt, green when it was kept and red when it was still blocked. The thin line behind the character is the path of its feet.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step in Lua, with its names and numbers. The level is a list of solid boxes, and the character moves one axis at a time, as in the tile collision lesson. Gravity is always on: the vertical move into the floor each step is what reports the character as grounded.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, GRAVITY, JUMP, RUN = 1 / 60, 1800, 520, 240
+local STEP_HEIGHT = 12        <span class="c">-- tallest rise climbed without a jump</span>
+local W, H, EPS = 20, 36, 0.001
+local blocks = {
+  { x = 10, y = 290, w = 620, h = 30 },                         <span class="c">-- the floor</span>
+  { x = 0, y = 60, w = 10, h = 260 },                           <span class="c">-- left wall</span>
+  { x = 630, y = 60, w = 10, h = 260 },                         <span class="c">-- right wall</span>
+}
+local top = 290
+for i, rise in ipairs({ 2, 8, 14, 20, 26 }) do                  <span class="c">-- steps up</span>
+  top = top - rise
+  blocks[#blocks + 1] = { x = 50 + 60 * i, y = top, w = 60, h = 290 - top }
+end
+for i = 1, 4 do                                                 <span class="c">-- steps down</span>
+  blocks[#blocks + 1] = { x = 380 + 30 * i, y = 220 + 14 * i, w = 30, h = 70 - 14 * i }
+end
+local player = { x = 30, y = 254, vx = 0, vy = 0, grounded = true }
+local accumulator = 0
+
+<span class="c">-- Move along x, stopping at the first solid face. Returns true if blocked.</span>
+local function moveX(b, dx)
+  local allowed = dx
+  for _, s in ipairs(blocks) do
+    if b.y &lt; s.y + s.h - EPS and b.y + H &gt; s.y + EPS then
+      if dx &gt; 0 and b.x + W &lt;= s.x + EPS then allowed = math.min(allowed, s.x - b.x - W) end
+      if dx &lt; 0 and b.x &gt;= s.x + s.w - EPS then allowed = math.max(allowed, s.x + s.w - b.x) end
+    end
+  end
+  b.x = b.x + allowed
+  return allowed ~= dx
+end
+
+local function moveY(b, dy)
+  local allowed = dy
+  for _, s in ipairs(blocks) do
+    if b.x &lt; s.x + s.w - EPS and b.x + W &gt; s.x + EPS then
+      if dy &gt; 0 and b.y + H &lt;= s.y + EPS then allowed = math.min(allowed, s.y - b.y - H) end
+      if dy &lt; 0 and b.y &gt;= s.y + s.h - EPS then allowed = math.max(allowed, s.y + s.h - b.y) end
+    end
+  end
+  b.y = b.y + allowed
+  return allowed ~= dy
+end
+
+local function tryStepUp(b, dx)
+  local x0, y0 = b.x, b.y
+  if not moveX(b, dx) then return end            <span class="c">-- nothing in the way</span>
+  local flatX = b.x
+  b.x, b.y = x0, y0                              <span class="c">-- try again from the start</span>
+<span class="k">  moveY(b, -STEP_HEIGHT)                         -- 1. up (a ceiling may stop it)
+  local raised = y0 - b.y
+  moveX(b, dx)                                   -- 2. forward
+  local landed = moveY(b, raised)                -- 3. down onto the step
+  if not landed or math.abs(b.x - x0) &lt;= math.abs(flatX - x0) then
+    b.x, b.y = flatX, y0                         -- no gain: keep the flat move
+  end</span>
+end
+
+local function physicsStep(b, ix, jump)
+  local wasGrounded, jumped = b.grounded, false
+  if b.grounded and jump then
+    b.vy = -JUMP
+    jumped = true
+  end
+  b.vx = ix * RUN
+  b.vy = b.vy + GRAVITY * STEP
+  if b.grounded and not jumped then
+    tryStepUp(b, b.vx * STEP)
+  else
+    moveX(b, b.vx * STEP)
+  end
+  local hitY = moveY(b, b.vy * STEP)
+  b.grounded = hitY and b.vy &gt; 0
+  if hitY then b.vy = 0 end
+  if wasGrounded and not jumped and not b.grounded then   <span class="c">-- step down</span>
+    local y0 = b.y
+    if moveY(b, STEP_HEIGHT) then
+      b.grounded, b.vy = true, 0
+    else
+      b.y = y0
+    end
+  end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local ix = 0
+    if love.keyboard.isDown("left", "a") then ix = ix - 1 end
+    if love.keyboard.isDown("right", "d") then ix = ix + 1 end
+    physicsStep(player, ix, love.keyboard.isDown("space", "w"))
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", player.x, player.y, W, H)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: CharacterBody2D has no step height, so test the step yourself.</span>
+<span class="c"># A sketch of the order of calls; check it in your own project.</span>
+extends CharacterBody2D
+
+const RUN := 240.0
+const GRAVITY := 1800.0
+const JUMP := 520.0
+const STEP_HEIGHT := 12.0
+
+func _ready() -&gt; void:
+    floor_snap_length = STEP_HEIGHT + 1.0   <span class="c"># 3. down, and down stairs too</span>
+
+func can_step_up(motion: Vector2) -&gt; bool:
+    var up := Vector2(0, -STEP_HEIGHT)
+    if motion.x == 0.0 or not test_move(global_transform, motion):
+        return false                        <span class="c"># nothing in the way</span>
+    if test_move(global_transform, up):
+        return false                        <span class="c"># no headroom</span>
+    return not test_move(global_transform.translated(up), motion)
+
+func _physics_process(delta: float) -&gt; void:
+    velocity.x = Input.get_axis("ui_left", "ui_right") * RUN
+    velocity.y += GRAVITY * delta
+    if is_on_floor() and Input.is_action_just_pressed("ui_accept"):
+        velocity.y = -JUMP
+    elif is_on_floor() and can_step_up(Vector2(velocity.x * delta, 0)):
+<span class="k">        position.y -= STEP_HEIGHT           # 1. up; move_and_slide moves forward</span>
+    move_and_slide()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity: CharacterController steps up by itself.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+public class StepWalker : MonoBehaviour
+{
+    public float run = 4f;                 <span class="c">// metres per second</span>
+    CharacterController controller;
+    Vector3 velocity;
+
+    void Awake()
+    {
+        controller = GetComponent&lt;CharacterController&gt;();
+<span class="k">        controller.stepOffset = 0.3f;      // tallest step climbed, in metres</span>
+        controller.slopeLimit = 45f;
+    }
+
+    void Update()
+    {
+        velocity.x = Input.GetAxis("Horizontal") * run;
+        velocity.y += Physics.gravity.y * Time.deltaTime;
+        controller.Move(velocity * Time.deltaTime);
+        if (controller.isGrounded) velocity.y = -1f;   <span class="c">// keep pressing down</span>
+    }
+}</code></pre>
+  </div>
+  <p>In Godot the step is your job: <code>test_move</code> asks "would this motion hit something?" without moving, which is all three checks need. In Unity the <code>CharacterController</code> does the step for you through <code>stepOffset</code>; a <code>Rigidbody</code> has no such setting.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Stepping up in the air.</strong> A jumping character pressed against a wall finds a "step" every frame and climbs it like a ladder. Only step when grounded at the start of the step.</li>
+    <li><strong>No headroom check.</strong> Lifting the body without a collision test pushes its head into a low ceiling. Do the up part as a real move, and use the height it actually reached.</li>
+    <li><strong>Landing on anything.</strong> On a level with slopes, the down part can land on a steep face. Accept the step only if the surface below passes the same floor angle test as ground detection.</li>
+    <li><strong>A snap shorter than the step height.</strong> The character climbs a staircase smoothly and then hops all the way down it. Use one number for both.</li>
+    <li><strong>The visible jolt.</strong> Smooth the drawing, not the physics. The demo adds the height of each step to an offset and shrinks it every step:
+<pre><code>player.smooth = player.smooth + (yBefore - player.y)   <span class="c">-- after a step up or down</span>
+player.smooth = player.smooth * 0.8                    <span class="c">-- every physics step</span>
+love.graphics.rectangle("fill", player.x, player.y + player.smooth, W, H)</code></pre></li>
+    <li><strong>A step height that eats your walls.</strong> Every obstacle up to the step height is now walkable: low crates, fences, the edge of a stage. Choose it once and give the number to whoever builds the levels.</li>
+  </ul>
+  <p>Cost: a blocked move costs up to three extra moves. It only happens when the flat move hits something, so it is cheap.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Unity's <code>CharacterController</code> has a <code>stepOffset</code> property, 0.3 metres by default on a controller 2 metres tall, next to its <code>slopeLimit</code>. Godot 4's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> have floor snapping but no step height, so Godot projects build the step with <code>test_move</code> or with shape casts.</p>
+  <p>id Software released the source code of Quake and QuakeWorld. Their movement code uses a step size of 18 units for a player 56 units tall, and the QuakeWorld player movement tries the move both flat and raised by the step size, presses the raised one back down, and keeps whichever went further: the same three moves as this lesson.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>In your project, build a row of ledges with rises of a quarter, a third and half of your character's height, and a staircase going down. Add <code>tryStepUp</code> with a step height of about a third of the height, and set your ground snap to the same number.</p>
+  <p>You are done when the character walks up the first two ledges and down the staircase at full speed without ever leaving the ground, and still has to jump the third.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A step face has a sideways normal, so any lip blocks a box like a wall, whatever its height.</li>
+    <li>Stepping up retries a blocked move as up by the step height, forward, then down.</li>
+    <li>Keep the raised attempt only if it landed on a floor and got further than the flat move, and only when the character started the step on the ground.</li>
+    <li>Use the step height as the ground snap distance, so every step you can climb you can also walk down.</li>
+    <li>The step is a teleport. Keep the physics sharp and smooth the drawing.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, moving platforms: how a character is carried by the floor under its feet and keeps the platform's speed when it jumps off.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Unity documentation, <cite>CharacterController</cite> in the Scripting API, including <code>stepOffset</code> and <code>slopeLimit</code>.</li>
+    <li>Godot Engine documentation, <cite>PhysicsBody2D</cite> class reference: <code>test_move</code>; and <cite>CharacterBody2D</cite> class reference: <code>floor_snap_length</code>.</li>
+    <li>id Software, <cite>Quake</cite> and <cite>QuakeWorld</cite> source code, released under the GNU General Public License. The player movement code shows the flat and raised attempts.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The world. Matches the Lua: pixels, y grows downwards. ----
+  var STEP = 1 / 60, GRAVITY = 1800, JUMP = 520, RUN = 240;
+  var W = 20, H = 36, EPS = 0.001;
+  var START_X = 30, START_Y = 254, FLOOR = 290, LAP_END = 590;
+  var VIEW_X = 0, VIEW_Y = 100, VIEW_W = 640, VIEW_H = 225;
+  var TRAIL = 160;
+  var RISES = [2, 8, 14, 20, 26];
+
+  var blocks = [
+    { x: 0, y: 60, w: 10, h: 260 },
+    { x: 630, y: 60, w: 10, h: 260 },
+    { x: 10, y: FLOOR, w: 620, h: 30 }
+  ];
+  var upBlocks = [];
+  (function () {
+    var top = FLOOR;
+    for (var i = 1; i <= RISES.length; i++) {
+      top -= RISES[i - 1];
+      var b = { x: 50 + 60 * i, y: top, w: 60, h: FLOOR - top, rise: RISES[i - 1] };
+      blocks.push(b);
+      upBlocks.push(b);
+    }
+    for (var j = 1; j <= 4; j++) blocks.push({ x: 380 + 30 * j, y: 220 + 14 * j, w: 30, h: 70 - 14 * j });
+  })();
+
+  // Move along x, stopping at the first solid face. Returns the block that blocked, or null.
+  function moveX(b, dx) {
+    var allowed = dx, by = null;
+    for (var i = 0; i < blocks.length; i++) {
+      var s = blocks[i];
+      if (b.y < s.y + s.h - EPS && b.y + H > s.y + EPS) {
+        if (dx > 0 && b.x + W <= s.x + EPS && s.x - b.x - W < allowed) { allowed = s.x - b.x - W; by = s; }
+        if (dx < 0 && b.x >= s.x + s.w - EPS && s.x + s.w - b.x > allowed) { allowed = s.x + s.w - b.x; by = s; }
+      }
+    }
+    b.x += allowed;
+    return by;
+  }
+
+  function moveY(b, dy) {
+    var allowed = dy, by = null;
+    for (var i = 0; i < blocks.length; i++) {
+      var s = blocks[i];
+      if (b.x < s.x + s.w - EPS && b.x + W > s.x + EPS) {
+        if (dy > 0 && b.y + H <= s.y + EPS && s.y - b.y - H < allowed) { allowed = s.y - b.y - H; by = s; }
+        if (dy < 0 && b.y >= s.y + s.h - EPS && s.y + s.h - b.y > allowed) { allowed = s.y + s.h - b.y; by = s; }
+      }
+    }
+    b.y += allowed;
+    return by;
+  }
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="steps"]');
+  var stepOn = ui.toggle({ label: 'Step up', value: false });
+  var stepHeight = ui.slider({ label: 'Step height', min: 0, max: 30, step: 1, value: 12, unit: ' px' });
+  var snapOn = ui.toggle({ label: 'Step down (snap by the step height)', value: true });
+  var smoothOn = ui.toggle({ label: 'Smooth the drawing', value: false });
+  var slow = ui.toggle({ label: 'Slow motion (quarter speed)', value: false });
+  var auto = ui.toggle({ label: 'Auto run', value: true });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var eventOut = ui.readout({ label: 'Last event' });
+  var lapOut = ui.readout({ label: 'This lap' });
+  ui.button({ label: 'Reset', onClick: function () { newLap(); } });
+
+  // ---- Demo state ----
+  var body, trail, stats, trial, smooth, lastEvent, accumulator = 0;
+  var view = { k: 1, ox: 0, oy: 0 };
+
+  function newLap() {
+    body = { x: START_X, y: START_Y, vx: 0, vy: 0, grounded: true };
+    trail = [];
+    stats = { up: 0, down: 0, air: 0 };
+    trial = null;
+    smooth = 0;
+    setEvent('none yet');
+    showStats();
+  }
+  function setEvent(text) {
+    if (text !== lastEvent) { lastEvent = text; eventOut.set(text); }
+  }
+  function showStats() {
+    lapOut.set('stepped up ' + stats.up + ', stepped down ' + stats.down + ', ' + stats.air + ' steps in the air');
+  }
+  function blockedText(wall, why) {
+    var rise = body.y + H - wall.y;
+    if (rise > 60) return 'blocked by a wall';
+    return 'blocked by a ' + Math.round(rise) + ' px rise (' + why + ')';
+  }
+
+  newLap();
+
+  function tryStepUp(b, dx) {
+    var x0 = b.x, y0 = b.y;
+    var wall = moveX(b, dx);
+    if (!wall) return null;
+    var flatX = b.x;
+    b.x = x0;
+    b.y = y0;
+    moveY(b, -stepHeight.value);                 // 1. up
+    var raised = y0 - b.y, upY = b.y;
+    moveX(b, dx);                                // 2. forward
+    var landed = raised > 0 ? moveY(b, raised) : null;   // 3. down
+    var ok = !!landed && Math.abs(b.x - x0) > Math.abs(flatX - x0);
+    trial = { x: x0, y0: y0, upY: upY, fwdX: b.x, ok: ok, age: 0 };
+    if (!ok) { b.x = flatX; b.y = y0; }
+    return { ok: ok, wall: wall };
+  }
+
+  function readInput(s) {
+    var x = 0, jump = false, keys = s.keys;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (keys.has('space') || keys.has('w') || keys.has('arrowup')) jump = true;
+    if (s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.k + VIEW_X;
+      var wy = (s.pointer.y - view.oy) / view.k + VIEW_Y;
+      if (wy < body.y - 20) jump = true;
+      else if (wx < body.x - 4) x = -1;
+      else if (wx > body.x + W + 4) x = 1;
+    }
+    if (x === 0 && auto.value) x = 1;
+    return { x: x, jump: jump };
+  }
+
+  function physicsStep(s) {
+    var input = readInput(s);
+    var b = body, wasGrounded = b.grounded, jumped = false;
+    if (b.grounded && input.jump) {
+      b.vy = -JUMP;
+      jumped = true;
+    }
+    b.vx = input.x * RUN;
+    b.vy += GRAVITY * STEP;
+    var dx = b.vx * STEP, yBefore = b.y;
+
+    if (b.grounded && !jumped && stepOn.value) {
+      var r = tryStepUp(b, dx);
+      if (r && r.ok) {
+        stats.up += 1;
+        smooth += yBefore - b.y;
+        setEvent('stepped up ' + Math.round(yBefore - b.y) + ' px');
+      } else if (r) {
+        setEvent(blockedText(r.wall, 'taller than the step height'));
+      }
+    } else {
+      var wall = moveX(b, dx);
+      if (wall && b.grounded) setEvent(blockedText(wall, 'step up is off'));
+    }
+
+    var hitY = moveY(b, b.vy * STEP);
+    b.grounded = !!hitY && b.vy > 0;
+    if (hitY) b.vy = 0;
+
+    if (wasGrounded && !jumped && !b.grounded && snapOn.value) {
+      var ys = b.y;
+      if (moveY(b, stepHeight.value)) {
+        b.grounded = true;
+        b.vy = 0;
+        stats.down += 1;
+        smooth += ys - b.y;
+        setEvent('stepped down ' + Math.round(b.y - ys) + ' px');
+      } else {
+        b.y = ys;
+      }
+    }
+
+    if (!smoothOn.value) smooth = 0;
+    smooth *= 0.8;
+    if (Math.abs(smooth) < 0.05) smooth = 0;
+    if (trial) trial.age += 1;
+
+    // Safety net for the demo only: never let the character leave the room.
+    if (!(b.y > 0 && b.y < 320) || !(b.x > 5 && b.x < 630)) { newLap(); return; }
+
+    if (!b.grounded) stats.air += 1;
+    trail.push({ x: b.x + W / 2, y: b.y + H });
+    if (trail.length > TRAIL) trail.shift();
+    showStats();
+
+    if (b.x >= LAP_END) newLap();
+  }
+
+  function arrow(ctx, x0, y0, x1, y1, head) {
+    var dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    if (len < 1e-6) return;
+    var ux = dx / len, uy = dy / len, h = Math.min(head, len * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - ux * h - uy * h * 0.5, y1 - uy * h + ux * h * 0.5);
+    ctx.lineTo(x1 - ux * h + uy * h * 0.5, y1 - uy * h - ux * h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function layout(s) {
+    var k = Math.min(s.width / VIEW_W, (s.height - 8) / VIEW_H);
+    view.k = k;
+    view.ox = (s.width - VIEW_W * k) / 2;
+    view.oy = 4;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    layout(s);
+    var k = view.k, px = 1 / k;
+    ctx.save();
+    ctx.translate(view.ox, view.oy);
+    ctx.scale(k, k);
+    ctx.translate(-VIEW_X, -VIEW_Y);
+
+    // Solid blocks.
+    ctx.fillStyle = c.surface2;
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5 * px;
+    for (var i = 0; i < blocks.length; i++) {
+      var bl = blocks[i];
+      ctx.fillRect(bl.x, bl.y, bl.w, bl.h);
+    }
+    for (var j = 0; j < blocks.length; j++) {
+      var bk = blocks[j];
+      ctx.strokeRect(bk.x, bk.y, bk.w, bk.h);
+    }
+
+    // Rise labels under the floor line.
+    ctx.font = (12 * px) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.ink3;
+    for (var u = 0; u < upBlocks.length; u++) {
+      var ub = upBlocks[u];
+      ctx.fillText('+' + ub.rise, ub.x + 10, FLOOR + 20);
+    }
+    ctx.fillText('down 14 each', 470, FLOOR + 20);
+    ctx.textAlign = 'left';
+    ctx.fillText('rise in px', 16, FLOOR + 20);
+
+    // Path of the feet.
+    if (trail.length > 1) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.2 * px;
+      ctx.beginPath();
+      ctx.moveTo(trail[0].x, trail[0].y);
+      for (var t = 1; t < trail.length; t++) ctx.lineTo(trail[t].x, trail[t].y);
+      ctx.stroke();
+    }
+
+    var drawY = body.y + smooth;
+
+    if (debug.value) {
+      // Step height line in front of the feet.
+      if (stepOn.value || snapOn.value) {
+        var lineY = body.y + H - stepHeight.value;
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 1.5 * px;
+        ctx.setLineDash([4 * px, 3 * px]);
+        ctx.beginPath();
+        ctx.moveTo(body.x - 8, lineY);
+        ctx.lineTo(body.x + W + 44, lineY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = c.warn;
+        ctx.textAlign = 'left';
+        ctx.fillText('step height', body.x + W + 48, lineY + 4 * px);
+      }
+      // The last raised attempt.
+      if (trial && trial.age < 40) {
+        var col = trial.ok ? c.good : c.bad;
+        ctx.strokeStyle = col;
+        ctx.fillStyle = col;
+        ctx.lineWidth = 1.5 * px;
+        ctx.setLineDash([3 * px, 3 * px]);
+        ctx.strokeRect(trial.fwdX, trial.upY, W, H);
+        ctx.setLineDash([]);
+        if (trial.y0 - trial.upY > 3) arrow(ctx, trial.x - 6, trial.y0 + H / 2, trial.x - 6, trial.upY + H / 2, 5 * px);
+      }
+      // Physics box when the drawing lags behind it.
+      if (Math.abs(smooth) > 0.3) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1 * px;
+        ctx.setLineDash([2 * px, 2 * px]);
+        ctx.strokeRect(body.x, body.y, W, H);
+        ctx.setLineDash([]);
+      }
+    }
+
+    // The character: solid on the ground, faint in the air.
+    ctx.fillStyle = c.topic;
+    ctx.globalAlpha = body.grounded ? 0.85 : 0.3;
+    ctx.fillRect(body.x, drawY, W, H);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2 * px;
+    ctx.strokeRect(body.x, drawY, W, H);
+    ctx.restore();
+
+    // Status and hint.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = body.grounded ? c.good : c.bad;
+    ctx.fillText(body.grounded ? 'grounded' : 'in the air', view.ox + 18 * k, view.oy + 18);
+    ctx.fillStyle = c.ink3;
+    var hint = 'Arrows/AD walk, Space jumps, or hold the pointer';
+    if (ctx.measureText(hint).width > s.width * 0.6) hint = 'Space jumps';
+    ctx.fillText(hint, view.ox + 18 * k, view.oy + 34);
+  }
+
+  DemoKit.canvas('#steps', {
+    aspect: 2.6,
+    minHeight: 220,
+    maxHeight: 380,
+    drag: true,
+    keys: true,
+    label: 'A side view of a box character running right over steps with rises of 2, 8, 14, 20 and 26 pixels and then down five 14 pixel steps. Toggle step up and step down, change the step height, and watch which steps it climbs.',
+    update: function (dt, s) {
+      accumulator += Math.min(dt, 0.25) * (slow.value ? 0.25 : 1);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        physicsStep(s);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 20) accumulator = 0;
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

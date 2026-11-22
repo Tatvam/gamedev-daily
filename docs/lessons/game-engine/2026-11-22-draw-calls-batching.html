@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw calls and batching: why shared textures are cheap · Game Dev Daily</title>
+<meta name="description" content="What a draw call is, how engines merge neighbouring sprites that share a texture into one batch, and how draw order and atlases decide the count.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Draw calls and batching: why shared textures are cheap</h1>
+  <p class="lede">What a draw call is, how engines merge neighbouring sprites that share a texture into one batch, and how draw order and atlases decide the count.</p>
+</header>
+
+<section data-section="hook">
+  <p>You add a hundred coins to a level and the frame rate does not move. You add a hundred coins, gems and hearts, scattered between each other, and the profiler suddenly shows the CPU busy in rendering. The number of sprites is the same. What changed is how many times the engine had to stop and tell the graphics card something new.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A draw call is a command, and commands have overhead</h2>
+  <p>A <dfn>draw call</dfn> is one request from the CPU to the GPU: "draw these triangles, using this texture, this shader and these blend settings". The settings that must be in place for the call are called <dfn>render state</dfn>. A sprite is two triangles, so the GPU finishes a single sprite almost instantly. The expensive part is usually on the CPU side: the engine and the graphics driver have to prepare, check and send each call, and changing state between calls (binding another texture, switching shader) adds more work.</p>
+  <p>How much a call costs depends on the hardware and the graphics API. Newer APIs such as Vulkan, Direct3D 12 and Metal make calls cheaper, but not free. The rule that survives everywhere: a few large calls beat many small ones.</p>
+
+  <h2>Batching merges neighbours that need the same state</h2>
+  <p><dfn>Batching</dfn> means collecting several sprites into one vertex buffer and drawing them with a single call. The engine can only do that when the sprites need the same render state, because one call has one texture and one shader.</p>
+  <p>There is a second condition that surprises people: the sprites must be <em>next to each other in draw order</em>. The previous lessons settled who is drawn on top through layers, order numbers and tree order. The batcher may not change that answer. It walks the sorted list from back to front and starts a new batch every time the state differs from the sprite before it. So the number of draw calls is the number of <em>runs</em> of equal state in the draw list, not the number of different textures.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" role="img" aria-label="Eight sprites using textures A, B and C. In scene order A B A C C B A A they form six runs and need six draw calls. Sorted by texture as A A A A B B C C they need three. With all three images packed into one atlas texture, the original order needs one draw call.">
+      <text class="d-label" x="12" y="56">Scene order</text>
+      <text class="d-muted" x="12" y="76">6 draw calls</text>
+      <g text-anchor="middle">
+        <rect class="d-accent-soft" x="140" y="40" width="52" height="44" rx="4"/><text class="d-text" x="166" y="67">A</text>
+        <rect class="d-fill" x="198" y="40" width="52" height="44" rx="4"/><text class="d-text" x="224" y="67">B</text>
+        <rect class="d-accent-soft" x="256" y="40" width="52" height="44" rx="4"/><text class="d-text" x="282" y="67">A</text>
+        <rect class="d-box" x="314" y="40" width="52" height="44" rx="4"/><text class="d-text" x="340" y="67">C</text>
+        <rect class="d-box" x="372" y="40" width="52" height="44" rx="4"/><text class="d-text" x="398" y="67">C</text>
+        <rect class="d-fill" x="430" y="40" width="52" height="44" rx="4"/><text class="d-text" x="456" y="67">B</text>
+        <rect class="d-accent-soft" x="488" y="40" width="52" height="44" rx="4"/><text class="d-text" x="514" y="67">A</text>
+        <rect class="d-accent-soft" x="546" y="40" width="52" height="44" rx="4"/><text class="d-text" x="572" y="67">A</text>
+      </g>
+      <path class="d-accent" d="M142 94 V100 H190 V94 M200 94 V100 H248 V94 M258 94 V100 H306 V94 M316 94 V100 H422 V94 M432 94 V100 H480 V94 M490 94 V100 H596 V94"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="166" y="118">1</text><text class="d-mono" x="224" y="118">2</text>
+        <text class="d-mono" x="282" y="118">3</text><text class="d-mono" x="369" y="118">4</text>
+        <text class="d-mono" x="456" y="118">5</text><text class="d-mono" x="543" y="118">6</text>
+      </g>
+
+      <text class="d-label" x="12" y="156">Sorted by</text>
+      <text class="d-label" x="12" y="174">texture</text>
+      <text class="d-muted" x="12" y="194">3 draw calls</text>
+      <g text-anchor="middle">
+        <rect class="d-accent-soft" x="140" y="148" width="52" height="44" rx="4"/><text class="d-text" x="166" y="175">A</text>
+        <rect class="d-accent-soft" x="198" y="148" width="52" height="44" rx="4"/><text class="d-text" x="224" y="175">A</text>
+        <rect class="d-accent-soft" x="256" y="148" width="52" height="44" rx="4"/><text class="d-text" x="282" y="175">A</text>
+        <rect class="d-accent-soft" x="314" y="148" width="52" height="44" rx="4"/><text class="d-text" x="340" y="175">A</text>
+        <rect class="d-fill" x="372" y="148" width="52" height="44" rx="4"/><text class="d-text" x="398" y="175">B</text>
+        <rect class="d-fill" x="430" y="148" width="52" height="44" rx="4"/><text class="d-text" x="456" y="175">B</text>
+        <rect class="d-box" x="488" y="148" width="52" height="44" rx="4"/><text class="d-text" x="514" y="175">C</text>
+        <rect class="d-box" x="546" y="148" width="52" height="44" rx="4"/><text class="d-text" x="572" y="175">C</text>
+      </g>
+      <path class="d-accent" d="M142 202 V208 H364 V202 M374 202 V208 H480 V202 M490 202 V208 H596 V202"/>
+      <g text-anchor="middle">
+        <text class="d-mono" x="253" y="226">1</text><text class="d-mono" x="427" y="226">2</text>
+        <text class="d-mono" x="543" y="226">3</text>
+      </g>
+
+      <text class="d-label" x="12" y="264">One atlas</text>
+      <text class="d-muted" x="12" y="284">1 draw call</text>
+      <rect class="d-dash" x="134" y="250" width="470" height="56" rx="6"/>
+      <g text-anchor="middle">
+        <rect class="d-accent-soft" x="140" y="256" width="52" height="44" rx="4"/><text class="d-text" x="166" y="283">A</text>
+        <rect class="d-fill" x="198" y="256" width="52" height="44" rx="4"/><text class="d-text" x="224" y="283">B</text>
+        <rect class="d-accent-soft" x="256" y="256" width="52" height="44" rx="4"/><text class="d-text" x="282" y="283">A</text>
+        <rect class="d-box" x="314" y="256" width="52" height="44" rx="4"/><text class="d-text" x="340" y="283">C</text>
+        <rect class="d-box" x="372" y="256" width="52" height="44" rx="4"/><text class="d-text" x="398" y="283">C</text>
+        <rect class="d-fill" x="430" y="256" width="52" height="44" rx="4"/><text class="d-text" x="456" y="283">B</text>
+        <rect class="d-accent-soft" x="488" y="256" width="52" height="44" rx="4"/><text class="d-text" x="514" y="283">A</text>
+        <rect class="d-accent-soft" x="546" y="256" width="52" height="44" rx="4"/><text class="d-text" x="572" y="283">A</text>
+      </g>
+      <text class="d-muted" x="369" y="324" text-anchor="middle">A, B and C are regions of one texture, so the state never changes</text>
+    </svg>
+    <figcaption>Same eight sprites, three ways. The brackets are draw calls. Sorting cuts six calls to three but changes which sprite is on top. An atlas keeps the original order and needs one call.</figcaption>
+  </figure>
+
+  <h2>Who owns what</h2>
+  <p>You own the inputs: the draw order, which textures exist, and which materials each sprite uses. The engine owns the merging, which it redoes every frame after sorting. You never call "batch these"; you arrange things so that the batcher finds long runs.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Pipeline of four boxes: your sprites, sort by layer and order, batcher merges while state matches, GPU draws one call per batch. The first two are owned by you, the last two by the engine.">
+      <rect class="d-box" x="10" y="30" width="135" height="80" rx="8"/>
+      <text class="d-text" x="77" y="64" text-anchor="middle">Your nodes or</text>
+      <text class="d-text" x="77" y="84" text-anchor="middle">GameObjects</text>
+      <path class="d-accent" d="M145 70 H170"/>
+      <rect class="d-box" x="172" y="30" width="135" height="80" rx="8"/>
+      <text class="d-text" x="239" y="64" text-anchor="middle">Sort by layer,</text>
+      <text class="d-text" x="239" y="84" text-anchor="middle">order, tree</text>
+      <path class="d-accent" d="M307 70 H332"/>
+      <rect class="d-accent-soft" x="334" y="30" width="135" height="80" rx="8"/>
+      <text class="d-text" x="401" y="56" text-anchor="middle">Batcher: same</text>
+      <text class="d-text" x="401" y="76" text-anchor="middle">state as last?</text>
+      <text class="d-text" x="401" y="96" text-anchor="middle">append or flush</text>
+      <path class="d-accent" d="M469 70 H494"/>
+      <rect class="d-box" x="496" y="30" width="135" height="80" rx="8"/>
+      <text class="d-text" x="563" y="64" text-anchor="middle">GPU: one call</text>
+      <text class="d-text" x="563" y="84" text-anchor="middle">per batch</text>
+      <path class="d-thin" d="M12 130 V138 H305 V130"/>
+      <text class="d-label" x="158" y="160" text-anchor="middle">You own: order, textures, materials</text>
+      <path class="d-thin" d="M336 130 V138 H629 V130"/>
+      <text class="d-label" x="482" y="160" text-anchor="middle">Engine owns: merging, every frame</text>
+    </svg>
+    <figcaption>Batching happens after sorting, so it can only merge what sorting placed side by side.</figcaption>
+  </figure>
+
+  <h2>Two ways to get longer runs</h2>
+  <p><strong>Group by state in the draw order.</strong> If coins never overlap gems, nothing forces them to interleave. Put each kind on its own layer, or under its own parent, and they become one run each. This is free when overlap does not matter and wrong when it does: a sorted list can put a coin on top of a gem that should cover it.</p>
+  <p><strong>Remove the state change.</strong> A <dfn>texture atlas</dfn> packs many images into one texture, and each sprite draws a rectangle of it. Every sprite now has the same texture, so any order forms one run. The price is a bigger texture, a maximum texture size, and a little padding between images so that filtering does not bleed one into the next.</p>
+
+  <h3>How Godot and Unity express it</h3>
+  <p><strong>Godot 4</strong> batches consecutive 2D canvas items in draw order (tree order, adjusted by <code>z_index</code> and Y sorting) when they share a texture and material. The Compatibility renderer has batched 2D since 4.0. The Forward+ and Mobile renderers gained 2D batching later in the 4.x series; my understanding is that this arrived in 4.4, but check the release notes for your version. To share a texture, use one sprite sheet with <code>Sprite2D</code>'s <code>region_enabled</code> and <code>region_rect</code>, or <code>hframes</code> and <code>vframes</code>, or an <code>AtlasTexture</code> resource. A frame capture tool such as RenderDoc shows each draw call the frame actually made.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6) batches consecutive <code>SpriteRenderer</code>s that share a material and texture, after sorting by sorting layer, order in layer and the other sort criteria. A <dfn>Sprite Atlas</dfn> asset packs sprites into shared textures at build time. The Game view's Stats panel shows a Batches count, and the Frame Debugger (Window &gt; Analysis &gt; Frame Debugger) lists every draw call, often with the reason a call could not be merged with the previous one. Meshes in 3D have further mechanisms (static batching, GPU instancing, the SRP Batcher) that this lesson does not cover.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The field holds sprites using three textures: stripes, dots and checks. The strip underneath is the draw list from first to last, and the bars below it are the batches. Start in scene order and press <strong>Next draw call</strong> a few times to watch the frame being built one call at a time. Then switch to "Sorted by texture" and look for sprites outlined in red, then try the atlas. Raise the sprite count and watch the scene order climb towards one call per sprite.</p>
+
+  <figure class="demo" data-demo="batching">
+    <canvas id="batching"></canvas>
+    <figcaption>With mixed textures, the count is about two thirds of the sprite count, because each sprite has a two in three chance of differing from the one before. Sorting gives three calls but red outlines mark sprites that now cover a neighbour they used to sit under. The atlas gives one call with the original order intact. The model leaves out what a real batcher adds: materials and shaders, blend modes, lights, and a maximum batch size.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers: 500 sprites generated with seed 11, 60 shown at first, three procedural textures, and the same three modes. LÖVE batches consecutive draws that use the same texture by itself, so the program counts runs to predict the number of draw calls and prints LÖVE's own count from <code>love.graphics.getStats()</code> beside it. Press <kbd>1</kbd>, <kbd>2</kbd> or <kbd>3</kbd> to switch mode and the arrow keys to change the count. Positions differ from the demo's because the random generators differ.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Keys: 1 scene order, 2 sorted by texture, 3 one atlas.</span>
+<span class="c">-- Up and Down change the sprite count.</span>
+local MAX, SIZE = 500, 24
+local count, mode = 60, "random"
+local tints = { {0.2, 0.45, 0.85}, {0.15, 0.55, 0.25}, {0.75, 0.5, 0.05} }
+local textures, quads, atlas = {}, {}, nil
+local sprites, order, batches = {}, {}, 0
+
+<span class="c">-- kind 1 stripes, 2 dots, 3 checks: true where the pattern is light</span>
+local function pattern(kind, x, y)
+  if kind == 1 then return x % 12 &gt;= 6 end
+  if kind == 2 then return (x - 12) ^ 2 + (y - 12) ^ 2 &lt; 25 end
+  return (math.floor(x / 12) + math.floor(y / 12)) % 2 == 0
+end
+
+local function shade(light)
+  if light then return 1, 1, 1, 1 end
+  return 0.55, 0.55, 0.55, 1
+end
+
+local function rebuild()
+  order = {}
+  for i = 1, count do order[i] = sprites[i] end
+  if mode == "sorted" then
+    table.sort(order, function(a, b)
+      if a.kind ~= b.kind then return a.kind &lt; b.kind end
+      return a.id &lt; b.id
+    end)
+  end
+<span class="k">  -- each run of the same texture in draw order is one draw call
+  batches = 0
+  local last = nil
+  for i = 1, #order do
+    local tex = order[i].kind
+    if mode == "atlas" then tex = "atlas" end
+    if tex ~= last then
+      batches = batches + 1
+      last = tex
+    end
+  end</span>
+end
+
+function love.load()
+  for kind = 1, 3 do
+    local data = love.image.newImageData(SIZE, SIZE)
+    data:mapPixel(function(x, y) return shade(pattern(kind, x, y)) end)
+    textures[kind] = love.graphics.newImage(data)
+  end
+  <span class="c">-- the atlas: the same three images side by side in one texture</span>
+  local data = love.image.newImageData(SIZE * 3, SIZE)
+  data:mapPixel(function(x, y)
+    return shade(pattern(math.floor(x / SIZE) + 1, x % SIZE, y))
+  end)
+  atlas = love.graphics.newImage(data)
+  for kind = 1, 3 do
+    quads[kind] = love.graphics.newQuad((kind - 1) * SIZE, 0, SIZE, SIZE, SIZE * 3, SIZE)
+  end
+  local rng = love.math.newRandomGenerator(11)
+  for i = 1, MAX do
+    sprites[i] = { id = i, x = rng:random() * (800 - SIZE),
+                   y = rng:random() * (560 - SIZE), kind = rng:random(1, 3) }
+  end
+  rebuild()
+end
+
+function love.keypressed(key)
+  if key == "1" then mode = "random" end
+  if key == "2" then mode = "sorted" end
+  if key == "3" then mode = "atlas" end
+  if key == "up" then count = math.min(count + 10, MAX) end
+  if key == "down" then count = math.max(count - 10, 10) end
+  rebuild()
+end
+
+function love.draw()
+  for i = 1, #order do
+    local s = order[i]
+    love.graphics.setColor(tints[s.kind])   <span class="c">-- a colour change does not break a batch</span>
+    if mode == "atlas" then
+      love.graphics.draw(atlas, quads[s.kind], s.x, s.y)
+    else
+      love.graphics.draw(textures[s.kind], s.x, s.y)
+    end
+  end
+  local stats = love.graphics.getStats()   <span class="c">-- read before the text adds its own call</span>
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print(mode .. "  sprites " .. count .. "  predicted " .. batches
+    .. "  drawcalls " .. stats.drawcalls, 10, 570)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># batching_field.gd for Godot 4. Attach to a Node2D in a new scene and run.</span>
+<span class="c"># Keys 1, 2, 3 rebuild the field in scene order, sorted by texture, or with one atlas.</span>
+<span class="c"># Children of a Node2D draw in tree order, so the order of add_child is the draw order.</span>
+extends Node2D
+
+const SIZE := 24
+var count := 60
+var tints := [Color(0.2, 0.45, 0.85), Color(0.15, 0.55, 0.25), Color(0.75, 0.5, 0.05)]
+var textures: Array[ImageTexture] = []
+var atlas: ImageTexture
+var label := Label.new()
+
+func pattern(kind: int, x: int, y: int) -&gt; bool:
+    if kind == 0: return x % 12 &gt;= 6
+    if kind == 1: return (x - 12) * (x - 12) + (y - 12) * (y - 12) &lt; 25
+    return (x / 12 + y / 12) % 2 == 0
+
+func make_texture(first_kind: int, kinds: int) -&gt; ImageTexture:
+    <span class="c"># Image.create works in all of Godot 4; 4.3 and later also offer Image.create_empty.</span>
+    var img := Image.create(SIZE * kinds, SIZE, false, Image.FORMAT_RGBA8)
+    for x in SIZE * kinds:
+        for y in SIZE:
+            var light := pattern(first_kind + x / SIZE, x % SIZE, y)
+            img.set_pixel(x, y, Color.WHITE if light else Color(0.55, 0.55, 0.55))
+    return ImageTexture.create_from_image(img)
+
+func _ready() -&gt; void:
+    for kind in 3:
+        textures.append(make_texture(kind, 1))
+    atlas = make_texture(0, 3)
+    var hud := CanvasLayer.new()
+    hud.add_child(label)
+    add_child(hud)
+    build("random")
+
+func build(mode: String) -&gt; void:
+    for child in get_children():
+        if child is Sprite2D:
+            child.queue_free()
+    var rng := RandomNumberGenerator.new()
+    rng.seed = 11
+    var sprites := []
+    for i in count:
+        sprites.append({"id": i, "kind": rng.randi_range(0, 2),
+            "pos": Vector2(rng.randf() * (800 - SIZE), rng.randf() * (560 - SIZE))})
+    if mode == "sorted":
+        sprites.sort_custom(func(a, b): return a.kind &lt; b.kind or (a.kind == b.kind and a.id &lt; b.id))
+    var batches := 0
+    var last := -1
+    for s in sprites:
+        var sprite := Sprite2D.new()
+        sprite.centered = false
+        sprite.position = s.pos
+        sprite.modulate = tints[s.kind]
+        var tex: int = s.kind
+        if mode == "atlas":
+<span class="k">            sprite.texture = atlas                 # every sprite shares one texture
+            sprite.region_enabled = true
+            sprite.region_rect = Rect2(s.kind * SIZE, 0, SIZE, SIZE)</span>
+            tex = 3
+        else:
+            sprite.texture = textures[s.kind]
+        if tex != last:
+            batches += 1
+            last = tex
+        add_child(sprite)
+    label.text = "%s  sprites %d  predicted draw calls %d" % [mode, count, batches]
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event is InputEventKey and event.pressed and not event.echo:
+        match event.keycode:
+            KEY_1: build("random")
+            KEY_2: build("sorted")
+            KEY_3: build("atlas")</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// BatchingField.cs. Unity 2022 LTS or Unity 6, 2D template.</span>
+<span class="c">// Add it to any GameObject, press Play, press 1, 2 or 3, and compare the Batches</span>
+<span class="c">// number in the Game view's Stats panel. Uses the Input Manager; if Active Input</span>
+<span class="c">// Handling is set to the Input System package only, switch it to Both.</span>
+using System.Collections.Generic;
+using UnityEngine;
+
+public class BatchingField : MonoBehaviour
+{
+    const int Size = 24;
+    public int count = 60;
+    static readonly Color[] tints = {
+        new Color(0.2f, 0.45f, 0.85f), new Color(0.15f, 0.55f, 0.25f), new Color(0.75f, 0.5f, 0.05f) };
+    readonly Sprite[] separate = new Sprite[3];
+    readonly Sprite[] packed = new Sprite[3];
+    readonly List&lt;GameObject&gt; spawned = new List&lt;GameObject&gt;();
+
+    static bool Pattern(int kind, int x, int y)
+    {
+        if (kind == 0) return x % 12 &gt;= 6;
+        if (kind == 1) return (x - 12) * (x - 12) + (y - 12) * (y - 12) &lt; 25;
+        return (x / 12 + y / 12) % 2 == 0;
+    }
+
+    static Texture2D MakeTexture(int firstKind, int kinds)
+    {
+        var tex = new Texture2D(Size * kinds, Size);
+        tex.filterMode = FilterMode.Point;
+        var dark = new Color(0.55f, 0.55f, 0.55f);
+        for (int x = 0; x &lt; Size * kinds; x++)
+            for (int y = 0; y &lt; Size; y++)
+                tex.SetPixel(x, y, Pattern(firstKind + x / Size, x % Size, y) ? Color.white : dark);
+        tex.Apply();
+        return tex;
+    }
+
+    void Start()
+    {
+        var atlas = MakeTexture(0, 3);
+        for (int k = 0; k &lt; 3; k++)
+        {
+            separate[k] = Sprite.Create(MakeTexture(k, 1), new Rect(0, 0, Size, Size), Vector2.zero, 40f);
+<span class="k">            packed[k] = Sprite.Create(atlas, new Rect(k * Size, 0, Size, Size), Vector2.zero, 40f);</span>
+        }
+        Build("random");
+    }
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Alpha1)) Build("random");
+        if (Input.GetKeyDown(KeyCode.Alpha2)) Build("sorted");
+        if (Input.GetKeyDown(KeyCode.Alpha3)) Build("atlas");
+    }
+
+    void Build(string mode)
+    {
+        foreach (var go in spawned) Destroy(go);
+        spawned.Clear();
+        Random.InitState(11);
+        for (int i = 0; i &lt; count; i++)
+        {
+            int kind = Random.Range(0, 3);
+            var go = new GameObject("Sprite " + i);
+            go.transform.position = new Vector3(Random.Range(-4f, 4f), Random.Range(-2.8f, 2.8f), 0f);
+            var r = go.AddComponent&lt;SpriteRenderer&gt;();
+            r.sprite = mode == "atlas" ? packed[kind] : separate[kind];
+            r.color = tints[kind];
+<span class="k">            r.sortingOrder = mode == "sorted" ? kind * count + i : i;   // the draw order</span>
+            spawned.Add(go);
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In all three, the only thing that changes between modes is the draw order or the texture each sprite points at. None of them contains batching code: the engine merges, and the scripts only arrange. The Godot and Unity versions draw the same field with their own random generators, so their counts will not match the Lua program exactly. Unity's Batches number also includes other work in the frame, such as clearing the screen, so compare the modes with each other rather than reading the absolute value.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Sorting for batches and breaking the picture.</strong> Grouping by texture changes who covers whom. Only regroup things that do not overlap or whose overlap order does not matter, or use an atlas instead.</li>
+    <li><strong>One odd sprite in the middle.</strong> A single sprite with another texture, material or shader, placed between two runs, splits them. A health bar with a custom shader drawn between enemies can double the call count.</li>
+    <li><strong>Unique materials by accident.</strong> In Unity, reading <code>renderer.material</code> (rather than <code>sharedMaterial</code>) creates a copy for that renderer, which then cannot batch with the others. In Godot, giving each sprite its own duplicated material, for example by enabling local to scene on a shared <code>ShaderMaterial</code>, has the same effect.</li>
+    <li><strong>Atlas bleeding.</strong> With filtering or mipmaps on, the GPU samples pixels next to a region's edge, which belong to the neighbouring image. Pad images in the atlas, or use point filtering for pixel art.</li>
+    <li><strong>Optimising a number nobody measured.</strong> A few hundred draw calls are fine on most current hardware. Profile first; if the frame is limited by pixel fill, shaders or game logic, fewer calls will not help.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Tilemaps are the clearest case. A tileset is one texture, so a whole layer of tiles shares the same state. Godot 4's <code>TileSet</code> is built from atlas sources, and Unity's <code>TilemapRenderer</code> has a Chunk mode that draws tiles in groups.</p>
+  <p>Text rendering relies on the same idea. Engines rasterise glyphs into a font atlas so that a whole line of text, with many different letters, can be one draw call.</p>
+  <p>LÖVE batches consecutive draws of the same texture automatically since version 11, and offers <code>SpriteBatch</code> for building a batch by hand, which is how many LÖVE games draw tile layers.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Open a busy scene in your project. In Unity, open the Frame Debugger and count the draw calls for sprites; in Godot, capture a frame with RenderDoc. Find two neighbouring calls that use different textures for sprites that could share one. Either put those images into one sprite sheet (a Sprite Atlas in Unity, one texture with regions in Godot) or move one group to its own layer so it is no longer interleaved. You are done when the capture shows fewer calls and the scene looks exactly the same.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A draw call is one command to the GPU with one set of render state. Its cost is mostly on the CPU.</li>
+    <li>The engine merges sprites into one call only when they share state and are next to each other in draw order.</li>
+    <li>The call count is the number of runs of equal state in the draw list, not the number of textures.</li>
+    <li>Regroup draw order where overlap does not matter; use an atlas where it does.</li>
+    <li>Measure with the Frame Debugger in Unity or a frame capture in Godot before and after you change anything.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Tilemaps take batching to its natural end: the next lesson shows how a grid of tile indices stores a large level cheaply, and how chunks and autotiling rules work.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Unity Technologies, Unity Manual pages <cite>Sprite Atlas</cite>, <cite>Draw call batching</cite> and <cite>Frame Debugger</cite>.</li>
+    <li>Godot Engine documentation, class reference for <cite>Sprite2D</cite> and <cite>AtlasTexture</cite>, and the Godot 3 manual page <cite>Optimization using batching</cite>, which explains the same run-based merging for the older renderer.</li>
+    <li>LÖVE wiki, <cite>love.graphics.getStats</cite> and <cite>SpriteBatch</cite>.</li>
+    <li>Tomas Akenine-Möller, Eric Haines and Naty Hoffman, <cite>Real-Time Rendering</cite>, the chapter on pipeline optimization.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX = 500;
+  var rand = DemoKit.rng(11);
+  var all = [];
+  for (var i = 0; i < MAX; i++) {
+    all.push({ id: i, u: rand(), v: rand(), kind: Math.floor(rand() * 3),
+      pos: 0, batch: 0, wrong: false, x: 0, y: 0 });
+  }
+
+  var count = 60;
+  var step = 0;          // 0 shows the whole frame, k shows draw calls 1..k
+  var order = [], batches = [];
+  var demo = null;
+
+  var ui = DemoKit.controls('[data-demo="batching"]');
+  var mode = ui.select({ label: 'Draw order', value: 'random', options: [
+    { value: 'random', label: 'Scene order, three textures' },
+    { value: 'sorted', label: 'Sorted by texture' },
+    { value: 'atlas', label: 'Scene order, one atlas texture' }
+  ], onChange: function () { step = 0; rebuild(); refresh(); } });
+  ui.slider({ label: 'Sprites', min: 10, max: MAX, step: 10, value: 60,
+    onInput: function (v) { count = v; step = 0; rebuild(); refresh(); } });
+  ui.button({ label: 'Next draw call', onClick: function () {
+    step = step >= batches.length ? 1 : step + 1;
+    refresh();
+  } });
+  ui.button({ label: 'Whole frame', onClick: function () { step = 0; refresh(); } });
+  var outCalls = ui.readout({ label: 'Draw calls' });
+  var outWrong = ui.readout({ label: 'Overlaps now in the wrong order' });
+  var outStep = ui.readout({ label: 'Showing' });
+
+  function rebuild() {
+    order = all.slice(0, count);
+    if (mode.value === 'sorted') {
+      order.sort(function (a, b) { return (a.kind - b.kind) || (a.id - b.id); });
+    }
+    batches = [];
+    for (var k = 0; k < order.length; k++) {
+      var tex = mode.value === 'atlas' ? 'atlas' : order[k].kind;
+      var last = batches.length ? batches[batches.length - 1] : null;
+      if (last && last.tex === tex) last.end = k;
+      else batches.push({ tex: tex, start: k, end: k });
+      order[k].pos = k;
+      order[k].batch = batches.length - 1;
+    }
+    if (step > batches.length) step = 0;
+  }
+  rebuild();
+
+  function refresh() { if (demo) demo.redraw(); }
+
+  function kindColor(c, kind) {
+    return kind === 0 ? c.topic : (kind === 1 ? c.good : c.warn);
+  }
+
+  function drawSprite(ctx, o, S, c) {
+    var x = o.x, y = o.y;
+    ctx.fillStyle = kindColor(c, o.kind);
+    ctx.fillRect(x, y, S, S);
+    ctx.fillStyle = c.surface;
+    if (o.kind === 0) {
+      ctx.fillRect(x + S / 4, y, S / 8, S);
+      ctx.fillRect(x + 3 * S / 4, y, S / 8, S);
+    } else if (o.kind === 1) {
+      ctx.beginPath();
+      ctx.arc(x + S / 2, y + S / 2, S / 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(x, y, S / 2, S / 2);
+      ctx.fillRect(x + S / 2, y + S / 2, S / 2, S / 2);
+    }
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, S - 1, S - 1);
+  }
+
+  demo = DemoKit.canvas('#batching', {
+    height: 380,
+    animate: false,
+    label: 'A field of square sprites in three patterns above a strip showing the draw order and the batches it forms. Use the controls below to change the order, the sprite count and to step through draw calls.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var pad = 10;
+      var stripH = 74;
+      var fieldBottom = s.height - stripH;
+      var fw = s.width - pad * 2;
+      var fh = fieldBottom - pad;
+      var S = DemoKit.clamp(Math.round(s.width / 18), 16, 28);
+      var k, o;
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(pad, pad, fw, fh);
+
+      // Pixel positions for the current size.
+      var active = all.slice(0, count);
+      for (k = 0; k < active.length; k++) {
+        o = active[k];
+        o.x = Math.round(pad + o.u * (fw - S));
+        o.y = Math.round(pad + o.v * (fh - S));
+        o.wrong = false;
+      }
+
+      // A pair is wrong when the sprite meant to be underneath (lower id) is drawn later.
+      var wrongPairs = 0;
+      for (var a = 0; a < active.length; a++) {
+        var oa = active[a];
+        for (var b = a + 1; b < active.length; b++) {
+          var ob = active[b];
+          if (Math.abs(oa.x - ob.x) < S && Math.abs(oa.y - ob.y) < S && oa.pos > ob.pos) {
+            wrongPairs++;
+            oa.wrong = true;
+          }
+        }
+      }
+
+      // Sprites, in draw order. While stepping, calls not yet made are ghosts.
+      for (k = 0; k < order.length; k++) {
+        o = order[k];
+        ctx.globalAlpha = (step > 0 && o.batch > step - 1) ? 0.12 : 1;
+        drawSprite(ctx, o, S, c);
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.lineWidth = 2;
+      for (k = 0; k < order.length; k++) {
+        o = order[k];
+        if (step > 0 && o.batch > step - 1) continue;
+        if (o.wrong) {
+          ctx.strokeStyle = c.bad;
+          ctx.strokeRect(o.x - 2, o.y - 2, S + 4, S + 4);
+        }
+        if (step > 0 && o.batch === step - 1) {
+          ctx.strokeStyle = c.ink;
+          ctx.strokeRect(o.x - 3.5, o.y - 3.5, S + 7, S + 7);
+        }
+      }
+
+      // The draw list strip.
+      var n = order.length;
+      var cw = fw / n;
+      var ty = fieldBottom + 8;
+      ctx.fillStyle = c.ink;
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Draw order: ' + batches.length + (batches.length === 1 ? ' draw call' : ' draw calls'), pad, ty);
+      var cy = ty + 20, ch = 18;
+      for (k = 0; k < n; k++) {
+        ctx.fillStyle = kindColor(c, order[k].kind);
+        ctx.fillRect(pad + k * cw, cy, Math.max(cw - (cw > 3 ? 1 : 0), 0.5), ch);
+      }
+      var by = cy + ch + 5;
+      for (k = 0; k < batches.length; k++) {
+        var bt = batches[k];
+        var x0 = pad + bt.start * cw, x1 = pad + (bt.end + 1) * cw;
+        var gap = (x1 - x0) > 4 ? 2 : 0;
+        ctx.fillStyle = (k % 2 === 0) ? c.ink : c.ink3;
+        ctx.fillRect(x0 + gap / 2, by, Math.max(x1 - x0 - gap, 0.5), 6);
+      }
+      if (step > 0) {
+        var cur = batches[step - 1];
+        var hx0 = pad + cur.start * cw, hx1 = pad + (cur.end + 1) * cw;
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hx0 - 1, cy - 3, hx1 - hx0 + 2, ch + 17);
+      }
+
+      outCalls.set(batches.length + ' for ' + n + ' sprites' +
+        (mode.value === 'atlas' ? ' (one texture)' : ''));
+      outWrong.set(String(wrongPairs));
+      if (step === 0) {
+        outStep.set('Whole frame');
+      } else {
+        var sb = batches[step - 1];
+        var size = sb.end - sb.start + 1;
+        outStep.set('Draw call ' + step + ' of ' + batches.length + ', ' + size +
+          (size === 1 ? ' sprite' : ' sprites'));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

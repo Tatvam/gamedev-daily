@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slerp: why does my camera tumble on its way to the new angle? · Game Dev Daily</title>
+<meta name="description" content="How slerp blends two quaternion rotations along the shortest arc at a steady speed, and why blending Euler angles or raw numbers wobbles.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-a { color: var(--ink-2); font-weight: 650; }
+  .v-b { color: var(--warn); font-weight: 650; }
+  .v-s { color: var(--t-game-math); font-weight: 650; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Slerp: why does my camera tumble on its way to the new angle?</h1>
+  <p class="lede">How slerp blends two quaternion rotations along the shortest arc at a steady speed, and why blending Euler angles or raw numbers wobbles.</p>
+</header>
+
+<section data-section="hook">
+  <p>A cutscene camera should swing from one shot to the next in two seconds. You lerp its yaw, pitch and roll, and on the way it rolls over and dips its nose before settling. You need a blend that turns the shortest way, at a steady speed.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Three ways to blend two rotations</h2>
+  <p>We have a start pose <span class="v-a">A</span>, a target pose <span class="v-b">B</span>, and a number t that goes from 0 to 1 over time, as in the lerp lesson. We want a pose for every t in between. Axes are the same as in the last two lessons: x right, <strong>y up</strong>, z forward.</p>
+
+  <h3>1. Lerp the Euler angles</h3>
+  <p>Lerp yaw, pitch and roll one by one. The three turns are stacked in order, so the object does not turn about one steady axis. It wanders.</p>
+  <p>The worst case: yaw 180°, pitch 180°, roll 180° is the <em>same pose</em> as 0°, 0°, 0°. Each 180° turn flips the sign of two of x, y and z, and together they flip every one twice. Lerping the numbers from (0, 0, 0) to (180, 180, 180) makes the plane tumble through about 233° of turning only to end where it started.</p>
+
+  <h3>2. Lerp the four quaternion numbers</h3>
+  <p>Yesterday we saw that a rotation quaternion always has length 1. Picture all such quaternions as points on a sphere. It is a sphere in four dimensions, so the diagram uses a circle, which behaves the same way.</p>
+  <p>Plain lerp walks the straight line, the <dfn>chord</dfn>, between the two points. Points on the chord are shorter than 1, so they are not proper rotations. <dfn>Nlerp</dfn> (normalised lerp) fixes the length by dividing by it, which pushes each point straight out to the circle. The pose is now valid, but the steps are uneven: short near the ends, long in the middle.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Two copies of a 120 degree arc from a to b. Left: four equal steps along the straight chord, pushed out to the arc, land at uneven angles of 19, 41, 41 and 19 degrees. Right: slerp steps along the arc are all 30 degrees.">
+      <!-- Left: lerp then normalise -->
+      <path class="d-stroke" d="M260 205 A150 150 0 0 0 35 75.1" style="fill: none"/>
+      <path class="d-thin d-dash" d="M260 205 L35 75.1"/>
+      <path class="d-thin" d="M110 205 L251.7 155.9 M110 205 L185 75.1 M110 205 L81.6 57.7"/>
+      <circle class="d-fill" cx="203.75" cy="172.5" r="3.5"/>
+      <circle class="d-fill" cx="147.5" cy="140" r="3.5"/>
+      <circle class="d-fill" cx="91.25" cy="107.6" r="3.5"/>
+      <circle class="d-accent-fill" cx="251.7" cy="155.9" r="6"/>
+      <circle class="d-accent-fill" cx="185" cy="75.1" r="6"/>
+      <circle class="d-accent-fill" cx="81.6" cy="57.7" r="6"/>
+      <circle class="d-fill" cx="110" cy="205" r="3"/>
+      <circle class="d-fill" cx="260" cy="205" r="5"/>
+      <circle class="d-fill" cx="35" cy="75.1" r="5"/>
+      <text class="d-text" x="268" y="210">a</text>
+      <text class="d-text" x="24" y="96" text-anchor="end">b</text>
+      <text class="d-label" x="281" y="180">19°</text>
+      <text class="d-label" x="244" y="98">41°</text>
+      <text class="d-label" x="138" y="36" text-anchor="middle">41°</text>
+      <text class="d-label" x="48" y="46" text-anchor="end">19°</text>
+      <text class="d-muted" x="150" y="240" text-anchor="middle">lerp, then normalise: uneven</text>
+
+      <!-- Right: slerp -->
+      <path class="d-stroke" d="M580 205 A150 150 0 0 0 355 75.1" style="fill: none"/>
+      <path class="d-thin" d="M430 205 L559.9 130 M430 205 L505 75.1 M430 205 L430 55"/>
+      <circle class="d-accent-fill" cx="559.9" cy="130" r="6"/>
+      <circle class="d-accent-fill" cx="505" cy="75.1" r="6"/>
+      <circle class="d-accent-fill" cx="430" cy="55" r="6"/>
+      <circle class="d-fill" cx="430" cy="205" r="3"/>
+      <circle class="d-fill" cx="580" cy="205" r="5"/>
+      <circle class="d-fill" cx="355" cy="75.1" r="5"/>
+      <text class="d-text" x="588" y="210">a</text>
+      <text class="d-text" x="344" y="96" text-anchor="end">b</text>
+      <text class="d-label" x="598" y="166">30°</text>
+      <text class="d-label" x="553" y="84">30°</text>
+      <text class="d-label" x="476" y="36" text-anchor="middle">30°</text>
+      <text class="d-label" x="384" y="40" text-anchor="end">30°</text>
+      <text class="d-muted" x="470" y="240" text-anchor="middle">slerp: even</text>
+    </svg>
+    <figcaption>Steps of t = 0.25 on a 120° arc. Left: equal steps along the dashed chord, pushed out to the circle, land 19°, 41°, 41° and 19° apart. Right: slerp moves the same angle every step.</figcaption>
+  </figure>
+
+  <h3>3. Slerp: walk along the arc</h3>
+  <p><dfn>Slerp</dfn> (spherical linear interpolation) moves along the arc itself, so equal steps in t give equal steps of turning. First find how far apart the two points are on the sphere. Call that angle Ω (the Greek capital omega). The dot product from the vectors lessons gives it, now with four numbers:</p>
+<pre><code>cos Ω = a.w·b.w + a.x·b.x + a.y·b.y + a.z·b.z</code></pre>
+  <p>Then mix a and b with two weights that come from sines instead of plain 1 − t and t:</p>
+<pre><code>slerp(a, b, t) = a × sin((1 − t)·Ω) / sin Ω  +  b × sin(t·Ω) / sin Ω</code></pre>
+
+  <p><strong>Worked example on a circle.</strong> a = (1, 0), b = (0, 1), so Ω = 90° and sin Ω = 1. At t = 0.25 the weights are sin 67.5° ≈ 0.924 and sin 22.5° ≈ 0.383, giving (0.924, 0.383): exactly 22.5° round, a quarter of the way. Lerp gives (0.75, 0.25), which has length 0.79 and, once normalised, sits at only 18.4°. Nlerp lags at the start and catches up in the middle.</p>
+  <p><strong>Worked example with quaternions.</strong> <span class="v-a">A</span> is no turn, (1, 0, 0, 0). <span class="v-b">B</span> is 90° about up, (0.707, 0, 0.707, 0). The dot product is 0.707, so Ω = 45°. That is half of the 90° turn, because quaternions store half angles. At t = 0.5 both weights are sin 22.5° / sin 45° ≈ 0.383 / 0.707 = 0.541:</p>
+<pre><code>w = 0.541 × 1 + 0.541 × 0.707 = 0.924
+y = 0.541 × 0 + 0.541 × 0.707 = 0.383</code></pre>
+  <p>(0.924, 0, 0.383, 0) is cos 22.5° and sin 22.5°: a 45° turn about up. Halfway in time, halfway round.</p>
+
+  <h3>The short way round</h3>
+  <p>Yesterday's lesson showed that q and −q (every number negated) are the same pose. On the sphere they are opposite points, and slerp only knows about points. Yaw 270° gives B = (−0.707, 0, 0.707, 0), and the dot product with A is −0.707. Slerping straight to it turns 270° to the right. Flip B to (0.707, 0, −0.707, 0), which is −90°, the same pose, and the dot becomes +0.707: now slerp turns 90° to the left.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>If the dot product is negative, negate B before you slerp. If it is very close to 1, the poses are almost equal and sin Ω is almost 0, so use nlerp instead of dividing by nearly nothing.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both panels blend a dart from <span class="v-a">A</span> (grey, level) to <span class="v-b">B</span> (orange): slerp on the left, your choice on the right. The <span class="v-s">green</span> line is the nose's path, with a dot every 0.1 of t. Even dots mean a steady speed.</p>
+  <p>Drag the t slider, or drag a panel to aim <span class="v-b">B</span>. Press <strong>Same pose (180, 180, 180)</strong>: slerp stays put while the Euler blend tumbles. Press <strong>Yaw 270</strong> and turn off <strong>Take the short way</strong> to see slerp go round the long side. Switch the right panel to nlerp and watch its dots bunch at the ends.</p>
+  <figure class="demo wide" data-demo="slerp">
+    <div class="demo-split">
+      <div class="demo-stage"><canvas id="slerp-left"></canvas><span class="demo-label">Slerp</span></div>
+      <div class="demo-stage"><canvas id="slerp-right"></canvas><span class="demo-label" id="slerp-right-label">Lerp Euler angles</span></div>
+    </div>
+    <figcaption>x right, y up, z forward; floor squares are 1 unit. Drag sideways to change the target's yaw and up or down to change its pitch, or click a panel and use the arrow keys. "Turned" counts every degree of turning along the way.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Slerp with the sign check and the near-equal fallback, turning from A to the demo's default B in two seconds. Space restarts it.</p>
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Quaternions are tables { w, x, y, z }. x right, y up, z forward. Degrees.</span>
+local function fromAxisAngle(ax, ay, az, degrees)   <span class="c">-- axis of length 1</span>
+  local half = math.rad(degrees) / 2
+  local s = math.sin(half)
+  return { w = math.cos(half), x = ax * s, y = ay * s, z = az * s }
+end
+
+local function multiply(a, b)                       <span class="c">-- b first, then a</span>
+  return {
+    w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+    x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w }
+end
+
+local function fromEuler(yaw, pitch, roll)          <span class="c">-- roll, then pitch, then yaw</span>
+  local q = multiply(fromAxisAngle(0, 1, 0, yaw), fromAxisAngle(1, 0, 0, pitch))
+  return multiply(q, fromAxisAngle(0, 0, 1, roll))
+end
+
+local function slerp(a, b, t)
+  local d = a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z   <span class="c">-- cos of omega</span>
+  if d &lt; 0 then                     <span class="c">-- -b is the same pose: go the short way</span>
+    b = { w = -b.w, x = -b.x, y = -b.y, z = -b.z }
+    d = -d
+  end
+  local wa, wb = 1 - t, t            <span class="c">-- almost equal: plain lerp weights</span>
+  if d &lt; 0.9995 then
+<span class="k">    local omega = math.acos(d)
+    local s = math.sin(omega)
+    wa = math.sin((1 - t) * omega) / s
+    wb = math.sin(t * omega) / s</span>
+  end
+  local q = { w = wa * a.w + wb * b.w, x = wa * a.x + wb * b.x,
+              y = wa * a.y + wb * b.y, z = wa * a.z + wb * b.z }
+  local len = math.sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z)
+  return { w = q.w / len, x = q.x / len, y = q.y / len, z = q.z / len }
+end
+
+local A = fromEuler(0, 0, 0)
+local B = fromEuler(150, -60, 120)
+local DURATION = 2                    <span class="c">-- seconds for the whole turn</span>
+local time = 0
+local orientation = A
+
+function love.update(dt)
+  time = time + dt
+  local t = math.min(time / DURATION, 1)   <span class="c">-- stop at B, do not overshoot</span>
+  orientation = slerp(A, B, t)
+end
+
+function love.keypressed(key)
+  if key == "space" then time = 0 end
+end
+
+function love.draw()
+  local o = orientation
+  love.graphics.print(string.format("q = (%.3f, %.3f, %.3f, %.3f)", o.w, o.x, o.y, o.z), 10, 10)
+end</code></pre>
+  </div>
+  <p>After one second it prints (0.808, −0.408, −0.328, −0.270); at the end (0.306, −0.660, −0.530, −0.436). That is B with every sign flipped, because B's w is negative and the sign check took the short way. Same pose. To draw the dart, rotate its points with yesterday's <code>rotate(q, p)</code>.</p>
+  <p>Built-in versions: Unity has <code>Quaternion.Slerp(a, b, t)</code>, which clamps t to 0 to 1. In Godot 4 it is <code>a.slerp(b, t)</code>, and both quaternions must be normalised.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>No sign check.</strong> When the dot product is negative, the turn as stored is more than 180° (yaw 270° is one example), and slerp without the check takes the long way round. The demo's toggle shows it.</li>
+    <li><strong>Dividing by sin Ω near zero.</strong> When A and B are almost the same, Ω and sin Ω are almost 0. The fallback to lerp weights avoids it. The same branch catches B = −A: after the flip they are equal, which is correct, because they are the same pose.</li>
+    <li><strong>t outside 0 to 1.</strong> The formula keeps going: slerping a 90° turn with t = 1.5 gives a 135° turn. That can be useful for overshoot, but usually you want to clamp t, as the code does. Unity's <code>Slerp</code> clamps; <code>SlerpUnclamped</code> does not.</li>
+    <li><strong>Inputs that are not length 1.</strong> The dot product is then not cos Ω, and <code>math.acos</code> of a number above 1 gives NaN (not a number). Normalise A and B first.</li>
+    <li><strong>Slerping towards a moving target each frame.</strong> <code>current = slerp(current, target, 0.1)</code> depends on the frame rate. Use <code>1 - math.exp(-speed * dt)</code> as t, as in the exponential smoothing lesson.</li>
+    <li><strong>Slerp is not always needed.</strong> For a 30° turn, nlerp is never more than 0.03° away from slerp; for 90°, under 1°; for 180°, about 8°. Nlerp is cheaper, so small blends often use it.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Unity offers both <code>Quaternion.Slerp</code> and <code>Quaternion.Lerp</code>; its documentation describes <code>Lerp</code> as interpolating and then normalising, which is nlerp. Godot's <code>Quaternion</code> has <code>slerp</code>, and Unreal Engine's <code>FQuat</code> has a <code>Slerp</code> function.</p>
+  <p>Typical uses: turning a camera between two shots, turning a turret or ship to a new heading, and blending animation poses bone by bone.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build a security camera that sweeps between two poses. Set <code>A = fromEuler(-60, 20, 0)</code> and <code>B = fromEuler(60, 20, 0)</code>: looking left and right, tipped 20° down. Every 3 seconds swap which one is the start. Feed <code>smoothstep(t)</code> from the smoothstep lesson into <code>slerp</code> so the camera eases in and out at each end.</p>
+  <p>You are done when the camera sweeps back and forth without rolling. Check by hand: at t = 0.5, <code>slerp(A, B, 0.5)</code> should print (0.985, 0.174, 0, 0), which is <code>fromEuler(0, 20, 0)</code>: straight ahead and 20° down.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Lerping Euler angles makes the object wander and can tumble it a long way, even between equal poses.</li>
+    <li>Lerping the four quaternion numbers cuts across the sphere; normalising (nlerp) fixes the length but not the uneven speed.</li>
+    <li>Slerp walks the arc: find Ω from the 4D dot product, then weight a and b by sin((1 − t)·Ω) and sin(t·Ω), divided by sin Ω.</li>
+    <li>Negate B when the dot product is negative, so the turn goes the short way.</li>
+    <li>When the dot product is almost 1, use lerp weights to avoid dividing by nearly zero, and clamp t to stop at B.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we leave rotation behind for randomness: how a generator turns one seed into a sequence you can repeat exactly.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Ken Shoemake, <cite>Animating Rotation with Quaternion Curves</cite>, SIGGRAPH 1985, the paper that introduced slerp to computer graphics.</li>
+    <li>Fletcher Dunn and Ian Parberry, <cite>3D Math Primer for Graphics and Game Development</cite>, the chapter on orientation, which derives slerp.</li>
+    <li>Jonathan Blow, <cite>Understanding Slerp, Then Not Using It</cite>, an article on when nlerp is good enough.</li>
+    <li>Unity Scripting API, <cite>Quaternion.Slerp</cite> and <cite>Quaternion.Lerp</cite>.</li>
+    <li>Godot Engine documentation, the <cite>Quaternion</cite> class reference.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // World axes: x right, y up, z forward. Euler order: roll (z), then pitch (x), then yaw (y).
+  // The same formulas as the Lua code.
+  var D2R = Math.PI / 180;
+  var CAM_DIST = 6, FLOOR_Y = -1.7, SAMPLES = 200;
+  var VIEW_YAW = -32 * D2R, VIEW_PITCH = 22 * D2R;
+  var target = { yaw: 150, pitch: -60, roll: 120 };
+  var t = 0, dir = 1, hold = 0.8;
+  var method = 'euler';
+  var shortWay = true;
+  var Q_A = { w: 1, x: 0, y: 0, z: 0 };
+
+  function V(x, y, z) { return { x: x, y: y, z: z }; }
+  function rotX(p, a) { var c = Math.cos(a), s = Math.sin(a); return V(p.x, p.y * c - p.z * s, p.y * s + p.z * c); }
+  function rotY(p, a) { var c = Math.cos(a), s = Math.sin(a); return V(p.x * c + p.z * s, p.y, p.z * c - p.x * s); }
+
+  function fromAxisAngle(ax, ay, az, degrees) {
+    var half = degrees * D2R / 2, s = Math.sin(half);
+    return { w: Math.cos(half), x: ax * s, y: ay * s, z: az * s };
+  }
+  function multiply(a, b) {
+    return {
+      w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+      x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+      y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+      z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w
+    };
+  }
+  function fromEuler(yaw, pitch, roll) {
+    var q = multiply(fromAxisAngle(0, 1, 0, yaw), fromAxisAngle(1, 0, 0, pitch));
+    return multiply(q, fromAxisAngle(0, 0, 1, roll));
+  }
+  function dot(a, b) { return a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z; }
+  function blend(a, b, wa, wb) {
+    var q = { w: wa * a.w + wb * b.w, x: wa * a.x + wb * b.x, y: wa * a.y + wb * b.y, z: wa * a.z + wb * b.z };
+    var len = Math.sqrt(dot(q, q));
+    if (len < 1e-9) return { w: 1, x: 0, y: 0, z: 0 };
+    return { w: q.w / len, x: q.x / len, y: q.y / len, z: q.z / len };
+  }
+  function neg(q) { return { w: -q.w, x: -q.x, y: -q.y, z: -q.z }; }
+  function slerp(a, b, tt, short) {
+    var d = dot(a, b);
+    if (short && d < 0) { b = neg(b); d = -d; }
+    var wa = 1 - tt, wb = tt;
+    if (d < 0.9995 && d > -0.9995) {
+      var omega = Math.acos(d), s = Math.sin(omega);
+      wa = Math.sin((1 - tt) * omega) / s;
+      wb = Math.sin(tt * omega) / s;
+    } else if (d <= -0.9995) {
+      // Long way between equal poses (short way switched off): a full 360 degree turn.
+      // Rotate a by 360 * t about any axis; the y axis is used here.
+      return multiply(fromAxisAngle(0, 1, 0, 360 * tt), a);
+    }
+    return blend(a, b, wa, wb);
+  }
+  function nlerp(a, b, tt, short) {
+    if (short && dot(a, b) < 0) b = neg(b);
+    return blend(a, b, 1 - tt, tt);
+  }
+  function rotate(q, p) {
+    var tx = 2 * (q.y * p.z - q.z * p.y);
+    var ty = 2 * (q.z * p.x - q.x * p.z);
+    var tz = 2 * (q.x * p.y - q.y * p.x);
+    return V(p.x + q.w * tx + (q.y * tz - q.z * ty),
+             p.y + q.w * ty + (q.z * tx - q.x * tz),
+             p.z + q.w * tz + (q.x * ty - q.y * tx));
+  }
+  function angleBetween(a, b) {   // degrees, 0 to 180
+    return 2 * Math.acos(Math.min(1, Math.abs(dot(a, b)))) / D2R;
+  }
+
+  function targetQ() { return fromEuler(target.yaw, target.pitch, target.roll); }
+  function pose(side, B, tt) {
+    if (side === 'left') return slerp(Q_A, B, tt, shortWay);
+    if (method === 'euler') return fromEuler(target.yaw * tt, target.pitch * tt, target.roll * tt);
+    return nlerp(Q_A, B, tt, shortWay);
+  }
+
+  function num(n, dp) {
+    var f = Math.pow(10, dp);
+    n = Math.round(n * f) / f;
+    if (n === 0) n = 0;
+    return n < 0 ? '−' + (-n).toFixed(dp) : n.toFixed(dp);
+  }
+
+  // --- the dart: nose along +z, wings along x, fin up ----------------------------------------
+  var DART = [V(0, 0, 1.3), V(1, 0, -0.7), V(0, 0, -0.7), V(-1, 0, -0.7), V(0, 0.6, -0.7), V(0, 0, -0.1)];
+  var DART_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2], [5, 4], [4, 2]];
+  var NOSE = DART[0];
+
+  // --- camera ----------------------------------------------------------------------------------
+  function toCam(p) { return rotX(rotY(p, VIEW_YAW), -VIEW_PITCH); }
+  function makeView(w, h) { return { cx: w / 2, cy: h / 2 + 6, f: Math.min(w, h) * 1.25 }; }
+  function project(view, p) {
+    var q = toCam(p);
+    var z = q.z + CAM_DIST;
+    return { x: view.cx + view.f * q.x / z, y: view.cy - view.f * q.y / z };
+  }
+
+  // --- controls --------------------------------------------------------------------------------
+  var left = null, right = null;
+  function redrawAll() { if (left) left.redraw(); if (right) right.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="slerp"]');
+  var sT = ui.slider({ label: 't', min: 0, max: 1, step: 0.01, value: 0,
+    onInput: function (v) { if (left) left.pause(); t = v; redrawAll(); } });
+  var sYaw = ui.slider({ label: 'Target yaw', min: -360, max: 360, step: 1, value: target.yaw, unit: '°',
+    onInput: function (v) { target.yaw = v; redrawAll(); } });
+  var sPitch = ui.slider({ label: 'Target pitch', min: -180, max: 180, step: 1, value: target.pitch, unit: '°',
+    onInput: function (v) { target.pitch = v; redrawAll(); } });
+  var sRoll = ui.slider({ label: 'Target roll', min: -360, max: 360, step: 1, value: target.roll, unit: '°',
+    onInput: function (v) { target.roll = v; redrawAll(); } });
+  var labelRight = document.getElementById('slerp-right-label');
+  ui.select({ label: 'Right panel', value: 'euler',
+    options: [{ value: 'euler', label: 'Lerp Euler angles' }, { value: 'nlerp', label: 'Lerp quaternions, then normalise (nlerp)' }],
+    onChange: function (v) {
+      method = v;
+      labelRight.textContent = v === 'euler' ? 'Lerp Euler angles' : 'Nlerp';
+      redrawAll();
+    } });
+  ui.toggle({ label: 'Take the short way (negate B when the dot is negative)', value: true,
+    onChange: function (v) { shortWay = v; redrawAll(); } });
+  function preset(y, p, r) {
+    target.yaw = y; target.pitch = p; target.roll = r;
+    sYaw.set(y); sPitch.set(p); sRoll.set(r);
+    redrawAll();
+  }
+  ui.button({ label: 'Tumble (150, −60, 120)', onClick: function () { preset(150, -60, 120); } });
+  ui.button({ label: 'Same pose (180, 180, 180)', onClick: function () { preset(180, 180, 180); } });
+  ui.button({ label: 'Yaw 270', onClick: function () { preset(270, 0, 0); } });
+  var outDot = ui.readout({ label: 'Dot product of A and B' });
+  var outQ = ui.readout({ label: 'Slerp quaternion at t (w, x, y, z)' });
+  var outTotal = ui.readout({ label: 'Shortest turn from A to B' });
+  var cache = {};
+  function setOut(out, key, text) { if (cache[key] !== text) { cache[key] = text; out.set(text); } }
+
+  // --- input: drag or arrow keys aim the target ------------------------------------------------
+  var lastDrag = null;
+  function clampTarget() {
+    target.yaw = Math.round(DemoKit.clamp(target.yaw, -360, 360));
+    target.pitch = Math.round(DemoKit.clamp(target.pitch, -180, 180));
+    sYaw.set(target.yaw); sPitch.set(target.pitch);
+  }
+  function onDown(p) { lastDrag = { x: p.x, y: p.y }; }
+  function onMove(p) {
+    if (!p.down || !lastDrag) return;
+    target.yaw += (p.x - lastDrag.x) * 0.6;
+    target.pitch += (p.y - lastDrag.y) * 0.6;
+    lastDrag = { x: p.x, y: p.y };
+    clampTarget();
+    redrawAll();
+  }
+  function onUp() { lastDrag = null; }
+  function onKey(key, isDown) {
+    if (!isDown) return;
+    if (key === 'arrowleft') target.yaw -= 5;
+    else if (key === 'arrowright') target.yaw += 5;
+    else if (key === 'arrowup') target.pitch -= 5;
+    else if (key === 'arrowdown') target.pitch += 5;
+    else return;
+    clampTarget();
+    redrawAll();
+  }
+
+  // --- drawing ---------------------------------------------------------------------------------
+  var LABEL = '600 12px ui-monospace, Menlo, Consolas, monospace';
+
+  function label(ctx, text, x, y, color, bg, w, h) {
+    ctx.font = LABEL;
+    var tw = ctx.measureText(text).width;
+    var lx = DemoKit.clamp(x, 4, Math.max(4, w - tw - 6));
+    var ly = DemoKit.clamp(y, 15, h - 6);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bg;
+    ctx.fillRect(lx - 3, ly - 11, tw + 6, 15);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, lx, ly);
+  }
+
+  function drawDart(ctx, view, q, color, fillAlpha, dashed) {
+    var pts = [], k;
+    for (k = 0; k < DART.length; k++) pts.push(project(view, rotate(q, DART[k])));
+    if (fillAlpha > 0) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = fillAlpha;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineTo(pts[1].x, pts[1].y);
+      ctx.lineTo(pts[2].x, pts[2].y);
+      ctx.lineTo(pts[3].x, pts[3].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(pts[5].x, pts[5].y);
+      ctx.lineTo(pts[4].x, pts[4].y);
+      ctx.lineTo(pts[2].x, pts[2].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = dashed ? 1.5 : 2.5;
+    if (dashed) ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    for (k = 0; k < DART_EDGES.length; k++) {
+      var a = pts[DART_EDGES[k][0]], b = pts[DART_EDGES[k][1]];
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, dashed ? 3 : 4.5, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  function drawPanel(side, ctx, s) {
+    var c = s.colors, w = s.width, h = s.height, k, p;
+    var view = makeView(w, h);
+    var B = targetQ();
+
+    // Floor grid
+    ctx.strokeStyle = c.ink3;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (k = -2; k <= 2; k++) {
+      var p1 = project(view, V(k, FLOOR_Y, -2)), p2 = project(view, V(k, FLOOR_Y, 2));
+      var p3 = project(view, V(-2, FLOOR_Y, k)), p4 = project(view, V(2, FLOOR_Y, k));
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+      ctx.moveTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    p = project(view, V(2.3, FLOOR_Y, 0));
+    label(ctx, 'x', p.x, p.y + 4, c.ink2, c.surface, w, h);
+    p = project(view, V(0, FLOOR_Y, 2.3));
+    label(ctx, 'z', p.x - 4, p.y + 12, c.ink2, c.surface, w, h);
+
+    // Sample the whole blend: nose path and turning so far
+    var poses = [], cum = [0], i;
+    for (i = 0; i <= SAMPLES; i++) poses.push(pose(side, B, i / SAMPLES));
+    for (i = 1; i <= SAMPLES; i++) cum.push(cum[i - 1] + angleBetween(poses[i - 1], poses[i]));
+    var current = pose(side, B, t);
+    var fi = t * SAMPLES, i0 = Math.min(SAMPLES - 1, Math.floor(fi));
+    var turned = cum[i0] + angleBetween(poses[i0], current);
+    if (t <= 0) turned = 0;
+
+    // Ghosts of A and B
+    drawDart(ctx, view, Q_A, c.ink3, 0, true);
+    drawDart(ctx, view, B, c.warn, 0, true);
+
+    // Nose path with a dot every 0.1 of t
+    ctx.strokeStyle = c.topic;
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (i = 0; i <= SAMPLES; i++) {
+      p = project(view, rotate(poses[i], NOSE));
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.topic;
+    for (i = 0; i <= SAMPLES; i += SAMPLES / 10) {
+      p = project(view, rotate(poses[i], NOSE));
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    // The blended dart
+    drawDart(ctx, view, current, c.topic, 0.25, false);
+
+    label(ctx, 'A', project(view, V(0, 0, 1.55)).x + 6, project(view, V(0, 0, 1.55)).y, c.ink2, c.surface, w, h);
+    p = project(view, rotate(B, V(0, 0, 1.55)));
+    label(ctx, 'B', p.x + 6, p.y, c.warn, c.surface, w, h);
+
+    label(ctx, 't = ' + t.toFixed(2), 8, h - 28, c.ink2, c.surface, w, h);
+    label(ctx, 'turned ' + Math.round(turned) + '° of ' + Math.round(cum[SAMPLES]) + '°', 8, h - 10, c.topic, c.surface, w, h);
+
+    if (side === 'left') {
+      var d = dot(Q_A, B);
+      setOut(outDot, 'd', num(d, 3) + (d < 0 ? (shortWay ? ' (negative: B is negated)' : ' (negative: long way)') : ''));
+      setOut(outQ, 'q', '(' + num(current.w, 3) + ', ' + num(current.x, 3) + ', ' + num(current.y, 3) + ', ' + num(current.z, 3) + ')');
+      setOut(outTotal, 'a', num(angleBetween(Q_A, B), 1) + '°');
+    }
+  }
+
+  var common = {
+    aspect: 1,
+    minHeight: 280,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    onDown: onDown,
+    onMove: onMove,
+    onUp: onUp,
+    onKey: onKey
+  };
+  function opts(extra) {
+    var o = {}, k;
+    for (k in common) o[k] = common[k];
+    for (k in extra) o[k] = extra[k];
+    return o;
+  }
+
+  right = DemoKit.canvas('#slerp-right', opts({
+    animate: false,
+    label: 'The same dart blended from pose A to pose B by lerping Euler angles, or by nlerp. A green line traces the path of its nose with a dot every tenth of t. Drag or use the arrow keys to aim the target.',
+    draw: function (ctx, s) { drawPanel('right', ctx, s); }
+  }));
+
+  left = DemoKit.canvas('#slerp-left', opts({
+    animate: true,
+    label: 'A dart blended by slerp from a grey start pose A to an orange target pose B. A green line traces the path of its nose with a dot every tenth of t. Drag or use the arrow keys to aim the target.',
+    update: function (dt) {
+      if (hold > 0) {
+        hold -= dt;
+      } else {
+        t += dir * dt / 2.5;
+        if (t >= 1) { t = 1; dir = -1; hold = 0.8; }
+        else if (t <= 0) { t = 0; dir = 1; hold = 0.8; }
+      }
+      sT.set(Math.round(t * 100) / 100);
+      right.redraw();
+    },
+    draw: function (ctx, s) { drawPanel('left', ctx, s); }
+  }));
+})();
+</script>
+</body>
+</html>

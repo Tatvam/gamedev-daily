@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polyrhythm Juggler: two hands, two tempos · Game Dev Daily</title>
+<meta name="description" content="A juggling rhythm game where each ball falls on its own period, so your two hands keep two different beats at once. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Polyrhythm Juggler: two hands, two tempos</h1>
+  <p class="lede">A juggling rhythm game where each ball falls on its own period, so your two hands keep two different beats at once. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your left hand catches a high, slow ball every second and a half. Your right hand catches a low, quick one every second. Neither hand can follow the other, and when a third ball starts crossing between them, you have to stop counting and feel the pattern.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: two rhythms, one body</h2>
+  <p>A <dfn>polyrhythm</dfn> is two or more steady beats of different speeds played at once. The simplest is <dfn>three against two</dfn>: while one beat counts three, the other counts two. It is hard to tap with two hands at first and gets easier with practice. That learning is the game.</p>
+  <p>Each ball has a home hand and a <dfn>period</dfn>, the time from one catch to the next. You press the left or right key as a ball lands in that hand, and the catch throws it back up. There is no scrolling track of notes: the ball is the note, and its height tells you its tempo.</p>
+  <p>Every ten seconds you catch about sixteen balls and see on the accuracy bars which hand drifts. Every minute you earn the third ball with a streak, lose it on a drop, and earn it back. Every session is a set of routines for a crowd, each with a new ratio such as four against three.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: watch the two arcs, catch on the beat of each hand, and read the accuracy bars, which leads back to watching. Beside it, two longer loops: every minute a streak earns the third ball and a drop takes it away, and every session a set of routines with new ratios.">
+      <defs>
+        <marker id="pj-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Watch both arcs</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">high is slow, low is quick</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Catch on time</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">left key, right key</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Read the bars</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">which hand rushes?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#pj-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#pj-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#pj-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every catch</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">a streak adds a ball,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">a drop takes it back</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">routines with new</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">ratios for a crowd</text>
+    </svg>
+    <figcaption>The short loop trains each hand. The longer loops add balls and change the ratio.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Two balls, two periods.</strong> The left ball returns every 1.5 seconds and the right ball every 1.0 second. Both land together every 3 seconds.</li>
+    <li><strong>The catch window.</strong> A press within 0.15 seconds of a landing catches the ball. Within 0.06 seconds it is a <em>perfect</em> catch worth 3 points; otherwise it is worth 1.</li>
+    <li><strong>Throws stay on schedule.</strong> An early or late catch does not shift the next landing, so errors show on the bar instead of piling up.</li>
+    <li><strong>Pressing at nothing breaks the streak.</strong> A press with no ball in that hand's window is a <dfn>fumble</dfn>: it resets the streak and costs 2 points, so mashing never pays.</li>
+    <li><strong>A streak of 12 adds a third ball.</strong> It crosses between the hands every 1.25 seconds.</li>
+    <li><strong>A drop costs a life and the third ball.</strong> The dropped ball rejoins after one cycle. Five drops end the show; a streak of 40 wins it.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 170" role="img" aria-label="A timeline of 3 seconds. The left hand catches at 0, 1.5 and 3 seconds. The right hand catches at 0, 1, 2 and 3 seconds. Both hands land together only at 0 and 3 seconds. Between them the catches fall at 1, 1.5 and 2 seconds, never together.">
+      <text class="d-label" x="20" y="54">Left</text>
+      <text class="d-label" x="20" y="104">Right</text>
+      <path class="d-thin" d="M80 50 H600"/>
+      <path class="d-thin" d="M80 100 H600"/>
+      <circle class="d-accent-fill" cx="100" cy="50" r="10"/>
+      <circle class="d-accent-fill" cx="340" cy="50" r="10"/>
+      <circle class="d-accent-fill" cx="580" cy="50" r="10"/>
+      <circle class="d-box" cx="100" cy="100" r="10"/>
+      <circle class="d-box" cx="260" cy="100" r="10"/>
+      <circle class="d-box" cx="420" cy="100" r="10"/>
+      <circle class="d-box" cx="580" cy="100" r="10"/>
+      <path class="d-dash" d="M100 26 V122"/>
+      <path class="d-dash" d="M580 26 V122"/>
+      <text class="d-muted" x="100" y="146" text-anchor="middle">0 s</text>
+      <text class="d-muted" x="260" y="146" text-anchor="middle">1 s</text>
+      <text class="d-muted" x="340" y="146" text-anchor="middle">1.5 s</text>
+      <text class="d-muted" x="420" y="146" text-anchor="middle">2 s</text>
+      <text class="d-muted" x="580" y="146" text-anchor="middle">3 s</text>
+      <text class="d-text" x="340" y="20" text-anchor="middle">together only at the dashed lines</text>
+    </svg>
+    <figcaption>Three against two. Heard as one pattern, it is a phrase of four uneven taps that repeats every 3 seconds.</figcaption>
+  </figure>
+
+  <h3>Height is tempo</h3>
+  <p>Under constant gravity <code>g</code>, a ball in the air for <code>T</code> seconds rises <code>g·T²/8</code>, so twice the period means four times the height. The prototype uses one gravity for every ball:</p>
+<pre><code>local t = math.max(0, (time - b.thrown) / b.period)  <span class="c">-- 0 at the throw, 1 at the landing</span>
+local y = MAX_H * (b.period / 1.5)^2 * 4 * t * (1 - t)</code></pre>
+  <p>Because every ball falls the same way, the eye learns one sense of "about to land" and uses it for all of them.</p>
+
+  <h3>What makes it different</h3>
+  <p>Most rhythm games put every note on one shared timeline. Here each hand has its own, and the skill is <em>independence</em>: keeping one hand steady while the other does something else. The fantasy is the street performer who makes it look effortless. The constraint is that the balls, not you, set the tempo.</p>
+  <p>The hardest part to build is the feel of the catch window. Input lag and how the ball is drawn at the landing both change whether a catch feels fair.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Catch each ball as it reaches its hand. Check the bars to see whether one hand rushes, then earn the third ball with a streak of 12 and feel the crossing ball break up the beat you had settled into.</p>
+
+  <figure class="demo wide" data-demo="polyrhythm-juggler">
+    <canvas id="polyrhythm-juggler"></canvas>
+    <figcaption>Controls: click the canvas, then press <kbd>F</kbd> or <kbd>Left</kbd> for the left hand and <kbd>J</kbd> or <kbd>Right</kbd> for the right hand. On a phone, tap the left or right half. The first press starts the show. <kbd>R</kbd> or Restart starts over, and Slow practice makes every period 30 percent longer. A ring closes in on a hand just before its ball lands. Each tick on a bar is one catch: left of centre was early, right was late.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: each ball stores when it lands, a key press checks only that hand's balls, and the next landing is one period after the last <em>scheduled</em> landing. Drawing, lives and the win check are left out. The names and numbers are the demo's.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local GOOD, PERFECT, UNIT = 0.15, 0.06, 0.25
+local UNLOCK = 12
+local KEYS = { f = "left", left = "left", j = "right", right = "right" }
+local time, streak, score, drops = 0, 0, 0, 0
+local balls = {
+  { hand = "left",  period = 1.5, thrown = 0, arrives = 1.5, cross = false },
+  { hand = "right", period = 1.0, thrown = 0, arrives = 1.0, cross = false },
+}
+
+<span class="k">local function rethrow(b)                 -- thrown back by the hand that caught it
+  if b.cross then b.hand = (b.hand == "left") and "right" or "left" end
+  b.thrown = b.arrives                   -- on schedule, early or late
+  b.arrives = b.arrives + b.period
+end</span>
+
+function love.keypressed(key)
+  local hand, caught = KEYS[key], false
+  if not hand then return end
+  for _, b in ipairs(balls) do
+    local off = time - b.arrives         <span class="c">-- below zero: early, above zero: late</span>
+    if b.hand == hand and math.abs(off) &lt;= GOOD then
+      caught, streak = true, streak + 1
+      score = score + ((math.abs(off) &lt;= PERFECT) and 3 or 1)
+      rethrow(b)
+    end
+  end
+  if not caught then                     <span class="c">-- a fumble: pressing at nothing</span>
+    streak, score = 0, math.max(0, score - 2)
+  end
+  if streak &gt;= UNLOCK and #balls == 2 then
+    local t = math.ceil(time / UNIT + 0.2) * UNIT   <span class="c">-- join on the beat grid</span>
+    balls[3] = { hand = "left", period = 1.25, thrown = t, arrives = t + 1.25, cross = true }
+  end
+end
+
+function love.update(dt)
+  time = time + dt
+  local dropped = false
+  for _, b in ipairs(balls) do
+    if time &gt; b.arrives + GOOD then      <span class="c">-- it fell past the hand</span>
+      drops, streak, dropped = drops + 1, 0, true
+      b.arrives = b.arrives + b.period   <span class="c">-- it lies on the floor for one cycle</span>
+      rethrow(b)
+    end
+  end
+  if dropped then balls[3] = nil end     <span class="c">-- the third ball goes back in the bag</span>
+end</code></pre>
+  </div>
+  <p>Every period is a whole number of <code>UNIT</code> steps (6, 4 and 5 of them), and the third ball joins on that grid. So two landings in one hand either coincide, and one press catches both, or are at least a quarter of a second apart. Without the grid, near misses between landings would cost balls for no reason the player could see.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>It is simply too hard for many people.</strong> If new players quit in the first minute, the game never gets to teach them. Offer a mode where one hand plays itself while the player learns the other. Time how long non-musicians take to reach a streak of 12.</li>
+    <li><strong>The eyes cannot follow two arcs.</strong> If the hands are far apart, the player misses whichever ball they are not looking at. Keep both arcs inside one glance. If a tester's head moves left and right, the arcs are too far apart.</li>
+    <li><strong>Mashing wins.</strong> Without the fumble rule, pressing both keys constantly catches everything. Mash for thirty seconds yourself: you should lose the streak quickly.</li>
+    <li><strong>Lag looks like bad timing.</strong> If every tester's bars lean late by the same amount, the problem is input or display lag, not the players. Add a calibration screen before tuning the window.</li>
+    <li><strong>The third ball feels like noise.</strong> If the crossing ball's rhythm does not fit the other two, the pattern stops being learnable. Keep all periods on one grid and the cycle short. Here the three-ball pattern repeats every 15 seconds; if testers find it chaotic, try a shorter cycle.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Rhythm games usually give the player one chart to follow, even when several limbs play it, as on the drum kit controller of <cite>Rock Band</cite>. Polyrhythm itself is old and common in music, for example in West African drumming and in classical piano music.</p>
+  <p>Jugglers write patterns in <dfn>siteswap</dfn> notation, where each throw is a number of beats. In the usual two-handed form, where the hands take turns, odd numbers cross to the other hand and even numbers return to the same hand. This game borrows the idea that a throw's height is a length of time, but not siteswap's rules, since its hands do not take turns. I do not know of a game built on two hands keeping two separate periods, but I have not checked every rhythm game, so something close may exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with two circles for hands and two balls drawn with the height formula, and print each catch's offset in milliseconds. Leave out the third ball and lives.</p>
+  <p>Hand it to three people for two minutes each. The one question: <strong>after two minutes, can they tap the combined pattern on the table without the game?</strong> If they can, the game teaches a real skill. If they only play while staring at the balls, they are reacting rather than feeling the rhythm: slow the tempo or bring the arcs closer, and test again.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> two hands, two balls, three against two, the catch window, fumbles, drops and the accuracy bars.</li>
+    <li><strong>One-month version:</strong> routines with new ratios, a lag calibration screen, music that plays the combined pattern, and a crowd that reacts to streaks.</li>
+    <li><strong>Cut first:</strong> extra hands, power-ups and juggling tricks. Every new kind of ball must fit the grid and be learnable.</li>
+    <li><strong>Hardest part:</strong> making the catch feel fair. Build the accuracy bars before tuning any numbers.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let the length of each press set the height of the next throw, so the player writes the polyrhythm instead of following one.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Burkard Polster, <cite>The Mathematics of Juggling</cite> (Springer, 2003). On juggling patterns, throw heights and siteswap notation.</li>
+    <li>Raph Koster, <cite>A Theory of Fun for Game Design</cite> (2004). On fun as the feeling of learning patterns, which is the core of this idea.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On core loops and playtesting.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var GOOD = 0.15, PERFECT = 0.06, UNIT = 0.25;
+  var UNLOCK = 12, WIN = 40, MAX_DROPS = 5, TOP = 1.5;
+  var KEYMAP = { f: 'left', arrowleft: 'left', j: 'right', arrowright: 'right' };
+  var BALL_COLORS = ['topic', 'warn', 'good'];
+
+  var mode, time, tempo, balls, streak, best, score, drops, offsets, flashes, pops, msg, tone;
+  var handle = null;
+
+  function say(text, t) { msg = text; tone = t || 'ink2'; }
+  function other(hand) { return hand === 'left' ? 'right' : 'left'; }
+
+  function restart() {
+    tempo = slow && slow.value ? 1.3 : 1;
+    mode = 'idle'; time = 0; streak = 0; best = 0; score = 0; drops = 0;
+    balls = [
+      { hand: 'left', period: 1.5 * tempo, thrown: 0, arrives: 1.5 * tempo, cross: false, down: false },
+      { hand: 'right', period: 1.0 * tempo, thrown: 0, arrives: 1.0 * tempo, cross: false, down: false }
+    ];
+    offsets = { left: [], right: [] };
+    flashes = { left: 0, right: 0 };
+    pops = [];
+    say('Press F or J, or tap a side, to start the show.', 'ink2');
+    if (handle) handle.redraw();
+  }
+
+  function begin() {
+    mode = 'play';
+    say('Catch each ball as it lands. High ball: left hand. Low ball: right hand.', 'ink2');
+    if (handle) handle.play();
+  }
+
+  function rethrow(b) {
+    if (b.cross) b.hand = other(b.hand);
+    b.thrown = b.arrives;
+    b.arrives = b.arrives + b.period;
+  }
+
+  function pop(hand, text, t) { pops.push({ hand: hand, text: text, tone: t, life: 0.8 }); }
+
+  function record(hand, off) {
+    var list = offsets[hand];
+    list.push(off);
+    if (list.length > 8) list.shift();
+  }
+
+  function press(hand) {
+    if (mode === 'over' || mode === 'won') { restart(); begin(); return; }
+    if (mode === 'idle') { begin(); return; }
+    if (mode !== 'play') return;
+    flashes[hand] = 0.12;
+    var caught = false;
+    for (var i = 0; i < balls.length; i++) {
+      var b = balls[i];
+      var off = time - b.arrives;
+      if (b.hand === hand && Math.abs(off) <= GOOD) {
+        caught = true;
+        streak += 1;
+        best = Math.max(best, streak);
+        var perfect = Math.abs(off) <= PERFECT;
+        score += perfect ? 3 : 1;
+        record(hand, off);
+        pop(hand, perfect ? 'Perfect' : (off < 0 ? 'Early' : 'Late'), perfect ? 'good' : 'ink2');
+        rethrow(b);
+      }
+    }
+    if (!caught) {
+      if (streak > 0) say('Fumble: nothing was landing in that hand, so the streak resets.', 'warn');
+      streak = 0;
+      score = Math.max(0, score - 2);
+      pop(hand, 'Fumble', 'warn');
+    }
+    if (streak >= UNLOCK && balls.length === 2) {
+      var unit = UNIT * tempo;
+      var t = Math.ceil(time / unit + 0.2) * unit;
+      balls.push({ hand: 'left', period: 1.25 * tempo, thrown: t, arrives: t + 1.25 * tempo, cross: true, down: false });
+      say('A third ball joins from the right hand. It crosses between your hands.', 'good');
+    }
+    if (streak >= WIN && balls.length === 3) {
+      mode = 'won';
+      say('Bravo! A streak of ' + WIN + ' with three balls. Press a hand to perform again.', 'good');
+    }
+  }
+
+  function update(dt) {
+    flashes.left = Math.max(0, flashes.left - dt);
+    flashes.right = Math.max(0, flashes.right - dt);
+    for (var p = pops.length - 1; p >= 0; p--) {
+      pops[p].life -= dt;
+      if (pops[p].life <= 0) pops.splice(p, 1);
+    }
+    if (mode !== 'play') return;
+    time += dt;
+    var dropped = false;
+    for (var i = 0; i < balls.length; i++) {
+      var b = balls[i];
+      if (b.down && time >= b.thrown) b.down = false;
+      if (time > b.arrives + GOOD) {
+        drops += 1; streak = 0; dropped = true;
+        pop(b.hand, 'Drop', 'bad');
+        b.arrives = b.arrives + b.period;
+        rethrow(b);
+        b.down = true;
+      }
+    }
+    if (dropped) {
+      if (balls.length === 3) {
+        balls.length = 2;
+        say('Drop! The third ball goes back in the bag. A streak of ' + UNLOCK + ' brings it back.', 'bad');
+      } else {
+        say('Drop! The ball rejoins after one cycle.', 'bad');
+      }
+      if (drops >= MAX_DROPS) {
+        mode = 'over';
+        say('The show is over. Best streak ' + best + ', score ' + score + '. Press a hand to try again.', 'bad');
+      }
+    }
+  }
+
+  function layout(s) {
+    var handY = s.height - 150;
+    return { handY: handY, lx: s.width * 0.27, rx: s.width * 0.73, H: handY - 80 };
+  }
+
+  function handX(L, hand) { return hand === 'left' ? L.lx : L.rx; }
+
+  function ballPos(L, b) {
+    var s0 = (L.lx + L.rx) / 2;   // dropped balls rest beside the hand, on the outer side
+    var t = Math.max(0, (time - b.thrown) / b.period);
+    var to = handX(L, b.hand);
+    var from = b.cross ? handX(L, other(b.hand)) : to;
+    if (b.down) return { x: from + (from < s0 ? -44 : 44), y: L.handY + 4, down: true };
+    var y = L.H * Math.pow(b.period / (TOP * tempo), 2) * 4 * t * (1 - t);
+    return { x: from + (to - from) * Math.min(t, 1), y: L.handY - 12 - y, down: false };
+  }
+
+  function wrap(ctx, text, maxW) {
+    if (ctx.measureText(text).width <= maxW) return [text];
+    var words = text.split(' '), a = '', i = 0;
+    while (i < words.length && ctx.measureText(a + words[i]).width <= maxW) { a += words[i] + ' '; i++; }
+    return [a.trim(), words.slice(i).join(' ')];
+  }
+
+  function drawHand(ctx, c, L, hand) {
+    var x = handX(L, hand), y = L.handY, f = flashes[hand] > 0;
+    // Approach rings: close in during the last half second before a landing
+    for (var i = 0; i < balls.length; i++) {
+      var b = balls[i], left = b.arrives - time;
+      if (b.hand !== hand || b.down || left <= 0 || left > 0.5 || mode !== 'play') continue;
+      ctx.strokeStyle = c[BALL_COLORS[i]]; ctx.lineWidth = 2;
+      ctx.globalAlpha = 1 - left / 0.5 * 0.7;
+      ctx.beginPath(); ctx.arc(x, y - 12, 14 + left * 90, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = f ? c.topic : c.ink2; ctx.lineWidth = f ? 6 : 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(x, y - 16, 22, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    ctx.fillStyle = c.ink2; ctx.font = '600 13px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText(hand === 'left' ? 'F or ←' : 'J or →', x, y + 26);
+
+    // Accuracy bar: one tick per recent catch, early to the left, late to the right
+    var bw = Math.min(130, L.barW), by = y + 40;
+    ctx.fillStyle = c.surface2; ctx.fillRect(x - bw / 2, by, bw, 10);
+    ctx.fillStyle = c.line; ctx.fillRect(x - bw * PERFECT / GOOD / 2, by, bw * PERFECT / GOOD, 10);
+    ctx.fillStyle = c.ink3; ctx.fillRect(x - 1, by - 3, 2, 16);
+    var list = offsets[hand], sum = 0;
+    for (var k = 0; k < list.length; k++) {
+      sum += list[k];
+      ctx.globalAlpha = 0.35 + 0.65 * (k + 1) / list.length;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(x + list[k] / GOOD * bw / 2 - 1.5, by - 4, 3, 18);
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left'; ctx.fillText('early', x - bw / 2, by + 28);
+    ctx.textAlign = 'right'; ctx.fillText('late', x + bw / 2, by + 28);
+    ctx.textAlign = 'center';
+    var text = 'no catches yet';
+    if (list.length) {
+      var mean = sum / list.length, ms = Math.round(Math.abs(mean) * 1000);
+      text = ms < 20 ? 'on time' : (mean < 0 ? 'rushing ' : 'dragging ') + ms + ' ms';
+    }
+    ctx.fillStyle = c.ink2; ctx.fillText(text, x, by + 46);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height, L = layout(s);
+    L.barW = w * 0.38;
+    ctx.textBaseline = 'alphabetic';
+
+    // HUD: streak and goal, score, drops left
+    ctx.font = '600 14px ' + FONT; ctx.fillStyle = c.ink; ctx.textAlign = 'left';
+    var goal = balls.length < 3 ? UNLOCK : WIN;
+    ctx.fillText('Streak ' + streak + ' / ' + goal, 10, 22);
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2;
+    ctx.fillText(balls.length < 3 ? 'to add a third ball' : 'to finish the show', 10, 40);
+    ctx.fillText('Score ' + score, 10, 58);
+    ctx.textAlign = 'right'; ctx.font = '600 14px ' + FONT; ctx.fillStyle = c.ink;
+    ctx.fillText('Drops', w - 22 - MAX_DROPS * 16, 22);
+    for (var d = 0; d < MAX_DROPS; d++) {
+      ctx.fillStyle = d < MAX_DROPS - drops ? c.bad : c.surface2;
+      ctx.beginPath(); ctx.arc(w - 16 - (MAX_DROPS - 1 - d) * 16, 17, 6, 0, Math.PI * 2); ctx.fill();
+    }
+
+    drawHand(ctx, c, L, 'left');
+    drawHand(ctx, c, L, 'right');
+
+    // Balls
+    for (var i = 0; i < balls.length; i++) {
+      var pos = ballPos(L, balls[i]);
+      ctx.fillStyle = c[BALL_COLORS[i]];
+      ctx.globalAlpha = pos.down ? 0.5 : 1;
+      ctx.beginPath(); ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Catch feedback rising from each hand
+    ctx.font = '700 14px ' + FONT; ctx.textAlign = 'center';
+    for (var p = 0; p < pops.length; p++) {
+      var q = pops[p], px = handX(L, q.hand) + (q.hand === 'left' ? -46 : 46);
+      ctx.globalAlpha = Math.min(1, q.life / 0.4);
+      ctx.fillStyle = c[q.tone] || c.ink2;
+      ctx.fillText(q.text, px, L.handY - 40 - (0.8 - q.life) * 40);
+    }
+    ctx.globalAlpha = 1;
+
+    // Message, kept clear of the Pause button in the bottom-right corner
+    ctx.font = '600 13px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillStyle = c[tone] || c.ink2;
+    var lines = wrap(ctx, msg, w - 100);
+    ctx.fillText(lines[0], 10, h - (lines.length > 1 ? 28 : 14));
+    if (lines.length > 1) ctx.fillText(lines[1], 10, h - 11);
+  }
+
+  var ui = DemoKit.controls('[data-demo="polyrhythm-juggler"]');
+  ui.button({ label: 'Restart (R)', onClick: restart });
+  var slow = ui.toggle({ label: 'Slow practice (30% longer periods)', value: false, onChange: function () { restart(); } });
+
+  restart();
+  handle = DemoKit.canvas('#polyrhythm-juggler', {
+    height: 440,
+    keys: true,
+    label: 'Polyrhythm Juggler prototype: two hands each catch their own ball, a high slow one on the left and a low quick one on the right, with timing bars under each hand. A streak of twelve adds a third ball that crosses between the hands.',
+    update: update,
+    draw: draw,
+    onDown: function (p, s) { press(p.x < s.width / 2 ? 'left' : 'right'); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'r') { restart(); return; }
+      if (KEYMAP[key]) press(KEYMAP[key]);
+      else if ((key === 'space' || key === 'enter') && mode === 'idle') begin();
+    }
+  });
+  var cv = document.getElementById('polyrhythm-juggler');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>

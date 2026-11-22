@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hit flash: mixing a sprite towards white · Game Dev Daily</title>
+<meta name="description" content="One mix() in the sprite's shader pushes its colour towards white while its alpha stays put, and a timer fades the amount back to zero.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Hit flash: mixing a sprite towards white</h1>
+  <p class="lede">One mix() in the sprite's shader pushes its colour towards white while its alpha stays put, and a timer fades the amount back to zero.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hit an enemy and nothing tells you it landed, so you keep swinging at a target that may already be dead. A sprite that turns white for a tenth of a second fixes that, and it is one line of shader code.</p>
+  <p>The first thing most people try is tinting the sprite with <code>love.graphics.setColor(1, 1, 1)</code>, or with the sprite's colour property in Godot or Unity. Nothing changes. This lesson explains why, and what to do instead.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Tinting multiplies, flashing mixes</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For a sprite, that function reads one <dfn>texel</dfn> (a pixel of the sprite's texture) and returns it, usually multiplied by a tint colour. That multiply is the problem. A tint can only scale each channel between 0 and its current value. White, <code>(1, 1, 1)</code>, leaves the sprite unchanged, and nothing you can multiply by turns a dark pupil into white.</p>
+  <p>A flash needs to <em>replace</em> the colour, a bit at a time. That is exactly what <code>mix</code> does:</p>
+<pre><code>rgb = mix(texel.rgb, flashColor, amount)   -- texel.rgb * (1 - amount) + flashColor * amount</code></pre>
+  <p>At <code>amount = 0</code> you get the sprite. At <code>amount = 1</code> every visible pixel is <code>flashColor</code>, so the sprite becomes a flat white silhouette. In between, the sprite's colours show through.</p>
+
+  <h3>Leave alpha alone</h3>
+  <p>The texel has a fourth channel, <dfn>alpha</dfn>, which says how much of the pixel is covered by the sprite. The empty corners of a sprite's rectangle have alpha 0. If you mix all four channels, those corners get alpha too, and the whole rectangle flashes. So the flash touches <code>rgb</code> only and returns the texel's own alpha. The shape of the flash is the shape of the sprite, for free.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Top: three boxes in a row. Read the texel, mix its rgb towards the flash colour by amount, return the new rgb with the texel's own alpha. Bottom: a graph of the flash amount falling from 1 to 0 over the flash duration, with a dot for each frame at 60 frames per second, and above it five blobs whose highlight fades as the amount falls.">
+      <rect class="d-box" x="10" y="16" width="170" height="58" rx="6"/>
+      <text class="d-text" x="95" y="40" text-anchor="middle">1. read the sprite</text>
+      <text class="d-mono" x="95" y="60" text-anchor="middle">texel = Texel(tex, uv)</text>
+      <path class="d-stroke" d="M180 45 H206"/>
+      <path class="d-stroke" d="M200 40 L206 45 L200 50"/>
+      <rect class="d-accent-soft" x="206" y="16" width="228" height="58" rx="6"/>
+      <text class="d-text" x="320" y="40" text-anchor="middle">2. mix rgb only</text>
+      <text class="d-mono" x="320" y="60" text-anchor="middle">mix(texel.rgb, flash, amount)</text>
+      <path class="d-stroke" d="M434 45 H460"/>
+      <path class="d-stroke" d="M454 40 L460 45 L454 50"/>
+      <rect class="d-box" x="460" y="16" width="170" height="58" rx="6"/>
+      <text class="d-text" x="545" y="40" text-anchor="middle">3. keep the shape</text>
+      <text class="d-mono" x="545" y="60" text-anchor="middle">vec4(rgb, texel.a)</text>
+
+      <g>
+        <path class="d-fill" d="M70 150 A30 24 0 0 1 130 150 V156 H70 Z"/>
+        <path class="d-accent-fill" fill-opacity="1" d="M70 150 A30 24 0 0 1 130 150 V156 H70 Z"/>
+        <path class="d-fill" d="M190 150 A30 24 0 0 1 250 150 V156 H190 Z"/>
+        <path class="d-accent-fill" fill-opacity="0.75" d="M190 150 A30 24 0 0 1 250 150 V156 H190 Z"/>
+        <path class="d-fill" d="M310 150 A30 24 0 0 1 370 150 V156 H310 Z"/>
+        <path class="d-accent-fill" fill-opacity="0.5" d="M310 150 A30 24 0 0 1 370 150 V156 H310 Z"/>
+        <path class="d-fill" d="M430 150 A30 24 0 0 1 490 150 V156 H430 Z"/>
+        <path class="d-accent-fill" fill-opacity="0.25" d="M430 150 A30 24 0 0 1 490 150 V156 H430 Z"/>
+        <path class="d-fill" d="M550 150 A30 24 0 0 1 610 150 V156 H550 Z"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="100" y="110">amount 1</text>
+        <text class="d-muted" x="220" y="110">0.75</text>
+        <text class="d-muted" x="340" y="110">0.5</text>
+        <text class="d-muted" x="460" y="110">0.25</text>
+        <text class="d-muted" x="580" y="110">0</text>
+      </g>
+
+      <path class="d-thin" d="M60 270 H620"/>
+      <path class="d-thin" d="M60 270 V180"/>
+      <text class="d-muted" x="50" y="190" text-anchor="end">1</text>
+      <text class="d-muted" x="50" y="274" text-anchor="end">0</text>
+      <path class="d-accent" d="M100 190 L580 270"/>
+      <g class="d-accent-fill">
+        <circle cx="100" cy="190" r="4"/>
+        <circle cx="220" cy="210" r="4"/>
+        <circle cx="340" cy="230" r="4"/>
+        <circle cx="460" cy="250" r="4"/>
+        <circle cx="580" cy="270" r="4"/>
+      </g>
+      <text class="d-text" x="100" y="292" text-anchor="middle">hit</text>
+      <text class="d-text" x="580" y="292" text-anchor="middle">duration</text>
+      <text class="d-muted" x="340" y="292" text-anchor="middle">time, one dot per drawn frame</text>
+    </svg>
+    <figcaption>The shader does three small things for each pixel (top). The game only has to change one number, <code>amount</code>, from 1 at the hit to 0 at the end of the flash (bottom). The shaded part of each blob stands for how much flash colour it shows.</figcaption>
+  </figure>
+
+  <h3>The game drives the amount</h3>
+  <p>The shader has no idea a hit happened. It reads <code>amount</code> from a <dfn>uniform</dfn>, a value the game sets before drawing that is the same for every pixel of the draw. The game keeps a timer:</p>
+<pre><code>flashTimer = FLASH_DURATION                          -- on a hit
+flashTimer = math.max(flashTimer - dt, 0)            -- every update
+local amount = flashTimer / FLASH_DURATION           -- 1 down to 0</code></pre>
+  <p>That gives a straight fade. Other curves change the feel: <code>amount * amount</code> drops away quickly and leaves a short afterglow, and a hard cut (1 while the timer runs, then 0) is the crisp blink of older games. Keep the duration short. At 60 frames per second, 0.1 seconds is only five or six frames, and that is plenty.</p>
+
+  <div class="callout">
+    <p class="callout-title">Colour space and coordinates</p>
+    <p>The demo and LÖVE mix the colour values as they are stored (sRGB). In a Unity project set to linear colour space, and in Godot when it renders in linear space, the mix happens on linear values, so <code>amount = 0.5</code> looks lighter there than here. The flash itself does not care where (0, 0) is. The demo draws its sprite from <code>gl_FragCoord</code>, which starts at the bottom-left with y up; LÖVE's image rows start at the top, so the Lua flips y when it builds the same sprite.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or tap the slime, press <em>Hit</em>, or focus the canvas and press space. Then set <em>Method</em> to <em>Multiply</em> with a white flash: nothing happens, which is the tint problem. Try <em>Mix rgba too</em> to see the sprite's rectangle light up. Step through <em>Stage</em> with <em>Scrub by hand</em> on to see the texel, the alpha mask and the amount separately.</p>
+
+  <figure class="demo wide" data-demo="hitflash">
+    <canvas id="flash-shader"></canvas>
+    <canvas id="flash-graph"></canvas>
+    <figcaption>Top: the live shader. Bottom: the flash amount against time since the hit, with a dot on each frame a 60 fps game would draw; the vertical line is now. If your system asks for reduced motion the demo starts paused: press Play, or use Scrub by hand.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE program builds the same 24 by 20 slime in code, so there is no image file, and draws it eight times larger with the flash shader. Click or press space to hit it.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local FLASH_DURATION = 0.12              <span class="c">-- seconds</span>
+local FLASH_COLOR = { 1.0, 1.0, 1.0 }    <span class="c">-- white</span>
+local flashTimer = 0                     <span class="c">-- seconds of flash left</span>
+local sprite, shader
+
+local pixelcode = [[
+uniform vec3 u_flashColor;
+uniform float u_amount;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec4 texel = Texel(tex, texture_coords) * color;
+  vec3 rgb = mix(texel.rgb, u_flashColor, u_amount);
+  return vec4(rgb, texel.a);   // alpha untouched: only the sprite flashes
+}
+]]
+
+local function inside(x, y, cx, cy, rx, ry)
+  local dx = (x - cx) / rx
+  local dy = (y - cy) / ry
+  return dx * dx + dy * dy &lt; 1
+end
+
+<span class="c">-- the demo's slime, 24 by 20 pixels; py counts upwards like the demo</span>
+local function slimePixel(x, y)
+  local px, py = x + 0.5, 19.5 - y
+  local r, g, b, a = 0, 0, 0, 0
+  if inside(px, py, 12, 9, 10.5, 8.5) and py &gt; 1 then r, g, b, a = 0.10, 0.30, 0.14, 1 end
+  if inside(px, py, 12, 9, 9.5, 7.5) and py &gt; 2 then
+    local t = py / 17
+    r, g, b, a = 0.20 + 0.16 * t, 0.58 + 0.22 * t, 0.28 + 0.12 * t, 1
+  end
+  if inside(px, py, 7.5, 13, 1.6, 1.6) then r, g, b, a = 0.78, 0.96, 0.74, 1 end
+  if inside(px, py, 9, 9.5, 2.2, 2.2) or inside(px, py, 15, 9.5, 2.2, 2.2) then
+    r, g, b, a = 0.96, 0.96, 0.96, 1
+  end
+  if inside(px, py, 9.5, 9, 1.1, 1.1) or inside(px, py, 15.5, 9, 1.1, 1.1) then
+    r, g, b, a = 0.08, 0.08, 0.12, 1
+  end
+  return r, g, b, a
+end
+
+function love.load()
+  local data = love.image.newImageData(24, 20)
+  data:mapPixel(function(x, y) return slimePixel(x, y) end)
+  sprite = love.graphics.newImage(data)
+  sprite:setFilter("nearest", "nearest")
+  shader = love.graphics.newShader(pixelcode)
+end
+
+local function hit()
+  flashTimer = FLASH_DURATION
+end
+
+function love.mousepressed()
+  hit()
+end
+
+function love.keypressed(key)
+  if key == "space" then hit() end
+end
+
+function love.update(dt)
+<span class="k">  flashTimer = math.max(flashTimer - dt, 0)</span>
+end
+
+function love.draw()
+<span class="k">  local amount = flashTimer / FLASH_DURATION   <span class="c">-- 1 at the hit, 0 when done</span></span>
+  local w, h = love.graphics.getDimensions()
+  love.graphics.clear(0.15, 0.17, 0.22)
+  shader:send("u_flashColor", FLASH_COLOR)
+  shader:send("u_amount", amount)
+  love.graphics.setShader(shader)
+  love.graphics.draw(sprite, w / 2 - 96, h / 2 - 80, 0, 8, 8)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_amount;      // flash amount: 0 = normal, 1 = full flash
+uniform vec3 u_flashColor;   // the colour to flash towards
+uniform float u_method;      // 0 mix rgb, 1 add, 2 multiply, 3 mix rgba (bug)
+uniform float u_stage;       // 0 texel, 1 alpha, 2 amount, 3 final
+
+const vec2 SPRITE_SIZE = vec2(24.0, 20.0);   // in sprite pixels
+
+float ellipse(vec2 p, vec2 c, vec2 r) {
+  return length((p - c) / r);   // below 1.0 inside the ellipse
+}
+
+// The "texture": colour and alpha of one sprite pixel, y up.
+vec4 sprite(vec2 sp) {
+  vec4 col = vec4(0.0);
+  if (ellipse(sp, vec2(12.0, 9.0), vec2(10.5, 8.5)) &lt; 1.0 &amp;&amp; sp.y &gt; 1.0)
+    col = vec4(0.10, 0.30, 0.14, 1.0);                                   // outline
+  if (ellipse(sp, vec2(12.0, 9.0), vec2(9.5, 7.5)) &lt; 1.0 &amp;&amp; sp.y &gt; 2.0)
+    col = vec4(mix(vec3(0.20, 0.58, 0.28), vec3(0.36, 0.80, 0.40), sp.y / 17.0), 1.0);  // body
+  if (length(sp - vec2(7.5, 13.0)) &lt; 1.6) col = vec4(0.78, 0.96, 0.74, 1.0);    // shine
+  if (length(sp - vec2(9.0, 9.5)) &lt; 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);     // eyes
+  if (length(sp - vec2(15.0, 9.5)) &lt; 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);
+  if (length(sp - vec2(9.5, 9.0)) &lt; 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);     // pupils
+  if (length(sp - vec2(15.5, 9.0)) &lt; 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);
+  return col;
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up
+
+  // background: a dark tiled floor
+  vec2 tile = floor(p * 8.0);
+  vec3 bg = mix(vec3(0.15, 0.17, 0.22), vec3(0.19, 0.21, 0.27), mod(tile.x + tile.y, 2.0));
+
+  // the sprite's rectangle (its quad): 0.6 of the canvas height wide, centred
+  float pixelSize = 0.6 / SPRITE_SIZE.x;
+  vec2 sp = (p - vec2(-0.3, -0.25)) / pixelSize;   // sprite pixel coordinates
+  bool inQuad = sp.x &gt;= 0.0 &amp;&amp; sp.x &lt; SPRITE_SIZE.x &amp;&amp; sp.y &gt;= 0.0 &amp;&amp; sp.y &lt; SPRITE_SIZE.y;
+
+  vec3 col = bg;
+  if (inQuad) {
+    vec4 texel = sprite(floor(sp) + 0.5);                // 1. read the texel
+    vec4 outc;                                           // 2. flash it
+    if (u_method &lt; 0.5)      outc = vec4(mix(texel.rgb, u_flashColor, u_amount), texel.a);
+    else if (u_method &lt; 1.5) outc = vec4(min(texel.rgb + u_flashColor * u_amount, 1.0), texel.a);
+    else if (u_method &lt; 2.5) outc = vec4(texel.rgb * mix(vec3(1.0), u_flashColor, u_amount), texel.a);
+    else                     outc = mix(texel, vec4(u_flashColor, 1.0), u_amount);   // bug: alpha too
+    col = mix(bg, outc.rgb, outc.a);                     // 3. blend over the background
+
+    if (u_stage &lt; 2.5) col = vec3(u_amount);
+    if (u_stage &lt; 1.5) col = vec3(texel.a);
+    if (u_stage &lt; 0.5) col = mix(bg, texel.rgb, texel.a);
+  } else if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 2.5) {
+    col = bg * 0.4;   // outside the quad the sprite's shader never runs
+  }
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a Sprite2D.
+shader_type canvas_item;
+
+uniform vec4 flash_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+uniform float flash_amount : hint_range(0.0, 1.0) = 0.0;
+
+void fragment() {
+    vec4 texel = texture(TEXTURE, UV);
+<span class="k">    COLOR = vec4(mix(texel.rgb, flash_color.rgb, flash_amount), texel.a);</span>
+}
+
+// From GDScript, every frame while the timer runs:
+//   material.set_shader_parameter("flash_amount", flash_timer / FLASH_DURATION)</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, for a SpriteRenderer.
+Shader "GameDevDaily/HitFlashSprite"
+{
+    Properties
+    {
+        [PerRendererData] _MainTex ("Sprite", 2D) = "white" {}
+        _FlashColor ("Flash colour", Color) = (1, 1, 1, 1)
+        _FlashAmount ("Flash amount", Range(0, 1)) = 0
+    }
+    SubShader
+    {
+        Tags { "Queue" = "Transparent" "RenderType" = "Transparent" "IgnoreProjector" = "True" }
+        Cull Off
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            fixed4 _FlashColor;
+            float _FlashAmount;
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+                fixed4 color : COLOR;
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+                fixed4 color : COLOR;
+            };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                o.color = v.color;   // SpriteRenderer.color arrives here
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                fixed4 c = tex2D(_MainTex, i.uv) * i.color;
+<span class="k">                c.rgb = lerp(c.rgb, _FlashColor.rgb, _FlashAmount);</span>
+                return c;            // alpha untouched
+            }
+            ENDCG
+        }
+    }
+}
+// From C#: spriteRenderer.material.SetFloat("_FlashAmount", amount);</code></pre>
+  </div>
+  <p>HLSL spells <code>mix</code> as <code>lerp</code>. For URP, build it in Shader Graph with a Sprite Unlit graph: a <em>Sample Texture 2D</em> node feeds the RGB of a <em>Lerp</em> node as A, a flash colour property is B, a flash amount property is T, the Lerp output goes to Base Color and the texture's A output goes to Alpha. The Godot version ignores the node's <code>modulate</code>; multiply <code>texel</code> by <code>COLOR</code> first if you need it.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Using the tint colour.</strong> <code>setColor</code>, <code>modulate</code> and <code>SpriteRenderer.color</code> multiply. They can darken or tint, never whiten. Use the <em>Multiply</em> method in the demo to see it.</li>
+    <li><strong>Flashing the alpha.</strong> Mixing the whole <code>vec4</code> fills the transparent corners of the sprite's rectangle. Mix <code>rgb</code> and return the texel's alpha.</li>
+    <li><strong>Every enemy flashes at once.</strong> A material is shared between all nodes that use it. In Godot, turn on <em>Local to Scene</em> for the material or give each enemy its own copy. In Unity, <code>renderer.material</code> makes a copy for that renderer while <code>sharedMaterial</code> changes them all; a <code>MaterialPropertyBlock</code> sets per-renderer values without a copy.</li>
+    <li><strong>Counting frames instead of seconds.</strong> "Flash for 6 frames" lasts twice as long at 60 Hz as at 120 Hz. Subtract <code>dt</code> from a timer.</li>
+    <li><strong>Too long, too often, too big.</strong> A flash longer than about a quarter of a second starts to hide the sprite. Large areas flashing several times a second can be a problem for players with photosensitive epilepsy; WCAG 2.3.1 sets a limit of three flashes in any one second. Keep flashes small and short, or offer an option to soften them.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>One <code>mix</code> per pixel is about as cheap as shader work gets, even on a phone. The hidden cost is batching. LÖVE and the engines group sprites that share a texture, shader and settings into one draw call; a sprite with its own shader or its own uniform value can break that group. With hundreds of bullets that flash, pass the amount in data the batch already carries per sprite, such as the vertex colour's alpha, and decode it in the shader.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Hit flashes are so common in action games that most players read them without noticing. On older palette-based consoles a flash was often made by changing the palette for a few frames instead of running a per-pixel shader; palette swaps are the subject of a later lesson. A close cousin is the blink used for invincibility after taking damage, where the sprite is simply not drawn on some frames.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Give the LÖVE program two kinds of hit.</p>
+  <ol>
+    <li>Make <code>FLASH_COLOR</code> a variable instead of a constant. On a left click set it to white; on a right click (the third argument of <code>love.mousepressed</code> is <code>2</code>) set it to <code>{ 1.0, 0.15, 0.1 }</code>.</li>
+    <li>Change the curve to <code>amount * amount</code> and compare it with the straight fade at a duration of 0.2 seconds.</li>
+    <li>Add a second slime with its own timer, drawn beside the first, and make only the one under the mouse flash.</li>
+  </ol>
+  <p>You are done when a left click flashes one slime white, a right click flashes it red, and the other slime never flashes with it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A tint multiplies, so it cannot make a sprite white. A flash mixes the texel's colour towards the flash colour.</li>
+    <li>Mix <code>rgb</code> only and keep the texel's alpha, so the flash has the sprite's shape.</li>
+    <li>The game owns a timer; the shader only sees <code>amount</code>, from 1 at the hit down to 0.</li>
+    <li>Measure the flash in seconds, keep it short, and give each sprite its own material value.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the dissolve effect: comparing noise with a threshold to burn a sprite away behind a glowing edge.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Shader:send</cite> and <cite>ImageData:mapPixel</cite>.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite> and <cite>Resources</cite> (on sharing and Local to Scene).</li>
+    <li>Unity documentation, <cite>Renderer.material</cite>, <cite>Renderer.sharedMaterial</cite> and <cite>MaterialPropertyBlock</cite>.</li>
+    <li>Unity documentation, <cite>Lerp Node</cite> (Shader Graph).</li>
+    <li>W3C, <cite>Web Content Accessibility Guidelines 2.1</cite>, success criterion 2.3.1 "Three Flashes or Below Threshold".</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapter "Colors" (on <code>mix</code>).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_amount;      // flash amount: 0 = normal, 1 = full flash",
+    "uniform vec3 u_flashColor;   // the colour to flash towards",
+    "uniform float u_method;      // 0 mix rgb, 1 add, 2 multiply, 3 mix rgba (bug)",
+    "uniform float u_stage;       // 0 texel, 1 alpha, 2 amount, 3 final",
+    "",
+    "const vec2 SPRITE_SIZE = vec2(24.0, 20.0);   // in sprite pixels",
+    "",
+    "float ellipse(vec2 p, vec2 c, vec2 r) {",
+    "  return length((p - c) / r);   // below 1.0 inside the ellipse",
+    "}",
+    "",
+    "// The \"texture\": colour and alpha of one sprite pixel, y up.",
+    "vec4 sprite(vec2 sp) {",
+    "  vec4 col = vec4(0.0);",
+    "  if (ellipse(sp, vec2(12.0, 9.0), vec2(10.5, 8.5)) < 1.0 && sp.y > 1.0)",
+    "    col = vec4(0.10, 0.30, 0.14, 1.0);                                   // outline",
+    "  if (ellipse(sp, vec2(12.0, 9.0), vec2(9.5, 7.5)) < 1.0 && sp.y > 2.0)",
+    "    col = vec4(mix(vec3(0.20, 0.58, 0.28), vec3(0.36, 0.80, 0.40), sp.y / 17.0), 1.0);  // body",
+    "  if (length(sp - vec2(7.5, 13.0)) < 1.6) col = vec4(0.78, 0.96, 0.74, 1.0);    // shine",
+    "  if (length(sp - vec2(9.0, 9.5)) < 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);     // eyes",
+    "  if (length(sp - vec2(15.0, 9.5)) < 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);",
+    "  if (length(sp - vec2(9.5, 9.0)) < 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);     // pupils",
+    "  if (length(sp - vec2(15.5, 9.0)) < 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up",
+    "",
+    "  // background: a dark tiled floor",
+    "  vec2 tile = floor(p * 8.0);",
+    "  vec3 bg = mix(vec3(0.15, 0.17, 0.22), vec3(0.19, 0.21, 0.27), mod(tile.x + tile.y, 2.0));",
+    "",
+    "  // the sprite's rectangle (its quad): 0.6 of the canvas height wide, centred",
+    "  float pixelSize = 0.6 / SPRITE_SIZE.x;",
+    "  vec2 sp = (p - vec2(-0.3, -0.25)) / pixelSize;   // sprite pixel coordinates",
+    "  bool inQuad = sp.x >= 0.0 && sp.x < SPRITE_SIZE.x && sp.y >= 0.0 && sp.y < SPRITE_SIZE.y;",
+    "",
+    "  vec3 col = bg;",
+    "  if (inQuad) {",
+    "    vec4 texel = sprite(floor(sp) + 0.5);                // 1. read the texel",
+    "    vec4 outc;                                           // 2. flash it",
+    "    if (u_method < 0.5)      outc = vec4(mix(texel.rgb, u_flashColor, u_amount), texel.a);",
+    "    else if (u_method < 1.5) outc = vec4(min(texel.rgb + u_flashColor * u_amount, 1.0), texel.a);",
+    "    else if (u_method < 2.5) outc = vec4(texel.rgb * mix(vec3(1.0), u_flashColor, u_amount), texel.a);",
+    "    else                     outc = mix(texel, vec4(u_flashColor, 1.0), u_amount);   // bug: alpha too",
+    "    col = mix(bg, outc.rgb, outc.a);                     // 3. blend over the background",
+    "",
+    "    if (u_stage < 2.5) col = vec3(u_amount);",
+    "    if (u_stage < 1.5) col = vec3(texel.a);",
+    "    if (u_stage < 0.5) col = mix(bg, texel.rgb, texel.a);",
+    "  } else if (u_stage > 0.5 && u_stage < 2.5) {",
+    "    col = bg * 0.4;   // outside the quad the sprite's shader never runs",
+    "  }",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var COLORS = {
+    white: [1.0, 1.0, 1.0],
+    red: [1.0, 0.15, 0.1],
+    yellow: [1.0, 0.9, 0.3],
+    cyan: [0.5, 0.9, 1.0]
+  };
+  var GRAPH_SPAN = 0.6;    // seconds shown on the graph
+  var AUTO_EVERY = 1.5;    // seconds between automatic hits
+  var FPS = 60;
+
+  var sinceHit = 99;       // seconds since the last hit
+  var autoClock = 0;
+  var handle = null;
+  var graph = null;
+
+  var ui = DemoKit.controls('[data-demo="hitflash"]');
+  ui.button({ label: 'Hit', onClick: hit });
+  var duration = ui.slider({ label: 'Duration', min: 0.03, max: 0.5, step: 0.01, value: 0.12, unit: ' s', onInput: changed });
+  var color = ui.select({
+    label: 'Flash colour',
+    options: [
+      { value: 'white', label: 'White' },
+      { value: 'red', label: 'Red' },
+      { value: 'yellow', label: 'Yellow' },
+      { value: 'cyan', label: 'Cyan' }
+    ],
+    value: 'white',
+    onChange: changed
+  });
+  var curve = ui.select({
+    label: 'Curve',
+    options: [
+      { value: 'linear', label: 'Straight fade' },
+      { value: 'squared', label: 'Squared: quick fade' },
+      { value: 'hold', label: 'Hard cut' }
+    ],
+    value: 'linear',
+    onChange: changed
+  });
+  var method = ui.select({
+    label: 'Method',
+    options: [
+      { value: '0', label: 'Mix rgb (correct)' },
+      { value: '1', label: 'Add' },
+      { value: '2', label: 'Multiply (a tint)' },
+      { value: '3', label: 'Mix rgba too (bug)' }
+    ],
+    value: '0',
+    onChange: changed
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Texel, no flash' },
+      { value: '1', label: '2. Alpha mask' },
+      { value: '2', label: '3. Amount (one value for all pixels)' },
+      { value: '3', label: '4. Final colour' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+  var auto = ui.toggle({ label: 'Hit every 1.5 s', value: false, onChange: changed });
+  var scrub = ui.toggle({ label: 'Scrub by hand', value: false, onChange: changed });
+  var scrubTime = ui.slider({ label: 'Time since hit', min: 0, max: GRAPH_SPAN, step: 0.005, value: 0.04, unit: ' s', onInput: changed });
+  var amountOut = ui.readout({ label: 'Flash amount' });
+  var framesOut = ui.readout({ label: 'Lit frames at 60 fps' });
+
+  function timeSinceHit() {
+    return scrub.value ? scrubTime.value : sinceHit;
+  }
+
+  // the same maths as the Lua: a timer counting down from the duration
+  function amountAt(t) {
+    var d = duration.value;
+    var flashTimer = Math.max(d - t, 0);
+    var k = flashTimer / d;
+    if (curve.value === 'squared') return k * k;
+    if (curve.value === 'hold') return k > 0 ? 1 : 0;
+    return k;
+  }
+
+  function amountNow() {
+    return amountAt(timeSinceHit());
+  }
+
+  function hit() {
+    sinceHit = 0;
+    if (scrub.value) scrub.set(false);
+    changed();
+  }
+
+  function changed() {
+    amountOut.set(amountNow().toFixed(2));
+    // frames drawn after the hit, at t = 1/60, 2/60, ... while the timer is still above 0
+    var lit = Math.max(Math.ceil(duration.value * FPS - 1e-6) - 1, 0);
+    framesOut.set(lit + (lit === 1 ? ' frame' : ' frames'));
+    if (handle) handle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  handle = DemoKit.shader('#flash-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 360,
+    keys: true,
+    label: 'A live fragment shader drawing a green pixel-art slime on a dark tiled floor. Clicking it, pressing the Hit button, or pressing space or enter on the canvas makes it flash towards the chosen colour, fading back over the chosen duration. Menus pick the fade curve, the blending method and which stage of the shader is shown.',
+    uniforms: {
+      u_amount: function () { return amountNow(); },
+      u_flashColor: function () { return COLORS[color.value]; },
+      u_method: function () { return Number(method.value); },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onDown: function () { hit(); },
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'enter')) hit();
+    },
+    update: function (dt) {
+      sinceHit = Math.min(sinceHit + dt, 99);
+      if (auto.value) {
+        autoClock += dt;
+        if (autoClock >= AUTO_EVERY) {
+          autoClock -= AUTO_EVERY;
+          hit();
+        }
+      }
+      amountOut.set(amountNow().toFixed(2));
+      if (graph) graph.redraw();
+    }
+  });
+
+  graph = DemoKit.canvas('#flash-graph', {
+    height: 170,
+    animate: false,
+    label: 'A graph of the flash amount, from 0 at the bottom to 1 at the top, against the time since the hit from 0 to 0.6 seconds. Dots mark the frames a 60 frames per second game would draw. A dashed line marks the duration and a solid line marks the current time.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 30, right = s.width - 14, top = 30, bottom = s.height - 30;
+      function X(t) { return left + (t / GRAPH_SPAN) * (right - left); }
+      function Y(v) { return bottom - v * (bottom - top); }
+
+      ctx.font = '12px system-ui, sans-serif';
+
+      // axes
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(0)); ctx.lineTo(right, Y(0));
+      ctx.moveTo(left, Y(1)); ctx.lineTo(right, Y(1));
+      ctx.stroke();
+
+      // a tick for every frame at 60 fps
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      for (var n = 0; n <= GRAPH_SPAN * FPS; n++) {
+        var tx = X(n / FPS);
+        ctx.moveTo(tx, Y(0));
+        ctx.lineTo(tx, Y(0) + (n % 6 === 0 ? 6 : 3));
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = c.ink3;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      ctx.fillText('1', left - 8, Y(1));
+      ctx.fillText('0', left - 8, Y(0));
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      ctx.fillText('0 s', left, s.height - 8);
+      ctx.textAlign = 'right';
+      ctx.fillText(GRAPH_SPAN + ' s', right, s.height - 8);
+
+      // the duration
+      var d = duration.value;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath();
+      ctx.moveTo(X(d), top - 6); ctx.lineTo(X(d), Y(0));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // the curve
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      var steps = Math.max(2, Math.round(right - left));
+      for (var j = 0; j <= steps; j++) {
+        var t = GRAPH_SPAN * j / steps;
+        var px = X(t), py = Y(amountAt(t));
+        if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // one dot for each frame drawn after the hit while the flash is lit
+      ctx.fillStyle = c.topic;
+      for (var f = 1; f <= GRAPH_SPAN * FPS; f++) {
+        var a = amountAt(f / FPS);
+        if (a <= 0) break;
+        ctx.beginPath();
+        ctx.arc(X(f / FPS), Y(a), 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // now
+      var now = timeSinceHit();
+      if (now <= GRAPH_SPAN) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(X(now), top - 6); ctx.lineTo(X(now), Y(0));
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('Amount over time (dashed: duration)', left, 16);
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

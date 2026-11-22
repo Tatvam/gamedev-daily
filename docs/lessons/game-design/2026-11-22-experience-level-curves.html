@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experience and level curves: the rhythm of level-ups · Game Dev Daily</title>
+<meta name="description" content="How the XP needed per level and the XP earned per minute decide when every level-up arrives across a whole game, and how to shape that timeline.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-11-22">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Experience and level curves: the rhythm of level-ups</h1>
+  <p class="lede">How the XP needed per level and the XP earned per minute decide when every level-up arrives across a whole game, and how to shape that timeline.</p>
+</header>
+
+<section data-section="hook">
+  <p>In the first twenty minutes you gain four levels and each one feels like a gift. By hour six you have not levelled in an hour. Or you hit the level cap halfway through, and the rest of the game hands you experience that does nothing. All three come from a table of numbers nobody looked at as a timeline.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A level curve is a schedule of rewards</h2>
+  <p><dfn>Experience points</dfn> (XP) are a score the player earns by playing. When the score reaches a threshold, the character gains a <dfn>level</dfn>: a sound, a flash of the interface, and usually something new, like more health or a skill. The list of thresholds is the <dfn>level curve</dfn>, sometimes called the XP table.</p>
+  <p>Every level-up is a reward, so the level curve decides when rewards arrive across the whole game. The player feels the time between level-ups, and that time comes from two numbers:</p>
+  <p><code>minutes to the next level = XP to the next level ÷ XP earned per minute</code></p>
+  <p>This is the cost over power ratio from the <a href="2026-11-21-upgrade-curves-cost-power.html">upgrade curves</a> lesson at a bigger scale: minutes and hours instead of taps, judged by play session ("did I level tonight?").</p>
+
+  <h3>Two ways to write the table</h3>
+  <p>A table can list the <strong>XP to the next level</strong> or the <strong>total XP</strong> needed to be at a level. Totals hide the shape: they always climb steeply, even when the time per level is steady. Design with a third column, minutes to the next level, which needs an estimate of XP earned per minute at each level.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="num">Level</th><th class="num">XP to next</th><th class="num">Total XP</th><th class="num">XP per minute</th><th class="num">Minutes to next</th><th class="num">Reached at</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="num">90</td><td class="num">0</td><td class="num">50</td><td class="num">1.8</td><td class="num">0:00</td></tr>
+      <tr><td class="num">2</td><td class="num">254</td><td class="num">90</td><td class="num">55</td><td class="num">4.6</td><td class="num">0:02</td></tr>
+      <tr><td class="num">5</td><td class="num">1,006</td><td class="num">1,531</td><td class="num">70</td><td class="num">14.4</td><td class="num">0:25</td></tr>
+      <tr><td class="num">10</td><td class="num">2,846</td><td class="num">9,991</td><td class="num">95</td><td class="num">30.0</td><td class="num">2:09</td></tr>
+      <tr><td class="num">15</td><td class="num">5,228</td><td class="num">28,793</td><td class="num">120</td><td class="num">43.6</td><td class="num">5:07</td></tr>
+      <tr><td class="num">19</td><td class="num">7,453</td><td class="num">52,962</td><td class="num">140</td><td class="num">53.2</td><td class="num">8:16</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>From level 5 to 19 the total grows almost 35 times; the minutes per level grow less than four times. The last column is the one the player lives through.</p>
+
+  <h3>A formula to start from</h3>
+  <p>The table comes from two rules, the same ones the demo and the code use:</p>
+<pre><code>xpToNext(level)    = BASE_XP * level ^ CURVE
+xpPerMinute(level) = XP_PER_MINUTE * (1 + REWARD_GROWTH * (level - 1))</code></pre>
+  <p>The second rule says higher-level players earn more, because later enemies and quests pay more. When rewards grow by a fixed amount each level, the minutes per level grow roughly like <code>level ^ (CURVE - 1)</code>:</p>
+  <ul>
+    <li><strong>CURVE = 1:</strong> waits level off. After a while every level takes about the same time.</li>
+    <li><strong>CURVE = 1.5:</strong> waits keep stretching, but more slowly as the game goes on.</li>
+    <li><strong>CURVE = 2 or more:</strong> waits grow in proportion to the level or faster, and the late game becomes a long wait.</li>
+  </ul>
+  <p>Many games use an exponential table, where each level needs a fixed percentage more than the last. That always outruns rewards growing by a fixed amount, so the top levels tend to become very long waits, which is sometimes the point.</p>
+
+  <h3>The shape across a whole game</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="A ten hour timeline with a tick for each level-up. Five ticks crowd into the first forty minutes, then the gaps widen steadily until the level 20 cap just after hour nine. Below the line, dashed markers show the second area needing level 8, the third area needing level 14, and the final boss at level 20.">
+      <text class="d-label" x="40" y="34">fast start: 5 level-ups</text>
+      <text class="d-label" x="40" y="50">in the first 40 minutes</text>
+      <path class="d-stroke d-thin" d="M40 62 V68 H77 V62"/>
+      <text class="d-text" x="370" y="50" text-anchor="middle">waits stretch from 15 to 53 minutes</text>
+      <path class="d-stroke d-thin" d="M188 62 V68 H552 V62"/>
+      <path class="d-stroke" d="M40 120 H600"/>
+      <g>
+        <path class="d-accent" d="M41.7 104 V120 M46.0 104 V120 M53.3 104 V120 M63.6 104 V120 M77.0 104 V120 M93.5 104 V120 M112.9 104 V120 M135.3 104 V120 M160.5 104 V120 M188.4 104 V120 M219.1 104 V120 M252.3 104 V120 M288.1 104 V120 M326.4 104 V120 M367.0 104 V120 M410.0 104 V120 M455.3 104 V120 M502.8 104 V120 M552.5 96 V120"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="63.6" y="96">5</text>
+        <text class="d-mono" x="160.5" y="96">10</text>
+        <text class="d-mono" x="326.4" y="96">15</text>
+        <text class="d-mono" x="552.5" y="88">20 (cap)</text>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="40" y="142">0 h</text>
+        <text class="d-muted" x="152" y="142">2 h</text>
+        <text class="d-muted" x="264" y="142">4 h</text>
+        <text class="d-muted" x="376" y="142">6 h</text>
+        <text class="d-muted" x="488" y="142">8 h</text>
+        <text class="d-muted" x="600" y="142">10 h</text>
+      </g>
+      <path class="d-dash" d="M112.9 124 V166"/>
+      <path class="d-dash" d="M288.1 124 V186"/>
+      <path class="d-dash" d="M552.5 124 V166"/>
+      <text class="d-text" x="104" y="182">area 2 needs level 8</text>
+      <text class="d-text" x="280" y="202">area 3 needs level 14</text>
+      <text class="d-text" x="620" y="182" text-anchor="end">final boss: level 20</text>
+    </svg>
+    <figcaption>The table's curve drawn as a timeline (90 XP base, curve 1.5, rewards up 10 percent of the starting rate per level, cap 20). Dashed lines are content that expects a level. Check that the player arrives at each one at about the right level.</figcaption>
+  </figure>
+  <p>Designers commonly think about the timeline in three parts:</p>
+  <ul>
+    <li><strong>A fast start.</strong> Several quick levels teach what a level-up gives while the player is still deciding whether to stay.</li>
+    <li><strong>A stretching middle.</strong> Waits grow slowly so each level feels earned, and levels line up with content: if area 2 expects level 8, read off when the typical player gets there. Too early and the area is trivial; too late and the player must <dfn>grind</dfn>, repeating easy content only for XP.</li>
+    <li><strong>The cap.</strong> The <dfn>level cap</dfn> is the last level. Reaching it long before the end leaves hours of XP that means nothing.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Starting points to tune</p>
+    <p>First level-up within one to three minutes. Three to five levels in the first half hour. In the middle game, at least one level per typical play session: if people play for 45 minutes at a time, a wait longer than 45 minutes means some sessions end with no level at all. Cap near the end of the main content. These are starting points from common practice, not rules.</p>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title">Slow curves can be sold</p>
+    <p>When a game sells XP boosters or level skips, there is pressure to stretch the free curve so the purchase feels necessary. Season passes with paid tiers work the same way. That is artificial scarcity, and it works against the player. If you sell boosts, tune the curve for someone who never buys one.</p>
+  </div>
+
+  <h3>When not to use a level curve</h3>
+  <p>A short game, or one where the player rather than the character gets better, may not need levels. In competitive multiplayer, levels that add power let veterans flatten newcomers. And if every enemy scales to the player's level, level-ups bring no real gain and feel empty.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The timeline is ten hours of play for a player who earns XP at the formula's rate. Each tick is a level-up; the bars show the minutes each level took. Press "Play ten hours" and watch them arrive. Then pin the curve, switch to the flat preset, and see the cap arrive before hour three. Try the steep preset and find the longest wait.</p>
+
+  <figure class="demo wide" data-demo="levels">
+    <canvas id="levels"></canvas>
+    <figcaption>Controls: tap the timeline to move the playhead, or focus the canvas and use Left and Right (10 minutes), Home, End, and Space to play. "Play ten hours" runs 50 game minutes per second; with reduced motion it jumps one hour per press. The faint upper row and the dark lines over the bars are the pinned curve. Solid bars are reached by the playhead, pale ones later within ten hours, outlined ones not within ten hours.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's model in LÖVE, with the same names and numbers. <code>love.load</code> prints the timeline before you play; then a simulated player earns XP at 50 game minutes per second and logs each level-up.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local BASE_XP = 90          <span class="c">-- XP to go from level 1 to level 2</span>
+local CURVE = 1.5           <span class="c">-- 1 = waits level off, 2 = waits keep growing</span>
+local XP_PER_MINUTE = 50    <span class="c">-- what a level 1 player earns</span>
+local REWARD_GROWTH = 0.10  <span class="c">-- each level earns 10% of that rate more</span>
+local LEVEL_CAP = 20
+local SPEED = 50            <span class="c">-- game minutes per real second</span>
+
+local function xpToNext(level)
+<span class="k">  return math.floor(BASE_XP * level ^ CURVE)</span>
+end
+
+local function xpPerMinute(level)
+<span class="k">  return XP_PER_MINUTE * (1 + REWARD_GROWTH * (level - 1))</span>
+end
+
+<span class="c">-- Minutes from the start of the game to each level</span>
+local function timeline()
+  local times = { 0 }
+  for level = 1, LEVEL_CAP - 1 do
+<span class="k">    times[level + 1] = times[level] + xpToNext(level) / xpPerMinute(level)</span>
+  end
+  return times
+end
+
+local level, xp, minutes = 1, 0, 0
+local log = {}
+
+function love.load()
+  for lv, t in ipairs(timeline()) do
+    print(string.format("level %2d at %6.1f min", lv, t))
+  end
+end
+
+function love.update(dt)
+  if minutes &gt;= 600 then return end   <span class="c">-- stop after ten hours</span>
+  local step = dt * SPEED
+  minutes = minutes + step
+  xp = xp + xpPerMinute(level) * step
+  while level &lt; LEVEL_CAP and xp &gt;= xpToNext(level) do
+    xp = xp - xpToNext(level)
+    level = level + 1
+    log[#log + 1] = string.format("level %d at %.0f min", level, minutes)
+  end
+  if level == LEVEL_CAP then xp = 0 end
+end
+
+function love.draw()
+  love.graphics.print(string.format("Hour %.1f   Level %d", minutes / 60, level), 20, 20)
+  if level &lt; LEVEL_CAP then
+    love.graphics.print("XP " .. math.floor(xp) .. " / " .. xpToNext(level), 20, 40)
+  end
+  for i, line in ipairs(log) do
+    love.graphics.print(line, 20, 60 + i * 16)
+  end
+end</code></pre>
+  </div>
+  <p>The printed timeline and the log should agree to within a minute. To try another formula, change only <code>xpToNext</code> and <code>xpPerMinute</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Judging the table by its totals.</strong> Total XP always looks steep. Convert to minutes per level before deciding anything.</li>
+    <li><strong>Assuming one kind of player.</strong> Rushers earn less XP per minute than completionists. Run the timeline at half and double the rate and check both meet the content at a sensible level.</li>
+    <li><strong>Forgetting that rewards grow.</strong> A curve tuned at a fixed XP rate plays much faster if later enemies pay more. Model the growth.</li>
+    <li><strong>Storing levels instead of XP.</strong> Save total XP and derive the level, so you can retune the curve after release without breaking saves.</li>
+    <li><strong>A cap with nothing after it.</strong> Move the cap, or turn extra XP into something else and say so on screen.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Old School RuneScape uses an exponential skill table: each level needs roughly 10 percent more experience than the one before. Level 99 needs 13,034,431 experience in total and level 92 needs 6,517,253, so the last seven levels take as much experience as everything before them. Players call 92 "halfway to 99". The curve makes the top levels a long-term goal rather than a steady rhythm.</p>
+  <p>Most Pokémon belong to one of a few experience groups. In the group called Medium Fast, the total experience to be at level <em>n</em> is <em>n</em> cubed, so level 100 needs 1,000,000. That is a total table: the experience for each single level grows roughly with the square of the level, while experience from battles grows with the level of the defeated opponent.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take the level table from your game, or write one with the Lua above. Estimate XP per minute at three points: the start, the middle and the end. Make a column of minutes per level and a column of time reached. Mark the two or three places where your content expects a certain level. You are done when you can say the level a typical player has on arriving at each of those places, and the longest wait between two level-ups before the cap.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A level curve is a schedule of rewards. The player feels the minutes between level-ups, not the XP numbers.</li>
+    <li>Minutes per level is XP to the next level divided by XP per minute, and XP per minute usually grows too.</li>
+    <li>With rewards that grow by a fixed amount, a curve exponent of 1 levels the waits off, 1.5 stretches them gently and 2 or more makes them long.</li>
+    <li>Check the timeline against your content and your players' session length, and place the cap near the end of the content.</li>
+    <li>Stretching a free curve to sell boosters is a pressure tactic. Tune for the player who never pays.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next comes randomness: why dice rolled before a decision create planning, while dice rolled after it create gambling.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Old School RuneScape Wiki, <cite>Experience table</cite>. Found through a search but could not be opened in this session, so no link is given. The level 92 and 99 numbers above were also checked by computing the game's published table formula.</li>
+    <li>Bulbapedia, <cite>Experience</cite> and <cite>Medium Fast</cite>. Found through a search but could not be opened in this session, so no link is given.</li>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (2012), on progression and feedback in game systems.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var XP_PER_MINUTE = 50;   // what a level 1 player earns
+  var GAME = 600;           // ten hours, in minutes
+  var SPEED = 50;           // game minutes per real second while playing
+  var TL_BOTTOM = 150;      // the timeline occupies y < TL_BOTTOM
+
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var PRESETS = {
+    stretch: { b: 90, c: 1.5, g: 10, cap: 20 },
+    flat: { b: 90, c: 1.0, g: 10, cap: 20 },
+    steep: { b: 90, c: 2.5, g: 10, cap: 20 },
+    nogrowth: { b: 90, c: 1.5, g: 0, cap: 20 }
+  };
+
+  var ui = DemoKit.controls('[data-demo="levels"]');
+  var preset = ui.select({
+    label: 'Preset',
+    options: [
+      { value: 'stretch', label: 'Gentle stretch' },
+      { value: 'flat', label: 'Flat (curve 1)' },
+      { value: 'steep', label: 'Steep (curve 2.5)' },
+      { value: 'nogrowth', label: 'Rewards never grow' },
+      { value: 'custom', label: 'Custom' }
+    ],
+    value: 'stretch',
+    onChange: function (v) {
+      var p = PRESETS[v];
+      if (!p) return;
+      base.set(p.b); curve.set(p.c); growth.set(p.g); cap.set(p.cap);
+      recompute();
+    }
+  });
+  function custom() { preset.set('custom'); recompute(); }
+  var base = ui.slider({ label: 'XP for level 2 (BASE_XP)', min: 20, max: 400, step: 10, value: 90, unit: ' XP', onInput: custom });
+  var curve = ui.slider({ label: 'Curve exponent (CURVE)', min: 0.5, max: 3, step: 0.1, value: 1.5, onInput: custom });
+  var growth = ui.slider({ label: 'Reward growth per level', min: 0, max: 30, step: 1, value: 10, unit: '%', onInput: custom });
+  var cap = ui.slider({ label: 'Level cap', min: 5, max: 60, step: 1, value: 20, onInput: custom });
+  ui.button({ label: 'Play ten hours', onClick: function () { playSweep(); } });
+  var pinBtn = ui.button({ label: 'Pin this curve', onClick: function () { togglePin(); } });
+  var outLevels = ui.readout({ label: 'Level at 30 min / 1 h / 10 h' });
+  var outLongest = ui.readout({ label: 'Longest wait in ten hours' });
+  var outCap = ui.readout({ label: 'Level cap reached' });
+
+  // Same rules as xpToNext(), xpPerMinute() and timeline() in the Lua.
+  function xpToNext(level) { return Math.floor(base.value * Math.pow(level, curve.value)); }
+  function xpPerMinute(level) { return XP_PER_MINUTE * (1 + growth.value / 100 * (level - 1)); }
+  function timeline() {
+    var times = [0, 0];   // times[level], index 0 unused
+    for (var level = 1; level < cap.value; level++) {
+      times[level + 1] = times[level] + xpToNext(level) / xpPerMinute(level);
+    }
+    return times;
+  }
+
+  var times = [], pinned = null;
+  var playhead = GAME, sweeping = false;
+  var pops = {};
+  var handle = null;
+
+  function levelAt(t, list) {
+    var lv = 1;
+    for (var L = 2; L < list.length; L++) {
+      if (list[L] <= t) lv = L; else break;
+    }
+    return lv;
+  }
+
+  function fmtMin(m) {
+    if (!isFinite(m)) return 'forever';
+    if (m < 10) return m.toFixed(1) + ' min';
+    if (m < 60) return Math.round(m) + ' min';
+    var total = Math.round(m);
+    var h = Math.floor(total / 60), mm = total % 60;
+    return h + ' h ' + (mm < 10 ? '0' : '') + mm + ' min';
+  }
+  function fmtClock(m) {
+    var total = Math.floor(m);
+    var h = Math.floor(total / 60), mm = total % 60;
+    return h + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  function recompute() {
+    times = timeline();
+    playhead = GAME;
+    sweeping = false;
+    pops = {};
+    refresh();
+  }
+
+  function refresh() {
+    outLevels.set(levelAt(30, times) + ' / ' + levelAt(60, times) + ' / ' + levelAt(GAME, times));
+    var longest = 0, ongoing = false;
+    for (var L = 2; L < times.length; L++) {
+      if (times[L] > GAME) break;
+      longest = Math.max(longest, times[L] - times[L - 1]);
+    }
+    var lv = levelAt(GAME, times);
+    if (lv < cap.value) {
+      var open = GAME - times[lv];
+      if (open > longest) { longest = open; ongoing = true; }
+    }
+    outLongest.set(fmtMin(longest) + (ongoing ? ', still waiting at 10 h' : ''));
+    var capT = times[times.length - 1];
+    if (capT <= GAME) outCap.set('at ' + fmtMin(capT) + ', then ' + fmtMin(GAME - capT) + ' with nothing to gain');
+    else outCap.set('not within ten hours (at ' + fmtMin(capT) + ')');
+    if (handle) handle.redraw();
+  }
+
+  function playSweep() {
+    if (reduced) {
+      playhead = playhead >= GAME ? 60 : Math.min(GAME, playhead + 60);
+      sweeping = false;
+      if (handle) handle.redraw();
+      return;
+    }
+    playhead = 0;
+    pops = {};
+    sweeping = true;
+    if (handle) handle.play();
+  }
+
+  function togglePin() {
+    if (pinned) {
+      pinned = null;
+      pinBtn.el.textContent = 'Pin this curve';
+    } else {
+      pinned = times.slice();
+      pinBtn.el.textContent = 'Clear pin';
+    }
+    if (handle) handle.redraw();
+  }
+
+  function setPlayhead(t) {
+    playhead = DemoKit.clamp(t, 0, GAME);
+    sweeping = false;
+  }
+
+  function update(dt) {
+    if (sweeping) {
+      var before = playhead;
+      playhead = Math.min(GAME, playhead + SPEED * dt);
+      for (var L = 2; L < times.length; L++) {
+        if (times[L] > before && times[L] <= playhead) pops[L] = 0.35;
+      }
+      if (playhead >= GAME) sweeping = false;
+    }
+    for (var k in pops) {
+      pops[k] -= dt;
+      if (pops[k] <= 0) delete pops[k];
+    }
+  }
+
+  function font(ctx, size, weight) {
+    ctx.font = (weight ? weight + ' ' : '') + size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+  }
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+    var steps = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * e >= v) return steps[i] * e;
+    return 10 * e;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, W = s.width, H = s.height;
+    var x0 = 20, x1 = W - 20;
+    function X(t) { return x0 + (x1 - x0) * t / GAME; }
+
+    // ---- header ----
+    var lv = levelAt(playhead, times);
+    font(ctx, 16, '700');
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Hour ' + fmtClock(playhead) + '   Level ' + lv, x0, 24);
+    font(ctx, 13);
+    ctx.fillStyle = c.ink2;
+    var line2;
+    if (lv >= cap.value) line2 = 'Level cap reached at ' + fmtMin(times[lv]);
+    else line2 = 'Next level ' + (playhead >= times[lv + 1] ? 'now' : 'in ' + fmtMin(times[lv + 1] - playhead)) +
+      ' (this one takes ' + fmtMin(times[lv + 1] - times[lv]) + ')';
+    ctx.fillText(line2, x0, 44);
+
+    // ---- timeline ----
+    var rowPin = 76, rowNow = 112;
+    var capT = times[times.length - 1];
+    if (capT < GAME) {
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(X(capT), rowNow - 10, x1 - X(capT), 20);
+      if (x1 - X(capT) > 60) {
+        font(ctx, 12);
+        ctx.fillStyle = c.ink3;
+        ctx.textAlign = 'center';
+        ctx.fillText('at cap', (X(capT) + x1) / 2, rowNow + 4);
+      }
+    }
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, rowNow + 8); ctx.lineTo(x1, rowNow + 8); ctx.stroke();
+
+    if (pinned) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x0, rowPin + 8); ctx.lineTo(x1, rowPin + 8); ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var p = 2; p < pinned.length; p++) {
+        if (pinned[p] > GAME) break;
+        ctx.moveTo(X(pinned[p]), rowPin - 6); ctx.lineTo(X(pinned[p]), rowPin + 8);
+      }
+      ctx.stroke();
+    }
+
+    // level-up ticks
+    var lastLabel = -100;
+    for (var L = 2; L < times.length; L++) {
+      var t = times[L];
+      if (t > GAME) break;
+      var tx = X(t);
+      var passed = t <= playhead;
+      var pop = pops[L] ? pops[L] / 0.35 : 0;
+      ctx.strokeStyle = passed ? c.topic : c.ink3;
+      ctx.lineWidth = passed ? 2 : 1;
+      var top = rowNow - 8 - pop * 6;
+      if (L === cap.value) top -= 4;
+      ctx.beginPath(); ctx.moveTo(tx, top); ctx.lineTo(tx, rowNow + 8); ctx.stroke();
+      if ((L % 5 === 0 || L === cap.value) && tx - lastLabel > 22) {
+        font(ctx, 12);
+        ctx.fillStyle = passed ? c.ink : c.ink3;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(L), tx, rowNow - 16);
+        lastLabel = tx;
+      }
+    }
+
+    // hour labels
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    var every = W < 420 ? 2 : 1;
+    for (var h = 0; h <= 10; h += every) {
+      ctx.fillText(h + ' h', X(h * 60), rowNow + 26);
+    }
+
+    // playhead
+    var px = X(playhead);
+    ctx.strokeStyle = c.warn;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, rowPin - 12); ctx.lineTo(px, rowNow + 12); ctx.stroke();
+
+    // ---- bars: minutes per level ----
+    var gx = 44, gw = W - gx - 14;
+    var gy = 182, gh = H - gy - 56;
+    font(ctx, 12, '600');
+    ctx.fillStyle = c.ink;
+    ctx.textAlign = 'left';
+    ctx.fillText('Minutes for each level-up', gx, gy - 10);
+
+    var n = times.length - 2;   // number of level-ups up to the cap
+    var maxV = 0, i, v;
+    for (i = 1; i <= n; i++) maxV = Math.max(maxV, times[i + 1] - times[i]);
+    if (pinned) for (i = 1; i < pinned.length - 1 && i <= n; i++) maxV = Math.max(maxV, pinned[i + 1] - pinned[i]);
+    var yMax = niceMax(Math.max(5, Math.min(maxV, GAME)));
+    function Y(val) { return gy + gh - gh * Math.min(val, yMax) / yMax; }
+
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(gx, gy, gw, gh);
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'right';
+    for (var k = 0; k <= 2; k++) {
+      v = yMax * k / 2;
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(gx, yy); ctx.lineTo(gx + gw, yy); ctx.stroke();
+      ctx.fillText(String(Math.round(v)), gx - 6, yy + 4);
+    }
+
+    var slot = gw / Math.max(n, 1), bw = Math.max(2, slot * 0.68);
+    for (i = 1; i <= n; i++) {
+      var bx = gx + (i - 1) * slot + (slot - bw) / 2;
+      v = times[i + 1] - times[i];
+      var by = Y(v), bh = gy + gh - by;
+      if (times[i + 1] <= playhead) {
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(bx, by, bw, bh);
+      } else if (times[i + 1] <= GAME) {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = c.topic;
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = c.ink3;
+        ctx.strokeRect(bx + 0.5, by + 0.5, Math.max(1, bw - 1), Math.max(0, bh - 1));
+      }
+      if (v > yMax) {   // clipped bar: mark the top
+        ctx.fillStyle = c.bad;
+        ctx.fillRect(bx, gy - 3, bw, 3);
+      }
+      if (i === lv && lv < cap.value) {
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx - 1, by - 1, bw + 2, bh + 1);
+        ctx.lineWidth = 1;
+      }
+      if (pinned && i + 1 < pinned.length) {
+        var pv = pinned[i + 1] - pinned[i];
+        var pyy = Y(pv);
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(bx - 1, pyy); ctx.lineTo(bx + bw + 1, pyy); ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+
+    // x labels: the level each bar reaches
+    font(ctx, 12);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'center';
+    var lastX = -100;
+    for (i = 1; i <= n; i++) {
+      var reach = i + 1;
+      if (reach % 5 !== 0 && reach !== 2) continue;
+      var lx = gx + (i - 0.5) * slot;
+      if (lx - lastX < 24 || lx > W - 90) continue;
+      ctx.fillText(String(reach), lx, gy + gh + 16);
+      lastX = lx;
+    }
+    ctx.textAlign = 'left';
+    ctx.fillText('level reached', gx, gy + gh + 34);
+  }
+
+  handle = DemoKit.canvas('#levels', {
+    height: 420,
+    keys: true,
+    label: 'A ten hour timeline with a tick for each level-up and a movable playhead, and below it a bar chart of the minutes each level takes.',
+    update: update,
+    draw: draw,
+    onDown: function (p) { if (p.y < TL_BOTTOM) setPlayhead((p.x - 20) / (handle.state.width - 40) * GAME); },
+    onMove: function (p) { if (p.down && p.y < TL_BOTTOM) setPlayhead((p.x - 20) / (handle.state.width - 40) * GAME); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') setPlayhead(playhead + 10);
+      else if (key === 'arrowleft') setPlayhead(playhead - 10);
+      else if (key === 'home') setPlayhead(0);
+      else if (key === 'end') setPlayhead(GAME);
+      else if (key === 'space' || key === 'enter') playSweep();
+    }
+  });
+  handle.canvas.style.touchAction = 'manipulation';
+
+  recompute();
+})();
+</script>
+</body>
+</html>
