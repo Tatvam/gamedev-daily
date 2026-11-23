@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 Texture Compression: sixteen pixels in eight bytes · Game Dev Daily</title>
+<meta name="description" content="How S3TC (DXT1, now BC1) stores each 4 by 4 block of a texture as two colours and sixteen 2-bit choices, and why graphics hardware can read it directly.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>S3 Texture Compression: sixteen pixels in eight bytes</h1>
+  <p class="lede">How S3TC (DXT1, now BC1) stores each 4 by 4 block of a texture as two colours and sixteen 2-bit choices, and why graphics hardware can read it directly.</p>
+</header>
+
+<section data-section="hook">
+  <p>Zoom in close on a texture in almost any 3D game of the last twenty-five years and you may spot faint square smudges, four pixels wide, where a smooth gradient meets a sharp edge. Those squares are the fingerprints of a compression scheme designed in 1998 that is still inside every desktop graphics card today.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: textures fill the card</h2>
+  <p>A <dfn>texture</dfn> is an image the graphics card wraps over a 3D surface. In the late 1990s consumer 3D cards commonly had somewhere between 4 and 16 megabytes of memory, and that memory also had to hold the screen images being drawn. One 256 by 256 texture at 24 bits per pixel is 192 KB. Add the smaller copies used at a distance, called <dfn>mipmaps</dfn>, and it grows by about a third. A few dozen of those and the card is full.</p>
+  <p>Memory size was only half the problem. Every textured pixel on screen reads texture data, often several texels at a time, so smaller textures also mean less traffic between the chip and its memory.</p>
+  <p>Ordinary image compression such as JPEG does not help here. A JPEG has to be decoded from the start, and each part of the file is a different length. The graphics chip needs the opposite: to jump straight to <em>any</em> texel, in any order, millions of times a second, and decode it in a few cheap steps.</p>
+
+  <h2>The trick: two colours and a line between them</h2>
+  <p>S3 Graphics introduced S3 Texture Compression, <dfn>S3TC</dfn>, with its Savage3D chip in 1998. Microsoft licensed it for DirectX 6.0, where the formats were named DXT1 to DXT5. Direct3D 10 later renamed them BC1 to BC3, for <em>block compression</em>. This page rebuilds DXT1, the basic colour format.</p>
+  <p>The texture is cut into blocks of 4 by 4 pixels. Each block is stored in exactly 8 bytes:</p>
+  <ol>
+    <li><strong>Two colours, c0 and c1</strong>, each squeezed into 16 bits in a layout called <dfn>RGB565</dfn>: 5 bits of red, 6 of green and 5 of blue. Green gets the extra bit because eyes are most sensitive to it.</li>
+    <li><strong>Sixteen 2-bit indices</strong>, one per pixel. Each index picks one of four colours.</li>
+  </ol>
+  <p>Only two of those four colours are stored. The other two are calculated by the decoder: one is two thirds of the way from c0 towards c1, the other is one third of the way. So every block has a tiny palette of four colours that all sit on one straight line through colour space, and each pixel snaps to the nearest of them.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 310" role="img" aria-label="Left, a 4 by 4 block of pixels takes 48 bytes at 3 bytes per pixel. An arrow leads to an 8 byte record: 2 bytes for colour c0, 2 bytes for colour c1, and 4 bytes holding sixteen 2-bit indices. Below, the four palette colours lie on a line: c0 with index 0, c2 with index 2, c3 with index 3, and c1 with index 1. Six pixel colours above the line snap to the nearest palette point.">
+      <text class="d-text" x="20" y="24">Before: 16 pixels × 3 bytes = 48 bytes</text>
+      <rect class="d-fill" x="20" y="40" width="28" height="28"/><rect class="d-fill" x="48" y="40" width="28" height="28"/>
+      <rect class="d-accent-soft" x="76" y="40" width="28" height="28"/><rect class="d-accent-soft" x="104" y="40" width="28" height="28"/>
+      <rect class="d-fill" x="20" y="68" width="28" height="28"/><rect class="d-accent-soft" x="48" y="68" width="28" height="28"/>
+      <rect class="d-accent-soft" x="76" y="68" width="28" height="28"/><rect class="d-accent-soft" x="104" y="68" width="28" height="28"/>
+      <rect class="d-fill" x="20" y="96" width="28" height="28"/><rect class="d-fill" x="48" y="96" width="28" height="28"/>
+      <rect class="d-accent-soft" x="76" y="96" width="28" height="28"/><rect class="d-accent-soft" x="104" y="96" width="28" height="28"/>
+      <rect class="d-fill" x="20" y="124" width="28" height="28"/><rect class="d-fill" x="48" y="124" width="28" height="28"/>
+      <rect class="d-fill" x="76" y="124" width="28" height="28"/><rect class="d-accent-soft" x="104" y="124" width="28" height="28"/>
+      <path class="d-accent" d="M144 96 H188 M180 90 L188 96 L180 102"/>
+
+      <text class="d-text" x="200" y="50">After: 8 bytes</text>
+      <rect class="d-box" x="200" y="66" width="80" height="36"/>
+      <text class="d-mono" x="240" y="89" text-anchor="middle">c0</text>
+      <rect class="d-box" x="280" y="66" width="80" height="36"/>
+      <text class="d-mono" x="320" y="89" text-anchor="middle">c1</text>
+      <rect class="d-accent-soft" x="360" y="66" width="260" height="36"/>
+      <text class="d-mono" x="490" y="89" text-anchor="middle">16 indices × 2 bits</text>
+      <text class="d-muted" x="240" y="122" text-anchor="middle">2 bytes</text>
+      <text class="d-muted" x="320" y="122" text-anchor="middle">2 bytes</text>
+      <text class="d-muted" x="490" y="122" text-anchor="middle">4 bytes</text>
+      <text class="d-muted" x="200" y="146">RGB565: 5 bits red, 6 green, 5 blue</text>
+
+      <text class="d-text" x="20" y="190">The four palette colours lie on one line in colour space</text>
+      <path class="d-dash" d="M110 216 L80 246 M200 216 L240 246 M290 216 L240 246 M330 216 L400 246 M470 216 L400 246 M530 216 L560 246"/>
+      <circle class="d-fill" cx="110" cy="216" r="5"/><circle class="d-fill" cx="200" cy="216" r="5"/>
+      <circle class="d-fill" cx="290" cy="216" r="5"/><circle class="d-fill" cx="330" cy="216" r="5"/>
+      <circle class="d-fill" cx="470" cy="216" r="5"/><circle class="d-fill" cx="530" cy="216" r="5"/>
+      <path class="d-stroke" d="M80 250 H560"/>
+      <circle class="d-accent-fill" cx="80" cy="250" r="7"/>
+      <circle class="d-accent-fill" cx="240" cy="250" r="7"/>
+      <circle class="d-accent-fill" cx="400" cy="250" r="7"/>
+      <circle class="d-accent-fill" cx="560" cy="250" r="7"/>
+      <text class="d-label" x="80" y="280" text-anchor="middle">c0</text>
+      <text class="d-label" x="240" y="280" text-anchor="middle">c2</text>
+      <text class="d-label" x="400" y="280" text-anchor="middle">c3</text>
+      <text class="d-label" x="560" y="280" text-anchor="middle">c1</text>
+      <text class="d-muted" x="80" y="298" text-anchor="middle">index 0</text>
+      <text class="d-muted" x="240" y="298" text-anchor="middle">index 2</text>
+      <text class="d-muted" x="400" y="298" text-anchor="middle">index 3</text>
+      <text class="d-muted" x="560" y="298" text-anchor="middle">index 1</text>
+      <text class="d-muted" x="600" y="216" text-anchor="end">pixels</text>
+    </svg>
+    <figcaption>One block before and after. c2 is (2·c0 + c1) / 3 and c3 is (c0 + 2·c1) / 3, worked out per channel. Each pixel keeps only the 2-bit index of the palette point nearest to its real colour.</figcaption>
+  </figure>
+
+  <p>Sixteen pixels at 24 bits are 48 bytes. Eight bytes is a ratio of 6 to 1, or 8 to 1 against 32-bit pixels. That is 4 bits per pixel, the same as a 16-colour image, but each block has its own four colours.</p>
+
+  <h3>Why fixed-size blocks matter</h3>
+  <p>Every block is exactly 8 bytes, so the chip can find the block holding any texel with one multiply and one add. Decoding is equally small: read two 16-bit colours, blend them, pick one with two bits. That is cheap enough to build into the texture unit itself, so the texture stays compressed in video memory and is only expanded at the moment a texel is sampled. Memory and bandwidth both shrink by the same ratio.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 230" role="img" aria-label="A texture of 4 by 3 blocks with block column 2, row 1 highlighted. An arrow points to the seventh 8-byte slot in a row of twelve memory slots. Text gives the offset formula: offset equals by times 4 plus bx, times 8, which is 48.">
+      <rect class="d-box" x="20" y="30" width="160" height="120"/>
+      <path class="d-thin" d="M60 30 V150 M100 30 V150 M140 30 V150 M20 70 H180 M20 110 H180"/>
+      <rect class="d-accent-soft" x="100" y="70" width="40" height="40"/>
+      <text class="d-muted" x="20" y="20">texture, 4 blocks per row</text>
+      <text class="d-mono" x="120" y="95" text-anchor="middle">2,1</text>
+      <text class="d-text" x="200" y="48">Each block: 8 bytes</text>
+      <text class="d-mono" x="200" y="76">offset =</text>
+      <text class="d-mono" x="200" y="96">(by × 4 + bx) × 8</text>
+      <text class="d-mono" x="200" y="116">= (1 × 4 + 2) × 8</text>
+      <text class="d-mono" x="200" y="136">= 48</text>
+      <path class="d-accent" d="M120 110 L189 168"/>
+      <rect class="d-fill" x="20" y="170" width="26" height="20"/><rect class="d-fill" x="46" y="170" width="26" height="20"/>
+      <rect class="d-fill" x="72" y="170" width="26" height="20"/><rect class="d-fill" x="98" y="170" width="26" height="20"/>
+      <rect class="d-fill" x="124" y="170" width="26" height="20"/><rect class="d-fill" x="150" y="170" width="26" height="20"/>
+      <rect class="d-accent-soft" x="176" y="170" width="26" height="20"/><rect class="d-fill" x="202" y="170" width="26" height="20"/>
+      <rect class="d-fill" x="228" y="170" width="26" height="20"/><rect class="d-fill" x="254" y="170" width="26" height="20"/>
+      <rect class="d-fill" x="280" y="170" width="26" height="20"/><rect class="d-fill" x="306" y="170" width="26" height="20"/>
+      <text class="d-muted" x="20" y="212">memory, one slot per block</text>
+    </svg>
+    <figcaption>No index, no table of contents: block positions follow from arithmetic alone.</figcaption>
+  </figure>
+
+  <h3>A free mode bit</h3>
+  <p>DXT1 hides one more switch in the order of the two colours. Read c0 and c1 as 16-bit numbers. If c0 is greater, the block uses the four-colour palette above. If c0 is not greater, the block uses three colours (c0, c1 and their halfway point) and index 3 means black or fully transparent. The format gets one-bit transparency, used for leaves and fences, without spending a single extra bit. An encoder that wants four colours simply swaps the pair so the larger one comes first.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>DXT1 is excellent when each 4 by 4 block holds shades along one colour direction, such as a gradient or a single edge between two colours. It struggles when one block contains three unrelated colours, because no single line passes near all of them.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo compresses a 32 by 32 image with the same DXT1 encoder as the Lua code below. Switch the view between <em>Original</em>, <em>Compressed</em> and <em>Error</em>. Click any block, or focus the canvas and use the arrow keys, to see its two stored colours, its palette, its index grid and its eight stored bytes. Try the <em>Sky and hills</em> image first, then <em>Three-colour stripes</em>, where nearly every block breaks the one-line rule.</p>
+
+  <figure class="demo" data-demo="dxt1">
+    <canvas id="dxt1"></canvas>
+    <figcaption>The images are drawn in code for this page. The encoder picks the two most different pixels of each block as endpoints, a simple method; real compressors search harder and do somewhat better.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A complete DXT1 encoder and decoder for one block, in plain Lua that runs inside LÖVE. A block is a table of 16 pixels, row by row, each <code>{ r, g, b }</code> from 0 to 255. Bit operations are written as arithmetic so the code needs no library.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local floor = math.floor
+
+local function to565(c)          <span class="c">-- 24-bit colour to a 16-bit number</span>
+  local r5 = floor(c[1] * 31 / 255 + 0.5)
+  local g6 = floor(c[2] * 63 / 255 + 0.5)
+  local b5 = floor(c[3] * 31 / 255 + 0.5)
+  return r5 * 2048 + g6 * 32 + b5
+end
+
+local function from565(v)        <span class="c">-- and back, repeating the top bits</span>
+  local r5, g6, b5 = floor(v / 2048), floor(v / 32) % 64, v % 32
+  return { r5 * 8 + floor(r5 / 4), g6 * 4 + floor(g6 / 16), b5 * 8 + floor(b5 / 4) }
+end
+
+local function dist2(a, b)
+  local dr, dg, db = a[1] - b[1], a[2] - b[2], a[3] - b[3]
+  return dr * dr + dg * dg + db * db
+end
+
+local function mix(a, b, wa, wb)
+  local out = {}
+  for k = 1, 3 do out[k] = floor((wa * a[k] + wb * b[k]) / (wa + wb)) end
+  return out
+end
+
+function palette(c0, c1)         <span class="c">-- palette[index + 1]</span>
+  local a, b = from565(c0), from565(c1)
+<span class="k">  if c0 &gt; c1 then return { a, b, mix(a, b, 2, 1), mix(a, b, 1, 2) } end</span>
+  return { a, b, mix(a, b, 1, 1), { 0, 0, 0 } }  <span class="c">-- 3 colours + transparent</span>
+end
+
+function encodeBlock(px)
+  local best, ia, ib = -1, 1, 1  <span class="c">-- endpoints: the two most different pixels</span>
+  for i = 1, 16 do
+    for j = i + 1, 16 do
+      local d = dist2(px[i], px[j])
+      if d &gt; best then best, ia, ib = d, i, j end
+    end
+  end
+  local c0, c1 = to565(px[ia]), to565(px[ib])
+  if c0 &lt; c1 then c0, c1 = c1, c0 end   <span class="c">-- c0 &gt; c1 selects four colours</span>
+  local pal, idx = palette(c0, c1), {}
+  for i = 1, 16 do                <span class="c">-- each pixel keeps its nearest index</span>
+    local bestD = math.huge
+    for k = 1, 4 do
+      local d = dist2(px[i], pal[k])
+<span class="k">      if d &lt; bestD then bestD, idx[i] = d, k - 1 end</span>
+    end
+  end
+  return c0, c1, idx              <span class="c">-- 16 + 16 + 16 * 2 bits = 8 bytes</span>
+end
+
+function decodePixel(c0, c1, idx, i)
+  return palette(c0, c1)[idx[i] + 1]
+end
+
+function blockOffset(x, y, width) <span class="c">-- byte offset of the block holding texel x, y</span>
+  return (floor(y / 4) * (width / 4) + floor(x / 4)) * 8
+end</code></pre>
+  </div>
+  <p>In a real decoder the indices are packed into one 32-bit number: pixel <code>i</code> (counting from 0) uses bits <code>2i</code> and <code>2i + 1</code>, and the whole block is stored little-endian, low byte first. The demo shows those bytes for the selected block. LÖVE can load ready-made DXT1 files directly with <code>love.image.newCompressedData</code>, so in practice you compress with a tool and let the graphics card decode.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Judging memory by file size.</strong> A 200 KB PNG is decompressed to full size in video memory. A DXT1 texture stays 4 bits per pixel on the card. Mobile games often run out of memory for exactly this reason.</li>
+    <li><strong>Sizes that are not multiples of 4.</strong> The format works in whole blocks. Keep texture sizes divisible by 4 at every mipmap level you use, or the tools pad them for you.</li>
+    <li><strong>Normal maps and smooth alpha.</strong> DXT1 bends normals and has only on-or-off transparency. Use DXT5 (BC3), which adds 8 bytes of alpha per block, or the two-channel BC5 for normal maps.</li>
+    <li><strong>Weak encoders.</strong> Picking endpoints naively, as this demo does, leaves quality on the table. Good compressors fit a line through the block's colours and refine it. Compress offline with a good tool rather than at load time with a quick one.</li>
+    <li><strong>Small text and pixel art.</strong> Hard multi-colour detail inside a block, like the stripes in the demo, is the worst case. Leave such textures uncompressed.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Once DXT was part of DirectX 6.0 and available in OpenGL through the <code>EXT_texture_compression_s3tc</code> extension, PC games adopted it widely. Unreal Tournament (1999) is often cited as an early showcase: its second CD is widely reported to have carried high-resolution S3TC textures for cards that supported the format. I could not check that claim against a primary source in this session.</p>
+  <p>S3's patent on the method kept it out of open-source graphics drivers for years; that patent has since expired. The formats themselves never left. Every PC graphics card still decodes BC1 to BC3 in hardware, and Direct3D 11 added BC6H for high dynamic range images and BC7 for higher-quality colour with alpha.</p>
+  <p>The lesson for today: the same constraint is back on phones and the web, where memory and bandwidth are tight and many formats exist. Mobile chips use ETC2 or ASTC rather than BC, which is why engines compress textures per platform at build time. ASTC keeps the fixed-size block idea but lets the block size vary, trading quality for bits. Whatever the format, the rule from 1998 holds: blocks of fixed size, decoded in the texture unit, so the data stays small all the way to the pixel.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the Lua code into <code>main.lua</code>. Build a block of 16 pixels that fades from dark blue to light blue and print the result of <code>encodeBlock</code>: the two colours and the indices. Then replace two pixels with pure red and encode again. You are done when you can say, from the printed indices, which pixels lost their colour and why. Bonus: change the endpoint choice to the darkest and brightest pixel by brightness and compare the total <code>dist2</code> error with the original method.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>DXT1 (BC1) stores every 4 by 4 block in 8 bytes: two RGB565 colours and sixteen 2-bit indices.</li>
+    <li>The decoder derives two more colours between the stored pair, so each block has four colours on one line.</li>
+    <li>Fixed-size blocks let the graphics chip find and decode any texel directly, so textures stay compressed in video memory.</li>
+    <li>The order of the two colours selects four-colour or three-colour-plus-transparent mode, at no cost in bits.</li>
+    <li>Blocks with three unrelated colours compress badly; modern formats such as BC7 and ASTC exist to soften that.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at the compression work credited with freeing enough room in Pokemon Gold and Silver to fit a second region on the cartridge.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: the source pages could not be opened in this session, so none are linked. The block layout and decoding rules on this page are the standard, widely documented definition of DXT1/BC1. The Savage3D and DirectX 6.0 dates are widely documented. The 1990s memory range is a general description, and the Unreal Tournament claim is marked as unconfirmed above. Look up these works to check them:</p>
+  <ul>
+    <li>Khronos Group, <cite>EXT_texture_compression_s3tc</cite>, the OpenGL extension specification that defines the DXT1 to DXT5 decoding rules.</li>
+    <li>Microsoft, <cite>Texture Block Compression in Direct3D 11</cite>, documentation of the BC1 to BC7 formats.</li>
+    <li>Konstantine Iourcha, Krishna Nayak and Zhou Hong, <cite>System and method for fixed-rate block-based image compression with inferred pixel values</cite>, US patent 5,956,431, assigned to S3.</li>
+    <li>J.M.P. van Waveren, <cite>Real-Time DXT Compression</cite>, a paper on fast DXT encoding.</li>
+    <li>Nathan Reed, <cite>Understanding BCn Texture Compression Formats</cite>, an overview of every BC format.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var N = 32;          // image is 32 by 32 pixels
+  var B = N / 4;       // 8 blocks per row
+
+  function clamp255(v) { return Math.max(0, Math.min(255, Math.round(v))); }
+  function lerp3(a, b, t) {
+    return [clamp255(a[0] + (b[0] - a[0]) * t), clamp255(a[1] + (b[1] - a[1]) * t), clamp255(a[2] + (b[2] - a[2]) * t)];
+  }
+
+  var IMAGES = {
+    sky: function (x, y) {
+      var t = x / 31, u = y / 31;
+      var c = [30 + 170 * t, 70 + 120 * u, 210 - 110 * t + 20 * u];
+      var d = Math.sqrt((x - 23) * (x - 23) + (y - 8) * (y - 8));
+      var k = Math.max(0, Math.min(1, (7 - d) / 3));
+      c = lerp3(c, [255, 226, 150], k);
+      if (y > 23 + 3 * Math.sin(x * 0.35)) c = [40 + y, 72 + y, 52];
+      return [clamp255(c[0]), clamp255(c[1]), clamp255(c[2])];
+    },
+    shapes: function (x, y) {
+      var c = [28, 44, 96];
+      if ((x - 10.5) * (x - 10.5) + (y - 12.5) * (y - 12.5) < 64) c = [236, 132, 44];
+      if (x >= 17 && x <= 28 && y >= 16 && y <= 28) c = [64, 176, 96];
+      if (y < 14 && Math.abs(x - y - 12) < 1) c = [240, 240, 230];
+      return c;
+    },
+    stripes: function (x, y) {
+      var k = (x + Math.floor(y / 2)) % 3;
+      return [[220, 50, 50], [50, 190, 70], [60, 80, 220]][k];
+    }
+  };
+
+  // ---- DXT1, matching the Lua on the page ----
+  function to565(c) {
+    var r5 = Math.floor(c[0] * 31 / 255 + 0.5);
+    var g6 = Math.floor(c[1] * 63 / 255 + 0.5);
+    var b5 = Math.floor(c[2] * 31 / 255 + 0.5);
+    return r5 * 2048 + g6 * 32 + b5;
+  }
+  function from565(v) {
+    var r5 = Math.floor(v / 2048), g6 = Math.floor(v / 32) % 64, b5 = v % 32;
+    return [r5 * 8 + Math.floor(r5 / 4), g6 * 4 + Math.floor(g6 / 16), b5 * 8 + Math.floor(b5 / 4)];
+  }
+  function dist2(a, b) {
+    var dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+    return dr * dr + dg * dg + db * db;
+  }
+  function mix(a, b, wa, wb) {
+    var out = [];
+    for (var k = 0; k < 3; k++) out[k] = Math.floor((wa * a[k] + wb * b[k]) / (wa + wb));
+    return out;
+  }
+  function palette(c0, c1) {
+    var a = from565(c0), b = from565(c1);
+    if (c0 > c1) return [a, b, mix(a, b, 2, 1), mix(a, b, 1, 2)];
+    return [a, b, mix(a, b, 1, 1), [0, 0, 0]];
+  }
+  function encodeBlock(px) {
+    var best = -1, ia = 0, ib = 0, i, j, k;
+    for (i = 0; i < 16; i++) {
+      for (j = i + 1; j < 16; j++) {
+        var d = dist2(px[i], px[j]);
+        if (d > best) { best = d; ia = i; ib = j; }
+      }
+    }
+    var c0 = to565(px[ia]), c1 = to565(px[ib]);
+    if (c0 < c1) { var tmp = c0; c0 = c1; c1 = tmp; }
+    var pal = palette(c0, c1), idx = [];
+    for (i = 0; i < 16; i++) {
+      var bestD = Infinity;
+      for (k = 0; k < 4; k++) {
+        var dd = dist2(px[i], pal[k]);
+        if (dd < bestD) { bestD = dd; idx[i] = k; }
+      }
+    }
+    return { c0: c0, c1: c1, idx: idx, pal: pal };
+  }
+
+  // ---- state ----
+  var orig = [], comp = [], blocks = [];
+  var selBx = 6, selBy = 1;
+  var meanError = 0;
+
+  function rebuild() {
+    var f = IMAGES[imageSel.value] || IMAGES.sky;
+    var x, y, i;
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) orig[y * N + x] = f(x, y);
+    var total = 0;
+    for (var by = 0; by < B; by++) {
+      for (var bx = 0; bx < B; bx++) {
+        var px = [];
+        for (i = 0; i < 16; i++) px[i] = orig[(by * 4 + Math.floor(i / 4)) * N + bx * 4 + (i % 4)];
+        var enc = encodeBlock(px);
+        blocks[by * B + bx] = enc;
+        for (i = 0; i < 16; i++) {
+          var p = (by * 4 + Math.floor(i / 4)) * N + bx * 4 + (i % 4);
+          comp[p] = enc.pal[enc.idx[i]];
+        }
+      }
+    }
+    for (i = 0; i < N * N; i++) {
+      total += Math.abs(orig[i][0] - comp[i][0]) + Math.abs(orig[i][1] - comp[i][1]) + Math.abs(orig[i][2] - comp[i][2]);
+    }
+    meanError = total / (N * N * 3);
+    errOut.set(meanError.toFixed(1) + ' / 255 per channel');
+    selectionChanged();
+  }
+
+  function blockError(bx, by) {
+    var t = 0;
+    for (var i = 0; i < 16; i++) {
+      var p = (by * 4 + Math.floor(i / 4)) * N + bx * 4 + (i % 4);
+      t += Math.abs(orig[p][0] - comp[p][0]) + Math.abs(orig[p][1] - comp[p][1]) + Math.abs(orig[p][2] - comp[p][2]);
+    }
+    return t / 48;
+  }
+
+  function hex2(v) { return (v < 16 ? '0' : '') + v.toString(16).toUpperCase(); }
+  function hex4(v) { return '0x' + hex2(Math.floor(v / 256)) + hex2(v % 256); }
+  function blockBytes(enc) {
+    var word = 0;
+    for (var i = 0; i < 16; i++) word += enc.idx[i] * Math.pow(4, i);
+    var bytes = [enc.c0 % 256, Math.floor(enc.c0 / 256), enc.c1 % 256, Math.floor(enc.c1 / 256)];
+    for (var k = 0; k < 4; k++) bytes.push(Math.floor(word / Math.pow(256, k)) % 256);
+    return bytes.map(hex2).join(' ');
+  }
+  function rgb(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="dxt1"]');
+  var imageSel = ui.select({
+    label: 'Image',
+    options: [{ value: 'sky', label: 'Sky and hills' }, { value: 'shapes', label: 'Flat shapes' }, { value: 'stripes', label: 'Three-colour stripes' }],
+    value: 'sky',
+    onChange: function () { rebuild(); redraw(); }
+  });
+  var viewSel = ui.select({
+    label: 'View',
+    options: [{ value: 'orig', label: 'Original' }, { value: 'comp', label: 'Compressed (DXT1)' }, { value: 'err', label: 'Error (x4)' }],
+    value: 'comp',
+    onChange: function () { redraw(); }
+  });
+  var gridTog = ui.toggle({ label: 'Block grid', value: true, onChange: function () { redraw(); } });
+  var sizeOut = ui.readout({ label: 'Size' });
+  sizeOut.set('3072 bytes (24-bit) to 512 bytes, 6:1');
+  var errOut = ui.readout({ label: 'Average error' });
+  var selOut = ui.readout({ label: 'Selected block' });
+
+  function selectionChanged() {
+    if (!blocks.length) return;
+    selOut.set('(' + selBx + ', ' + selBy + '), error ' + blockError(selBx, selBy).toFixed(1));
+  }
+
+  // ---- layout and drawing ----
+  function layout(s) {
+    var L = {};
+    L.wide = s.width >= 560;
+    if (L.wide) {
+      L.cell = Math.max(4, Math.floor(Math.min(s.height - 24, s.width - 24 - 310) / N));
+      L.ix = 12;
+      L.iy = Math.round((s.height - L.cell * N) / 2);
+      L.px = L.ix + L.cell * N + 24;
+      L.py = 16;
+      L.pw = s.width - L.px - 12;
+    } else {
+      L.cell = Math.max(4, Math.floor(Math.min(s.width - 24, s.height - 300) / N));
+      L.ix = Math.round((s.width - L.cell * N) / 2);
+      L.iy = 10;
+      L.px = 12;
+      L.py = L.iy + L.cell * N + 18;
+      L.pw = s.width - 24;
+    }
+    return L;
+  }
+
+  function drawImage(ctx, L) {
+    var view = viewSel.value, cs = L.cell;
+    for (var y = 0; y < N; y++) {
+      for (var x = 0; x < N; x++) {
+        var p = y * N + x, col;
+        if (view === 'orig') col = orig[p];
+        else if (view === 'comp') col = comp[p];
+        else {
+          var e = (Math.abs(orig[p][0] - comp[p][0]) + Math.abs(orig[p][1] - comp[p][1]) + Math.abs(orig[p][2] - comp[p][2])) / 3;
+          var g = clamp255(e * 4);
+          col = [g, g, g];
+        }
+        ctx.fillStyle = rgb(col);
+        ctx.fillRect(L.ix + x * cs, L.iy + y * cs, cs, cs);
+      }
+    }
+    if (gridTog.value) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var i = 0; i <= B; i++) {
+        var o = i * 4 * cs + 0.5;
+        ctx.moveTo(L.ix + o, L.iy); ctx.lineTo(L.ix + o, L.iy + N * cs);
+        ctx.moveTo(L.ix, L.iy + o); ctx.lineTo(L.ix + N * cs, L.iy + o);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function drawGrid4(ctx, x, y, cs, colorAt, c) {
+    for (var i = 0; i < 16; i++) {
+      ctx.fillStyle = colorAt(i);
+      ctx.fillRect(x + (i % 4) * cs, y + Math.floor(i / 4) * cs, cs, cs);
+    }
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, cs * 4 - 1, cs * 4 - 1);
+  }
+
+  function drawInspector(ctx, s, L) {
+    var c = s.colors;
+    var enc = blocks[selBy * B + selBx];
+    if (!enc) return;
+    var x0 = L.px, y = L.py;
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillText('Block (' + selBx + ', ' + selBy + ')', x0, y + 12);
+
+    var cs = Math.max(10, Math.min(22, Math.floor((L.pw - 32) / 12)));
+    var gw = cs * 4, gap = 16;
+    var gy = y + 44;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    var names = ['Original', 'Indices', 'Decoded'];
+    for (var n = 0; n < 3; n++) ctx.fillText(names[n], x0 + n * (gw + gap), gy - 6);
+
+    var bx4 = selBx * 4, by4 = selBy * 4;
+    function pix(arr, i) { return arr[(by4 + Math.floor(i / 4)) * N + bx4 + (i % 4)]; }
+    drawGrid4(ctx, x0, gy, cs, function (i) { return rgb(pix(orig, i)); }, c);
+    drawGrid4(ctx, x0 + gw + gap, gy, cs, function () { return c.surface2; }, c);
+    drawGrid4(ctx, x0 + 2 * (gw + gap), gy, cs, function (i) { return rgb(pix(comp, i)); }, c);
+    ctx.fillStyle = c.ink;
+    ctx.font = (cs >= 16 ? 12 : 10) + 'px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (var i = 0; i < 16; i++) {
+      ctx.fillText(String(enc.idx[i]), x0 + gw + gap + (i % 4) * cs + cs / 2, gy + Math.floor(i / 4) * cs + cs / 2 + 1);
+    }
+
+    var y1 = gy + gw + 28;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    var four = enc.c0 > enc.c1;
+    ctx.fillText(four ? 'Palette: four-colour mode (c0 > c1)' : 'Palette: three colours + black (c0 <= c1)', x0, y1);
+    var sw = Math.min(56, Math.floor((L.pw - 24) / 4));
+    var labels = four ? ['0 = c0', '1 = c1', '2 = 2:1', '3 = 1:2'] : ['0 = c0', '1 = c1', '2 = 1:1', '3 = black'];
+    for (var k = 0; k < 4; k++) {
+      var sx = x0 + k * (sw + 8);
+      ctx.fillStyle = rgb(enc.pal[k]);
+      ctx.fillRect(sx, y1 + 8, sw, 22);
+      ctx.strokeStyle = c.line;
+      ctx.strokeRect(sx + 0.5, y1 + 8.5, sw - 1, 21);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(labels[k], sx, y1 + 46);
+    }
+
+    var y2 = y1 + 70;
+    ctx.fillStyle = c.ink;
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText('c0 = ' + hex4(enc.c0) + '   c1 = ' + hex4(enc.c1), x0, y2);
+    ctx.fillStyle = c.ink3;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('The 8 stored bytes, low byte first:', x0, y2 + 20);
+    ctx.fillStyle = c.topic;
+    ctx.font = '600 13px ui-monospace, monospace';
+    ctx.fillText(blockBytes(enc), x0, y2 + 38);
+  }
+
+  function draw(ctx, s) {
+    if (!orig.length) return;
+    var L = layout(s);
+    drawImage(ctx, L);
+    ctx.strokeStyle = s.colors.topic;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(L.ix + selBx * 4 * L.cell - 1, L.iy + selBy * 4 * L.cell - 1, 4 * L.cell + 2, 4 * L.cell + 2);
+    drawInspector(ctx, s, L);
+  }
+
+  function pick(p, s) {
+    var L = layout(s);
+    var bx = Math.floor((p.x - L.ix) / (4 * L.cell));
+    var by = Math.floor((p.y - L.iy) / (4 * L.cell));
+    if (bx >= 0 && bx < B && by >= 0 && by < B) {
+      selBx = bx; selBy = by;
+      selectionChanged();
+      redraw();
+    }
+  }
+
+  var handle = DemoKit.canvas('#dxt1', {
+    height: 540,
+    animate: false,
+    keys: true,
+    label: 'A 32 by 32 pixel image split into 8 by 8 blocks, shown as original, DXT1 compressed, or as an error map. Beside it, the selected block shows its original pixels, its sixteen 2-bit indices, the decoded pixels, its four-colour palette and its eight stored bytes. Click a block or use the arrow keys to select one.',
+    draw: draw,
+    onDown: function (p, s) { pick(p, s); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var moved = true;
+      if (key === 'arrowleft') selBx = Math.max(0, selBx - 1);
+      else if (key === 'arrowright') selBx = Math.min(B - 1, selBx + 1);
+      else if (key === 'arrowup') selBy = Math.max(0, selBy - 1);
+      else if (key === 'arrowdown') selBy = Math.min(B - 1, selBy + 1);
+      else moved = false;
+      if (moved) { selectionChanged(); redraw(); }
+    }
+  });
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  rebuild();
+  redraw();
+})();
+</script>
+</body>
+</html>

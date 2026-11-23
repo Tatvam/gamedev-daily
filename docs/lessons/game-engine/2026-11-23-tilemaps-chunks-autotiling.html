@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tilemaps: grids of numbers, chunks and autotiling · Game Dev Daily</title>
+<meta name="description" content="How a tilemap stores a level as a grid of small tile numbers, how neighbour rules pick edge tiles, and why engines redraw it in chunks.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Tilemaps: grids of numbers, chunks and autotiling</h1>
+  <p class="lede">How a tilemap stores a level as a grid of small tile numbers, how neighbour rules pick edge tiles, and why engines redraw it in chunks.</p>
+</header>
+
+<section data-section="hook">
+  <p>You build a level out of a thousand individual sprite objects, one per square of floor. The scene takes seconds to open, the editor crawls, and changing the shoreline of a lake means hand-picking the right corner piece for every square. Tilemaps exist so that none of this happens.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A level is a grid of small numbers</h2>
+  <p>A <dfn>tilemap</dfn> is a grid in which each cell stores a small number, the <dfn>tile index</dfn>. The number does not hold a picture. It says which picture to use from a <dfn>tileset</dfn>, a collection of equally sized images usually packed into one texture. The level is the grid; the art lives once, in the tileset.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" role="img" aria-label="A five by four grid of numbers is the map data. Each number looks up a tile in a tileset of four tiles: 0 empty, 1 grass, 2 water, 3 stone. The engine draws the matching tile in each cell to produce the picture on screen.">
+<text class="d-label" x="20" y="34">Map data</text>
+<text class="d-label" x="236" y="34">Tileset (one texture)</text>
+<text class="d-label" x="460" y="34">On screen</text>
+<rect class="d-box" x="20" y="50" width="30" height="30"/><text class="d-mono" x="35" y="70" text-anchor="middle">0</text>
+<rect class="d-box" x="50" y="50" width="30" height="30"/><text class="d-mono" x="65" y="70" text-anchor="middle">0</text>
+<rect class="d-box" x="80" y="50" width="30" height="30"/><text class="d-mono" x="95" y="70" text-anchor="middle">1</text>
+<rect class="d-box" x="110" y="50" width="30" height="30"/><text class="d-mono" x="125" y="70" text-anchor="middle">1</text>
+<rect class="d-box" x="140" y="50" width="30" height="30"/><text class="d-mono" x="155" y="70" text-anchor="middle">0</text>
+<rect class="d-box" x="20" y="80" width="30" height="30"/><text class="d-mono" x="35" y="100" text-anchor="middle">0</text>
+<rect class="d-box" x="50" y="80" width="30" height="30"/><text class="d-mono" x="65" y="100" text-anchor="middle">1</text>
+<rect class="d-box" x="80" y="80" width="30" height="30"/><text class="d-mono" x="95" y="100" text-anchor="middle">1</text>
+<rect class="d-box" x="110" y="80" width="30" height="30"/><text class="d-mono" x="125" y="100" text-anchor="middle">1</text>
+<rect class="d-box" x="140" y="80" width="30" height="30"/><text class="d-mono" x="155" y="100" text-anchor="middle">0</text>
+<rect class="d-box" x="20" y="110" width="30" height="30"/><text class="d-mono" x="35" y="130" text-anchor="middle">1</text>
+<rect class="d-box" x="50" y="110" width="30" height="30"/><text class="d-mono" x="65" y="130" text-anchor="middle">1</text>
+<rect class="d-box" x="80" y="110" width="30" height="30"/><text class="d-mono" x="95" y="130" text-anchor="middle">2</text>
+<rect class="d-box" x="110" y="110" width="30" height="30"/><text class="d-mono" x="125" y="130" text-anchor="middle">1</text>
+<rect class="d-box" x="140" y="110" width="30" height="30"/><text class="d-mono" x="155" y="130" text-anchor="middle">3</text>
+<rect class="d-box" x="20" y="140" width="30" height="30"/><text class="d-mono" x="35" y="160" text-anchor="middle">1</text>
+<rect class="d-box" x="50" y="140" width="30" height="30"/><text class="d-mono" x="65" y="160" text-anchor="middle">1</text>
+<rect class="d-box" x="80" y="140" width="30" height="30"/><text class="d-mono" x="95" y="160" text-anchor="middle">1</text>
+<rect class="d-box" x="110" y="140" width="30" height="30"/><text class="d-mono" x="125" y="160" text-anchor="middle">1</text>
+<rect class="d-box" x="140" y="140" width="30" height="30"/><text class="d-mono" x="155" y="160" text-anchor="middle">3</text>
+<path class="d-accent" d="M180 110 H226 M218 104 L226 110 L218 116"/>
+<text class="d-muted" x="203" y="136" text-anchor="middle">look up</text>
+<rect class="d-dash" x="236" y="90" width="36" height="36"/><text class="d-mono" x="254" y="146" text-anchor="middle">0</text><text class="d-muted" x="254" y="164" text-anchor="middle">empty</text>
+<rect class="d-accent-soft" x="280" y="90" width="36" height="36"/><text class="d-mono" x="298" y="146" text-anchor="middle">1</text><text class="d-muted" x="298" y="164" text-anchor="middle">grass</text>
+<rect class="d-fill" x="324" y="90" width="36" height="36"/><text class="d-mono" x="342" y="146" text-anchor="middle">2</text><text class="d-muted" x="342" y="164" text-anchor="middle">water</text>
+<rect class="d-accent-fill" x="368" y="90" width="36" height="36"/><text class="d-mono" x="386" y="146" text-anchor="middle">3</text><text class="d-muted" x="386" y="164" text-anchor="middle">stone</text>
+<path class="d-accent" d="M412 110 H450 M442 104 L450 110 L442 116"/>
+<text class="d-muted" x="431" y="136" text-anchor="middle">draw</text>
+<rect class="d-dash" x="460" y="50" width="150" height="120"/>
+<rect class="d-accent-soft" x="520" y="50" width="30" height="30"/>
+<rect class="d-accent-soft" x="550" y="50" width="30" height="30"/>
+<rect class="d-accent-soft" x="490" y="80" width="30" height="30"/>
+<rect class="d-accent-soft" x="520" y="80" width="30" height="30"/>
+<rect class="d-accent-soft" x="550" y="80" width="30" height="30"/>
+<rect class="d-accent-soft" x="460" y="110" width="30" height="30"/>
+<rect class="d-accent-soft" x="490" y="110" width="30" height="30"/>
+<rect class="d-fill" x="520" y="110" width="30" height="30"/>
+<rect class="d-accent-soft" x="550" y="110" width="30" height="30"/>
+<rect class="d-accent-fill" x="580" y="110" width="30" height="30"/>
+<rect class="d-accent-soft" x="460" y="140" width="30" height="30"/>
+<rect class="d-accent-soft" x="490" y="140" width="30" height="30"/>
+<rect class="d-accent-soft" x="520" y="140" width="30" height="30"/>
+<rect class="d-accent-soft" x="550" y="140" width="30" height="30"/>
+<rect class="d-accent-fill" x="580" y="140" width="30" height="30"/>
+<text class="d-muted" x="320" y="204" text-anchor="middle">The level stores only the numbers. The pictures live once, in the tileset.</text>
+</svg>
+    <figcaption>Twenty numbers describe the level. Each one looks up a tile in the tileset, and the engine draws that tile in the matching cell.</figcaption>
+  </figure>
+
+  <p>This is cheap in three ways. <strong>Memory:</strong> a 1000 by 1000 map is a million numbers, a few megabytes, where a million objects would each carry a transform, a name and engine bookkeeping. <strong>Drawing:</strong> every tile of a layer shares one texture, so the batcher from the previous lesson merges them into few draw calls. <strong>Lookup:</strong> finding the tile under a point is a division, not a search. The cell is <code>floor(position / cell_size)</code>, and the cell's corner in the world is <code>cell * cell_size</code>.</p>
+
+  <h3>Who owns what</h3>
+  <p>The tilemap owns the grid of numbers. The tileset is a shared asset that many maps can use, so editing a tile's image changes it in every level at once. Your code owns neither the drawing nor the meshes: you write numbers into cells, and the engine turns them into geometry later, before the frame is drawn.</p>
+
+  <h2>Autotiling: let the neighbours choose the tile</h2>
+  <p>A ground area looks right only if its border cells use edge pieces: a tile with a shore on the left side, one with a shore on top, and so on. Choosing those by hand is slow and breaks every time you change the shape. <dfn>Autotiling</dfn> picks the piece from the cell's neighbours instead.</p>
+  <p>The simplest version looks at four neighbours. Each one is worth a power of two: north 1, east 2, south 4, west 8. Add up the values of the neighbours that are ground and you get a number from 0 to 15, called the <dfn>mask</dfn>. Draw sixteen tiles in that order, each with an edge on the sides that have no ground, and the mask is the tile index.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="A cell with four neighbours. North is worth 1, east 2, south 4 and west 8. Here north and east are ground, so the mask is 1 plus 2, which is 3, and tile 3 is drawn: a tile with an edge on its south and west sides. Below, all sixteen tiles of the set are shown in mask order, each with edges on the sides that have no ground.">
+<rect class="d-accent-soft" x="96" y="16" width="44" height="44"/><text class="d-text" x="118" y="36" text-anchor="middle">N</text><text class="d-mono" x="118" y="52" text-anchor="middle">1</text>
+<rect class="d-accent-soft" x="146" y="66" width="44" height="44"/><text class="d-text" x="168" y="86" text-anchor="middle">E</text><text class="d-mono" x="168" y="102" text-anchor="middle">2</text>
+<rect class="d-dash" x="96" y="116" width="44" height="44"/><text class="d-text" x="118" y="136" text-anchor="middle">S</text><text class="d-mono" x="118" y="152" text-anchor="middle">4</text>
+<rect class="d-dash" x="46" y="66" width="44" height="44"/><text class="d-text" x="68" y="86" text-anchor="middle">W</text><text class="d-mono" x="68" y="102" text-anchor="middle">8</text>
+<rect class="d-box" x="96" y="66" width="44" height="44"/><text class="d-text" x="118" y="93" text-anchor="middle">?</text>
+<text class="d-text" x="230" y="70">Ground to the north and east:</text>
+<text class="d-mono" x="230" y="94">mask = 1 + 2 = 3</text>
+<path class="d-accent" d="M366 89 H410 M402 83 L410 89 L402 95"/>
+<rect class="d-accent-soft" x="424" y="60" width="56" height="56"/>
+<path class="d-stroke" style="stroke-width:5" d="M424 60 V116 H480"/>
+<text class="d-mono" x="452" y="134" text-anchor="middle">tile 3</text>
+<text class="d-muted" x="496" y="80">edges where</text><text class="d-muted" x="496" y="96">there is no</text><text class="d-muted" x="496" y="112">ground</text>
+<text class="d-label" x="20" y="190">The 16-tile set, in mask order</text>
+<rect class="d-box" x="20" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M20 202 H50 M50 202 V232 M20 232 H50 M20 202 V232"/>
+<text class="d-mono" x="35" y="248" text-anchor="middle">0</text>
+<rect class="d-box" x="58" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M88 202 V232 M58 232 H88 M58 202 V232"/>
+<text class="d-mono" x="73" y="248" text-anchor="middle">1</text>
+<rect class="d-box" x="96" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M96 202 H126 M96 232 H126 M96 202 V232"/>
+<text class="d-mono" x="111" y="248" text-anchor="middle">2</text>
+<rect class="d-accent-soft" x="134" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M134 232 H164 M134 202 V232"/>
+<text class="d-mono" x="149" y="248" text-anchor="middle">3</text>
+<rect class="d-box" x="172" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M172 202 H202 M202 202 V232 M172 202 V232"/>
+<text class="d-mono" x="187" y="248" text-anchor="middle">4</text>
+<rect class="d-box" x="210" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M240 202 V232 M210 202 V232"/>
+<text class="d-mono" x="225" y="248" text-anchor="middle">5</text>
+<rect class="d-box" x="248" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M248 202 H278 M248 202 V232"/>
+<text class="d-mono" x="263" y="248" text-anchor="middle">6</text>
+<rect class="d-box" x="286" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M286 202 V232"/>
+<text class="d-mono" x="301" y="248" text-anchor="middle">7</text>
+<rect class="d-box" x="324" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M324 202 H354 M354 202 V232 M324 232 H354"/>
+<text class="d-mono" x="339" y="248" text-anchor="middle">8</text>
+<rect class="d-box" x="362" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M392 202 V232 M362 232 H392"/>
+<text class="d-mono" x="377" y="248" text-anchor="middle">9</text>
+<rect class="d-box" x="400" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M400 202 H430 M400 232 H430"/>
+<text class="d-mono" x="415" y="248" text-anchor="middle">10</text>
+<rect class="d-box" x="438" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M438 232 H468"/>
+<text class="d-mono" x="453" y="248" text-anchor="middle">11</text>
+<rect class="d-box" x="476" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M476 202 H506 M506 202 V232"/>
+<text class="d-mono" x="491" y="248" text-anchor="middle">12</text>
+<rect class="d-box" x="514" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M544 202 V232"/>
+<text class="d-mono" x="529" y="248" text-anchor="middle">13</text>
+<rect class="d-box" x="552" y="202" width="30" height="30"/>
+<path class="d-stroke" style="stroke-width:3" d="M552 202 H582"/>
+<text class="d-mono" x="567" y="248" text-anchor="middle">14</text>
+<rect class="d-box" x="590" y="202" width="30" height="30"/>
+<text class="d-mono" x="605" y="248" text-anchor="middle">15</text>
+</svg>
+    <figcaption>Each neighbour that is ground adds its value. The sum picks one of sixteen tiles, and each tile has an edge on exactly the sides with no ground.</figcaption>
+  </figure>
+
+  <p>There is one consequence to keep in mind: changing one cell changes the mask of its four neighbours, so up to five cells can need a different tile after a single edit.</p>
+  <p>Four neighbours cannot see diagonals, so an inside corner, where ground continues on both sides but the diagonal cell is empty, gets no notch. Sets that also look at the four diagonal neighbours fix this. They need more art: the common "blob" layout uses 47 distinct tiles.</p>
+
+  <h2>Chunks: redraw only the part that changed</h2>
+  <p>Turning cells into geometry costs time, so engines group the map into square <dfn>chunks</dfn> of cells and build each chunk's geometry once. Drawing a chunk is then one cheap call. When a cell changes, only its chunk is marked <dfn>dirty</dfn> and rebuilt. An edit next to a chunk border can dirty two chunks, because a neighbour's tile changes too.</p>
+  <p>Chunk size is a trade-off. Large chunks mean fewer draw calls but more work per edit, and culling (the earlier lesson on skipping what the camera cannot see) can only throw away whole chunks. Small chunks rebuild quickly but add calls.</p>
+
+  <h3>How Godot and Unity express it</h3>
+  <p><strong>Godot 4.3 and later</strong> uses one <code>TileMapLayer</code> node per layer; the older <code>TileMap</code> node with several layers inside is deprecated from 4.3. A <code>TileSet</code> resource holds sources, usually a <code>TileSetAtlasSource</code> cut from one texture. A cell is set with <code>set_cell(coords, source_id, atlas_coords)</code>, and points are converted with <code>local_to_map</code> and <code>map_to_local</code>. Autotiling is built in as <dfn>terrains</dfn>: in the TileSet editor you mark which sides and corners of each tile belong to a terrain, then paint with the Terrains tab or call <code>set_cells_terrain_connect</code>. Godot's chunks are called rendering quadrants, sized by <code>rendering_quadrant_size</code> (16 cells by default), and cell changes are applied in a batch at the end of the frame rather than on each call.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6, 2D Tilemap package) uses a <code>Grid</code> component on a parent with one child per layer holding a <code>Tilemap</code> and a <code>TilemapRenderer</code>. Cells hold references to tile assets (<code>TileBase</code>, usually <code>Tile</code>, which are ScriptableObjects) and are set with <code>SetTile(Vector3Int, TileBase)</code>; <code>WorldToCell</code> on the <code>Grid</code> converts a point. The <code>TilemapRenderer</code>'s Chunk mode draws tiles in grouped chunks; Individual mode draws each tile on its own so that it can sort among other sprites, for example characters walking behind trees. Rule-based autotiling comes from the <dfn>Rule Tile</dfn> in the separate 2D Tilemap Extras package, where each rule matches a pattern of neighbours.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Click or touch an empty cell and drag to paint ground; start on ground to erase. With the keyboard, click the map or tab to it, move the cursor with the arrow keys, and press <kbd>Space</kbd> to flip a cell. Turn on <strong>Show tile indices</strong> and watch the numbers of the neighbours change as you paint next to them. Then turn autotiling off. Finally paint along a thick chunk border and compare how many chunks one edit rebuilds.</p>
+
+  <figure class="demo" data-demo="tilemap">
+    <canvas id="tilemap"></canvas>
+    <figcaption>The map is 24 by 16 cells in 8 by 8 chunks. Shaded chunks are the ones your last stroke rebuilt; everything else kept its cached picture. With autotiling off, every ground cell uses tile 15 and the shoreline disappears. The model leaves out what real engines add: several terrains, diagonal rules, collision shapes and the actual GPU meshes.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers: a 24 by 16 map, 8 by 8 chunks, the same starting islands and the same mask (north 1, east 2, south 4, west 8). Each chunk is cached in a canvas and redrawn only when it is dirty. Left mouse paints, right mouse erases, <kbd>A</kbd> toggles autotiling, and the bottom line counts chunk rebuilds.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Left mouse paints ground, right mouse erases,</span>
+<span class="c">-- A toggles autotiling. The map is 24 by 16 cells, cached in 8 by 8 chunks.</span>
+local COLS, ROWS, CHUNK, CELL = 24, 16, 8, 32
+local map = {}       <span class="c">-- map[y][x]: 1 is ground, 0 is empty. This is the whole level.</span>
+local chunks = {}    <span class="c">-- chunks[cy][cx] = { canvas = ..., dirty = true or false }</span>
+local autotile = true
+local rebuilds = 0
+
+local function ground(x, y)
+  if x &lt; 1 or y &lt; 1 or x &gt; COLS or y &gt; ROWS then return false end
+  return map[y][x] == 1
+end
+
+<span class="k">-- four neighbour bits: north 1, east 2, south 4, west 8
+local function tileIndex(x, y)
+  if not autotile then return 15 end
+  local index = 0
+  if ground(x, y - 1) then index = index + 1 end
+  if ground(x + 1, y) then index = index + 2 end
+  if ground(x, y + 1) then index = index + 4 end
+  if ground(x - 1, y) then index = index + 8 end
+  return index
+end</span>
+
+local function has(index, bit)   <span class="c">-- is that neighbour ground?</span>
+  return math.floor(index / bit) % 2 == 1
+end
+
+local function drawTile(index, px, py)
+  love.graphics.setColor(0.35, 0.6, 0.3)
+  love.graphics.rectangle("fill", px, py, CELL, CELL)
+  love.graphics.setColor(0.15, 0.3, 0.12)   <span class="c">-- an edge on each side with no ground</span>
+  if not has(index, 1) then love.graphics.rectangle("fill", px, py, CELL, 4) end
+  if not has(index, 2) then love.graphics.rectangle("fill", px + CELL - 4, py, 4, CELL) end
+  if not has(index, 4) then love.graphics.rectangle("fill", px, py + CELL - 4, CELL, 4) end
+  if not has(index, 8) then love.graphics.rectangle("fill", px, py, 4, CELL) end
+end
+
+local function markDirty(x, y)
+  if x &lt; 1 or y &lt; 1 or x &gt; COLS or y &gt; ROWS then return end
+  local cx = math.floor((x - 1) / CHUNK) + 1
+  local cy = math.floor((y - 1) / CHUNK) + 1
+  chunks[cy][cx].dirty = true
+end
+
+local function setCell(x, y, value)
+  if x &lt; 1 or y &lt; 1 or x &gt; COLS or y &gt; ROWS or map[y][x] == value then return end
+  map[y][x] = value
+<span class="k">  markDirty(x, y)
+  if autotile then   -- the four neighbours may need a different tile now
+    markDirty(x, y - 1)
+    markDirty(x + 1, y)
+    markDirty(x, y + 1)
+    markDirty(x - 1, y)
+  end</span>
+end
+
+local function rebuildChunk(chunk, cx, cy)
+  love.graphics.setCanvas(chunk.canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  for y = (cy - 1) * CHUNK + 1, cy * CHUNK do
+    for x = (cx - 1) * CHUNK + 1, cx * CHUNK do
+      if map[y][x] == 1 then
+        drawTile(tileIndex(x, y), (x - 1) % CHUNK * CELL, (y - 1) % CHUNK * CELL)
+      end
+    end
+  end
+  love.graphics.setCanvas()
+  chunk.dirty = false
+  rebuilds = rebuilds + 1
+end
+
+local function startTile(x, y)   <span class="c">-- two islands, a bridge and a pond</span>
+  local a = x &gt;= 4 and x &lt;= 11 and y &gt;= 4 and y &lt;= 10
+  local b = x &gt;= 14 and x &lt;= 20 and y &gt;= 7 and y &lt;= 13
+  local bridge = x &gt;= 12 and x &lt;= 13 and y &gt;= 8 and y &lt;= 9
+  local pond = x &gt;= 7 and x &lt;= 8 and y &gt;= 6 and y &lt;= 7
+  if (a or b or bridge) and not pond then return 1 end
+  return 0
+end
+
+function love.load()
+  for y = 1, ROWS do
+    map[y] = {}
+    for x = 1, COLS do map[y][x] = startTile(x, y) end
+  end
+  for cy = 1, ROWS / CHUNK do
+    chunks[cy] = {}
+    for cx = 1, COLS / CHUNK do
+      chunks[cy][cx] = { canvas = love.graphics.newCanvas(CHUNK * CELL, CHUNK * CELL), dirty = true }
+    end
+  end
+end
+
+function love.keypressed(key)
+  if key == "a" then
+    autotile = not autotile
+    for cy = 1, #chunks do
+      for cx = 1, #chunks[cy] do chunks[cy][cx].dirty = true end
+    end
+  end
+end
+
+function love.update(dt)
+  local x = math.floor(love.mouse.getX() / CELL) + 1
+  local y = math.floor(love.mouse.getY() / CELL) + 1
+  if love.mouse.isDown(1) then setCell(x, y, 1) end
+  if love.mouse.isDown(2) then setCell(x, y, 0) end
+end
+
+function love.draw()
+  for cy = 1, #chunks do
+    for cx = 1, #chunks[cy] do
+      local chunk = chunks[cy][cx]
+      if chunk.dirty then rebuildChunk(chunk, cx, cy) end
+      love.graphics.setColor(1, 1, 1)
+      love.graphics.draw(chunk.canvas, (cx - 1) * CHUNK * CELL, (cy - 1) * CHUNK * CELL)
+    end
+  end
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print("autotile " .. tostring(autotile) .. "   chunk rebuilds " .. rebuilds, 10, 530)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># autotile_layer.gd for Godot 4.3 or later (TileMapLayer arrived in 4.3).</span>
+<span class="c"># Add a TileMapLayer node to a new 2D scene, attach this script and run.</span>
+<span class="c"># Left mouse paints ground, right mouse erases. The tileset is generated in code.</span>
+extends TileMapLayer
+
+const COLS := 24
+const ROWS := 16
+const CELL := 32
+<span class="c"># north, east, south, west give bits 1, 2, 4, 8. Godot's y axis points down.</span>
+const NEIGHBOURS := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
+var source_id := 0
+
+func _ready() -&gt; void:
+    var img := Image.create(CELL * 16, CELL, false, Image.FORMAT_RGBA8)
+    for index in 16:
+        for x in CELL:
+            for y in CELL:
+                var edge := ((index &amp; 1) == 0 and y &lt; 4) or ((index &amp; 2) == 0 and x &gt;= CELL - 4) \
+                    or ((index &amp; 4) == 0 and y &gt;= CELL - 4) or ((index &amp; 8) == 0 and x &lt; 4)
+                img.set_pixel(index * CELL + x, y, Color(0.15, 0.3, 0.12) if edge else Color(0.35, 0.6, 0.3))
+    var source := TileSetAtlasSource.new()
+    source.texture = ImageTexture.create_from_image(img)
+    source.texture_region_size = Vector2i(CELL, CELL)
+    for index in 16:
+        source.create_tile(Vector2i(index, 0))   <span class="c"># tile index = x in the atlas</span>
+    tile_set = TileSet.new()
+    tile_set.tile_size = Vector2i(CELL, CELL)
+    source_id = tile_set.add_source(source)
+
+func is_ground(cell: Vector2i) -&gt; bool:
+    return get_cell_source_id(cell) != -1
+
+<span class="k">func refresh(cell: Vector2i) -&gt; void:
+    if not is_ground(cell):
+        return
+    var index := 0
+    for i in 4:
+        if is_ground(cell + NEIGHBOURS[i]):
+            index += 1 &lt;&lt; i
+    set_cell(cell, source_id, Vector2i(index, 0))</span>
+
+func paint(cell: Vector2i, ground: bool) -&gt; void:
+    if cell.x &lt; 0 or cell.y &lt; 0 or cell.x &gt;= COLS or cell.y &gt;= ROWS or is_ground(cell) == ground:
+        return
+    if ground:
+        set_cell(cell, source_id, Vector2i(15, 0))   <span class="c"># corrected by refresh below</span>
+    else:
+        erase_cell(cell)
+    refresh(cell)
+    for offset in NEIGHBOURS:
+        refresh(cell + offset)
+
+func _process(_delta: float) -&gt; void:
+    var cell := local_to_map(get_local_mouse_position())
+    if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+        paint(cell, true)
+    elif Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+        paint(cell, false)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// AutotileMap.cs. Unity 2022 LTS or Unity 6, 2D template (it includes the Tilemap package).</span>
+<span class="c">// Add to an empty GameObject at the origin and press Play. Left mouse paints, right erases.</span>
+<span class="c">// Uses the Input Manager; if Active Input Handling is the Input System package only,</span>
+<span class="c">// switch it to Both.</span>
+using UnityEngine;
+using UnityEngine.Tilemaps;
+
+public class AutotileMap : MonoBehaviour
+{
+    const int Cols = 24, Rows = 16, Cell = 32;
+    <span class="c">// north, east, south, west give bits 1, 2, 4, 8. Unity's y axis points up.</span>
+    static readonly Vector3Int[] neighbours = {
+        Vector3Int.up, Vector3Int.right, Vector3Int.down, Vector3Int.left };
+    readonly Tile[] tiles = new Tile[16];
+    Grid grid;
+    Tilemap map;
+
+    void Start()
+    {
+        var tex = new Texture2D(Cell * 16, Cell);
+        tex.filterMode = FilterMode.Point;
+        var grass = new Color(0.35f, 0.6f, 0.3f);
+        var edge = new Color(0.15f, 0.3f, 0.12f);
+        for (int i = 0; i &lt; 16; i++)
+            for (int x = 0; x &lt; Cell; x++)
+                for (int y = 0; y &lt; Cell; y++)   <span class="c">// y = 0 is the bottom row of a texture</span>
+                {
+                    bool e = ((i &amp; 1) == 0 &amp;&amp; y &gt;= Cell - 4) || ((i &amp; 2) == 0 &amp;&amp; x &gt;= Cell - 4)
+                          || ((i &amp; 4) == 0 &amp;&amp; y &lt; 4) || ((i &amp; 8) == 0 &amp;&amp; x &lt; 4);
+                    tex.SetPixel(i * Cell + x, y, e ? edge : grass);
+                }
+        tex.Apply();
+        for (int i = 0; i &lt; 16; i++)
+        {
+            tiles[i] = ScriptableObject.CreateInstance&lt;Tile&gt;();
+            tiles[i].sprite = Sprite.Create(tex, new Rect(i * Cell, 0, Cell, Cell), new Vector2(0.5f, 0.5f), Cell);
+        }
+        grid = gameObject.AddComponent&lt;Grid&gt;();          <span class="c">// cells are 1 by 1 world units</span>
+        var layer = new GameObject("Ground");
+        layer.transform.SetParent(transform, false);
+        map = layer.AddComponent&lt;Tilemap&gt;();
+        var tilemapRenderer = layer.AddComponent&lt;TilemapRenderer&gt;();
+        tilemapRenderer.mode = TilemapRenderer.Mode.Chunk;  <span class="c">// draw tiles in grouped chunks</span>
+        Camera.main.orthographicSize = 9f;
+        Camera.main.transform.position = new Vector3(Cols / 2f, Rows / 2f, -10f);
+    }
+
+    bool IsGround(Vector3Int c) =&gt; map.HasTile(c);
+
+<span class="k">    void Refresh(Vector3Int c)
+    {
+        if (!IsGround(c)) return;
+        int index = 0;
+        for (int i = 0; i &lt; 4; i++)
+            if (IsGround(c + neighbours[i])) index |= 1 &lt;&lt; i;
+        map.SetTile(c, tiles[index]);
+    }</span>
+
+    void Paint(Vector3Int c, bool ground)
+    {
+        if (c.x &lt; 0 || c.y &lt; 0 || c.x &gt;= Cols || c.y &gt;= Rows || IsGround(c) == ground) return;
+        map.SetTile(c, ground ? tiles[15] : null);   <span class="c">// null erases the cell</span>
+        Refresh(c);
+        foreach (var n in neighbours) Refresh(c + n);
+    }
+
+    void Update()
+    {
+        var world = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        var cell = grid.WorldToCell(world);
+        cell.z = 0;
+        if (Input.GetMouseButton(0)) Paint(cell, true);
+        else if (Input.GetMouseButton(1)) Paint(cell, false);
+    }
+}</code></pre>
+  </div>
+  <p>In all three, an edit recomputes the cell and its four neighbours and nothing else. Only the Lua version caches chunks by hand; Godot and Unity already do that for you. In real projects you would usually let terrains or Rule Tiles pick the tiles instead of writing the mask yourself.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting the neighbours.</strong> Updating only the edited cell leaves its neighbours showing stale edges. Any rule-based tile must refresh the cells around it too.</li>
+    <li><strong>Mixing up the y axis.</strong> Godot and LÖVE count y downwards, Unity counts it upwards. If north and south edges are swapped, your neighbour table points the wrong way.</li>
+    <li><strong>Tiles with their own state.</strong> A chest that remembers being opened fights the tilemap. Keep tiles for terrain; spawn nodes or GameObjects for things that move or remember.</li>
+    <li><strong>Seams between tiles.</strong> Thin lines that flicker between tiles while the camera moves usually come from texture filtering sampling the neighbouring tile in the atlas, or from positions that are not whole pixels. Padding tiles in the atlas and using point filtering for pixel art are the usual fixes.</li>
+    <li><strong>Animating by rewriting cells.</strong> Setting thousands of cells every frame, for example to animate water, dirties every chunk. Use the engine's animated tiles instead.</li>
+    <li><strong>Collision follows the same grid.</strong> Each solid tile can produce its own collision shape, and many small shapes can snag a sliding character on the seams. In Unity, a <code>TilemapCollider2D</code> with a <code>CompositeCollider2D</code> merges them into larger shapes.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Tilemaps are older than game engines. The Nintendo Entertainment System drew its backgrounds from a <dfn>name table</dfn>, a grid of one-byte tile numbers that pointed into a table of 8 by 8 pixel patterns, because there was not enough memory to store the screen as pixels.</p>
+  <p>Standalone level editors such as Tiled and LDtk store maps as tile layers plus object layers: terrain in the grid, things with state as objects. Both also offer rule-based automatic tiling.</p>
+  <p>Robert Nystrom's <cite>Game Programming Patterns</cite> uses a terrain grid to explain the flyweight pattern: many cells share a few tile types instead of each owning a full object.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the tab for your engine in a fresh project. Then replace the generated texture with sixteen tiles of your own, drawn in mask order, and paint. You are done when the shoreline follows your brush. Stretch goal: print the chunk coordinate of each edited cell (cell coordinate divided by chunk size, rounded down).</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A tilemap stores a level as a grid of small tile indices; the images live once in a shared tileset.</li>
+    <li>Point to cell is <code>floor(position / cell_size)</code>, which is why lookups in a tilemap are instant.</li>
+    <li>Autotiling computes a tile from the neighbours. One edit changes up to five cells.</li>
+    <li>Engines build chunks of cells and rebuild only the dirty ones; chunk size trades draw calls against edit cost.</li>
+    <li>Godot 4.3+ uses <code>TileMapLayer</code> with terrains; Unity uses <code>Tilemap</code> with Rule Tiles from 2D Tilemap Extras.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>With the world built from tiles and boxes, the next lesson lights it: how 2D lights cast shadows by projecting the edges of blocking shapes away from the light.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Using TileMaps</cite> and <cite>Using TileSets</cite>, and the class reference for <cite>TileMapLayer</cite> and <cite>TileSetAtlasSource</cite>.</li>
+    <li>Unity Technologies, Unity Manual section <cite>Tilemaps</cite>, and the <cite>2D Tilemap Extras</cite> package documentation for Rule Tile.</li>
+    <li>Robert Nystrom, <cite>Game Programming Patterns</cite>, chapter <cite>Flyweight</cite>.</li>
+    <li>Thorbjørn Lindeijer and contributors, <cite>Tiled documentation</cite>, the pages on terrain and automapping.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 24, ROWS = 16, CHUNK = 8;
+  var CCOLS = COLS / CHUNK, CROWS = ROWS / CHUNK;
+  var map = [];          // map[y][x], 0-based here; the text and readouts use 1-based like the Lua
+  var autotile = true;
+  var total = 0;         // chunk rebuilds so far, the same count the Lua prints
+  var lastEdit = 0;      // chunks rebuilt by the most recent cell edit
+  var stroke = {};       // chunk keys rebuilt during the current stroke
+  var paintValue = 1;
+  var cursor = { x: 4, y: 3 };
+  var showCursor = false;
+  var hover = null;
+  var layout = { ox: 0, oy: 0, cs: 10 };
+  var demo = null;
+
+  // Same shape as startTile in the Lua, which takes 1-based x and y.
+  function startTile(x, y) {
+    var a = x >= 4 && x <= 11 && y >= 4 && y <= 10;
+    var b = x >= 14 && x <= 20 && y >= 7 && y <= 13;
+    var bridge = x >= 12 && x <= 13 && y >= 8 && y <= 9;
+    var pond = x >= 7 && x <= 8 && y >= 6 && y <= 7;
+    return ((a || b || bridge) && !pond) ? 1 : 0;
+  }
+
+  function reset() {
+    for (var y = 0; y < ROWS; y++) {
+      map[y] = [];
+      for (var x = 0; x < COLS; x++) map[y][x] = startTile(x + 1, y + 1);
+    }
+    total = CCOLS * CROWS;   // the first draw builds every chunk once
+    lastEdit = 0;
+    stroke = {};
+  }
+  reset();
+
+  function inside(x, y) { return x >= 0 && y >= 0 && x < COLS && y < ROWS; }
+  function ground(x, y) { return inside(x, y) && map[y][x] === 1; }
+
+  function tileIndex(x, y) {
+    if (!autotile) return 15;
+    var index = 0;
+    if (ground(x, y - 1)) index += 1;
+    if (ground(x + 1, y)) index += 2;
+    if (ground(x, y + 1)) index += 4;
+    if (ground(x - 1, y)) index += 8;
+    return index;
+  }
+
+  function chunkKey(x, y) { return Math.floor(x / CHUNK) + ',' + Math.floor(y / CHUNK); }
+
+  function setCell(x, y, value) {
+    if (!inside(x, y) || map[y][x] === value) return;
+    map[y][x] = value;
+    var dirty = {};
+    dirty[chunkKey(x, y)] = true;
+    if (autotile) {
+      var n = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+      for (var i = 0; i < 4; i++) {
+        var nx = x + n[i][0], ny = y + n[i][1];
+        if (inside(nx, ny)) dirty[chunkKey(nx, ny)] = true;
+      }
+    }
+    var keys = Object.keys(dirty);
+    for (var k = 0; k < keys.length; k++) stroke[keys[k]] = true;
+    lastEdit = keys.length;
+    total += keys.length;
+  }
+
+  function refresh() { if (demo) demo.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="tilemap"]');
+  ui.toggle({ label: 'Autotiling', value: true, onChange: function (v) {
+    autotile = v;
+    stroke = {};
+    for (var cy = 0; cy < CROWS; cy++) {
+      for (var cx = 0; cx < CCOLS; cx++) stroke[cx + ',' + cy] = true;
+    }
+    lastEdit = CCOLS * CROWS;
+    total += CCOLS * CROWS;   // every tile may change, so every chunk is dirty
+    refresh();
+  } });
+  var showIdx = ui.toggle({ label: 'Show tile indices', value: false, onChange: refresh });
+  var showChunks = ui.toggle({ label: 'Show chunks', value: true, onChange: refresh });
+  ui.button({ label: 'Reset map', onClick: function () { reset(); refresh(); } });
+  var outLast = ui.readout({ label: 'Last edit rebuilt' });
+  var outTotal = ui.readout({ label: 'Chunk rebuilds so far' });
+  var outCell = ui.readout({ label: 'Cell' });
+
+  function toCell(p) {
+    var x = Math.floor((p.x - layout.ox) / layout.cs);
+    var y = Math.floor((p.y - layout.oy) / layout.cs);
+    return inside(x, y) ? { x: x, y: y } : null;
+  }
+
+  demo = DemoKit.canvas('#tilemap', {
+    aspect: 3 / 2,
+    minHeight: 220,
+    maxHeight: 440,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A 24 by 16 tile map with two islands divided into six chunks. Drag to paint or erase ground, or use the arrow keys and Space. Controls below toggle autotiling, tile indices and chunk borders.',
+    onDown: function (p) {
+      var cell = toCell(p);
+      showCursor = false;
+      hover = cell;
+      if (!cell) return;
+      stroke = {};
+      paintValue = map[cell.y][cell.x] === 1 ? 0 : 1;
+      setCell(cell.x, cell.y, paintValue);
+    },
+    onMove: function (p) {
+      var cell = toCell(p);
+      hover = cell;
+      if (p.down && cell) setCell(cell.x, cell.y, paintValue);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var moved = true;
+      if (key === 'arrowleft') cursor.x = Math.max(0, cursor.x - 1);
+      else if (key === 'arrowright') cursor.x = Math.min(COLS - 1, cursor.x + 1);
+      else if (key === 'arrowup') cursor.y = Math.max(0, cursor.y - 1);
+      else if (key === 'arrowdown') cursor.y = Math.min(ROWS - 1, cursor.y + 1);
+      else if (key === 'space' || key === 'enter') {
+        stroke = {};
+        setCell(cursor.x, cursor.y, map[cursor.y][cursor.x] === 1 ? 0 : 1);
+      } else moved = false;
+      if (moved) showCursor = true;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var pad = 8;
+      var cs = Math.max(4, Math.floor(Math.min((s.width - pad * 2) / COLS, (s.height - pad * 2) / ROWS)));
+      var ox = Math.floor((s.width - cs * COLS) / 2);
+      var oy = Math.floor((s.height - cs * ROWS) / 2);
+      layout.ox = ox; layout.oy = oy; layout.cs = cs;
+      var e = Math.max(2, Math.round(cs * 0.16));
+      var x, y;
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(ox, oy, cs * COLS, cs * ROWS);
+
+      // Chunks rebuilt by the current or last stroke.
+      if (showChunks.value) {
+        ctx.fillStyle = c.topic;
+        ctx.globalAlpha = 0.14;
+        for (var cy = 0; cy < CROWS; cy++) {
+          for (var cx = 0; cx < CCOLS; cx++) {
+            if (stroke[cx + ',' + cy]) {
+              ctx.fillRect(ox + cx * CHUNK * cs, oy + cy * CHUNK * cs, CHUNK * cs, CHUNK * cs);
+            }
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Tiles: a light fill, plus a solid edge on each side whose neighbour bit is missing.
+      for (y = 0; y < ROWS; y++) {
+        for (x = 0; x < COLS; x++) {
+          if (map[y][x] !== 1) continue;
+          var px = ox + x * cs, py = oy + y * cs;
+          var idx = tileIndex(x, y);
+          ctx.fillStyle = c.good;
+          ctx.globalAlpha = 0.38;
+          ctx.fillRect(px, py, cs, cs);
+          ctx.globalAlpha = 1;
+          if (!(idx & 1)) ctx.fillRect(px, py, cs, e);
+          if (!(idx & 2)) ctx.fillRect(px + cs - e, py, e, cs);
+          if (!(idx & 4)) ctx.fillRect(px, py + cs - e, cs, e);
+          if (!(idx & 8)) ctx.fillRect(px, py, e, cs);
+        }
+      }
+
+      // Cell grid.
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (x = 0; x <= COLS; x++) { ctx.moveTo(ox + x * cs + 0.5, oy); ctx.lineTo(ox + x * cs + 0.5, oy + ROWS * cs); }
+      for (y = 0; y <= ROWS; y++) { ctx.moveTo(ox, oy + y * cs + 0.5); ctx.lineTo(ox + COLS * cs, oy + y * cs + 0.5); }
+      ctx.stroke();
+
+      // Tile indices.
+      if (showIdx.value) {
+        ctx.fillStyle = c.ink;
+        ctx.font = Math.max(8, Math.floor(cs * 0.42)) + 'px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (y = 0; y < ROWS; y++) {
+          for (x = 0; x < COLS; x++) {
+            if (map[y][x] === 1) ctx.fillText(String(tileIndex(x, y)), ox + x * cs + cs / 2, oy + y * cs + cs / 2 + 0.5);
+          }
+        }
+      }
+
+      // Chunk borders.
+      if (showChunks.value) {
+        ctx.strokeStyle = c.topic;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        for (x = 0; x <= CCOLS; x++) { ctx.moveTo(ox + x * CHUNK * cs, oy); ctx.lineTo(ox + x * CHUNK * cs, oy + ROWS * cs); }
+        for (y = 0; y <= CROWS; y++) { ctx.moveTo(ox, oy + y * CHUNK * cs); ctx.lineTo(ox + COLS * cs, oy + y * CHUNK * cs); }
+        ctx.stroke();
+      }
+
+      // Keyboard cursor or pointer hover.
+      var mark = showCursor ? cursor : hover;
+      if (mark) {
+        ctx.strokeStyle = showCursor ? c.ink : c.ink3;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + mark.x * cs + 1, oy + mark.y * cs + 1, cs - 2, cs - 2);
+      }
+
+      outLast.set(lastEdit === 0 ? 'nothing yet' :
+        lastEdit + (lastEdit === 1 ? ' chunk, ' : ' chunks, ') + (lastEdit * CHUNK * CHUNK) +
+        ' cells redrawn (whole map: ' + (COLS * ROWS) + ')');
+      outTotal.set(String(total));
+      if (mark) {
+        var g = map[mark.y][mark.x] === 1;
+        outCell.set('(' + (mark.x + 1) + ', ' + (mark.y + 1) + ') ' +
+          (g ? 'ground, tile ' + tileIndex(mark.x, mark.y) : 'empty') +
+          ', chunk (' + (Math.floor(mark.x / CHUNK) + 1) + ', ' + (Math.floor(mark.y / CHUNK) + 1) + ')');
+      } else {
+        outCell.set('point at the map');
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

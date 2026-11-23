@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving platforms · Game Dev Daily</title>
+<meta name="description" content="How to carry a character on a moving platform by giving it the platform's step first, and how to keep the platform's speed when it jumps off.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Moving platforms</h1>
+  <p class="lede">How to carry a character on a moving platform by giving it the platform's step first, and how to keep the platform's speed when it jumps off.</p>
+</header>
+
+<section data-section="hook">
+  <p>The player steps onto a sliding raft, and it slides away under their feet. On a lift going down, the character stutters and the jump button works only now and then. Jump off a moving platform, and you land in the gap behind it. Two small rules fix all three.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Why the floor leaves without you</h2>
+  <p>A moving platform is a kinematic body: your code moves it. The character controller's collision code only stops the character moving <em>into</em> a solid. It never drags the character along, so the floor can move away freely.</p>
+  <ul>
+    <li><strong>Sideways:</strong> the platform slides out from under the character, and the character drops.</li>
+    <li><strong>Down:</strong> a lift at 120 px/s drops 2 pixels per 1/60 second step. Gravity of 1800 px/s² moves the character only half a pixel in its first step. It is in the air for about 7 steps, lands for 1, and repeats. Jump presses in those 7 steps do nothing.</li>
+    <li><strong>Up:</strong> the platform rises into the character's feet. The demo pushes the character back out, so this works by luck. Code that ignores overlapping bodies lets it fall through the lift.</li>
+  </ul>
+
+  <h2>Rule 1: the rider takes the platform's step</h2>
+  <p>A <dfn>rider</dfn> is a body whose ground, at the end of the last step, was the platform. Every step now runs in this order:</p>
+  <ol>
+    <li>Move every platform, and remember how far it went this step: <code>dx</code> and <code>dy</code>.</li>
+    <li>Move each rider by the same <code>dx</code> and <code>dy</code>, using the normal move functions so walls still stop it.</li>
+    <li>Then do the rider's own move: walking, gravity, jumping.</li>
+  </ol>
+<pre><code>moveY(player, ground.dy)
+moveX(player, ground.dx)</code></pre>
+  <p>In words: whatever the floor did this step, the rider does too. Give every static block <code>dx = 0</code> and <code>dy = 0</code>, and the same lines work on solid ground: a static floor is a platform that does not move.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a platform moves right by dx, and the character on it moves right by the same dx. Right: a character jumps from a moving platform. Without the platform velocity it goes straight up and down and misses the platform, which has moved on. With the platform velocity its arc leans forward and it lands on the platform again.">
+      <text class="d-text" x="20" y="24">1. Carry: the rider takes the floor's step</text>
+      <rect class="d-box d-dash" x="40" y="170" width="150" height="16"/>
+      <rect class="d-accent-soft" x="110" y="170" width="150" height="16"/>
+      <rect class="d-box d-dash" x="90" y="110" width="32" height="60" rx="3"/>
+      <rect class="d-accent-fill" x="160" y="110" width="32" height="60" rx="3"/>
+      <path class="d-accent" d="M106 92 H168"/>
+      <path class="d-accent-fill" d="M166 86 L178 92 L166 98 Z"/>
+      <text class="d-label" x="140" y="78" text-anchor="middle">same dx</text>
+      <path class="d-stroke" d="M40 206 H100"/>
+      <path class="d-stroke" d="M98 201 L108 206 L98 211"/>
+      <text class="d-text" x="74" y="228" text-anchor="middle">dx</text>
+      <text class="d-muted" x="20" y="256">then the rider's own walk and gravity</text>
+
+      <text class="d-text" x="330" y="24">2. Jump: keep the floor's velocity</text>
+      <rect class="d-box d-dash" x="350" y="200" width="110" height="14"/>
+      <rect class="d-accent-soft" x="470" y="200" width="110" height="14"/>
+      <rect class="d-box" x="394" y="164" width="22" height="36" rx="3"/>
+      <rect class="d-accent-fill" x="514" y="164" width="22" height="36" rx="3"/>
+      <path class="d-bad" d="M405 158 V64 M405 214 V244"/>
+      <path class="d-bad" d="M399 236 L405 248 L411 236"/>
+      <text class="d-muted" x="394" y="80" text-anchor="end">without:</text>
+      <text class="d-muted" x="394" y="96" text-anchor="end">straight</text>
+      <text class="d-muted" x="394" y="112" text-anchor="end">up and down</text>
+      <path class="d-good" d="M405 158 Q465 -30 525 158"/>
+      <text class="d-label" x="510" y="78">with: lands</text>
+      <text class="d-label" x="510" y="96">on it again</text>
+      <path class="d-stroke" d="M470 234 H560"/>
+      <path class="d-stroke" d="M558 229 L568 234 L558 239"/>
+      <text class="d-muted" x="574" y="238">platform</text>
+      <text class="d-muted" x="574" y="254">moves on</text>
+    </svg>
+    <figcaption>Left: dashed shapes are the start of the step; platform and rider both shift by the same <code>dx</code>. Right: a rider that forgets the platform's speed comes down where the platform used to be.</figcaption>
+  </figure>
+
+  <p>The order matters. If the rider moves before the platform, it always works with last step's floor and the ground check flickers.</p>
+
+  <h2>Rule 2: keep the platform's velocity when you leave</h2>
+  <p>A rider moves at the platform's speed even when its own velocity is zero. When it jumps, that speed must not vanish. Store the floor's velocity every grounded step and use it in the air:</p>
+<pre><code>airVx = ground.vx                  <span class="c">-- every step on the ground</span>
+vy = -JUMP + ground.vy             <span class="c">-- on the step you jump</span>
+vx = input * RUN + airVx           <span class="c">-- every step in the air</span></code></pre>
+  <p>In words: in the air, the character keeps the sideways speed of the floor it left, and a rising lift adds its speed to the jump. Here y grows downwards, so a rising lift has a negative <code>vy</code>.</p>
+  <p>How much does it matter? A jump at 520 px/s under 1800 px/s² lasts 2 × 520 / 1800 = 0.58 seconds, about 34 steps. A platform at 120 px/s moves about 68 pixels meanwhile. It is 90 pixels wide, so a character near its middle comes down beside it.</p>
+  <p>Measure the platform's velocity from the step it took, <code>vx = dx / STEP</code>, so carry and jump agree even on the step where it turns round.</p>
+
+  <h3>One step by hand</h3>
+  <p>The sliding platform's left edge is at x = 200, moving right at 120 px/s. The character stands on it at x = 245, with no input.</p>
+  <ul>
+    <li>Platform: 120 × 1/60 = 2 pixels, so its left edge goes to 202. <code>dx = 2</code>, <code>vx = 2 × 60 = 120</code>.</li>
+    <li>Carry: the character moves by <code>dx</code>, from 245 to 247.</li>
+    <li>Own move: no input. Gravity gives <code>vy</code> = 1800 / 60 = 30 px/s, a 0.5 pixel move down, which the platform's top stops at 0. Grounded, <code>airVx = 120</code>.</li>
+    <li>Next step it jumps: carried to 249, <code>vy</code> = −520 + 0 + 30 = −490. One step later, in the air, <code>airVx</code> moves it 2 pixels to 251, and the platform reaches 206. Still 45 pixels from its left edge.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Correct versus good</p>
+    <p>The demo's platforms turn round instantly. A real passenger would be thrown off. A game rider stays glued, because being flung off your own lift feels unfair: carrying is a game rule, not friction. For the same reason, some games ignore a platform's <em>downward</em> speed on a jump.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both fixes start off. The character stands on the sliding platform, and the platform leaves without it. Press <strong>Reset</strong>, switch on <strong>Carry the rider</strong>, and it rides along. Now press <strong>Jump</strong> while standing still: it comes down behind the platform. Switch on <strong>Keep platform velocity</strong> and jump again.</p>
+  <p>Then set <strong>Start on</strong> to the lift with carrying off. As it goes down, "Grounded in the last second" falls to about 12 percent, and most Jump presses are lost. Keyboard: click the scene, then arrows or A and D walk, Space jumps. On touch, hold beside the character to walk and tap above it to jump.</p>
+
+  <figure class="demo wide" data-demo="platforms">
+    <canvas id="platforms"></canvas>
+    <figcaption>The character is faint in the air. The thin line is the path of its feet: with the velocity kept, a jump from a moving platform leans forward. Arrows show velocities; the green line marks the block it stands on.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step in Lua, with the same level and numbers. The move functions are the per-axis ones from earlier lessons, but they return the block that stopped the move, so the character knows <em>what</em> it stands on.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, GRAVITY, JUMP, RUN = 1 / 60, 1800, 520, 240
+local W, H, EPS = 20, 36, 0.001
+local SPEED = 120                    <span class="c">-- platform speed, px/s</span>
+local carry, inherit = true, true    <span class="c">-- set to false to see the bugs</span>
+
+<span class="c">-- Every block has a step (dx, dy) and a velocity. Static blocks keep 0.</span>
+local function block(x, y, w, h)
+  return { x = x, y = y, w = w, h = h, dx = 0, dy = 0, vx = 0, vy = 0 }
+end
+local blocks = {
+  block(0, 290, 640, 10), block(0, 0, 10, 290), block(630, 0, 10, 290),
+  block(10, 200, 90, 90), block(100, 250, 40, 40), block(540, 120, 90, 170),
+}
+local slider = block(110, 200, 90, 12)
+slider.axis, slider.min, slider.max, slider.dir = "x", 110, 330, 1
+local lift = block(450, 220, 80, 12)
+lift.axis, lift.min, lift.max, lift.dir = "y", 120, 220, -1
+local platforms = { slider, lift }
+blocks[#blocks + 1] = slider
+blocks[#blocks + 1] = lift
+local player = { x = 145, y = 164, vy = 0, airVx = 0, ground = slider }
+local accumulator = 0
+
+<span class="c">-- Move along one axis, stopping at the first solid face.</span>
+<span class="c">-- Returns the block that stopped the move, or nil.</span>
+local function moveX(b, dx)
+  local allowed, hit = dx, nil
+  for _, s in ipairs(blocks) do
+    if b.y &lt; s.y + s.h - EPS and b.y + H &gt; s.y + EPS then
+      if dx &gt; 0 and b.x + W &lt;= s.x + EPS and s.x - b.x - W &lt; allowed then
+        allowed, hit = s.x - b.x - W, s
+      elseif dx &lt; 0 and b.x &gt;= s.x + s.w - EPS and s.x + s.w - b.x &gt; allowed then
+        allowed, hit = s.x + s.w - b.x, s
+      end
+    end
+  end
+  b.x = b.x + allowed
+  return hit
+end
+
+local function moveY(b, dy)
+  local allowed, hit = dy, nil
+  for _, s in ipairs(blocks) do
+    if b.x &lt; s.x + s.w - EPS and b.x + W &gt; s.x + EPS then
+      if dy &gt; 0 and b.y + H &lt;= s.y + EPS and s.y - b.y - H &lt; allowed then
+        allowed, hit = s.y - b.y - H, s
+      elseif dy &lt; 0 and b.y &gt;= s.y + s.h - EPS and s.y + s.h - b.y &gt; allowed then
+        allowed, hit = s.y + s.h - b.y, s
+      end
+    end
+  end
+  b.y = b.y + allowed
+  return hit
+end
+
+local function movePlatform(p)
+  local old = p[p.axis]
+  local nextPos = old + p.dir * SPEED * STEP
+  if nextPos &lt; p.min or nextPos &gt; p.max then      <span class="c">-- turn round at the ends</span>
+    nextPos = math.max(p.min, math.min(p.max, nextPos))
+    p.dir = -p.dir
+  end
+  p[p.axis] = nextPos
+  if p.axis == "x" then p.dx = nextPos - old else p.dy = nextPos - old end
+  p.vx, p.vy = p.dx / STEP, p.dy / STEP          <span class="c">-- velocity from the step taken</span>
+end
+
+<span class="c">-- A platform that moves into a body shoves it out the shortest way.</span>
+local function pushOut(b, s)
+  local left, right = b.x + W - s.x, s.x + s.w - b.x
+  local up, down = b.y + H - s.y, s.y + s.h - b.y
+  local m = math.min(left, right, up, down)
+  if m &lt;= EPS then return end                    <span class="c">-- not overlapping</span>
+  if m == up then b.y = b.y - up
+  elseif m == down then b.y = b.y + down
+  elseif m == left then b.x = b.x - left
+  else b.x = b.x + right end
+end
+
+local function physicsStep(b, ix, jump)
+  for _, p in ipairs(platforms) do movePlatform(p) end  <span class="c">-- 1. platforms first</span>
+  local g = b.ground                                    <span class="c">-- what we stood on last step</span>
+<span class="k">  if g and carry then                                   -- 2. take the floor's step
+    moveY(b, g.dy)
+    moveX(b, g.dx)
+  end</span>
+  for _, p in ipairs(platforms) do pushOut(b, p) end
+<span class="k">  if g then b.airVx = inherit and g.vx or 0 end         -- keep the floor's speed</span>
+  local vx = ix * RUN                                   <span class="c">-- 3. our own move</span>
+  if not g then vx = vx + b.airVx end
+  if g and jump then
+<span class="k">    b.vy = -JUMP + (inherit and g.vy or 0)</span>
+  end
+  b.vy = b.vy + GRAVITY * STEP
+  if moveX(b, vx * STEP) and not g then b.airVx = 0 end <span class="c">-- hit a wall</span>
+  local hit = moveY(b, b.vy * STEP)
+  if hit and b.vy &gt; 0 then b.ground = hit else b.ground = nil end
+  if hit then b.vy = 0 end
+end
+
+local jumpPressed = false
+function love.keypressed(key)
+  if key == "space" or key == "w" or key == "up" then jumpPressed = true end
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    local ix = 0
+    if love.keyboard.isDown("left", "a") then ix = ix - 1 end
+    if love.keyboard.isDown("right", "d") then ix = ix + 1 end
+    physicsStep(player, ix, jumpPressed)
+    jumpPressed = false                  <span class="c">-- a press counts for one step</span>
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, s in ipairs(blocks) do love.graphics.rectangle("line", s.x, s.y, s.w, s.h) end
+  love.graphics.rectangle("fill", player.x, player.y, W, H)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: move_and_slide() already carries a CharacterBody2D on a moving</span>
+<span class="c"># floor (an AnimatableBody2D, for example). Here we keep the platform's</span>
+<span class="c"># speed ourselves, as in the Lua. A sketch; check it in your own project.</span>
+extends CharacterBody2D
+
+const RUN := 240.0
+const GRAVITY := 1800.0
+const JUMP := 520.0
+var air_vx := 0.0
+
+func _ready() -&gt; void:
+    platform_on_leave = PLATFORM_ON_LEAVE_DO_NOTHING
+
+func _physics_process(delta: float) -&gt; void:
+    var on_floor := is_on_floor()               <span class="c"># from the last move_and_slide</span>
+    var input := Input.get_axis("ui_left", "ui_right")
+    if on_floor:
+<span class="k">        air_vx = get_platform_velocity().x      # zero on static ground</span>
+        velocity.x = input * RUN
+    else:
+        velocity.x = input * RUN + air_vx
+    velocity.y += GRAVITY * delta
+    if on_floor and Input.is_action_just_pressed("ui_accept"):
+<span class="k">        velocity.y = -JUMP + get_platform_velocity().y</span>
+    move_and_slide()
+    if not on_floor and is_on_wall():
+        air_vx = 0.0</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// Unity: CharacterController does not ride platforms by itself.</span>
+<span class="c">// Remember what is under the feet and add its movement each frame.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+public class PlatformRider : MonoBehaviour
+{
+    public float run = 4f, jump = 6f;      <span class="c">// metres per second</span>
+    CharacterController controller;
+    Transform platform;                    <span class="c">// what we stood on last frame</span>
+    Vector3 platformLast;                  <span class="c">// where it was then</span>
+    Vector3 velocity;
+    float airVx;
+
+    void Awake() { controller = GetComponent&lt;CharacterController&gt;(); }
+
+    void Update()
+    {
+        float dt = Time.deltaTime;
+        if (dt &lt;= 0f) return;
+        bool grounded = controller.isGrounded;
+        Vector3 platformVelocity = Vector3.zero;
+        if (platform != null)
+        {
+            Vector3 step = platform.position - platformLast;
+<span class="k">            controller.Move(step);                     // take the floor's step</span>
+            platformVelocity = step / dt;
+        }
+        if (grounded) airVx = platformVelocity.x;
+        velocity.x = Input.GetAxis("Horizontal") * run + (grounded ? 0f : airVx);
+        velocity.y += Physics.gravity.y * dt;
+        if (grounded &amp;&amp; Input.GetButtonDown("Jump"))
+<span class="k">            velocity.y = jump + platformVelocity.y;</span>
+        controller.Move(velocity * dt);
+        if (controller.isGrounded &amp;&amp; velocity.y &lt; 0f) velocity.y = -1f;
+
+        platform = null;                           <span class="c">// what is under us now?</span>
+        if (controller.isGrounded &amp;&amp; Physics.Raycast(transform.position,
+                Vector3.down, out RaycastHit hit, controller.height * 0.5f + 0.1f))
+        {
+            platform = hit.transform;
+            platformLast = platform.position;
+        }
+    }
+}</code></pre>
+  </div>
+  <p>In Godot, <code>move_and_slide</code> does rule 1, and <code>platform_on_leave</code> chooses rule 2: add the platform's velocity on leaving (the default), add only its upward part, or do nothing. The default adds it once, so code that sets <code>velocity.x</code> from input every frame wipes it out; the sketch keeps <code>air_vx</code> itself. In Unity, if platforms move in <code>FixedUpdate</code>, ride them there too.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Riders before platforms.</strong> The rider runs one step behind its floor, sinking into rising lifts and floating above falling ones. Move all platforms first.</li>
+    <li><strong>Wiping the inherited speed.</strong> <code>vx = input * RUN</code> in the air throws away the platform's speed on the very next step. Keep the inherited part in its own variable.</li>
+    <li><strong>Carrying through walls.</strong> Adding <code>dx</code> straight to the position drags the rider into the wall at the end of the track. Carry with the same move functions you use for walking.</li>
+    <li><strong>Crushing.</strong> A lift that pushes a rider into a ceiling has nowhere to put it. Decide: stop the lift, hurt the player, or let it pass through. The demo leaves room under every platform.</li>
+    <li><strong>Parenting to the platform.</strong> Making the character a child of the platform's transform carries it for free, but a scaled platform scales its children too, and you still need rule 2.</li>
+  </ul>
+  <p>Cost: one extra move per rider per step.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Godot 4's <code>CharacterBody2D</code> and <code>CharacterBody3D</code> follow a moving floor inside <code>move_and_slide</code>, report its speed with <code>get_platform_velocity()</code>, and offer the <code>platform_on_leave</code> choices above. <code>AnimatableBody2D</code> is the body type meant for platforms moved by code or animation. A <code>StaticBody2D</code> can set a <code>constant_linear_velocity</code> without moving, and touching bodies are carried as if it moved: a conveyor belt, which is rule 1 with a platform that only pretends to move.</p>
+  <p>Unity's <code>CharacterController</code> has no platform setting, so Unity projects add the platform's movement themselves or parent the character to the platform.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a platform that moves left and right and one that moves up and down. Store each one's <code>dx</code>, <code>dy</code>, <code>vx</code> and <code>vy</code> every step, with zeros for static blocks. Make the character remember the block it landed on, then add the carry and the inherited air speed.</p>
+  <p>You are done when the character can stand still on both platforms without drifting or flickering in and out of "grounded", and a standing jump from the sliding platform lands back on it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Collision code never drags a character along, so a moving floor leaves without it.</li>
+    <li>Move platforms first, then move each rider by its platform's step, then do the rider's own move.</li>
+    <li>Give static blocks a step and velocity of zero, and the same code handles every floor.</li>
+    <li>Keep the platform's velocity, in its own variable, when leaving it.</li>
+    <li>Measure platform velocity from the step it took, so carrying and jumping always agree.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, pushing crates: how a kinematic character passes its motion on to dynamic bodies.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>CharacterBody2D</cite> class reference: <code>get_platform_velocity</code>, <code>platform_on_leave</code> and <code>platform_floor_layers</code>; and <cite>AnimatableBody2D</cite> and <cite>StaticBody2D</cite> class references.</li>
+    <li>Godot Engine documentation, <cite>Using CharacterBody2D/3D</cite>.</li>
+    <li>Unity documentation, <cite>CharacterController</cite> in the Scripting API.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- The world. Matches the Lua: pixels, y grows downwards. ----
+  var STEP = 1 / 60, GRAVITY = 1800, JUMP = 520, RUN = 240;
+  var W = 20, H = 36, EPS = 0.001;
+  var VIEW_W = 640, VIEW_H = 300;
+  var TRAIL = 150;
+
+  function block(x, y, w, h, name) {
+    return { x: x, y: y, w: w, h: h, dx: 0, dy: 0, vx: 0, vy: 0, name: name };
+  }
+
+  var blocks, platforms, slider, lift, player;
+
+  // ---- Controls ----
+  var ui = DemoKit.controls('[data-demo="platforms"]');
+  var carryOn = ui.toggle({ label: 'Carry the rider', value: false });
+  var inheritOn = ui.toggle({ label: 'Keep platform velocity', value: false });
+  var speed = ui.slider({ label: 'Platform speed', min: 0, max: 240, step: 10, value: 120, unit: ' px/s' });
+  var startOn = ui.select({
+    label: 'Start on',
+    options: [{ value: 'slider', label: 'Sliding platform' }, { value: 'lift', label: 'Lift, going down' }],
+    value: 'slider',
+    onChange: function () { reset(); }
+  });
+  var slow = ui.toggle({ label: 'Slow motion (quarter speed)', value: false });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Jump', onClick: function () { pressJump(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var standOut = ui.readout({ label: 'Standing on' });
+  var groundOut = ui.readout({ label: 'Grounded in the last second' });
+  var jumpOut = ui.readout({ label: 'Jumps made / pressed' });
+  var lastOut = ui.readout({ label: 'Last jump started with' });
+
+  var trail, history, pressed, made, jumpQueued, accumulator = 0, lastVx = 0;
+  var shown = {};
+
+  function show(out, key, text) {
+    if (shown[key] !== text) { shown[key] = text; out.set(text); }
+  }
+
+  function reset() {
+    blocks = [
+      block(0, 290, 640, 10, 'the floor'), block(0, 0, 10, 290, 'a wall'), block(630, 0, 10, 290, 'a wall'),
+      block(10, 200, 90, 90, 'the left ledge'), block(100, 250, 40, 40, 'the crate'),
+      block(540, 120, 90, 170, 'the right ledge')
+    ];
+    slider = block(110, 200, 90, 12, 'the sliding platform');
+    slider.axis = 'x'; slider.min = 110; slider.max = 330; slider.dir = 1;
+    lift = block(450, 220, 80, 12, 'the lift');
+    lift.axis = 'y'; lift.min = 120; lift.max = 220; lift.dir = -1;
+    platforms = [slider, lift];
+    blocks.push(slider, lift);
+    if (startOn.value === 'lift') {
+      lift.y = 120; lift.dir = 1;
+      player = { x: 480, y: 84, vy: 0, airVx: 0, ground: lift };
+    } else {
+      player = { x: 145, y: 164, vy: 0, airVx: 0, ground: slider };
+    }
+    trail = [];
+    history = [];
+    pressed = 0;
+    made = 0;
+    jumpQueued = false;
+    lastVx = 0;
+    accumulator = 0;
+    show(lastOut, 'last', 'no jump yet');
+    showStats();
+  }
+
+  function pressJump() {
+    jumpQueued = true;
+    pressed += 1;
+    showStats();
+  }
+
+  function showStats() {
+    show(standOut, 'stand', player.ground ? player.ground.name : 'nothing (in the air)');
+    var g = 0;
+    for (var i = 0; i < history.length; i++) if (history[i]) g += 1;
+    show(groundOut, 'ground', history.length ? Math.round(100 * g / history.length) + ' %' : '-');
+    show(jumpOut, 'jumps', made + ' / ' + pressed);
+  }
+
+  // ---- Physics, the same as the Lua ----
+  function moveX(b, dx) {
+    var allowed = dx, hit = null;
+    for (var i = 0; i < blocks.length; i++) {
+      var s = blocks[i];
+      if (b.y < s.y + s.h - EPS && b.y + H > s.y + EPS) {
+        if (dx > 0 && b.x + W <= s.x + EPS && s.x - b.x - W < allowed) { allowed = s.x - b.x - W; hit = s; }
+        else if (dx < 0 && b.x >= s.x + s.w - EPS && s.x + s.w - b.x > allowed) { allowed = s.x + s.w - b.x; hit = s; }
+      }
+    }
+    b.x += allowed;
+    return hit;
+  }
+
+  function moveY(b, dy) {
+    var allowed = dy, hit = null;
+    for (var i = 0; i < blocks.length; i++) {
+      var s = blocks[i];
+      if (b.x < s.x + s.w - EPS && b.x + W > s.x + EPS) {
+        if (dy > 0 && b.y + H <= s.y + EPS && s.y - b.y - H < allowed) { allowed = s.y - b.y - H; hit = s; }
+        else if (dy < 0 && b.y >= s.y + s.h - EPS && s.y + s.h - b.y > allowed) { allowed = s.y + s.h - b.y; hit = s; }
+      }
+    }
+    b.y += allowed;
+    return hit;
+  }
+
+  function movePlatform(p) {
+    var old = p[p.axis];
+    var next = old + p.dir * speed.value * STEP;
+    if (next < p.min || next > p.max) {
+      next = Math.max(p.min, Math.min(p.max, next));
+      p.dir = -p.dir;
+    }
+    p[p.axis] = next;
+    if (p.axis === 'x') p.dx = next - old; else p.dy = next - old;
+    p.vx = p.dx / STEP;
+    p.vy = p.dy / STEP;
+  }
+
+  function pushOut(b, s) {
+    var left = b.x + W - s.x, right = s.x + s.w - b.x;
+    var up = b.y + H - s.y, down = s.y + s.h - b.y;
+    var m = Math.min(left, right, up, down);
+    if (m <= EPS) return;
+    if (m === up) b.y -= up;
+    else if (m === down) b.y += down;
+    else if (m === left) b.x -= left;
+    else b.x += right;
+  }
+
+  function physicsStep(b, ix, jump) {
+    for (var i = 0; i < platforms.length; i++) movePlatform(platforms[i]);
+    var g = b.ground;
+    if (g && carryOn.value) {
+      moveY(b, g.dy);
+      moveX(b, g.dx);
+    }
+    for (var j = 0; j < platforms.length; j++) pushOut(b, platforms[j]);
+    if (g) b.airVx = inheritOn.value ? g.vx : 0;
+    var vx = ix * RUN;
+    if (!g) vx += b.airVx;
+    if (g && jump) {
+      b.vy = -JUMP + (inheritOn.value ? g.vy : 0);
+      made += 1;
+      show(lastOut, 'last', 'vx ' + Math.round(ix * RUN + b.airVx) + ', vy ' + Math.round(b.vy) + ' px/s');
+    }
+    b.vy += GRAVITY * STEP;
+    if (moveX(b, vx * STEP) && !g) b.airVx = 0;
+    var hit = moveY(b, b.vy * STEP);
+    b.ground = (hit && b.vy > 0) ? hit : null;
+    if (hit) b.vy = 0;
+    lastVx = g ? ix * RUN + (carryOn.value ? g.vx : 0) : vx;
+  }
+
+  // ---- Input ----
+  var view = { k: 1, ox: 0, oy: 0 };
+
+  function toWorld(p) {
+    return { x: (p.x - view.ox) / view.k, y: (p.y - view.oy) / view.k };
+  }
+
+  function readWalk(s) {
+    var x = 0, keys = s.keys;
+    if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+    if (keys.has('arrowright') || keys.has('d')) x += 1;
+    if (s.pointer.down && s.pointer.inside) {
+      var w = toWorld(s.pointer);
+      if (w.y >= player.y - 20) {
+        if (w.x < player.x - 4) x = -1;
+        else if (w.x > player.x + W + 4) x = 1;
+      }
+    }
+    return x;
+  }
+
+  function demoStep(s) {
+    var jump = jumpQueued;
+    jumpQueued = false;                     // a press counts for one step only
+    physicsStep(player, readWalk(s), jump);
+
+    // Safety net for the demo only: never let the character leave the room.
+    if (!(player.y > -40 && player.y < 300) || !(player.x > 0 && player.x < 630)) { reset(); return; }
+
+    history.push(!!player.ground);
+    if (history.length > 60) history.shift();
+    trail.push({ x: player.x + W / 2, y: player.y + H });
+    if (trail.length > TRAIL) trail.shift();
+    showStats();
+  }
+
+  reset();
+
+  // ---- Drawing ----
+  function arrow(ctx, x0, y0, x1, y1, head) {
+    var dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1e-6) return;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    var ux = dx / len, uy = dy / len, h = Math.min(head, len * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - ux * h - uy * h * 0.5, y1 - uy * h + ux * h * 0.5);
+    ctx.lineTo(x1 - ux * h + uy * h * 0.5, y1 - uy * h - ux * h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function layout(s) {
+    var k = Math.min(s.width / VIEW_W, s.height / VIEW_H);
+    view.k = k;
+    view.ox = (s.width - VIEW_W * k) / 2;
+    view.oy = (s.height - VIEW_H * k) / 2;
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    layout(s);
+    var k = view.k, px = 1 / k;
+    ctx.save();
+    ctx.translate(view.ox, view.oy);
+    ctx.scale(k, k);
+    var font = (12 * px) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.font = font;
+
+    // Static blocks.
+    ctx.lineWidth = 1.5 * px;
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (b.axis) continue;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = c.ink3;
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    }
+
+    // Moving platforms.
+    for (var j = 0; j < platforms.length; j++) {
+      var p = platforms[j];
+      ctx.fillStyle = c.warn;
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.warn;
+      ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+
+    // Path of the feet.
+    if (trail.length > 1) {
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1.2 * px;
+      ctx.beginPath();
+      ctx.moveTo(trail[0].x, trail[0].y);
+      for (var t = 1; t < trail.length; t++) ctx.lineTo(trail[t].x, trail[t].y);
+      ctx.stroke();
+    }
+
+    if (debug.value) {
+      // Platform velocity arrows and labels.
+      ctx.lineWidth = 2 * px;
+      for (var q = 0; q < platforms.length; q++) {
+        var pl = platforms[q];
+        ctx.strokeStyle = c.warn;
+        ctx.fillStyle = c.warn;
+        var label = Math.round(Math.abs(pl.axis === 'x' ? pl.vx : pl.vy)) + ' px/s';
+        if (pl.axis === 'x') {
+          var ay = pl.y + pl.h + 12;
+          var cx = pl.x + pl.w / 2;
+          arrow(ctx, cx, ay, cx + pl.vx * 0.25, ay, 7 * px);
+          ctx.textAlign = 'center';
+          ctx.fillText(label, cx, ay + 18);
+        } else {
+          var axx = pl.x - 10;
+          var cy = pl.y + pl.h / 2;
+          arrow(ctx, axx, cy, axx, cy + pl.vy * 0.25, 7 * px);
+          ctx.textAlign = 'center';
+          ctx.fillText(label, pl.x + pl.w / 2, pl.y + pl.h + 18);
+        }
+      }
+      // The block being stood on.
+      if (player.ground) {
+        var gb = player.ground;
+        var x0 = Math.max(gb.x, player.x - 14), x1 = Math.min(gb.x + gb.w, player.x + W + 14);
+        ctx.strokeStyle = c.good;
+        ctx.lineWidth = 3 * px;
+        ctx.beginPath();
+        ctx.moveTo(x0, gb.y);
+        ctx.lineTo(x1, gb.y);
+        ctx.stroke();
+      }
+    }
+
+    // The character: solid on the ground, faint in the air.
+    ctx.fillStyle = c.topic;
+    ctx.globalAlpha = player.ground ? 0.85 : 0.3;
+    ctx.fillRect(player.x, player.y, W, H);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 2 * px;
+    ctx.strokeRect(player.x, player.y, W, H);
+
+    // The character's velocity in the world.
+    if (debug.value) {
+      var mx = player.x + W / 2, my = player.y + H / 2;
+      ctx.strokeStyle = c.ink;
+      ctx.fillStyle = c.ink;
+      ctx.lineWidth = 1.5 * px;
+      arrow(ctx, mx, my, mx + lastVx * 0.12, my + player.vy * 0.12, 6 * px);
+    }
+    ctx.restore();
+
+    // Status and hint, in screen pixels.
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = player.ground ? c.good : c.bad;
+    var lx = view.ox + 18 * k, ly = view.oy + 20;
+    ctx.fillText(player.ground ? 'grounded' : 'in the air', lx, ly);
+    ctx.fillStyle = c.ink3;
+    var hint = 'Arrows/AD walk, Space jumps';
+    if (ctx.measureText(hint).width < s.width * 0.5) ctx.fillText(hint, lx, ly + 16);
+  }
+
+  DemoKit.canvas('#platforms', {
+    aspect: 640 / 300,
+    minHeight: 200,
+    maxHeight: 400,
+    drag: true,
+    keys: true,
+    label: 'A side view of a box character with a platform sliding left and right and a lift moving up and down. Toggle carrying and keeping the platform velocity, then walk and jump to see whether the character rides along and lands back on the platform.',
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'w' || key === 'arrowup')) pressJump();
+    },
+    onDown: function (p) {
+      var w = toWorld(p);
+      if (w.y < player.y - 20) pressJump();
+    },
+    update: function (dt, s) {
+      accumulator += Math.min(dt, 0.25) * (slow.value ? 0.25 : 1);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        demoStep(s);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 20) accumulator = 0;
+    },
+    draw: draw
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dissolve: burning a sprite away with a noise threshold · Game Dev Daily</title>
+<meta name="description" content="Give every pixel a noise value, delete the pixels below a rising threshold, and colour a thin band above it to burn a sprite away.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Dissolve: burning a sprite away with a noise threshold</h1>
+  <p class="lede">Give every pixel a noise value, delete the pixels below a rising threshold, and colour a thin band above it to burn a sprite away.</p>
+</header>
+
+<section data-section="hook">
+  <p>An enemy dies and simply vanishes between one frame and the next. Fading its alpha is better, but the whole sprite turns into a ghost at once. A dissolve eats the sprite in ragged holes that spread out behind a glowing rim, and it needs only one number from the game: how far the burn has got.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Every pixel gets a turn</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For a dissolve, that function needs to know one extra thing about its pixel: <em>when</em> should this pixel disappear? We store that as a number from 0 to 1 called the <dfn>threshold map</dfn>, written <code>n</code>. A pixel with <code>n = 0.1</code> burns early; a pixel with <code>n = 0.9</code> lasts almost to the end.</p>
+  <p>The game sends one value for the whole sprite, <code>progress</code>, which climbs from 0 to 1 while the enemy dies. Each pixel compares its own <code>n</code> with that value. If <code>n</code> is lower, the pixel is gone: its alpha becomes 0. That comparison is a <dfn>threshold</dfn>, and in a shader it is one call to <code>step</code>:</p>
+<pre><code>alive = step(cut, n)        -- 1.0 when n &gt;= cut, otherwise 0.0
+alpha = texel.a * alive</code></pre>
+
+  <h3>Why noise</h3>
+  <p>Any map from 0 to 1 works, and the map decides the look. A vertical gradient wipes the sprite from the top; distance from a point burns outwards; a random value per pixel crumbles it into specks. Smooth noise, the layered fBm from the procedural materials lesson, is the classic choice: neighbours have similar values, so holes start as blobs and grow into each other like burning paper.</p>
+
+  <h3>The burning edge</h3>
+  <p>A hard cut looks like an eraser. The burn comes from the pixels about to go: those whose <code>n</code> lies between <code>cut</code> and <code>cut + edge</code>, where <code>edge</code> is the band's width. We paint them in a flat edge colour:</p>
+<pre><code>band = alive * (1.0 - step(cut + edge, n))   -- 1.0 just above the cut
+rgb  = mix(texel.rgb, edgeColor, band)</code></pre>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="A graph of the threshold value n for sixteen pixels along one row. A horizontal line marks the cut at 0.40 and a shaded band above it reaches 0.52. Pixels whose value is below the cut are hollow and gone, pixels inside the band are coloured as the burning edge, and the rest are solid. A strip of sixteen squares underneath shows the result: two holes, each with edge pixels on both sides.">
+      <text class="d-text" x="110" y="24">n for 16 pixels in one row</text>
+      <text class="d-mono" x="610" y="24" text-anchor="end">progress 0.46, edge 0.12: cut 0.40</text>
+      <rect class="d-fill" x="110" y="130" width="500" height="60"/>
+      <rect class="d-accent-soft" x="110" y="112" width="500" height="18"/>
+      <path class="d-thin" d="M110 40 H610 M110 190 H610 M110 40 V190"/>
+      <text class="d-muted" x="100" y="44" text-anchor="end">1</text>
+      <text class="d-muted" x="100" y="194" text-anchor="end">0</text>
+      <text class="d-label" x="100" y="108" text-anchor="end">cut + edge</text>
+      <text class="d-label" x="100" y="146" text-anchor="end">cut</text>
+      <text class="d-muted" x="602" y="182" text-anchor="end">below the cut: gone</text>
+      <polyline class="d-stroke" points="125.6,97.0 156.9,107.5 188.1,128.5 219.4,145.0 250.6,151.0 281.9,139.0 313.1,115.0 344.4,91.0 375.6,79.0 406.9,85.0 438.1,103.0 469.4,119.5 500.6,136.0 531.9,107.5 563.1,88.0 594.4,70.0"/>
+      <circle class="d-text" cx="125.6" cy="97.0" r="4"/>
+      <circle class="d-text" cx="156.9" cy="107.5" r="4"/>
+      <circle class="d-accent-fill" cx="188.1" cy="128.5" r="4"/>
+      <circle class="d-dash" cx="219.4" cy="145.0" r="4"/>
+      <circle class="d-dash" cx="250.6" cy="151.0" r="4"/>
+      <circle class="d-dash" cx="281.9" cy="139.0" r="4"/>
+      <circle class="d-accent-fill" cx="313.1" cy="115.0" r="4"/>
+      <circle class="d-text" cx="344.4" cy="91.0" r="4"/>
+      <circle class="d-text" cx="375.6" cy="79.0" r="4"/>
+      <circle class="d-text" cx="406.9" cy="85.0" r="4"/>
+      <circle class="d-text" cx="438.1" cy="103.0" r="4"/>
+      <circle class="d-accent-fill" cx="469.4" cy="119.5" r="4"/>
+      <circle class="d-dash" cx="500.6" cy="136.0" r="4"/>
+      <circle class="d-text" cx="531.9" cy="107.5" r="4"/>
+      <circle class="d-text" cx="563.1" cy="88.0" r="4"/>
+      <circle class="d-text" cx="594.4" cy="70.0" r="4"/>
+      <text class="d-muted" x="100" y="222" text-anchor="end">result</text>
+      <rect class="d-text" x="112.0" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="143.3" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-accent-fill" x="174.5" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-dash" x="205.8" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-dash" x="237.0" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-dash" x="268.3" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-accent-fill" x="299.5" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="330.8" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="362.0" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="393.3" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="424.5" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-accent-fill" x="455.8" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-dash" x="487.0" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="518.3" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="549.5" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="580.8" y="206" width="27.25" height="24" rx="2"/>
+      <rect class="d-text" x="110" y="256" width="18" height="18" rx="2"/>
+      <text class="d-muted" x="136" y="270">kept: n above the band</text>
+      <rect class="d-accent-fill" x="310" y="256" width="18" height="18" rx="2"/>
+      <text class="d-muted" x="336" y="270">edge colour</text>
+      <rect class="d-dash" x="450" y="256" width="18" height="18" rx="2"/>
+      <text class="d-muted" x="476" y="270">gone: alpha 0</text>
+    </svg>
+    <figcaption>The same comparison happens in every pixel at once. As <code>progress</code> rises, the cut and its band slide up the graph: the valleys of the noise go first and become holes, and the pixels on the slopes around them glow for a moment before they go too.</figcaption>
+  </figure>
+
+  <h3>Making both ends of the slider honest</h3>
+  <p>Two details make <code>progress = 0</code> mean "all there" and <code>progress = 1</code> mean "all gone". First, the band must start below 0, or the edge glows before the death begins. So the cut is stretched by the band width:</p>
+<pre><code>cut = progress * (1.0 + edge) - edge   -- runs from -edge up to 1.0</code></pre>
+  <p>At <code>progress = 0</code> the band covers <code>-edge</code> to 0, where no pixel lives. At <code>progress = 1</code> the cut is 1 and every pixel is below it.</p>
+  <p>Second, fBm bunches up in the middle: measured over a large area, 98 percent of this lesson's noise values fall between about 0.22 and 0.83. Unfixed, the first fifth of the slider does nothing. Stretching with <code>(fbm - 0.2) / 0.6</code> and clamping to 0.001 to 0.999 spreads the burn over the whole slider and keeps every value strictly inside the range.</p>
+
+  <div class="callout">
+    <p class="callout-title">Coordinates and colour space</p>
+    <p>Read the noise in the sprite's own coordinates, so the holes move with it. The demo builds them from <code>gl_FragCoord</code>, whose (0, 0) is the canvas's bottom-left with y up. LÖVE's <code>texture_coords</code> and Godot's <code>UV</code> start at the image's top-left with y down, so that code flips y to burn the same holes. Unity's UVs start at the bottom-left with y up: no flip. The edge colour is mixed as stored (sRGB) here; linear-space projects get slightly different in-between shades.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press <em>Burn</em> or drag <em>Progress</em>. Step through <em>Stage</em>: the threshold map shows <code>n</code> as grey (darkest goes first); the mask shows kept in white, gone in black and the band in the edge colour. Try each <em>Burn order</em>, and click, drag or use the arrow keys on the canvas to move the burn's starting point. Turn off <em>One value per sprite pixel</em> to see smooth holes cut through chunky pixels.</p>
+
+  <figure class="demo wide" data-demo="dissolve">
+    <canvas id="dissolve-shader"></canvas>
+    <canvas id="dissolve-graph"></canvas>
+    <figcaption>Top: the live shader. In stages 2 and 3 a pink line marks the row plotted underneath. Bottom: <code>n</code> along that row, with the cut, the edge band and the resulting pixels. If your system asks for reduced motion, Burn waits until you press Play; the Progress slider always works.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE program builds the slime from the hit flash lesson in code and draws it eight times larger with the dissolve shader. Press space to kill it and space again to bring it back. The numbers match the demo's defaults.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local DISSOLVE_TIME = 1.2                <span class="c">-- seconds from first hole to gone</span>
+local EDGE_WIDTH = 0.08                  <span class="c">-- width of the burning band</span>
+local EDGE_COLOR = { 1.0, 0.55, 0.1 }    <span class="c">-- orange</span>
+local NOISE_SCALE = 4.0                  <span class="c">-- noise cells across the sprite</span>
+local progress = 0                       <span class="c">-- 0 = whole sprite, 1 = gone</span>
+local dying = false
+local sprite, shader
+
+local pixelcode = [[
+uniform float u_progress;
+uniform float u_edge;
+uniform vec3 u_edgeColor;
+uniform float u_scale;
+
+const vec2 SPRITE_SIZE = vec2(24.0, 20.0);
+
+float hash(vec2 c)
+{
+  c = fract(c * vec2(0.1031, 0.1137));
+  c += dot(c, c + 19.19);
+  return fract(c.x * c.y);
+}
+
+float valueNoise(vec2 p)
+{
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p)
+{
+  float sum = 0.0;
+  float amp = 0.5;
+  for (int k = 0; k &lt; 4; k++) {
+    sum += amp * valueNoise(p);
+    p = p * 2.0 + vec2(5.3, 1.7);
+    amp *= 0.5;
+  }
+  return sum / 0.9375;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec4 texel = Texel(tex, texture_coords) * color;
+  // sprite pixels with y up, like the demo (LÖVE's texture y = 0 is the top row)
+  vec2 sp = vec2(texture_coords.x, 1.0 - texture_coords.y) * SPRITE_SIZE;
+  vec2 np = floor(sp) + 0.5;                     // one value per sprite pixel
+  float n = (fbm(np / SPRITE_SIZE.x * u_scale) - 0.2) / 0.6;
+  n = clamp(n, 0.001, 0.999);
+  float cut = u_progress * (1.0 + u_edge) - u_edge;
+  float alive = step(cut, n);
+  float edge = alive * (1.0 - step(cut + u_edge, n));
+  return vec4(mix(texel.rgb, u_edgeColor, edge), texel.a * alive);
+}
+]]
+
+local function inside(x, y, cx, cy, rx, ry)
+  local dx = (x - cx) / rx
+  local dy = (y - cy) / ry
+  return dx * dx + dy * dy &lt; 1
+end
+
+<span class="c">-- the slime, 24 by 20 pixels; py counts upwards like the demo</span>
+local function slimePixel(x, y)
+  local px, py = x + 0.5, 19.5 - y
+  local r, g, b, a = 0, 0, 0, 0
+  if inside(px, py, 12, 9, 10.5, 8.5) and py &gt; 1 then r, g, b, a = 0.10, 0.30, 0.14, 1 end
+  if inside(px, py, 12, 9, 9.5, 7.5) and py &gt; 2 then
+    local t = py / 17
+    r, g, b, a = 0.20 + 0.16 * t, 0.58 + 0.22 * t, 0.28 + 0.12 * t, 1
+  end
+  if inside(px, py, 7.5, 13, 1.6, 1.6) then r, g, b, a = 0.78, 0.96, 0.74, 1 end
+  if inside(px, py, 9, 9.5, 2.2, 2.2) or inside(px, py, 15, 9.5, 2.2, 2.2) then
+    r, g, b, a = 0.96, 0.96, 0.96, 1
+  end
+  if inside(px, py, 9.5, 9, 1.1, 1.1) or inside(px, py, 15.5, 9, 1.1, 1.1) then
+    r, g, b, a = 0.08, 0.08, 0.12, 1
+  end
+  return r, g, b, a
+end
+
+function love.load()
+  local data = love.image.newImageData(24, 20)
+  data:mapPixel(function(x, y) return slimePixel(x, y) end)
+  sprite = love.graphics.newImage(data)
+  sprite:setFilter("nearest", "nearest")
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "space" then
+    if progress &gt;= 1 then
+      progress = 0          <span class="c">-- respawn</span>
+      dying = false
+    else
+      dying = true          <span class="c">-- start the dissolve</span>
+    end
+  end
+end
+
+function love.update(dt)
+  if dying then
+<span class="k">    progress = math.min(progress + dt / DISSOLVE_TIME, 1)</span>
+  end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  love.graphics.clear(0.15, 0.17, 0.22)
+  if progress &gt;= 1 then return end   <span class="c">-- fully gone: do not draw it at all</span>
+<span class="k">  shader:send("u_progress", progress)</span>
+  shader:send("u_edge", EDGE_WIDTH)
+  shader:send("u_edgeColor", EDGE_COLOR)
+  shader:send("u_scale", NOISE_SCALE)
+  love.graphics.setShader(shader)
+  love.graphics.draw(sprite, w / 2 - 96, h / 2 - 80, 0, 8, 8)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;   // the hash needs 32-bit floats
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_progress;   // 0 = whole sprite, 1 = all gone
+uniform float u_edge;       // width of the burning band
+uniform vec3 u_edgeColor;   // colour of the band
+uniform float u_scale;      // noise cells across the sprite
+uniform float u_pattern;    // 0 noise, 1 random per pixel, 2 top down, 3 from a point, 4 point + noise
+uniform vec2 u_origin;      // burn origin, in sprite pixels
+uniform float u_snap;       // 1 = one value per sprite pixel, 0 = smooth
+uniform float u_stage;      // 0 texel, 1 threshold map, 2 mask, 3 final
+
+const vec2 SPRITE_SIZE = vec2(24.0, 20.0);   // in sprite pixels
+const float ROW = 9.5;                       // the row plotted in the graph
+
+float ellipse(vec2 p, vec2 c, vec2 r) {
+  return length((p - c) / r);   // below 1.0 inside the ellipse
+}
+
+// The "texture": colour and alpha of one sprite pixel, y up.
+vec4 sprite(vec2 sp) {
+  vec4 col = vec4(0.0);
+  if (ellipse(sp, vec2(12.0, 9.0), vec2(10.5, 8.5)) &lt; 1.0 &amp;&amp; sp.y &gt; 1.0)
+    col = vec4(0.10, 0.30, 0.14, 1.0);                                   // outline
+  if (ellipse(sp, vec2(12.0, 9.0), vec2(9.5, 7.5)) &lt; 1.0 &amp;&amp; sp.y &gt; 2.0)
+    col = vec4(mix(vec3(0.20, 0.58, 0.28), vec3(0.36, 0.80, 0.40), sp.y / 17.0), 1.0);  // body
+  if (length(sp - vec2(7.5, 13.0)) &lt; 1.6) col = vec4(0.78, 0.96, 0.74, 1.0);    // shine
+  if (length(sp - vec2(9.0, 9.5)) &lt; 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);     // eyes
+  if (length(sp - vec2(15.0, 9.5)) &lt; 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);
+  if (length(sp - vec2(9.5, 9.0)) &lt; 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);     // pupils
+  if (length(sp - vec2(15.5, 9.0)) &lt; 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);
+  return col;
+}
+
+// A hash without sin(), so the graph below can repeat it on the CPU.
+float hash(vec2 c) {
+  c = fract(c * vec2(0.1031, 0.1137));
+  c += dot(c, c + 19.19);
+  return fract(c.x * c.y);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+// four octaves, each twice as fine and half as strong
+float fbm(vec2 p) {
+  float sum = 0.0;
+  float amp = 0.5;
+  for (int k = 0; k &lt; 4; k++) {
+    sum += amp * valueNoise(p);
+    p = p * 2.0 + vec2(5.3, 1.7);
+    amp *= 0.5;
+  }
+  return sum / 0.9375;   // 0.5 + 0.25 + 0.125 + 0.0625
+}
+
+// The threshold map: when does this pixel burn? 0 = first, 1 = last.
+float thresholdMap(vec2 sp) {
+  float noise = (fbm(sp / SPRITE_SIZE.x * u_scale) - 0.2) / 0.6;   // stretch to fill 0..1
+  float speck = hash(floor(sp));
+  float topDown = 1.0 - sp.y / SPRITE_SIZE.y;
+  float fromPoint = length(sp - u_origin) / 30.0;
+  float n = noise;
+  if (u_pattern &gt; 0.5) n = speck;
+  if (u_pattern &gt; 1.5) n = topDown;
+  if (u_pattern &gt; 2.5) n = fromPoint;
+  if (u_pattern &gt; 3.5) n = mix(fromPoint, noise, 0.4);
+  return clamp(n, 0.001, 0.999);   // never exactly 0 or 1
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up
+
+  // background: a dark tiled floor
+  vec2 tile = floor(p * 8.0);
+  vec3 bg = mix(vec3(0.15, 0.17, 0.22), vec3(0.19, 0.21, 0.27), mod(tile.x + tile.y, 2.0));
+
+  // the sprite's quad: 0.6 of the canvas height wide, centred
+  float pixelSize = 0.6 / SPRITE_SIZE.x;
+  vec2 sp = (p - vec2(-0.3, -0.25)) / pixelSize;   // sprite pixel coordinates
+  bool inQuad = sp.x &gt;= 0.0 &amp;&amp; sp.x &lt; SPRITE_SIZE.x &amp;&amp; sp.y &gt;= 0.0 &amp;&amp; sp.y &lt; SPRITE_SIZE.y;
+
+  vec3 col = bg;
+  if (inQuad) {
+    vec4 texel = sprite(floor(sp) + 0.5);                 // 1. read the texel
+    vec2 np = mix(sp, floor(sp) + 0.5, u_snap);
+    float n = thresholdMap(np);                            // 2. when does it burn?
+    float cut = u_progress * (1.0 + u_edge) - u_edge;      // 3. the moving threshold
+    float alive = step(cut, n);                            //    1 while n &gt;= cut
+    float edge = alive * (1.0 - step(cut + u_edge, n));    //    1 just above the cut
+    vec3 rgb = mix(texel.rgb, u_edgeColor, edge);          // 4. colour the band
+    col = mix(bg, rgb, texel.a * alive);                   //    and cut the alpha
+
+    float shape = mix(0.45, 1.0, texel.a);   // dims the empty part of the quad
+    if (u_stage &lt; 2.5) col = mix(vec3(alive * 0.9), u_edgeColor, edge) * shape;
+    if (u_stage &lt; 1.5) col = vec3(n) * shape;
+    if (u_stage &lt; 0.5) col = mix(bg, texel.rgb, texel.a);
+    if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 2.5 &amp;&amp; abs(sp.y - ROW) &lt; 0.12) col = vec3(1.0, 0.3, 0.6);
+  }
+
+  // demo only: a ring on the burn origin
+  if (u_pattern &gt; 2.5 &amp;&amp; abs(length(sp - u_origin) - 0.9) &lt; 0.15) col = vec3(1.0, 0.3, 0.6);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a Sprite2D (not using a region of an atlas).
+shader_type canvas_item;
+
+uniform float progress : hint_range(0.0, 1.0) = 0.0;
+uniform float edge_width : hint_range(0.0, 0.3) = 0.08;
+uniform vec4 edge_color : source_color = vec4(1.0, 0.55, 0.1, 1.0);
+uniform float noise_scale = 4.0;
+
+float hash(vec2 c) {
+    c = fract(c * vec2(0.1031, 0.1137));
+    c += vec2(dot(c, c + vec2(19.19)));
+    return fract(c.x * c.y);
+}
+
+float value_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    for (int k = 0; k &lt; 4; k++) {
+        sum += amp * value_noise(p);
+        p = p * 2.0 + vec2(5.3, 1.7);
+        amp *= 0.5;
+    }
+    return sum / 0.9375;
+}
+
+void fragment() {
+    vec4 texel = texture(TEXTURE, UV);
+    vec2 size = 1.0 / TEXTURE_PIXEL_SIZE;              // the texture in pixels
+    vec2 sp = vec2(UV.x, 1.0 - UV.y) * size;           // Godot's UV y points down
+    vec2 np = floor(sp) + 0.5;
+    float n = clamp((fbm(np / size.x * noise_scale) - 0.2) / 0.6, 0.001, 0.999);
+    float cut = progress * (1.0 + edge_width) - edge_width;
+<span class="k">    float alive = step(cut, n);</span>
+    float edge = alive * (1.0 - step(cut + edge_width, n));
+    COLOR = vec4(mix(texel.rgb, edge_color.rgb, edge), texel.a * alive);
+}
+
+// From GDScript while dying:
+//   progress = min(progress + delta / DISSOLVE_TIME, 1.0)
+//   material.set_shader_parameter("progress", progress)</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, for a SpriteRenderer whose sprite fills its texture.
+Shader "GameDevDaily/DissolveSprite"
+{
+    Properties
+    {
+        [PerRendererData] _MainTex ("Sprite", 2D) = "white" {}
+        _Progress ("Progress", Range(0, 1)) = 0
+        _EdgeWidth ("Edge width", Range(0, 0.3)) = 0.08
+        _EdgeColor ("Edge colour", Color) = (1, 0.55, 0.1, 1)
+        _NoiseScale ("Noise scale", Float) = 4
+    }
+    SubShader
+    {
+        Tags { "Queue" = "Transparent" "RenderType" = "Transparent" "IgnoreProjector" = "True" }
+        Cull Off
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_TexelSize;   // (1/width, 1/height, width, height)
+            float _Progress;
+            float _EdgeWidth;
+            fixed4 _EdgeColor;
+            float _NoiseScale;
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+                fixed4 color : COLOR;
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+                fixed4 color : COLOR;
+            };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                o.color = v.color;
+                return o;
+            }
+
+            float hash (float2 c)
+            {
+                c = frac(c * float2(0.1031, 0.1137));
+                c += dot(c, c + 19.19);
+                return frac(c.x * c.y);
+            }
+
+            float valueNoise (float2 p)
+            {
+                float2 i = floor(p);
+                float2 f = frac(p);
+                float2 u = f * f * (3.0 - 2.0 * f);
+                return lerp(lerp(hash(i), hash(i + float2(1, 0)), u.x),
+                            lerp(hash(i + float2(0, 1)), hash(i + float2(1, 1)), u.x), u.y);
+            }
+
+            float fbm (float2 p)
+            {
+                float sum = 0.0;
+                float amp = 0.5;
+                for (int k = 0; k &lt; 4; k++)
+                {
+                    sum += amp * valueNoise(p);
+                    p = p * 2.0 + float2(5.3, 1.7);
+                    amp *= 0.5;
+                }
+                return sum / 0.9375;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                fixed4 c = tex2D(_MainTex, i.uv) * i.color;
+                float2 sp = i.uv * _MainTex_TexelSize.zw;   // Unity's uv y already points up
+                float2 np = floor(sp) + 0.5;
+                float n = clamp((fbm(np / _MainTex_TexelSize.z * _NoiseScale) - 0.2) / 0.6, 0.001, 0.999);
+                float cut = _Progress * (1.0 + _EdgeWidth) - _EdgeWidth;
+<span class="k">                float alive = step(cut, n);</span>
+                float edge = alive * (1.0 - step(cut + _EdgeWidth, n));
+                c.rgb = lerp(c.rgb, _EdgeColor.rgb, edge);
+                c.a *= alive;
+                return c;
+            }
+            ENDCG
+        }
+    }
+}
+// From C#: spriteRenderer.material.SetFloat("_Progress", progress);</code></pre>
+  </div>
+  <p>The demo's shader has extra branches for burn orders, stages and the graph row; the engine versions keep only the noise order. For URP, build it in a Sprite Unlit Shader Graph: a <em>Simple Noise</em> node gives <code>n</code>, two <em>Step</em> nodes against the cut give <code>alive</code> and the band, a <em>Lerp</em> mixes in the edge colour, and <code>alive</code> times the texture's alpha goes to Alpha. Simple Noise bunches its values differently, so check both ends of the progress range.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Noise in screen coordinates.</strong> With <code>gl_FragCoord</code> or <code>SCREEN_UV</code> the holes stay fixed on screen while the sprite moves under them.</li>
+    <li><strong>Sprites from an atlas.</strong> The UVs cover only the sprite's region and the texture size is the atlas size, so the noise stretches or changes between animation frames. Pass the region's rectangle and convert to region-local coordinates first.</li>
+    <li><strong>A dead start and a sudden end.</strong> The threshold map does not cover 0 to 1. Stretch it.</li>
+    <li><strong>Smooth holes in pixel art.</strong> Full-resolution noise cuts curves through big square pixels. Read it once per texel with <code>floor(sp) + 0.5</code>.</li>
+    <li><strong>Forgetting the game side.</strong> At <code>progress = 1</code> the shader still runs over an invisible quad and the collider still exists. Stop drawing the sprite, and switch off collisions when the dissolve starts.</li>
+    <li><strong>Every enemy burns at once.</strong> As with the hit flash, a shared material shares <code>progress</code>. Give each dying enemy its own value.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Four octaves of value noise is sixteen hashes per pixel: nothing for one sprite, even on a phone, but it adds up across a screen of large dissolving sprites. Production games usually read the noise from a small grey texture instead, one texture read. The hash also needs <code>highp</code>; in <code>mediump</code>, which some phones use in fragment shaders, it loses digits and the noise turns blocky. In 3D, opaque models dissolve with <code>discard</code> (Unity's <code>clip</code>), called alpha clipping. Discarding can stop the GPU from rejecting hidden pixels early, which tile-based mobile GPUs feel most, so switch to a clipping material only while the object dissolves.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Noise-threshold dissolves are a stock effect for defeated enemies, teleports and spawning objects in 2D and 3D games. Both engines can supply the noise without code: Godot has the <code>NoiseTexture2D</code> resource and Unity's Shader Graph has noise nodes. The same trick with a hand-painted grey map instead of noise makes screen wipes and oddly shaped fill bars: the map decides the order, the threshold moves.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make the slime burn from where it was hit, like the demo's <em>Point + noise</em> order.</p>
+  <ol>
+    <li>Add <code>uniform vec2 u_origin;</code> to the LÖVE shader and compute <code>float fromPoint = length(sp - u_origin) / 30.0;</code>.</li>
+    <li>Use <code>n = mix(fromPoint, noise, 0.4)</code> before the clamp, where <code>noise</code> is the stretched fBm.</li>
+    <li>In <code>love.mousepressed(x, y)</code>, turn the click into sprite pixels: subtract the sprite's top-left corner, divide by 8, and flip y with <code>20 - y</code>. Send it, then start the dissolve.</li>
+  </ol>
+  <p>You are done when clicking the slime's left eye starts the holes there, and clicking its bottom edge starts them at the bottom.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A dissolve gives every pixel a number for when it burns, the threshold map, and compares it with one rising value from the game.</li>
+    <li><code>step(cut, n)</code> keeps or removes the pixel; a second <code>step</code> at <code>cut + edge</code> finds the band to colour.</li>
+    <li>The map sets the look: noise burns in blobs, a gradient wipes, distance spreads from a point, a per-pixel hash crumbles.</li>
+    <li>Stretch the map to fill 0 to 1 and offset the cut by the band width so both ends of the progress range behave.</li>
+    <li>Read the noise in sprite coordinates, once per texel for pixel art.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, palette swaps on the GPU: recolouring a sprite by looking its colours up in a palette instead of storing a copy for every team.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters "Noise" and "Fractal Brownian Motion".</li>
+    <li>Dave Hoskins, <cite>Hash without Sine</cite> (Shadertoy). The hash here is a smaller one written in the same spirit: plain arithmetic, so it gives the same values on the CPU and the GPU.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite> and <cite>Shader:send</cite>.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite> (for <code>TEXTURE_PIXEL_SIZE</code>) and <cite>NoiseTexture2D</cite>.</li>
+    <li>Unity documentation, <cite>Accessing shader properties in Cg/HLSL</cite> (for <code>_TexelSize</code>), <cite>HLSL clip</cite> and Shader Graph's <cite>Simple Noise Node</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;   // the hash needs 32-bit floats",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_progress;   // 0 = whole sprite, 1 = all gone",
+    "uniform float u_edge;       // width of the burning band",
+    "uniform vec3 u_edgeColor;   // colour of the band",
+    "uniform float u_scale;      // noise cells across the sprite",
+    "uniform float u_pattern;    // 0 noise, 1 random per pixel, 2 top down, 3 from a point, 4 point + noise",
+    "uniform vec2 u_origin;      // burn origin, in sprite pixels",
+    "uniform float u_snap;       // 1 = one value per sprite pixel, 0 = smooth",
+    "uniform float u_stage;      // 0 texel, 1 threshold map, 2 mask, 3 final",
+    "",
+    "const vec2 SPRITE_SIZE = vec2(24.0, 20.0);   // in sprite pixels",
+    "const float ROW = 9.5;                       // the row plotted in the graph",
+    "",
+    "float ellipse(vec2 p, vec2 c, vec2 r) {",
+    "  return length((p - c) / r);   // below 1.0 inside the ellipse",
+    "}",
+    "",
+    "// The \"texture\": colour and alpha of one sprite pixel, y up.",
+    "vec4 sprite(vec2 sp) {",
+    "  vec4 col = vec4(0.0);",
+    "  if (ellipse(sp, vec2(12.0, 9.0), vec2(10.5, 8.5)) < 1.0 && sp.y > 1.0)",
+    "    col = vec4(0.10, 0.30, 0.14, 1.0);                                   // outline",
+    "  if (ellipse(sp, vec2(12.0, 9.0), vec2(9.5, 7.5)) < 1.0 && sp.y > 2.0)",
+    "    col = vec4(mix(vec3(0.20, 0.58, 0.28), vec3(0.36, 0.80, 0.40), sp.y / 17.0), 1.0);  // body",
+    "  if (length(sp - vec2(7.5, 13.0)) < 1.6) col = vec4(0.78, 0.96, 0.74, 1.0);    // shine",
+    "  if (length(sp - vec2(9.0, 9.5)) < 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);     // eyes",
+    "  if (length(sp - vec2(15.0, 9.5)) < 2.2) col = vec4(0.96, 0.96, 0.96, 1.0);",
+    "  if (length(sp - vec2(9.5, 9.0)) < 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);     // pupils",
+    "  if (length(sp - vec2(15.5, 9.0)) < 1.1) col = vec4(0.08, 0.08, 0.12, 1.0);",
+    "  return col;",
+    "}",
+    "",
+    "// A hash without sin(), so the graph below can repeat it on the CPU.",
+    "float hash(vec2 c) {",
+    "  c = fract(c * vec2(0.1031, 0.1137));",
+    "  c += dot(c, c + 19.19);",
+    "  return fract(c.x * c.y);",
+    "}",
+    "",
+    "float valueNoise(vec2 p) {",
+    "  vec2 i = floor(p);",
+    "  vec2 f = fract(p);",
+    "  vec2 u = f * f * (3.0 - 2.0 * f);",
+    "  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),",
+    "             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);",
+    "}",
+    "",
+    "// four octaves, each twice as fine and half as strong",
+    "float fbm(vec2 p) {",
+    "  float sum = 0.0;",
+    "  float amp = 0.5;",
+    "  for (int k = 0; k < 4; k++) {",
+    "    sum += amp * valueNoise(p);",
+    "    p = p * 2.0 + vec2(5.3, 1.7);",
+    "    amp *= 0.5;",
+    "  }",
+    "  return sum / 0.9375;   // 0.5 + 0.25 + 0.125 + 0.0625",
+    "}",
+    "",
+    "// The threshold map: when does this pixel burn? 0 = first, 1 = last.",
+    "float thresholdMap(vec2 sp) {",
+    "  float noise = (fbm(sp / SPRITE_SIZE.x * u_scale) - 0.2) / 0.6;   // stretch to fill 0..1",
+    "  float speck = hash(floor(sp));",
+    "  float topDown = 1.0 - sp.y / SPRITE_SIZE.y;",
+    "  float fromPoint = length(sp - u_origin) / 30.0;",
+    "  float n = noise;",
+    "  if (u_pattern > 0.5) n = speck;",
+    "  if (u_pattern > 1.5) n = topDown;",
+    "  if (u_pattern > 2.5) n = fromPoint;",
+    "  if (u_pattern > 3.5) n = mix(fromPoint, noise, 0.4);",
+    "  return clamp(n, 0.001, 0.999);   // never exactly 0 or 1",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up",
+    "",
+    "  // background: a dark tiled floor",
+    "  vec2 tile = floor(p * 8.0);",
+    "  vec3 bg = mix(vec3(0.15, 0.17, 0.22), vec3(0.19, 0.21, 0.27), mod(tile.x + tile.y, 2.0));",
+    "",
+    "  // the sprite's quad: 0.6 of the canvas height wide, centred",
+    "  float pixelSize = 0.6 / SPRITE_SIZE.x;",
+    "  vec2 sp = (p - vec2(-0.3, -0.25)) / pixelSize;   // sprite pixel coordinates",
+    "  bool inQuad = sp.x >= 0.0 && sp.x < SPRITE_SIZE.x && sp.y >= 0.0 && sp.y < SPRITE_SIZE.y;",
+    "",
+    "  vec3 col = bg;",
+    "  if (inQuad) {",
+    "    vec4 texel = sprite(floor(sp) + 0.5);                 // 1. read the texel",
+    "    vec2 np = mix(sp, floor(sp) + 0.5, u_snap);",
+    "    float n = thresholdMap(np);                            // 2. when does it burn?",
+    "    float cut = u_progress * (1.0 + u_edge) - u_edge;      // 3. the moving threshold",
+    "    float alive = step(cut, n);                            //    1 while n >= cut",
+    "    float edge = alive * (1.0 - step(cut + u_edge, n));    //    1 just above the cut",
+    "    vec3 rgb = mix(texel.rgb, u_edgeColor, edge);          // 4. colour the band",
+    "    col = mix(bg, rgb, texel.a * alive);                   //    and cut the alpha",
+    "",
+    "    float shape = mix(0.45, 1.0, texel.a);   // dims the empty part of the quad",
+    "    if (u_stage < 2.5) col = mix(vec3(alive * 0.9), u_edgeColor, edge) * shape;",
+    "    if (u_stage < 1.5) col = vec3(n) * shape;",
+    "    if (u_stage < 0.5) col = mix(bg, texel.rgb, texel.a);",
+    "    if (u_stage > 0.5 && u_stage < 2.5 && abs(sp.y - ROW) < 0.12) col = vec3(1.0, 0.3, 0.6);",
+    "  }",
+    "",
+    "  // demo only: a ring on the burn origin",
+    "  if (u_pattern > 2.5 && abs(length(sp - u_origin) - 0.9) < 0.15) col = vec3(1.0, 0.3, 0.6);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var SPRITE_W = 24, SPRITE_H = 20;
+  var ROW = 9.5;
+  var PIXEL = 0.6 / SPRITE_W;   // one sprite pixel, as a fraction of the canvas height
+  var BURN_TIME = 1.2;          // seconds, as DISSOLVE_TIME in the Lua
+  var HOLD = 0.6;               // pause between loops
+  var EDGE_COLORS = {
+    fire: [1.0, 0.55, 0.1],
+    ember: [1.0, 0.2, 0.1],
+    magic: [0.6, 0.4, 1.0],
+    ice: [0.6, 0.95, 1.0]
+  };
+
+  var origin = [12, 3];
+  var burning = false;
+  var hold = 0;
+  var handle = null;
+  var graph = null;
+
+  var ui = DemoKit.controls('[data-demo="dissolve"]');
+  ui.button({ label: 'Burn', onClick: burn });
+  ui.button({ label: 'Reset', onClick: reset });
+  var progress = ui.slider({ label: 'Progress', min: 0, max: 1, step: 0.005, value: 0.45, onInput: function () { burning = false; hold = 0; changed(); } });
+  var edgeW = ui.slider({ label: 'Edge width', min: 0, max: 0.3, step: 0.005, value: 0.08, onInput: changed });
+  var edgeC = ui.select({
+    label: 'Edge colour',
+    options: [
+      { value: 'fire', label: 'Fire orange' },
+      { value: 'ember', label: 'Ember red' },
+      { value: 'magic', label: 'Magic violet' },
+      { value: 'ice', label: 'Ice blue' }
+    ],
+    value: 'fire',
+    onChange: changed
+  });
+  var scale = ui.slider({ label: 'Noise scale', min: 1, max: 12, step: 0.5, value: 4, unit: ' cells', onInput: changed });
+  var pattern = ui.select({
+    label: 'Burn order',
+    options: [
+      { value: '0', label: 'Noise (fBm)' },
+      { value: '1', label: 'Random per pixel' },
+      { value: '2', label: 'Top down' },
+      { value: '3', label: 'From a point' },
+      { value: '4', label: 'Point + noise' }
+    ],
+    value: '0',
+    onChange: changed
+  });
+  var snap = ui.toggle({ label: 'One value per sprite pixel', value: true, onChange: changed });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Texel, no dissolve' },
+      { value: '1', label: '2. Threshold map n' },
+      { value: '2', label: '3. Mask: kept, edge, gone' },
+      { value: '3', label: '4. Final colour' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+  var loop = ui.toggle({ label: 'Loop the burn', value: false, onChange: function (on) { if (on) burning = true; changed(); } });
+  var cutOut = ui.readout({ label: 'Cut' });
+  var countOut = ui.readout({ label: 'Sprite pixels kept / edge / gone' });
+
+  // ---- CPU copies of the shader maths, for the graph and the counts ----
+  var F = Math.fround;   // round to 32-bit floats like the GPU
+  function fract32(x) { return F(x - Math.floor(x)); }
+  function clamp(x, a, b) { return Math.min(Math.max(x, a), b); }
+  function len(x, y) { return Math.sqrt(x * x + y * y); }
+
+  function hash(x, y) {
+    var a = fract32(F(x * F(0.1031)));
+    var b = fract32(F(y * F(0.1137)));
+    var d = F(F(a * F(a + F(19.19))) + F(b * F(b + F(19.19))));
+    a = F(a + d);
+    b = F(b + d);
+    return fract32(F(a * b));
+  }
+
+  function valueNoise(x, y) {
+    var ix = Math.floor(x), iy = Math.floor(y);
+    var fx = x - ix, fy = y - iy;
+    var ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    var a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
+    var lo = a + (b - a) * ux, hi = c + (d - c) * ux;
+    return lo + (hi - lo) * uy;
+  }
+
+  function fbm(x, y) {
+    var sum = 0, amp = 0.5;
+    for (var k = 0; k < 4; k++) {
+      sum += amp * valueNoise(x, y);
+      x = x * 2 + 5.3;
+      y = y * 2 + 1.7;
+      amp *= 0.5;
+    }
+    return sum / 0.9375;
+  }
+
+  function thresholdAt(x, y) {
+    var s = scale.value / SPRITE_W;
+    var noise = (fbm(x * s, y * s) - 0.2) / 0.6;
+    var fromPoint = len(x - origin[0], y - origin[1]) / 30;
+    var n = noise;
+    var pat = Number(pattern.value);
+    if (pat === 1) n = hash(Math.floor(x), Math.floor(y));
+    if (pat === 2) n = 1 - y / SPRITE_H;
+    if (pat === 3) n = fromPoint;
+    if (pat === 4) n = fromPoint + (noise - fromPoint) * 0.4;
+    return clamp(n, 0.001, 0.999);
+  }
+
+  function ell(x, y, cx, cy, rx, ry) { return len((x - cx) / rx, (y - cy) / ry); }
+
+  // the same slime as the shader; null where the sprite is transparent
+  function spriteAt(x, y) {
+    var c = null;
+    if (ell(x, y, 12, 9, 10.5, 8.5) < 1 && y > 1) c = [0.10, 0.30, 0.14];
+    if (ell(x, y, 12, 9, 9.5, 7.5) < 1 && y > 2) {
+      var t = y / 17;
+      c = [0.20 + 0.16 * t, 0.58 + 0.22 * t, 0.28 + 0.12 * t];
+    }
+    if (len(x - 7.5, y - 13) < 1.6) c = [0.78, 0.96, 0.74];
+    if (len(x - 9, y - 9.5) < 2.2 || len(x - 15, y - 9.5) < 2.2) c = [0.96, 0.96, 0.96];
+    if (len(x - 9.5, y - 9) < 1.1 || len(x - 15.5, y - 9) < 1.1) c = [0.08, 0.08, 0.12];
+    return c;
+  }
+
+  function cutNow() {
+    return progress.value * (1 + edgeW.value) - edgeW.value;
+  }
+
+  // 0 gone, 1 edge, 2 kept
+  function classify(n, cut) {
+    if (n < cut) return 0;
+    if (n < cut + edgeW.value) return 1;
+    return 2;
+  }
+
+  function css(rgb) {
+    return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+  }
+
+  function changed() {
+    var cut = cutNow();
+    cutOut.set(cut.toFixed(3));
+    var counts = [0, 0, 0];
+    for (var y = 0; y < SPRITE_H; y++) {
+      for (var x = 0; x < SPRITE_W; x++) {
+        if (spriteAt(x + 0.5, y + 0.5)) counts[classify(thresholdAt(x + 0.5, y + 0.5), cut)]++;
+      }
+    }
+    countOut.set(counts[2] + ' / ' + counts[1] + ' / ' + counts[0]);
+    if (handle) handle.redraw();
+    if (graph) graph.redraw();
+  }
+
+  function burn() {
+    if (progress.value >= 1) progress.set(0);
+    burning = true;
+    hold = 0;
+    changed();
+  }
+
+  function reset() {
+    burning = false;
+    hold = 0;
+    progress.set(0);
+    changed();
+  }
+
+  function setOrigin(p, s) {
+    var nx = (p.x - s.width / 2) / s.height;
+    var ny = (s.height / 2 - p.y) / s.height;
+    origin = [clamp((nx + 0.3) / PIXEL, -4, 28), clamp((ny + 0.25) / PIXEL, -4, 24)];
+    if (Number(pattern.value) < 3) pattern.set('4');
+    changed();
+  }
+
+  handle = DemoKit.shader('#dissolve-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 360,
+    keys: true,
+    drag: true,
+    label: 'A live fragment shader drawing a green pixel-art slime on a dark tiled floor. As the progress value rises, holes open in the slime and spread, each surrounded by a band of the edge colour, until the slime is gone. Clicking or dragging, or the arrow keys, move the point the burn starts from. Space or enter starts a burn.',
+    uniforms: {
+      u_progress: function () { return progress.value; },
+      u_edge: function () { return edgeW.value; },
+      u_edgeColor: function () { return EDGE_COLORS[edgeC.value]; },
+      u_scale: function () { return scale.value; },
+      u_pattern: function () { return Number(pattern.value); },
+      u_origin: function () { return origin; },
+      u_snap: function () { return snap.value ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); }
+    },
+    onDown: function (p, s) { setOrigin(p, s); },
+    onMove: function (p, s) { if (p.down) setOrigin(p, s); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var moved = true;
+      if (key === 'arrowleft') origin = [origin[0] - 1, origin[1]];
+      else if (key === 'arrowright') origin = [origin[0] + 1, origin[1]];
+      else if (key === 'arrowup') origin = [origin[0], origin[1] + 1];
+      else if (key === 'arrowdown') origin = [origin[0], origin[1] - 1];
+      else moved = false;
+      if (moved) {
+        origin = [clamp(origin[0], -4, 28), clamp(origin[1], -4, 24)];
+        if (Number(pattern.value) < 3) pattern.set('4');
+        changed();
+      }
+      if (key === 'space' || key === 'enter') burn();
+    },
+    update: function (dt) {
+      if (!burning) return;
+      if (hold > 0) {
+        hold -= dt;
+        if (hold <= 0) {
+          hold = 0;
+          progress.set(0);
+        }
+        changed();
+        return;
+      }
+      var v = Math.min(progress.value + dt / BURN_TIME, 1);
+      progress.set(v);
+      if (v >= 1) {
+        if (loop.value) hold = HOLD;
+        else burning = false;
+      }
+      changed();
+    }
+  });
+
+  graph = DemoKit.canvas('#dissolve-graph', {
+    height: 210,
+    animate: false,
+    label: 'A graph of the threshold value n along the marked row of the sprite, from the left edge to the right edge. A solid line marks the cut, a shaded band above it marks the edge, and the area below the cut is shaded as gone. Underneath, a strip of 24 squares shows each pixel of the row as kept, edge or gone.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var left = 34, right = s.width - 14, top = 30, bottom = s.height - 70;
+      var stripY = bottom + 12, stripH = Math.min(22, (right - left) / SPRITE_W);
+      function X(sx) { return left + (sx / SPRITE_W) * (right - left); }
+      function Y(v) { return bottom - clamp(v, 0, 1) * (bottom - top); }
+      var cut = cutNow();
+      var edge = edgeW.value;
+      var edgeCss = css(EDGE_COLORS[edgeC.value]);
+
+      ctx.font = '12px system-ui, sans-serif';
+
+      // gone region and edge band
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(left, Y(cut), right - left, Y(0) - Y(cut));
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = edgeCss;
+      ctx.fillRect(left, Y(cut + edge), right - left, Y(cut) - Y(cut + edge));
+      ctx.globalAlpha = 1;
+
+      // axes
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(0)); ctx.lineTo(right, Y(0));
+      ctx.moveTo(left, Y(1)); ctx.lineTo(right, Y(1));
+      ctx.stroke();
+
+      // the cut
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(left, Y(cut)); ctx.lineTo(right, Y(cut));
+      ctx.stroke();
+
+      // n along the row
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      var steps = Math.max(24, Math.round(right - left));
+      for (var j = 0; j <= steps; j++) {
+        var sx = Math.min(SPRITE_W * j / steps, SPRITE_W - 0.0001);
+        var x = snap.value ? Math.floor(sx) + 0.5 : sx;
+        var px = X(sx), py = Y(thresholdAt(x, ROW));
+        if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // the row's pixels
+      var cellW = (right - left) / SPRITE_W;
+      for (var i = 0; i < SPRITE_W; i++) {
+        var cx = i + 0.5;
+        var col = spriteAt(cx, ROW);
+        var x0 = X(i) + 1, w = cellW - 2;
+        if (!col) {
+          ctx.strokeStyle = c.line;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x0 + 0.5, stripY + 0.5, w - 1, stripH - 1);
+          continue;
+        }
+        var k = classify(thresholdAt(cx, ROW), cut);
+        if (k === 0) {
+          ctx.setLineDash([3, 3]);
+          ctx.strokeStyle = c.ink3;
+          ctx.strokeRect(x0 + 0.5, stripY + 0.5, w - 1, stripH - 1);
+          ctx.setLineDash([]);
+        } else {
+          ctx.fillStyle = k === 1 ? edgeCss : css(col);
+          ctx.fillRect(x0, stripY, w, stripH);
+        }
+      }
+
+      // labels
+      ctx.fillStyle = c.ink3;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      ctx.fillText('1', left - 8, Y(1));
+      ctx.fillText('0', left - 8, Y(0));
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('n along the pink row (line: cut, band: edge)', left, 18);
+      ctx.fillStyle = c.ink3;
+      ctx.fillText('Row: solid kept, edge colour, dashed gone', left, stripY + stripH + 22);
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

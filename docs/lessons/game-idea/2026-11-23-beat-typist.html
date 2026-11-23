@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beat Typist: every letter lands on the beat · Game Dev Daily</title>
+<meta name="description" content="A typing rhythm game where each letter must land on a beat and long words become half-beat drum fills. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Beat Typist: every letter lands on the beat</h1>
+  <p class="lede">A typing rhythm game where each letter must land on a beat and long words become half-beat drum fills. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your fingers can type "snare" in a quarter of a second. Here they must type it like a drummer, one letter on each beat, while more words pile up and long ones turn into fast fills on the half beat.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: slow your fingers down to the beat</h2>
+  <p>Most typing games reward speed. This one rewards <em>timing</em>. A steady beat pulses on screen. Words wait in a queue, and you always type the front word. Each letter must be pressed on a beat, one after another, with no beat skipped. The word is a short drum part, and your keyboard is the drum kit.</p>
+  <p>Two choices belong to the player. First, <strong>when to start</strong>: the first letter may land on any beat, so you can rest between words to breathe. Second, <strong>how to handle fills</strong>: a word of six letters or more is a <dfn>fill</dfn>, a quick run of notes that drummers play between sections. Its letters fall on every <dfn>half beat</dfn>, the point halfway between two beats. A fill is harder to keep steady but clears the queue twice as fast per letter and scores double.</p>
+  <p>Every ten seconds you type one or two words and see each letter land early, late or right on the beat. Every minute the queue grows faster and you decide whether to rest or chain words back to back. Every session is a set of songs, each with its own tempo and word list.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: wait for a beat, type one letter per beat until the word ends, and read where each letter landed, which leads back to waiting for a beat. Beside it, two longer loops: every minute the queue grows faster, and every session a set of songs with new tempos.">
+      <defs>
+        <marker id="bt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Pick a beat to start</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">rest or chain words</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Type on each beat</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">no beat skipped</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">See where it landed</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">early, late, perfect</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#bt-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#bt-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#bt-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every word</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">words arrive faster,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">fills catch you up</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">songs with new</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">tempos and words</text>
+    </svg>
+    <figcaption>The short loop is one word. The longer loops raise the pressure and change the music.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>One letter per grid point.</strong> Short words take one letter per beat. Fills take one letter per half beat. Both must start on a full beat.</li>
+    <li><strong>The timing window.</strong> A letter within 0.12 seconds of its grid point counts. Within 0.05 seconds it is <em>perfect</em> and worth 3 points; otherwise 1.</li>
+    <li><strong>A word breaks easily.</strong> A wrong letter, a letter typed off the beat, or a grid point passing with no letter sends the word back to its first letter and resets the combo. The word stays at the front.</li>
+    <li><strong>Finishing pays.</strong> A finished word adds one point per letter, two for a fill.</li>
+    <li><strong>The queue is the danger.</strong> A new word arrives every few beats, a little sooner after each word you finish. If more than six words are waiting, the song stops. Finish twenty words to win.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 190" role="img" aria-label="A timeline of four beats. The word kick puts one letter on each of the four beats. The word drumroll puts its eight letters on every half beat across the same four beats, so it is twice as dense, like a drum fill.">
+      <text class="d-label" x="20" y="64">kick</text>
+      <text class="d-label" x="20" y="124">drumroll</text>
+      <path class="d-thin" d="M110 60 H600"/>
+      <path class="d-thin" d="M110 120 H600"/>
+      <path class="d-dash" d="M130 30 V140"/>
+      <path class="d-dash" d="M240 30 V140"/>
+      <path class="d-dash" d="M350 30 V140"/>
+      <path class="d-dash" d="M460 30 V140"/>
+      <path class="d-dash" d="M570 30 V140"/>
+      <g text-anchor="middle">
+        <circle class="d-accent-soft" cx="130" cy="60" r="13"/><text class="d-mono" x="130" y="64">k</text>
+        <circle class="d-accent-soft" cx="240" cy="60" r="13"/><text class="d-mono" x="240" y="64">i</text>
+        <circle class="d-accent-soft" cx="350" cy="60" r="13"/><text class="d-mono" x="350" y="64">c</text>
+        <circle class="d-accent-soft" cx="460" cy="60" r="13"/><text class="d-mono" x="460" y="64">k</text>
+        <circle class="d-box" cx="130" cy="120" r="12"/><text class="d-mono" x="130" y="124">d</text>
+        <circle class="d-box" cx="185" cy="120" r="12"/><text class="d-mono" x="185" y="124">r</text>
+        <circle class="d-box" cx="240" cy="120" r="12"/><text class="d-mono" x="240" y="124">u</text>
+        <circle class="d-box" cx="295" cy="120" r="12"/><text class="d-mono" x="295" y="124">m</text>
+        <circle class="d-box" cx="350" cy="120" r="12"/><text class="d-mono" x="350" y="124">r</text>
+        <circle class="d-box" cx="405" cy="120" r="12"/><text class="d-mono" x="405" y="124">o</text>
+        <circle class="d-box" cx="460" cy="120" r="12"/><text class="d-mono" x="460" y="124">l</text>
+        <circle class="d-box" cx="515" cy="120" r="12"/><text class="d-mono" x="515" y="124">l</text>
+        <text class="d-muted" x="130" y="168">beat 1</text>
+        <text class="d-muted" x="240" y="168">beat 2</text>
+        <text class="d-muted" x="350" y="168">beat 3</text>
+        <text class="d-muted" x="460" y="168">beat 4</text>
+        <text class="d-muted" x="570" y="168">next word</text>
+      </g>
+    </svg>
+    <figcaption>Four letters and eight letters take the same four beats. The long word is the fill.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the drummer who keeps perfect time while the band speeds up around them. The constraint is the opposite of every typing tutor: <em>you are not allowed to go fast</em>. A skilled typist has words stored as quick bursts in their fingers, and the game asks them to spread those bursts out evenly. That fight between habit and beat is the fun, and it means fast typists have no head start over slow ones.</p>
+  <p>The free start matters too. Nothing scrolls toward you to force a moment. You choose the downbeat of every word, so resting is a decision, and the growing queue makes it a costly one.</p>
+  <p>The hardest part to build is fair timing. Keyboards, browsers and screens all add delay, and a game that judges to within 50 milliseconds needs a calibration step and must time key presses precisely, not just once per frame.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Start the beat, wait for the count-in, then type the front word one letter per beat. Watch the lane under the word: the letters sit on the beats where they are due, and each press leaves a mark showing how early or late it was. Then try a fill and feel the gap between letters halve.</p>
+
+  <figure class="demo wide" data-demo="beat-typist">
+    <canvas id="beat-typist"></canvas>
+    <figcaption>Controls: click the canvas, then press <kbd>Space</kbd> or <kbd>Enter</kbd> to start and type letters with your keyboard. On a phone, tap the canvas: each tap types the next letter for you, so you only keep the rhythm. Restart starts over. The Tempo slider sets the beats per minute and restarts the song. The click sound plays only when you turn it on. Marks on the lane: green is perfect, blue counts, red broke the word.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: the first letter snaps to the nearest beat, every later letter is due a fixed step after it, and the update breaks the word if a due time passes. Spawning words, the queue limit and drawing are left out. The names and numbers are the demo's.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local BPM = 80
+local BEAT = 60 / BPM                   <span class="c">-- seconds per beat</span>
+local GOOD, PERFECT, FILL = 0.12, 0.05, 6
+local time = -4 * BEAT                  <span class="c">-- a four beat count-in before zero</span>
+local score, combo = 0, 0
+local queue = { "kick", "groove" }      <span class="c">-- words waiting, front first</span>
+local progress, start = 0, 0            <span class="c">-- letters typed, beat the word began on</span>
+
+local function step(word)               <span class="c">-- fills move on the half beat</span>
+  if #word &gt;= FILL then return 0.5 end
+  return 1
+end
+
+<span class="k">local function due()                    -- when the next letter must land
+  return (start + progress * step(queue[1])) * BEAT
+end</span>
+
+local function breakWord()
+  progress, combo = 0, 0
+end
+
+function love.keypressed(key)
+  local word = queue[1]
+  if not word or #key ~= 1 or time &lt; -GOOD then return end
+  if progress == 0 then start = math.floor(time / BEAT + 0.5) end
+  local off = time - due()              <span class="c">-- below zero: early, above zero: late</span>
+  if key ~= word:sub(progress + 1, progress + 1) or math.abs(off) &gt; GOOD then
+    breakWord()                         <span class="c">-- a typo, or off the beat</span>
+    return
+  end
+  progress, combo = progress + 1, combo + 1
+  score = score + ((math.abs(off) &lt;= PERFECT) and 3 or 1)
+  if progress == #word then             <span class="c">-- finished: fills pay double</span>
+    score = score + #word / step(word)
+    table.remove(queue, 1)
+    progress = 0
+  end
+end
+
+function love.update(dt)
+  time = time + dt
+  if progress &gt; 0 and time &gt; due() + GOOD then
+    breakWord()                         <span class="c">-- a beat passed with no letter</span>
+  end
+end</code></pre>
+  </div>
+  <p><code>love.keypressed</code> names letter keys <code>"a"</code> to <code>"z"</code>, which is why a one-character check is enough here. The demo also measures the time between frames when a key arrives. In LÖVE the clock only moves once per frame, so at 60 frames per second a press can be judged up to 17 milliseconds wrong. That is a third of the perfect window.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The beat is hard to feel in silence.</strong> A flashing circle is a weak metronome. If testers drift late by the same amount on every letter, they need sound. Make the click and the music the default in the real game, with a calibration screen.</li>
+    <li><strong>One mistake costs too much.</strong> Breaking the whole word is clear, but on a ten-letter fill it can feel cruel. Watch whether testers start avoiding fills. If they do, keep the typed letters and only reset the combo, or let a fill resume on the next beat.</li>
+    <li><strong>The reader stops reading.</strong> At slow tempos testers may type from memory and stop looking at the word. That is fine. If they start mistyping familiar words, the habit fight is working; if they mistype strange words, the list is too hard to read in rhythm.</li>
+    <li><strong>The queue never matters.</strong> If testers never see more than two waiting words, there is no reason to chain words or risk fills. Tune the arrival rate until a good player reaches four or five waiting at least once per song.</li>
+    <li><strong>Touch players get a different game.</strong> Tapping removes spelling and leaves pure rhythm. It is good for a demo, but decide early whether phones are a real target, because the game without spelling may be too thin.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Typing games are an established genre. <cite>The Typing of the Dead</cite> from Sega turned a light-gun zombie shooter into one where every shot is a typed word, and <cite>Epistory</cite> builds a whole adventure on typing. In both, as far as I know, the reward is for typing accurately and fast enough.</p>
+  <p>Rhythm games are their own large genre, and nearly all of them use a <dfn>chart</dfn>: notes placed at fixed times that scroll toward a hit line. Beat Typist has no chart. The player picks the start of every word, and the spelling decides the pattern. There are likely indie games that combine typing and rhythm; I have not surveyed them, so I will not claim this idea is the first.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with a flashing circle on each beat, the front word drawn large and a printed offset in milliseconds after every letter. Add a click sound on each beat, and use a fixed list of ten words.</p>
+  <p>Give it to three people, at least one of them a fast typist. The one question: <strong>do fast typists rush?</strong> If their offsets lean early on familiar words, the core tension exists and the game is worth building. If everyone simply waits and taps, the words are not pulling at their fingers. Try common words and more fills, then test again.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one tempo, the beat grid, fills on the half beat, the queue, word breaking and a score.</li>
+    <li><strong>One-month version:</strong> songs with real music and their own word lists, a lag calibration screen, tempo changes inside a song, and a results screen that shows which letters you rush.</li>
+    <li><strong>Cut first:</strong> power-ups, multiple lanes and story. Each one pulls the eye away from the word and the beat.</li>
+    <li><strong>Hardest part:</strong> timing that feels fair. Time key presses precisely and build the offset display before tuning any windows.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: let each letter play a drum sound chosen by its row on the keyboard, so typing a sentence on the beat plays a groove you composed by spelling.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (2008). On input response and why small delays change how a game feels.</li>
+    <li>Raph Koster, <cite>A Theory of Fun for Game Design</cite> (2004). On fun as learning patterns, here the pattern of a word in time.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On core loops and playtesting.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var MONO = 'ui-monospace, Menlo, Consolas, monospace';
+  var GOOD = 0.12, PERFECT = 0.05, FILL = 6, GOAL = 20, MAXQ = 6, COUNT = 4;
+  var SHORT = ['kick', 'snare', 'drum', 'beat', 'clap', 'tom', 'bass', 'roll', 'tap', 'hat', 'pulse', 'tempo', 'swing', 'loud'];
+  var LONG = ['groove', 'cymbal', 'rhythm', 'shuffle', 'backbeat', 'drumroll', 'paradiddle'];
+
+  var mode, beat, time, score, combo, best, done, spawned, queue, progress, start;
+  var nextSpawn, marks, popText, popTone, popLife, msg, tone, rng, lastBeat, stamp;
+  var handle = null, audio = null;
+
+  function say(text, t) { msg = text; tone = t || 'ink2'; }
+  function pop(text, t) { popText = text; popTone = t; popLife = 0.8; }
+  function step(word) { return word.length >= FILL ? 0.5 : 1; }
+  function due() { return (start + progress * step(queue[0])) * beat; }
+
+  function pick() {
+    spawned += 1;
+    if (rng() < 0.35) return LONG[Math.floor(rng() * LONG.length)];
+    return SHORT[Math.floor(rng() * SHORT.length)];
+  }
+
+  function restart() {
+    beat = 60 / tempo.value;
+    rng = DemoKit.rng(7);
+    mode = 'idle'; time = -COUNT * beat;
+    score = 0; combo = 0; best = 0; done = 0; spawned = 0;
+    queue = []; queue.push(pick()); queue.push(pick());
+    progress = 0; start = 0; nextSpawn = 8; marks = [];
+    popText = ''; popTone = 'ink2'; popLife = 0;
+    lastBeat = null;
+    stamp = performance.now();
+    say('Press Space or Enter, or tap the canvas, to count in the beat.', 'ink2');
+    if (handle) handle.redraw();
+  }
+
+  function begin() {
+    mode = 'play';
+    stamp = performance.now();
+    say('Four beats of count-in. Then type the front word, one letter per beat.', 'ink2');
+    if (handle) handle.play();
+  }
+
+  function click(accent) {
+    if (!sound.value || !audio) return;
+    var now = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = accent ? 1320 : 880;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.2, now + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+    o.connect(g); g.connect(audio.destination);
+    o.start(now); o.stop(now + 0.08);
+  }
+
+  function mark(t, toneName) {
+    marks.push({ t: t, tone: toneName });
+    if (marks.length > 16) marks.shift();
+  }
+
+  function breakWord(text, why) {
+    progress = 0; combo = 0;
+    pop(text, 'bad');
+    say(why + ' The word starts again from its first letter.', 'warn');
+  }
+
+  function press(key) {
+    if (mode === 'idle') { begin(); return; }
+    if (mode !== 'play') return;
+    var word = queue[0];
+    var t = time + Math.min(0.05, Math.max(0, (performance.now() - stamp) / 1000));
+    if (t < -GOOD) return;                        // still counting in
+    if (!word) { pop('No word yet', 'ink3'); return; }
+    if (key === null) key = word.charAt(progress); // tap mode types the right letter
+    if (progress === 0) start = Math.round(t / beat);
+    var off = t - due();
+    if (key !== word.charAt(progress)) {
+      mark(t, 'bad');
+      breakWord('Typo', 'Typo: "' + key + '" is not "' + word.charAt(progress) + '".');
+      return;
+    }
+    if (Math.abs(off) > GOOD) {
+      mark(t, 'bad');
+      if (progress === 0) breakWord('Off the beat', 'Off the beat: start a word on a beat.');
+      else breakWord(off < 0 ? 'Rushed' : 'Late', (off < 0 ? 'Rushed' : 'Late') + ' by ' + Math.round(Math.abs(off) * 1000) + ' ms.');
+      return;
+    }
+    var perfect = Math.abs(off) <= PERFECT;
+    mark(t, perfect ? 'good' : 'topic');
+    progress += 1; combo += 1; best = Math.max(best, combo);
+    score += perfect ? 3 : 1;
+    pop(perfect ? 'Perfect' : (off < 0 ? 'Early' : 'Late'), perfect ? 'good' : 'ink2');
+    if (progress === word.length) {
+      score += word.length / step(word);
+      queue.shift(); progress = 0; done += 1;
+      if (done >= GOAL) {
+        mode = 'won';
+        say('Song complete! Score ' + score + ', best combo ' + best + '. Press Enter or tap to play again.', 'good');
+      } else {
+        say(step(word) < 1 ? 'Fill played! Fills score double.' : 'Word played. Rest, or start the next on any beat.', 'good');
+      }
+    }
+  }
+
+  function update(dt) {
+    stamp = performance.now();
+    popLife = Math.max(0, popLife - dt);
+    if (mode !== 'play') return;
+    time += dt;
+    var b = Math.floor(time / beat);
+    if (b !== lastBeat) { lastBeat = b; click(b < 0 || b % 4 === 0); }
+    if (progress > 0 && time > due() + GOOD) breakWord('Missed', 'A beat passed with no letter.');
+    if (queue.length === 0 && spawned < GOAL) nextSpawn = Math.min(nextSpawn, b + 1);
+    if (spawned < GOAL && time / beat >= nextSpawn) {
+      queue.push(pick());
+      nextSpawn += Math.max(5, 9 - 0.25 * done);
+      if (queue.length > MAXQ) {
+        mode = 'over';
+        say('Too many words piled up. Score ' + score + ', best combo ' + best + '. Press Enter or tap to try again.', 'bad');
+      }
+    }
+  }
+
+  function wrap(ctx, text, maxW) {
+    if (ctx.measureText(text).width <= maxW) return [text];
+    var words = text.split(' '), a = '', i = 0;
+    while (i < words.length && ctx.measureText(a + words[i]).width <= maxW) { a += words[i] + ' '; i++; }
+    return [a.trim(), words.slice(i).join(' ')];
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height;
+    var word = queue[0], bt = time / beat;
+    ctx.textBaseline = 'alphabetic';
+
+    // HUD: goal and score on the left, the waiting queue on the right
+    ctx.textAlign = 'left'; ctx.font = '600 14px ' + FONT; ctx.fillStyle = c.ink;
+    ctx.fillText('Words ' + done + ' / ' + GOAL, 10, 22);
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2;
+    ctx.fillText('Score ' + score, 10, 40);
+    ctx.fillText('Combo ' + combo, 10, 58);
+    ctx.textAlign = 'right'; ctx.font = '600 13px ' + FONT; ctx.fillStyle = c.ink;
+    ctx.fillText('Waiting', w - 10, 22);
+    for (var q = 0; q < MAXQ; q++) {
+      var full = q < queue.length;
+      ctx.fillStyle = full ? (queue.length >= MAXQ - 1 ? c.bad : c.warn) : c.surface2;
+      ctx.fillRect(w - 10 - (MAXQ - q) * 15 + 3, 32, 12, 12);
+    }
+
+    // The beat: a circle that swells on every beat, with the count inside
+    var cx = w / 2, cy = 88, ph = bt - Math.floor(bt);
+    var kick = mode === 'play' ? Math.exp(-ph * 7) : 0;
+    ctx.fillStyle = c.topic; ctx.globalAlpha = 0.12 + 0.55 * kick;
+    ctx.beginPath(); ctx.arc(cx, cy, 24 + 8 * kick, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = c.topic; ctx.lineWidth = 2; ctx.stroke();
+    ctx.textAlign = 'center'; ctx.font = '700 18px ' + FONT; ctx.fillStyle = c.ink;
+    var label = '-';
+    if (mode === 'play') label = time < 0 ? String(-Math.floor(bt)) : String((Math.floor(bt) % 4) + 1);
+    ctx.fillText(label, cx, cy + 6);
+    if (popLife > 0) {
+      ctx.globalAlpha = Math.min(1, popLife / 0.3);
+      ctx.font = '700 13px ' + FONT; ctx.fillStyle = c[popTone] || c.ink2;
+      ctx.fillText(popText, cx, 140);
+      ctx.globalAlpha = 1;
+    }
+
+    // The front word, typed letters in colour and the next one underlined
+    if (word) {
+      ctx.font = '700 30px ' + MONO;
+      var cw = ctx.measureText('m').width, x0 = cx - cw * word.length / 2;
+      ctx.textAlign = 'left';
+      for (var i = 0; i < word.length; i++) {
+        ctx.fillStyle = i < progress ? c.topic : (i === progress ? c.ink : c.ink3);
+        ctx.fillText(word.charAt(i), x0 + i * cw, 178);
+      }
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(x0 + progress * cw, 184, cw, 3);
+      ctx.textAlign = 'center'; ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2;
+      ctx.fillText(step(word) < 1 ? 'Fill: one letter every half beat' : 'One letter per beat', cx, 204);
+    } else {
+      ctx.textAlign = 'center'; ctx.font = '15px ' + FONT; ctx.fillStyle = c.ink3;
+      ctx.fillText(mode === 'won' ? 'All words played' : 'Waiting for a word', cx, 178);
+    }
+
+    // The lane: beats scroll toward the now line, letters sit where they are due
+    var laneY = 222, laneH = 60, nowX = 50, ppb = (w - 70) / 5;
+    var xAt = function (t) { return nowX + (t - time) / beat * ppb; };
+    ctx.fillStyle = c.surface2; ctx.fillRect(10, laneY, w - 20, laneH);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(10, laneY, w - 20, laneH); ctx.clip();
+    var fill = word && step(word) < 1;
+    for (var k = Math.floor(bt) - 2; k <= Math.ceil(bt) + 7; k++) {
+      var bx = xAt(k * beat);
+      ctx.fillStyle = k % 4 === 0 ? c.ink2 : c.ink3;
+      ctx.fillRect(bx - 1, laneY, 2, laneH);
+      if (fill) { ctx.fillStyle = c.line; ctx.fillRect(xAt((k + 0.5) * beat) - 1, laneY + 18, 2, laneH - 36); }
+    }
+    for (var m = 0; m < marks.length; m++) {
+      ctx.fillStyle = c[marks[m].tone] || c.ink2;
+      ctx.fillRect(xAt(marks[m].t) - 2, laneY + laneH - 14, 4, 14);
+    }
+    if (word) {
+      var s0 = progress > 0 ? start : Math.max(0, Math.ceil((time - GOOD) / beat));
+      ctx.font = '700 15px ' + MONO; ctx.textAlign = 'center';
+      ctx.globalAlpha = progress > 0 ? 1 : 0.6;
+      for (var j = progress; j < word.length; j++) {
+        var lx = xAt((s0 + j * step(word)) * beat);
+        ctx.fillStyle = j === progress ? c.topic : c.surface;
+        ctx.beginPath(); ctx.arc(lx, laneY + 26, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = j === progress ? c.surface : c.ink;
+        ctx.fillText(word.charAt(j), lx, laneY + 31);
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    ctx.fillStyle = c.topic; ctx.fillRect(nowX - 1.5, laneY - 4, 3, laneH + 8);
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink3; ctx.textAlign = 'left';
+    ctx.fillText('now', nowX - 10, laneY - 8);
+
+    // Coming up next
+    ctx.font = '13px ' + FONT; ctx.fillStyle = c.ink2;
+    var rest = queue.slice(1, 4).join('   ') + (queue.length > 4 ? '   ...' : '');
+    ctx.fillText('Next: ' + (rest || '-'), 10, 310);
+
+    // Message, kept clear of the Pause button in the bottom-right corner
+    ctx.font = '600 13px ' + FONT; ctx.fillStyle = c[tone] || c.ink2;
+    var lines = wrap(ctx, msg, w - 100);
+    ctx.fillText(lines[0], 10, h - (lines.length > 1 ? 28 : 14));
+    if (lines.length > 1) ctx.fillText(lines[1], 10, h - 11);
+  }
+
+  var ui = DemoKit.controls('[data-demo="beat-typist"]');
+  ui.button({ label: 'Restart', onClick: restart });
+  var tempo = ui.slider({ label: 'Tempo', min: 50, max: 120, step: 5, value: 80, unit: ' BPM', onInput: function () { restart(); } });
+  var sound = ui.toggle({
+    label: 'Click on each beat (sound)', value: false,
+    onChange: function (on) {
+      if (!on || audio) { if (audio && audio.state === 'suspended') audio.resume(); return; }
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) { try { audio = new AC(); } catch (e) { audio = null; } }
+    }
+  });
+
+  restart();
+  handle = DemoKit.canvas('#beat-typist', {
+    height: 380,
+    keys: true,
+    label: 'Beat Typist prototype: a pulsing beat, a queue of words, and a lane where the letters of the front word sit on the beats where they must be typed. Long words are fills typed on the half beat.',
+    update: update,
+    draw: draw,
+    onDown: function () {
+      if (mode === 'over' || mode === 'won') { restart(); begin(); return; }
+      press(null);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (/^[a-z]$/.test(key)) { press(key); return; }
+      if (key === 'space' || key === 'enter') {
+        if (mode === 'idle') begin();
+        else if (mode === 'over' || mode === 'won') { restart(); begin(); }
+      }
+    }
+  });
+  var cv = document.getElementById('beat-typist');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>

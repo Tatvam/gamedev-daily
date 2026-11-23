@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Random seeds: how does the same seed build the same dungeon? · Game Dev Daily</title>
+<meta name="description" content="How a pseudo-random generator turns one starting number, the seed, into a repeatable sequence, and how to use it to rebuild the same level every time.">
+<meta name="gdd:topic" content="game-math">
+<meta name="gdd:date" content="2026-11-23">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+<style>
+  .v-seed { color: var(--warn); font-weight: 650; }
+  .v-num { color: var(--t-game-math, var(--topic)); font-weight: 650; }
+  .seed-input {
+    font: inherit; font-family: var(--font-mono); color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-height: 36px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .seed-input:focus-visible { outline: 2px solid var(--topic); outline-offset: 1px; }
+</style>
+</head>
+<body class="lesson" data-topic="game-math">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Random seeds: how does the same seed build the same dungeon?</h1>
+  <p class="lede">How a pseudo-random generator turns one starting number, the seed, into a repeatable sequence, and how to use it to rebuild the same level every time.</p>
+</header>
+
+<section data-section="hook">
+  <p>A player posts "seed 12345 has a great first floor", and everyone who types 12345 gets the same rooms. A tester reports a bug in a randomly built level, and you want that exact level on your machine. Both need randomness you can replay.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Random numbers from a formula</h2>
+  <p>A computer follows instructions exactly, so it cannot make truly random numbers out of nothing. Instead it uses a <dfn>pseudo-random number generator</dfn> (PRNG): a small formula that takes the current number and produces the next one. The numbers look random, but each one is fixed by the one before it.</p>
+  <p>The number the generator is holding right now is its <dfn>state</dfn>. The number you put in before the first step is the <dfn>seed</dfn>. Same seed, same steps, same numbers, every time.</p>
+
+  <h3>A toy generator you can run by hand</h3>
+  <p>Here is one rule: multiply the current number by 5, add 3, and keep only the remainder after dividing by 16. "Keep the remainder" is called <dfn>mod</dfn>: 38 mod 16 is 6, because 38 is two 16s with 6 left over.</p>
+<pre><code>next = (5 * now + 3) mod 16</code></pre>
+  <p>Start from the seed <span class="v-seed">7</span>: 5 × 7 + 3 = 38, and 38 mod 16 = <span class="v-num">6</span>. From 6: 5 × 6 + 3 = 33, which gives <span class="v-num">1</span>. Then <span class="v-num">8</span>, <span class="v-num">11</span>, <span class="v-num">10</span>, and so on.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Sixteen numbers arranged in a ring in the order the toy generator visits them, starting at the seed 7: 7, 6, 1, 8, 11, 10, 5, 12, 15, 14, 9, 0, 3, 2, 13, 4 and back to 7. Odd numbers are shaded and alternate with even ones. On the right, the first steps of the formula are worked out.">
+      <circle class="d-thin" cx="150" cy="135" r="100"/>
+      <path class="d-accent" d="M162.2 66.1 A70 70 0 0 1 195 81.4"/>
+      <path class="d-accent" d="M191.5 73.2 L195 81.4 L186.3 79.4"/>
+      <text class="d-muted" x="150" y="131" text-anchor="middle">one loop of</text>
+      <text class="d-muted" x="150" y="147" text-anchor="middle">16 states</text>
+      <g>
+        <circle class="d-accent-soft" cx="150" cy="35" r="14" style="stroke: var(--warn); stroke-width: 2.5"/>
+        <circle class="d-box" cx="188.3" cy="42.6" r="14"/>
+        <circle class="d-accent-soft" cx="220.7" cy="64.3" r="14"/>
+        <circle class="d-box" cx="242.4" cy="96.7" r="14"/>
+        <circle class="d-accent-soft" cx="250" cy="135" r="14"/>
+        <circle class="d-box" cx="242.4" cy="173.3" r="14"/>
+        <circle class="d-accent-soft" cx="220.7" cy="205.7" r="14"/>
+        <circle class="d-box" cx="188.3" cy="227.4" r="14"/>
+        <circle class="d-accent-soft" cx="150" cy="235" r="14"/>
+        <circle class="d-box" cx="111.7" cy="227.4" r="14"/>
+        <circle class="d-accent-soft" cx="79.3" cy="205.7" r="14"/>
+        <circle class="d-box" cx="57.6" cy="173.3" r="14"/>
+        <circle class="d-accent-soft" cx="50" cy="135" r="14"/>
+        <circle class="d-box" cx="57.6" cy="96.7" r="14"/>
+        <circle class="d-accent-soft" cx="79.3" cy="64.3" r="14"/>
+        <circle class="d-box" cx="111.7" cy="42.6" r="14"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="150" y="39">7</text>
+        <text class="d-mono" x="188.3" y="46.6">6</text>
+        <text class="d-mono" x="220.7" y="68.3">1</text>
+        <text class="d-mono" x="242.4" y="100.7">8</text>
+        <text class="d-mono" x="250" y="139">11</text>
+        <text class="d-mono" x="242.4" y="177.3">10</text>
+        <text class="d-mono" x="220.7" y="209.7">5</text>
+        <text class="d-mono" x="188.3" y="231.4">12</text>
+        <text class="d-mono" x="150" y="239">15</text>
+        <text class="d-mono" x="111.7" y="231.4">14</text>
+        <text class="d-mono" x="79.3" y="209.7">9</text>
+        <text class="d-mono" x="57.6" y="177.3">0</text>
+        <text class="d-mono" x="50" y="139">3</text>
+        <text class="d-mono" x="57.6" y="100.7">2</text>
+        <text class="d-mono" x="79.3" y="68.3">13</text>
+        <text class="d-mono" x="111.7" y="46.6">4</text>
+      </g>
+      <text class="d-text" x="150" y="13" text-anchor="middle" style="fill: var(--warn); font-weight: 650">seed</text>
+
+      <text class="d-label" x="300" y="34">next = (5 × now + 3) mod 16</text>
+      <g>
+        <text class="d-mono" x="300" y="66">now</text>
+        <text class="d-mono" x="345" y="66">5 × now + 3</text>
+        <text class="d-mono" x="470" y="66">next</text>
+        <text class="d-mono" x="300" y="90">7</text>
+        <text class="d-mono" x="345" y="90">38</text>
+        <text class="d-mono" x="470" y="90">6</text>
+        <text class="d-mono" x="300" y="112">6</text>
+        <text class="d-mono" x="345" y="112">33</text>
+        <text class="d-mono" x="470" y="112">1</text>
+        <text class="d-mono" x="300" y="134">1</text>
+        <text class="d-mono" x="345" y="134">8</text>
+        <text class="d-mono" x="470" y="134">8</text>
+        <text class="d-mono" x="300" y="156">8</text>
+        <text class="d-mono" x="345" y="156">43</text>
+        <text class="d-mono" x="470" y="156">11</text>
+        <text class="d-mono" x="300" y="178">…</text>
+        <text class="d-mono" x="300" y="200">4</text>
+        <text class="d-mono" x="345" y="200">23</text>
+        <text class="d-mono" x="470" y="200">7, the seed again</text>
+      </g>
+      <path class="d-thin" d="M300 74 H630"/>
+      <text class="d-muted" x="300" y="236">Shaded circles are odd numbers.</text>
+      <text class="d-muted" x="300" y="254">Odd and even simply take turns.</text>
+    </svg>
+    <figcaption>The toy generator visits all 16 numbers once and then repeats. The seed only chooses where on the ring you start. The shaded circles also show a weakness: the lowest bit (odd or even) is not random at all.</figcaption>
+  </figure>
+
+  <p>The sequence is a loop. The number of steps before it repeats is the <dfn>period</dfn>, here 16. The seed does not change the loop, only where you start on it.</p>
+  <p>This kind of rule, "multiply, add, keep the remainder", is a <dfn>linear congruential generator</dfn> (LCG). Real ones use the same rule with bigger numbers. A well known set is multiply by 1,664,525, add 1,013,904,223, mod 2<sup>32</sup> (4,294,967,296). With these, the loop visits every one of the 4,294,967,296 states before it repeats.</p>
+
+  <h3>From a state to a useful number</h3>
+  <p>Games rarely want a number up to four billion. Divide the state by the modulus to get a fraction <span class="v-num">r</span> from 0 up to, but never reaching, 1. In the toy generator, state 6 gives 6 / 16 = 0.375.</p>
+  <p>To get a whole number from <code>lo</code> to <code>hi</code>, both included, stretch the fraction over the number of choices and round down:</p>
+<pre><code>value = lo + floor(r * (hi - lo + 1))</code></pre>
+  <p>For a room width from 3 to 7 there are 5 choices. With r = 0.375: 3 + floor(0.375 × 5) = 3 + floor(1.875) = 3 + 1 = 4. Because r never reaches 1, the result never goes past 7.</p>
+
+  <h3>From numbers to a dungeon</h3>
+  <p>A level generator is just a long list of questions answered by the next number: how wide is this room, how tall, where does it go, which way does the corridor bend. With seed <span class="v-seed">12345</span> the first four numbers are <span class="v-num">0.020</span>, <span class="v-num">0.017</span>, <span class="v-num">0.543</span> and <span class="v-num">0.635</span>, so the first room is 3 wide, 3 tall, at column 16, row 11. Ask the same questions in the same order and you get the same answers.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Same seed, same generator, same calls in the same order: same result. Change any one of the three and everything after that point changes.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Type a seed and the dungeon is built from it. The grid uses screen directions: x grows to the right, <strong>y grows downwards</strong>, and cell (0, 0) is the top-left corner. Rooms are numbered in the order they were placed.</p>
+  <p>Press <em>Build again</em> as often as you like and check the comparison line. Then switch on <em>Sparks share the generator</em>: a particle effect now takes a few numbers from the same generator before the dungeon does, a different count each time, and the same seed stops giving the same dungeon.</p>
+
+  <figure class="demo" data-demo="seed-dungeon">
+    <canvas id="seed-dungeon"></canvas>
+    <figcaption>The readouts show the first numbers the dungeon receives. They and the layout only change when the seed changes, unless something else takes numbers from the generator first. Try seeds 1, 2 and 3 and compare their first numbers.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>Each generator is a table holding its own state, so the level, the loot and the particles can each have one without disturbing the others. The dungeon builder uses the same numbers, in the same order, as the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A linear congruential generator. Every step is exact in Lua numbers.</span>
+local M = 4294967296          <span class="c">-- 2^32, the number of states</span>
+local A = 1664525             <span class="c">-- multiplier</span>
+local C = 1013904223          <span class="c">-- increment</span>
+
+local function newRng(seed)
+  return { state = math.floor(seed) % M }
+end
+
+local function nextFloat(rng) <span class="c">-- from 0 up to, never reaching, 1</span>
+<span class="k">  rng.state = (A * rng.state + C) % M</span>
+  return rng.state / M
+end
+
+local function nextInt(rng, lo, hi) <span class="c">-- lo to hi, both included</span>
+  return lo + math.floor(nextFloat(rng) * (hi - lo + 1))
+end
+
+local COLS, ROWS = 32, 20
+
+local function overlaps(a, b) <span class="c">-- closer than one empty cell?</span>
+  return a.x &lt;= b.x + b.w and b.x &lt;= a.x + a.w
+     and a.y &lt;= b.y + b.h and b.y &lt;= a.y + a.h
+end
+
+local function makeDungeon(seed)
+<span class="k">  local rng = newRng(seed)    <span class="c">-- its own generator, used by nothing else</span></span>
+  local rooms = {}
+  for attempt = 1, 30 do
+    local room = {}
+    room.w = nextInt(rng, 3, 7)
+    room.h = nextInt(rng, 3, 6)
+    room.x = nextInt(rng, 1, COLS - room.w - 1)
+    room.y = nextInt(rng, 1, ROWS - room.h - 1)
+    local free = true
+    for i = 1, #rooms do
+      if overlaps(room, rooms[i]) then free = false end
+    end
+    if free then
+      if #rooms &gt; 0 then room.sideFirst = nextFloat(rng) &lt; 0.5 end
+      rooms[#rooms + 1] = room
+    end
+  end
+  return rooms
+end
+
+function love.load()
+  rooms = makeDungeon(12345)  <span class="c">-- 8 rooms, the first 3 by 3 at (16, 11)</span>
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot's own seeded generator</span>
+var rng := RandomNumberGenerator.new()
+rng.seed = 12345
+var w := rng.randi_range(3, 7)   <span class="c"># both ends included</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// .NET's seeded generator works in Unity</span>
+var rng = new System.Random(12345);
+int w = rng.Next(3, 8);   <span class="c">// the upper end is NOT included</span></code></pre>
+  </div>
+  <p>The demo also draws a corridor from each room to the one placed before it, going sideways first when <code>sideFirst</code> is true. LÖVE has a built-in seeded generator too: <code>love.math.newRandomGenerator(seed)</code>, with <code>rng:random(3, 7)</code>. Godot and Unity give you <code>RandomNumberGenerator</code> and <code>System.Random</code>, shown in the other tabs. They use different algorithms, so seed 12345 gives different numbers in each.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>One shared generator for everything.</strong> If particles and the level draw from one generator, one extra spark shifts every number after it, as the demo's toggle shows. Give each system its own generator.</li>
+    <li><strong>Neighbouring seeds that start alike.</strong> In an LCG, seeds 1, 2 and 3 give first numbers of 0.236, 0.237 and 0.237, and later numbers move in step too. If players will type small seeds, scramble the seed first. The next lesson builds the hash that does it.</li>
+    <li><strong>Using <code>state % n</code> for a range.</strong> The low bits of an LCG are weak: the lowest one simply alternates, as the ring diagram shows. <code>state % 2</code> gives heads, tails, heads, tails. Always go through the fraction and multiply, as <code>nextInt</code> does.</li>
+    <li><strong>Off by one at the top of the range.</strong> <code>nextInt</code> includes both ends. Unity's <code>Random.Range</code> for whole numbers and <code>System.Random.Next</code> leave the top one out. Check which kind you are calling.</li>
+    <li><strong>Trusting <code>math.random</code> to stay the same.</strong> <code>math.randomseed</code> makes it repeatable on one setup, but Lua 5.4 and LuaJIT use different algorithms, so a saved seed can mean a different level elsewhere. For seeds that players share, use a generator whose code you own, like the one above.</li>
+    <li><strong>Seed edge cases.</strong> Seed 0 is fine here because the increment is odd; some other generator types get stuck when every bit of the state is 0. Negative seeds work because Lua's <code>%</code> always returns a value from 0 to M − 1. Fractions are rounded down first.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Minecraft lets players type a world seed, and the same seed in the same game version builds the same world. Slay the Spire and Spelunky 2 both offer seeded runs, so players can race through identical maps.</p>
+  <p>A daily challenge mode can be built the same way: turn the date into a seed, and everyone plays the same level that day. Replays and lockstep multiplayer often rely on the same idea: store the seed and the player inputs, and the game can rebuild everything else.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take anything random in your project: enemy spawn points, a scatter of trees, starting loot. Give it its own generator made with <code>newRng(seed)</code>, show the seed on screen, and add a key that rebuilds with the same seed and another that picks a new one from <code>os.time()</code>. You are done when pressing the rebuild key ten times never changes the result, even while other random effects are playing.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A pseudo-random generator is a formula that turns its state into the next state. The seed is the first state.</li>
+    <li>Same seed, same generator and the same calls in the same order give the same results on every run.</li>
+    <li>Divide the state by the modulus to get a fraction from 0 to just under 1, then stretch it to the range you need.</li>
+    <li>Give each system its own generator so that one extra call elsewhere cannot change your level.</li>
+    <li>Simple generators have weak low bits and similar neighbouring seeds. Use the fraction, and scramble small seeds.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we drop the sequence altogether: a hash turns a grid cell's coordinates straight into a repeatable random value, so an endless world needs no stored state at all.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Donald E. Knuth, <cite>The Art of Computer Programming, Volume 2: Seminumerical Algorithms</cite>, chapter 3, "Random Numbers". The classic treatment of linear congruential generators and how to test them.</li>
+    <li>William H. Press, Saul A. Teukolsky, William T. Vetterling and Brian P. Flannery, <cite>Numerical Recipes in C</cite> (2nd edition), chapter 7, "Random Numbers". Source of the 1,664,525 and 1,013,904,223 constants used here, presented there as a quick generator.</li>
+    <li>T. E. Hull and A. R. Dobell, <cite>Random Number Generators</cite>, SIAM Review (1962). States when an LCG visits every state before repeating.</li>
+    <li>Melissa E. O'Neill, <cite>PCG: A Family of Simple Fast Space-Efficient Statistically Good Algorithms for Random Number Generation</cite> (2014). A readable look at the weaknesses of simple generators and a modern fix.</li>
+    <li>The LÖVE wiki, <cite>love.math.newRandomGenerator</cite>. The built-in seeded generator in LÖVE.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var M = 4294967296, A = 1664525, C = 1013904223;
+  var COLS = 32, ROWS = 20, ATTEMPTS = 30;
+
+  function newRng(seed) { return { state: ((Math.floor(seed) % M) + M) % M }; }
+  function nextFloat(rng) { rng.state = (A * rng.state + C) % M; return rng.state / M; }
+  function nextInt(rng, lo, hi) { return lo + Math.floor(nextFloat(rng) * (hi - lo + 1)); }
+  function overlaps(a, b) {
+    return a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
+  }
+
+  // Records every number the dungeon receives, so the readouts can show them.
+  function makeDungeon(rng) {
+    var drawn = [];
+    function f() { var v = nextFloat(rng); drawn.push(v); return v; }
+    function iv(lo, hi) { return lo + Math.floor(f() * (hi - lo + 1)); }
+    var rooms = [];
+    for (var attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      var room = {};
+      room.w = iv(3, 7);
+      room.h = iv(3, 6);
+      room.x = iv(1, COLS - room.w - 1);
+      room.y = iv(1, ROWS - room.h - 1);
+      var free = true;
+      for (var i = 0; i < rooms.length; i++) if (overlaps(room, rooms[i])) free = false;
+      if (free) {
+        if (rooms.length > 0) room.sideFirst = f() < 0.5;
+        rooms.push(room);
+      }
+    }
+    return { rooms: rooms, drawn: drawn };
+  }
+
+  function carve(rooms) {
+    var cells = new Array(COLS * ROWS);
+    var i, x, y;
+    for (i = 0; i < cells.length; i++) cells[i] = 0;
+    function mark(cx, cy, v) {
+      if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return;
+      var k = cy * COLS + cx;
+      if (cells[k] < v) cells[k] = v;
+    }
+    function center(r) { return { x: r.x + Math.floor(r.w / 2), y: r.y + Math.floor(r.h / 2) }; }
+    for (i = 1; i < rooms.length; i++) {
+      var a = center(rooms[i - 1]), b = center(rooms[i]);
+      var sx = b.x > a.x ? 1 : -1, sy = b.y > a.y ? 1 : -1;
+      if (rooms[i].sideFirst) {
+        for (x = a.x; x !== b.x; x += sx) mark(x, a.y, 1);
+        for (y = a.y; y !== b.y + sy; y += sy) mark(b.x, y, 1);
+      } else {
+        for (y = a.y; y !== b.y; y += sy) mark(a.x, y, 1);
+        for (x = a.x; x !== b.x + sx; x += sx) mark(x, b.y, 1);
+      }
+    }
+    for (i = 0; i < rooms.length; i++) {
+      var r = rooms[i];
+      for (y = r.y; y < r.y + r.h; y++) for (x = r.x; x < r.x + r.w; x++) mark(x, y, 2);
+    }
+    return cells;
+  }
+
+  function signature(rooms) {
+    return rooms.map(function (r) { return [r.x, r.y, r.w, r.h, r.sideFirst ? 1 : 0].join(','); }).join(';');
+  }
+
+  // ---- state ----
+  var seed = 12345;
+  var builds = 0;
+  var current = null, cells = null;
+  var lastSeed = null, lastSig = null;
+  var compareText = '';
+  var stolen = 0;
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="seed-dungeon"]');
+
+  var seedWrap = document.createElement('label');
+  seedWrap.className = 'control';
+  var seedName = document.createElement('span');
+  seedName.className = 'control-name';
+  seedName.textContent = 'Seed (whole number, press Enter)';
+  var seedInput = document.createElement('input');
+  seedInput.type = 'text';
+  seedInput.className = 'seed-input';
+  seedInput.setAttribute('inputmode', 'numeric');
+  seedInput.setAttribute('autocomplete', 'off');
+  seedInput.maxLength = 11;
+  seedInput.value = String(seed);
+  seedWrap.appendChild(seedName);
+  seedWrap.appendChild(seedInput);
+  ui.el.appendChild(seedWrap);
+
+  ui.button({ label: 'Build again (same seed)', onClick: function () { build(); } });
+  ui.button({
+    label: 'New seed from the clock',
+    onClick: function () {
+      seed = Date.now() % 1000000;
+      seedInput.value = String(seed);
+      build();
+    }
+  });
+  var share = ui.toggle({ label: 'Sparks share the generator', value: false, onChange: function () { build(); } });
+
+  var outFirst = ui.readout({ label: 'First numbers the dungeon gets' });
+  var outRoom = ui.readout({ label: 'Room 1 (w, h, x, y)' });
+  var outCount = ui.readout({ label: 'Numbers used / rooms' });
+  var outCompare = ui.readout({ label: 'Compared with the last build' });
+
+  function readSeed() {
+    var text = seedInput.value.trim();
+    if (!/^-?\d{1,10}$/.test(text)) return null;
+    return Number(text);
+  }
+
+  function onSeedEdit(commit) {
+    var v = readSeed();
+    if (v === null) {
+      if (commit) outCompare.set('Type a whole number, up to 10 digits');
+      return;
+    }
+    if (v !== seed || commit) { seed = v; build(); }
+  }
+  seedInput.addEventListener('input', function () { onSeedEdit(false); });
+  seedInput.addEventListener('change', function () { onSeedEdit(true); });
+  seedInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); onSeedEdit(true); }
+  });
+
+  function build() {
+    builds++;
+    var rng = newRng(seed);
+    stolen = 0;
+    if (share.value) {
+      // A particle effect takes a few numbers first: a different count on each build.
+      stolen = 1 + (builds % 3);
+      for (var i = 0; i < stolen; i++) nextFloat(rng);
+    }
+    current = makeDungeon(rng);
+    cells = carve(current.rooms);
+    var sig = signature(current.rooms);
+    var normSeed = newRng(seed).state;
+    if (lastSeed === normSeed) {
+      compareText = sig === lastSig ? 'identical, same seed' : 'DIFFERENT, same seed';
+    } else {
+      compareText = 'new seed, nothing to compare yet';
+    }
+    lastSeed = normSeed;
+    lastSig = sig;
+
+    var d = current.drawn;
+    outFirst.set(d.slice(0, 4).map(function (v) { return v.toFixed(3); }).join('  '));
+    var r0 = current.rooms[0];
+    outRoom.set(r0 ? r0.w + ', ' + r0.h + ', ' + r0.x + ', ' + r0.y : 'none');
+    outCount.set(d.length + ' / ' + current.rooms.length + (stolen ? '  (sparks took ' + stolen + ')' : ''));
+    outCompare.set(compareText + '  (build ' + builds + ')');
+    if (handle) handle.redraw();
+  }
+
+  // ---- drawing ----
+  function layout(s) {
+    var left = 26, top = 22, pad = 6, bottom = 24;
+    var cell = Math.max(4, Math.min((s.width - left - pad) / COLS, (s.height - top - bottom) / ROWS));
+    var gw = cell * COLS, gh = cell * ROWS;
+    var ox = left + Math.max(0, (s.width - left - pad - gw) / 2);
+    return { cell: cell, ox: ox, oy: top, gw: gw, gh: gh };
+  }
+
+  var handle = DemoKit.canvas('#seed-dungeon', {
+    aspect: 1.5,
+    minHeight: 230,
+    maxHeight: 440,
+    animate: false,
+    label: 'A grid of 32 by 20 cells showing a dungeon of numbered rooms joined by corridors, built from the seed typed below.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      if (!current) return;
+      var L = layout(s), cell = L.cell, ox = L.ox, oy = L.oy;
+      var x, y, i;
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(ox, oy, L.gw, L.gh);
+
+      // corridors and rooms
+      for (y = 0; y < ROWS; y++) {
+        for (x = 0; x < COLS; x++) {
+          var v = cells[y * COLS + x];
+          if (v === 1) {
+            ctx.fillStyle = c.ink3;
+            ctx.globalAlpha = 0.55;
+            ctx.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+      for (i = 0; i < current.rooms.length; i++) {
+        var r = current.rooms[i];
+        ctx.fillStyle = c.topic;
+        ctx.globalAlpha = 0.22;
+        ctx.fillRect(ox + r.x * cell, oy + r.y * cell, r.w * cell, r.h * cell);
+        ctx.globalAlpha = 1;
+      }
+
+      // grid lines
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (x = 0; x <= COLS; x++) {
+        ctx.moveTo(Math.round(ox + x * cell) + 0.5, oy);
+        ctx.lineTo(Math.round(ox + x * cell) + 0.5, oy + L.gh);
+      }
+      for (y = 0; y <= ROWS; y++) {
+        ctx.moveTo(ox, Math.round(oy + y * cell) + 0.5);
+        ctx.lineTo(ox + L.gw, Math.round(oy + y * cell) + 0.5);
+      }
+      ctx.stroke();
+
+      // room outlines and numbers
+      ctx.lineWidth = 2;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '600 ' + Math.max(10, Math.min(15, Math.round(cell * 1.1))) + 'px system-ui, sans-serif';
+      for (i = 0; i < current.rooms.length; i++) {
+        var q = current.rooms[i];
+        ctx.strokeStyle = c.topic;
+        ctx.strokeRect(ox + q.x * cell + 1, oy + q.y * cell + 1, q.w * cell - 2, q.h * cell - 2);
+        ctx.fillStyle = c.ink;
+        ctx.fillText(String(i + 1), ox + (q.x + q.w / 2) * cell, oy + (q.y + q.h / 2) * cell);
+      }
+
+      // axes: ticks every 5 cells, x to the right, y downwards
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = c.ink2;
+      ctx.textBaseline = 'bottom';
+      for (x = 0; x < COLS; x += 5) ctx.fillText(String(x), ox + (x + 0.5) * cell, oy - 3);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (y = 0; y < ROWS; y += 5) ctx.fillText(String(y), ox - 5, oy + (y + 0.5) * cell);
+      // bottom row: axis directions on the left, the seed (in the seed colour) on the right
+      var by = oy + L.gh + 5;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('x right →   y down ↓', ox, by);
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.fillStyle = c.warn;
+      ctx.textAlign = 'right';
+      ctx.fillText('seed ' + seed, ox + L.gw, by);
+    }
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>
