@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pushing crates · Game Dev Daily</title>
+<meta name="description" content="How a kinematic character pushes dynamic crates with a limited force, so heavy crates move slowly, rows of crates add up, and walls still stop them.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pushing crates</h1>
+  <p class="lede">How a kinematic character pushes dynamic crates with a limited force, so heavy crates move slowly, rows of crates add up, and walls still stop them.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character walks into a crate and stops dead, as if the crate were bolted to the floor. You add a quick fix, and now a crate the size of a fridge slides away as fast as a shoebox.</p>
+  <p>Both bugs have one cause. Your code moves the character, the physics moves the crate, and nothing passes motion from one to the other.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Why the crate does not move</h2>
+  <p>The character is a <dfn>kinematic body</dfn>: your code moves it, and to the physics it has infinite mass. Its move and slide stops at the first thing it hits. A crate is a <dfn>dynamic body</dfn>: it moves only when something changes its velocity.</p>
+  <p>Move and slide treats the crate like any other wall. The character stops at its face, and the crate never learns that it was touched. That is the first bug.</p>
+
+  <h3>The quick fix: copy your speed</h3>
+  <p>The obvious repair is to set the crate's velocity to the character's walking speed whenever the character walks into it. The crate now slides away, and the character, still blocked by its face, follows at the same speed.</p>
+  <p>It works, but mass appears nowhere. A 2 kg box and a 12 kg box move alike, and three crates in a row move as fast as one. That is the second bug.</p>
+
+  <h2>The fix: push with a force</h2>
+  <p>Give the character a strength: a <dfn>push force</dfn> <code>F</code>, in kg·px/s² as in the lesson on forces and mass. On every step in which the character touches a crate and walks into it, the crate gets that force for one step:</p>
+<pre><code>v = v + F / m * STEP</code></pre>
+  <p>In words: the push changes the crate's speed by force over mass, for one step's worth of time. Twice the mass gains half the speed.</p>
+  <p>Then floor friction, from the ground friction lesson, takes speed away:</p>
+<pre><code>v = towardZero(v, MU * G * STEP)</code></pre>
+  <p>In words: friction removes up to <code>MU × G × STEP</code> of speed, but never more than the crate has, so it cannot push the crate backwards.</p>
+  <p>Put the two together and the crate gains speed only when <code>F / m</code> is larger than <code>MU × G</code>, that is when</p>
+<pre><code>F &gt; MU * m * G</code></pre>
+  <p>In words: the push must beat the <dfn>friction limit</dfn>, and that limit grows with mass. With <code>MU = 0.4</code> and <code>G = 1000</code> px/s², every kilogram adds 400 to the limit, so a push of 3000 moves anything up to 7.5 kg and nothing heavier.</p>
+  <p>The last rule is a game rule:</p>
+<pre><code>v = math.min(v, RUN)</code></pre>
+  <p>In words: you cannot push a crate faster than you walk. Without this cap a light crate shoots ahead, the contact breaks, friction slows the crate, you catch up and shove it again, and the push becomes a stutter.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Left: a character pushes a crate of mass m to the right with force F, while floor friction of up to mu times m times g pulls it back. The crate moves only if F is larger. Right: the order of one step. Find the touched crate, push it and apply friction, move the crate, then move the character, which stops at the crate's new face.">
+      <text class="d-text" x="20" y="24">Forces on the crate</text>
+      <path class="d-stroke" d="M20 190 H300"/>
+      <rect class="d-accent-fill" x="50" y="126" width="26" height="64" rx="3"/>
+      <rect class="d-box" x="78" y="110" width="80" height="80"/>
+      <path class="d-thin" d="M78 110 L158 190 M158 110 L78 190"/>
+      <rect class="d-fill" x="98" y="138" width="40" height="24" rx="3"/>
+      <text class="d-text" x="118" y="155" text-anchor="middle">m</text>
+      <path class="d-accent" d="M84 90 H214"/>
+      <path class="d-accent-fill" d="M212 84 L224 90 L212 96 Z"/>
+      <text class="d-label" x="180" y="78" text-anchor="middle">push F</text>
+      <path class="d-bad" d="M150 204 H96"/>
+      <path class="d-bad-fill" d="M98 198 L86 204 L98 210 Z"/>
+      <text class="d-text" x="20" y="232">friction up to MU × m × G</text>
+      <text class="d-muted" x="190" y="150">moves only</text>
+      <text class="d-muted" x="190" y="166">if F is larger</text>
+
+      <path class="d-thin" d="M320 16 V236"/>
+
+      <text class="d-text" x="340" y="24">One step, in this order</text>
+      <rect class="d-accent-soft" x="340" y="40" width="280" height="38" rx="5"/>
+      <text class="d-text" x="354" y="64">1. Find the crate you walk into</text>
+      <rect class="d-accent-soft" x="340" y="88" width="280" height="38" rx="5"/>
+      <text class="d-text" x="354" y="112">2. Push it, then apply friction</text>
+      <rect class="d-accent-soft" x="340" y="136" width="280" height="38" rx="5"/>
+      <text class="d-text" x="354" y="160">3. Move the crate</text>
+      <rect class="d-accent-soft" x="340" y="184" width="280" height="38" rx="5"/>
+      <text class="d-text" x="354" y="208">4. Walk, stopping at its new face</text>
+      <text class="d-muted" x="340" y="244">So you walk exactly as fast as the crate.</text>
+    </svg>
+    <figcaption>Left: the push and the friction limit act along the floor. Right: the crate moves before the character, so the character's own move and slide stops it at the crate, and a heavy crate slows you down with no extra code.</figcaption>
+  </figure>
+
+  <h3>Crates in a row</h3>
+  <p>When the crate you push touches another crate, push them as one body. Add up their masses, and give them one shared velocity: total momentum divided by total mass. A 2 kg crate against a 5 kg crate is a 7 kg body with a friction limit of 2800, so a push of 3000 only just moves it, at (3000 − 2800) / 7 = 28.6 px/s².</p>
+  <p>When a sliding crate reaches one at rest, the two stick and share momentum, the collision with no bounce from the lesson on impulses and momentum. The 2 kg crate at 160 px/s hits the 5 kg one and both continue at 2 × 160 / 7 = 45.7 px/s.</p>
+
+  <h3>One step by hand</h3>
+  <p>The 2 kg crate is at rest. The push is 3000 and the step is 1/60 s.</p>
+  <ol>
+    <li>Push: 0 + 3000 / 2 / 60 = 25 px/s.</li>
+    <li>Friction: 400 / 60 = 6.67 px/s is removed, leaving 18.33 px/s.</li>
+    <li>The crate moves 18.33 / 60 = 0.31 px.</li>
+    <li>The character wanted 160 / 60 = 2.67 px, but stops at the crate after 0.31 px.</li>
+  </ol>
+  <p>Every step adds another 18.33 px/s, which is 1100 px/s², the same as (3000 − 800) / 2. The crate reaches walking speed in about 9 steps. A 5 kg crate gains 10 − 6.67 = 3.33 px/s per step and needs 48 steps. An 8 kg crate gains 6.25, friction removes it all, and it never moves.</p>
+
+  <div class="callout">
+    <p class="callout-title">Correct versus good</p>
+    <p>Real crates take more force to start than to keep sliding, because static friction is usually higher than sliding friction. Games usually keep one friction value and one push force, because a crate that suddenly lurches once it starts feels random. The cap at walking speed is not physics either. It is there because it feels right.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the first bug. Walk right into the small crate and you stop dead. Switch to <strong>Set crate speed</strong> and push both crates into the wall: the 5 kg crate moves as easily as the 2 kg one. Then switch to <strong>Push with a force</strong>, press Reset, and push again. Feel the slowdown when the small crate meets the big one. Raise the big crate's mass to 8 kg and try to move it at all.</p>
+
+  <figure class="demo wide" data-demo="crates">
+    <canvas id="crates"></canvas>
+    <figcaption>The blue arrow is the push, the red arrow the friction limit of everything being pushed, and the grey arrows are velocities. Keyboard: click the scene, then use the left and right arrows or A and D. On touch, hold beside the character to walk that way.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step in Lua, with the same level and numbers. The world is one line along the floor: every object has a left edge <code>x</code>, a width <code>w</code> and an inverse mass <code>inv</code>, which is 0 for walls and for the character. The crates are solved with the speculative contacts idea: two neighbours may never close in faster than their gap allows in one step.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, RUN = 1 / 60, 160     <span class="c">-- fixed step (s), walking speed (px/s)</span>
+local G, MU = 1000, 0.4           <span class="c">-- gravity (px/s²), floor friction</span>
+local PUSH = 3000                 <span class="c">-- strongest push (kg·px/s²)</span>
+local mode = "force"              <span class="c">-- "wall", "speed" or "force"</span>
+local EPS = 0.001
+
+<span class="c">-- One line along the floor: x is the left edge, w the width, inv = 1 / mass.</span>
+<span class="c">-- Walls and the player have inv = 0: nothing can move them.</span>
+local player = { x = 60, w = 22, inv = 0, v = 0 }
+local walls = { { x = 0, w = 20, inv = 0, v = 0 }, { x = 580, w = 20, inv = 0, v = 0 } }
+local crates = {
+  { x = 150, w = 36, mass = 2, inv = 1 / 2, v = 0 },
+  { x = 330, w = 60, mass = 5, inv = 1 / 5, v = 0 },
+}
+
+<span class="c">-- The crate we touch on the side we walk to, plus every crate touching it.</span>
+local function pushedGroup(dir)
+  local group = {}
+  local front = dir &gt; 0 and player.x + player.w or player.x
+  local first, last = 1, #crates
+  if dir &lt; 0 then first, last = #crates, 1 end
+  for i = first, last, dir do
+    local c = crates[i]
+    local face = dir &gt; 0 and c.x or c.x + c.w     <span class="c">-- the face that meets us</span>
+    if math.abs(face - front) &lt;= EPS then
+      group[#group + 1] = c
+      front = dir &gt; 0 and c.x + c.w or c.x
+    end
+  end
+  return group
+end
+
+local function towardZero(v, amount)
+  if v &gt; amount then return v - amount end
+  if v &lt; -amount then return v + amount end
+  return 0
+end
+
+<span class="c">-- Two neighbours, a left of b. Never let them close in faster than</span>
+<span class="c">-- the gap allows this step. With no gap left, they stick together.</span>
+local function solve(a, b)
+  local inv = a.inv + b.inv
+  if inv == 0 then return end                   <span class="c">-- two immovable things</span>
+  local gap = b.x - (a.x + a.w)
+  local closing = a.v - b.v - gap / STEP
+  if closing &gt; 0 then
+    local j = closing / inv                     <span class="c">-- impulse, shared by inverse mass</span>
+    a.v, b.v = a.v - j * a.inv, b.v + j * b.inv
+  end
+end
+
+local function moveCrates()
+  local line = { walls[1], walls[2], player }
+  for _, c in ipairs(crates) do line[#line + 1] = c end
+  table.sort(line, function (a, b) return a.x &lt; b.x end)
+  for _ = 1, 8 do
+    for i = 1, #line - 1 do solve(line[i], line[i + 1]) end
+  end
+  for _, c in ipairs(crates) do c.x = c.x + c.v * STEP end
+end
+
+<span class="c">-- The player walks dx and stops at the first wall or crate in the way.</span>
+local function movePlayer(dx)
+  local p = player
+  local solids = { walls[1], walls[2], crates[1], crates[2] }
+  for _, s in ipairs(solids) do
+    if dx &gt; 0 and s.x &gt;= p.x + p.w - EPS then dx = math.min(dx, s.x - p.x - p.w) end
+    if dx &lt; 0 and s.x + s.w &lt;= p.x + EPS then dx = math.max(dx, s.x + s.w - p.x) end
+  end
+  p.x = p.x + dx
+end
+
+local function physicsStep(input)               <span class="c">-- input is -1, 0 or 1</span>
+  local group = {}
+  if input ~= 0 and mode ~= "wall" then group = pushedGroup(input) end
+  local mass, momentum = 0, 0                   <span class="c">-- the group moves as one</span>
+  for _, c in ipairs(group) do
+    mass, momentum = mass + c.mass, momentum + c.mass * c.v
+  end
+  for _, c in ipairs(group) do
+    c.v = momentum / mass
+<span class="k">    if mode == "force" then c.v = c.v + input * PUSH / mass * STEP end</span>
+  end
+<span class="k">  for _, c in ipairs(crates) do c.v = towardZero(c.v, MU * G * STEP) end</span>
+  for _, c in ipairs(group) do                  <span class="c">-- never faster than you walk</span>
+<span class="k">    if mode == "speed" or c.v * input &gt; RUN then c.v = input * RUN end</span>
+  end
+  moveCrates()                                  <span class="c">-- the crates first,</span>
+  movePlayer(input * RUN * STEP)                <span class="c">-- then the player follows</span>
+end
+
+local accumulator = 0
+function love.update(dt)
+  local input = 0
+  if love.keyboard.isDown("right", "d") then input = input + 1 end
+  if love.keyboard.isDown("left", "a") then input = input - 1 end
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    physicsStep(input)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.rectangle("fill", player.x, 126, player.w, 44)
+  for _, c in ipairs(crates) do
+    love.graphics.rectangle("line", c.x, 170 - c.w, c.w, c.w)
+  end
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: a CharacterBody2D does not push a RigidBody2D by itself.</span>
+<span class="c"># After move_and_slide, push every rigid body you walked into.</span>
+extends CharacterBody2D
+
+const RUN := 160.0
+const PUSH := 3000.0      <span class="c"># force, applied as an impulse over one step</span>
+
+func _physics_process(delta: float) -&gt; void:
+    var input := Input.get_axis("ui_left", "ui_right")
+    velocity.x = input * RUN
+    velocity.y += 1000.0 * delta
+    move_and_slide()
+    for i in get_slide_collision_count():
+        var hit := get_slide_collision(i)
+        var body := hit.get_collider() as RigidBody2D
+        <span class="c"># Only side contacts push: standing on a crate must not shove it.</span>
+        if body and absf(hit.get_normal().x) &gt; 0.7:
+            var dir := -signf(hit.get_normal().x)
+<span class="k">            if body.linear_velocity.x * dir &lt; RUN:
+                body.apply_central_impulse(Vector2(dir * PUSH * delta, 0))</span></code></pre>
+<pre data-lang="C# (Unity)"><code>using UnityEngine;
+
+<span class="c">// Unity 3D: a CharacterController does not push rigid bodies by itself.</span>
+<span class="c">// It reports every collider it touches during Move.</span>
+public class CratePusher : MonoBehaviour
+{
+    public float run = 1.6f;    <span class="c">// m/s</span>
+    public float push = 30f;    <span class="c">// newtons</span>
+
+    void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        Rigidbody body = hit.rigidbody;
+        if (body == null || body.isKinematic) return;
+        if (hit.moveDirection.y &lt; -0.3f) return;   <span class="c">// standing on it</span>
+        Vector3 dir = new Vector3(hit.moveDirection.x, 0f, hit.moveDirection.z).normalized;
+        <span class="c">// Move usually runs in Update, once per frame, so scale by the frame time.</span>
+<span class="k">        if (Vector3.Dot(body.linearVelocity, dir) &lt; run)   // body.velocity before Unity 6
+            body.AddForce(dir * push * Time.deltaTime, ForceMode.Impulse);</span>
+    }
+}</code></pre>
+  </div>
+  <p>In both engines the rigid body's own mass and physics material friction take the place of <code>mass</code> and <code>MU</code>, and the engine's solver handles rows of crates. Your code only supplies the push and the cap.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Infinite strength.</strong> Writing the crate's position, or letting the solver treat the character as an infinitely heavy body, pushes with no limit. Pin a crate against a wall and nothing can give way: it jitters, sinks into the wall or is flung out. A finite force simply loses to the wall.</li>
+    <li><strong>Pushing what you stand on.</strong> When you stand on a crate, the contact normal points up. Push only through contacts whose normal is mostly sideways, or the crate slides out from under your feet.</li>
+    <li><strong>A force in a per-frame callback.</strong> Unity calls <code>OnControllerColliderHit</code> from <code>Move</code>, and <code>Move</code> usually runs every frame. A fixed force per call pushes harder at high frame rates. Multiply by the frame time and apply it as an impulse.</li>
+    <li><strong>Moving the character first.</strong> If the character moves before the crate, it is blocked by where the crate was. Contact flickers on and off, and the push stutters every other step.</li>
+    <li><strong>Pushing only the front crate.</strong> In a hand-made solver, count the whole row of touching crates, or a light crate drives a heavy one at its own speed.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The Unity scripting reference for <code>CharacterController.OnControllerColliderHit</code> shows a pushing script that sets the rigid body's velocity from the move direction times a push power. That is the "set crate speed" mode in the demo: simple, and blind to mass.</p>
+  <p>In Godot 4, the usual approach is the one in the GDScript tab: loop over <code>get_slide_collision</code> after <code>move_and_slide</code> and apply an impulse to each <code>RigidBody2D</code> hit.</p>
+  <p>Grid puzzle games in the style of Sokoban move crates one tile at a time with no forces at all. This lesson is for crates that belong to the physics world.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Put two crates in your project, one of 2 kg and one of 8 kg. Choose a push force between their friction limits, <code>MU × m × G</code>, so that the light one moves and the heavy one does not. Add the walking speed cap.</p>
+  <p>You are done when the character visibly slows down behind the light crate, cannot move the heavy one, and can stand on top of either crate without moving it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A kinematic character does not push anything by itself. Its move and slide treats a crate as a wall.</li>
+    <li>Copying your walking speed into the crate ignores mass. Pushing with a force for one step, <code>v = v + F / m * STEP</code>, respects it.</li>
+    <li>A crate moves only if the push beats the friction limit <code>MU × m × G</code>. Cap its speed at your walking speed.</li>
+    <li>Move the crate first and the character second, so the character's own collision makes it walk at the crate's speed.</li>
+    <li>Touching crates are pushed as one body with their total mass.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson turns from things that block to things that only notice you: triggers and sensors that report enter, stay and exit without stopping anything.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Unity Technologies, <cite>Unity Scripting Reference: CharacterController.OnControllerColliderHit</cite> and <cite>ControllerColliderHit</cite>. The pushing example and the data reported for each hit.</li>
+    <li>Godot Engine documentation, class reference pages for <cite>CharacterBody2D</cite>, <cite>KinematicCollision2D</cite> and <cite>RigidBody2D</cite>.</li>
+    <li>Erin Catto, <cite>Box2D documentation</cite>, the sections on body types. Why kinematic bodies behave as if they had infinite mass.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite>. Friction, contacts and resting bodies in a hand-written engine.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua. The world is one line along the floor, 600 px wide.
+  var STEP = 1 / 60, RUN = 160, G = 1000, MU = 0.4, EPS = 0.001;
+  var WORLD = 600;
+  var PLAYER_H = 44;
+  var FORCE_SCALE = 1 / 40;   // px of arrow per unit of force
+  var SPEED_SCALE = 0.3;      // px of arrow per px/s
+
+  var player, walls, crates, accumulator, info;
+
+  function reset() {
+    player = { x: 60, w: 22, inv: 0, v: 0, speed: 0 };
+    walls = [{ x: 0, w: 20, inv: 0, v: 0 }, { x: 580, w: 20, inv: 0, v: 0 }];
+    crates = [
+      { x: 150, w: 36, mass: 2, inv: 1 / 2, v: 0 },
+      { x: 330, w: 60, mass: 5, inv: 1 / 5, v: 0 }
+    ];
+    setBigMass(bigMass ? bigMass.value : 5);
+    accumulator = 0;
+    info = { mass: 0, group: [], dir: 0 };
+  }
+
+  function setBigMass(m) {
+    if (!crates) return;
+    crates[1].mass = m;
+    crates[1].inv = 1 / m;
+  }
+
+  var ui = DemoKit.controls('[data-demo="crates"]');
+  var modeSel = ui.select({
+    label: 'Method',
+    options: [
+      { value: 'wall', label: 'Crate is a wall' },
+      { value: 'speed', label: 'Set crate speed' },
+      { value: 'force', label: 'Push with a force' }
+    ],
+    value: 'wall'
+  });
+  var push = ui.slider({ label: 'Push force', min: 0, max: 6000, step: 100, value: 3000, unit: ' kg·px/s²' });
+  var bigMass = ui.slider({ label: 'Big crate mass', min: 1, max: 12, step: 0.5, value: 5, unit: ' kg',
+    onInput: function (v) { setBigMass(v); } });
+  var debug = ui.toggle({ label: 'Show forces and velocities', value: true });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  reset();
+
+  function pushedGroup(dir) {
+    var group = [];
+    var front = dir > 0 ? player.x + player.w : player.x;
+    var i = dir > 0 ? 0 : crates.length - 1;
+    for (; i >= 0 && i < crates.length; i += dir) {
+      var c = crates[i];
+      var face = dir > 0 ? c.x : c.x + c.w;
+      if (Math.abs(face - front) <= EPS) {
+        group.push(c);
+        front = dir > 0 ? c.x + c.w : c.x;
+      }
+    }
+    return group;
+  }
+
+  function towardZero(v, amount) {
+    if (v > amount) return v - amount;
+    if (v < -amount) return v + amount;
+    return 0;
+  }
+
+  function solve(a, b) {
+    var inv = a.inv + b.inv;
+    if (inv === 0) return;
+    var gap = b.x - (a.x + a.w);
+    var closing = a.v - b.v - gap / STEP;
+    if (closing > 0) {
+      var j = closing / inv;
+      a.v -= j * a.inv;
+      b.v += j * b.inv;
+    }
+  }
+
+  function moveCrates() {
+    var line = [walls[0], walls[1], player].concat(crates);
+    line.sort(function (a, b) { return a.x - b.x; });
+    for (var k = 0; k < 8; k++) {
+      for (var i = 0; i < line.length - 1; i++) solve(line[i], line[i + 1]);
+    }
+    for (var n = 0; n < crates.length; n++) crates[n].x += crates[n].v * STEP;
+  }
+
+  function movePlayer(dx) {
+    var p = player;
+    var solids = [walls[0], walls[1]].concat(crates);
+    for (var i = 0; i < solids.length; i++) {
+      var s = solids[i];
+      if (dx > 0 && s.x >= p.x + p.w - EPS) dx = Math.min(dx, s.x - p.x - p.w);
+      if (dx < 0 && s.x + s.w <= p.x + EPS) dx = Math.max(dx, s.x + s.w - p.x);
+    }
+    p.x += dx;
+    p.speed = dx / STEP;
+  }
+
+  function physicsStep(input) {
+    var mode = modeSel.value;
+    var group = input !== 0 ? pushedGroup(input) : [];
+    var mass = 0, momentum = 0, i, c;
+    for (i = 0; i < group.length; i++) {
+      mass += group[i].mass;
+      momentum += group[i].mass * group[i].v;
+    }
+    if (mode !== 'wall') {
+      for (i = 0; i < group.length; i++) {
+        c = group[i];
+        c.v = momentum / mass;
+        if (mode === 'force') c.v += input * push.value / mass * STEP;
+      }
+    }
+    for (i = 0; i < crates.length; i++) crates[i].v = towardZero(crates[i].v, MU * G * STEP);
+    if (mode !== 'wall') {
+      for (i = 0; i < group.length; i++) {
+        c = group[i];
+        if (mode === 'speed' || c.v * input > RUN) c.v = input * RUN;
+      }
+    }
+    info = { mass: mass, group: group, dir: input, mode: mode };
+    moveCrates();
+    movePlayer(input * RUN * STEP);
+  }
+
+  // Input: keys, or holding the pointer beside the character.
+  var view = { k: 1, ox: 0 };
+  function readInput(s) {
+    var input = 0;
+    if (s.keys) {
+      if (s.keys.has('arrowright') || s.keys.has('d')) input += 1;
+      if (s.keys.has('arrowleft') || s.keys.has('a')) input -= 1;
+    }
+    if (input === 0 && s.pointer.down && s.pointer.inside) {
+      var wx = (s.pointer.x - view.ox) / view.k;
+      var centre = player.x + player.w / 2;
+      if (wx > centre + 14) input = 1;
+      else if (wx < centre - 14) input = -1;
+    }
+    return input;
+  }
+
+  function arrow(ctx, x1, y, x2, color, width) {
+    var len = x2 - x1;
+    if (Math.abs(len) < 2) return;
+    var d = len > 0 ? 1 : -1;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2 - d * 6, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y);
+    ctx.lineTo(x2 - d * 8, y - 5);
+    ctx.lineTo(x2 - d * 8, y + 5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function fmt(n) { return (Math.round(n * 10) / 10).toString(); }
+
+  DemoKit.canvas('#crates', {
+    height: 280,
+    drag: true,
+    keys: true,
+    label: 'A character on a floor between two walls, with a small and a big crate to its right. Walk into the crates to push them. The method, push force and crate mass are set with the controls below.',
+    update: function (dt, s) {
+      var input = readInput(s);
+      accumulator += Math.min(dt, 0.25);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        physicsStep(input);
+        accumulator -= STEP;
+        guard++;
+      }
+      if (guard === 20) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var k = Math.min(s.width / WORLD, 1.3);
+      var ox = (s.width - WORLD * k) / 2;
+      var floor = s.height - 46;
+      view.k = k;
+      view.ox = ox;
+      function X(x) { return ox + x * k; }
+
+      // Status text.
+      ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      var line1, line2, color2 = c.ink2;
+      var pushing = info.group.length > 0 && info.dir !== 0;
+      if (info.mode === 'wall') {
+        line1 = pushing ? 'Blocked: the crate is a wall' : 'Walk into a crate';
+        line2 = pushing ? 'nothing passes motion to it' : '';
+        color2 = c.bad;
+      } else if (!pushing) {
+        line1 = 'Not pushing';
+        line2 = 'walk into a crate';
+      } else if (info.mode === 'speed') {
+        line1 = 'Pushing ' + fmt(info.mass) + ' kg';
+        line2 = 'speed set to ' + RUN + ' px/s, mass ignored';
+        color2 = c.bad;
+      } else {
+        var limit = MU * G * info.mass;
+        var moves = push.value > limit;
+        line1 = 'Pushing ' + fmt(info.mass) + ' kg';
+        line2 = 'push ' + push.value + (moves ? ' > ' : ' ≤ ') + 'friction limit ' + Math.round(limit) +
+          (!moves ? ': stuck' : Math.abs(player.speed) < 1 ? ': held by the wall' : ': moves');
+        color2 = moves ? c.good : c.bad;
+      }
+      ctx.fillText(line1, 12, 20);
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = color2;
+      ctx.fillText(line2, 12, 37);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Your speed ' + Math.round(Math.abs(player.speed)) + ' px/s', 12, 54);
+
+      // Walls and floor.
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(X(0), floor - 130 * k, 20 * k, 130 * k);
+      ctx.fillRect(X(580), floor - 130 * k, 20 * k, 130 * k);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(X(0), floor + 0.5);
+      ctx.lineTo(X(WORLD), floor + 0.5);
+      ctx.stroke();
+
+      // Crates.
+      var i, cr;
+      for (i = 0; i < crates.length; i++) {
+        cr = crates[i];
+        var size = cr.w * k;
+        var x = X(cr.x), y = floor - size;
+        var inGroup = info.group.indexOf(cr) !== -1 && info.mode !== 'wall';
+        ctx.fillStyle = c.surface;
+        ctx.fillRect(x, y, size, size);
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 3, y + 3); ctx.lineTo(x + size - 3, y + size - 3);
+        ctx.moveTo(x + size - 3, y + 3); ctx.lineTo(x + 3, y + size - 3);
+        ctx.stroke();
+        ctx.strokeStyle = inGroup ? c.topic : c.ink2;
+        ctx.lineWidth = inGroup ? 2.5 : 1.5;
+        ctx.strokeRect(x + 0.75, y + 0.75, size - 1.5, size - 1.5);
+        ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        var label = fmt(cr.mass) + ' kg';
+        var tw = ctx.measureText(label).width + 8;
+        ctx.fillStyle = c.surface;
+        ctx.fillRect(x + size / 2 - tw / 2, y + size / 2 - 9, tw, 18);
+        ctx.fillStyle = c.ink;
+        ctx.fillText(label, x + size / 2, y + size / 2 + 4);
+      }
+
+      // Player.
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(X(player.x), floor - PLAYER_H * k, player.w * k, PLAYER_H * k);
+
+      if (debug.value) {
+        // Velocity arrows above each body.
+        for (i = 0; i < crates.length; i++) {
+          cr = crates[i];
+          var cx = X(cr.x + cr.w / 2);
+          var vy = floor - cr.w * k - 12;
+          arrow(ctx, cx, vy, cx + cr.v * SPEED_SCALE * k, c.ink3, 2);
+        }
+        var px = X(player.x + player.w / 2);
+        arrow(ctx, px, floor - PLAYER_H * k - 12, px + player.speed * SPEED_SCALE * k, c.ink3, 2);
+
+        // Push and friction limit on the pushed row.
+        if (pushing && info.mode === 'force') {
+          var first = info.group[0];
+          var startX = info.dir > 0 ? X(first.x) : X(first.x + first.w);
+          var ay = floor - Math.min(first.w, PLAYER_H) * k * 0.5;
+          arrow(ctx, startX, ay, startX + info.dir * push.value * FORCE_SCALE * k, c.topic, 3);
+          var lo = Infinity, hi = -Infinity;
+          for (i = 0; i < info.group.length; i++) {
+            lo = Math.min(lo, info.group[i].x);
+            hi = Math.max(hi, info.group[i].x + info.group[i].w);
+          }
+          var mid = X((lo + hi) / 2);
+          var fl = MU * G * info.mass * FORCE_SCALE * k;
+          arrow(ctx, mid + info.dir * fl / 2, floor + 14, mid - info.dir * fl / 2, c.bad, 3);
+        }
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

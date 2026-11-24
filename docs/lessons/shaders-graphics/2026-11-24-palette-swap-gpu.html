@@ -1,0 +1,980 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palette swap on the GPU: recolouring sprites with a lookup · Game Dev Daily</title>
+<meta name="description" content="Store slot numbers instead of colours in a sprite, look each one up in a small palette texture, and one image becomes every team colour.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Palette swap on the GPU: recolouring sprites with a lookup</h1>
+  <p class="lede">Store slot numbers instead of colours in a sprite, look each one up in a small palette texture, and one image becomes every team colour.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your soldier needs a red team, a blue team and a purple elite version. Saving a recoloured copy of every animation frame triples the art, and every fix to one frame has to be made three times. A palette swap keeps one sprite and moves the colours into a tiny table that the shader reads from.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The sprite stores slots, not colours</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. In a palette swap, the sprite it reads does not hold the final colours. Each pixel holds a <dfn>slot</dfn>: a small number that means "outline", "cloth", "skin" and so on. A sprite drawn this way is an <dfn>index sprite</dfn>. Our soldier uses six slots, 0 to 5.</p>
+  <p>The colours live in a second image, the <dfn>palette texture</dfn>: one column per slot and one row per palette, six by five texels (a <dfn>texel</dfn> is one pixel of a texture). Recolouring the soldier means choosing a different row; a new team is one more row.</p>
+
+  <h3>Turning a slot into a texture coordinate</h3>
+  <p>The slot is stored as a grey level in the red channel, chosen so that it lands in the <em>centre</em> of its palette column:</p>
+<pre><code>r = (slot + 0.5) / 6        -- slot 3 is stored as 0.583</code></pre>
+  <p>Texture coordinates run from 0 to 1, so 0.583 is halfway across column 3. Rows work the same way: <code>v = (row + 0.5) / 5</code>. Aiming at texel centres keeps rounding errors from tipping a read into the neighbour.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 270" role="img" aria-label="Left: a four by four patch of the index sprite, each cell holding a slot number from 0 to 5. One cell holding slot 3 is highlighted and stored as r equals 0.583. An arrow carries that value to the right, where it becomes the u coordinate. Right: the palette texture, six columns by five rows. A dashed vertical line at u 0.583 and a dashed horizontal line at v 0.1 cross in the middle of column 3, row 0, which is highlighted as the colour returned.">
+      <text class="d-text" x="20" y="22">Index sprite (red channel)</text>
+      <g>
+        <rect class="d-box" x="20" y="50" width="36" height="36"/>
+        <rect class="d-box" x="56" y="50" width="36" height="36"/>
+        <rect class="d-box" x="92" y="50" width="36" height="36"/>
+        <rect class="d-box" x="128" y="50" width="36" height="36"/>
+        <rect class="d-box" x="20" y="86" width="36" height="36"/>
+        <rect class="d-box" x="92" y="86" width="36" height="36"/>
+        <rect class="d-box" x="128" y="86" width="36" height="36"/>
+        <rect class="d-box" x="20" y="122" width="36" height="36"/>
+        <rect class="d-box" x="56" y="122" width="36" height="36"/>
+        <rect class="d-box" x="92" y="122" width="36" height="36"/>
+        <rect class="d-box" x="128" y="122" width="36" height="36"/>
+        <rect class="d-box" x="20" y="158" width="36" height="36"/>
+        <rect class="d-box" x="56" y="158" width="36" height="36"/>
+        <rect class="d-box" x="92" y="158" width="36" height="36"/>
+        <rect class="d-box" x="128" y="158" width="36" height="36"/>
+        <rect class="d-accent-soft" x="56" y="86" width="36" height="36"/>
+        <rect class="d-accent" x="57" y="87" width="34" height="34" fill="none"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="38" y="73">0</text><text class="d-mono" x="74" y="73">0</text><text class="d-mono" x="110" y="73">0</text><text class="d-mono" x="146" y="73">0</text>
+        <text class="d-mono" x="38" y="109">0</text><text class="d-mono" x="74" y="109">3</text><text class="d-mono" x="110" y="109">2</text><text class="d-mono" x="146" y="109">2</text>
+        <text class="d-mono" x="38" y="145">0</text><text class="d-mono" x="74" y="145">3</text><text class="d-mono" x="110" y="145">2</text><text class="d-mono" x="146" y="145">1</text>
+        <text class="d-mono" x="38" y="181">0</text><text class="d-mono" x="74" y="181">5</text><text class="d-mono" x="110" y="181">5</text><text class="d-mono" x="146" y="181">5</text>
+      </g>
+      <text class="d-muted" x="20" y="218">slot 3 is stored as a grey:</text>
+      <text class="d-mono" x="20" y="238">r = (3 + 0.5) / 6 = 0.583</text>
+
+      <path class="d-accent" d="M172 104 L292 68"/>
+      <path class="d-accent" d="M281 66 L292 68 L284 76" fill="none"/>
+      <text class="d-label" x="218" y="76" text-anchor="middle">u = r</text>
+      <text class="d-label" x="238" y="120" text-anchor="middle">row A = 0</text>
+
+      <text class="d-text" x="300" y="22">Palette texture: 6 slots, 5 palettes</text>
+      <g text-anchor="middle">
+        <text class="d-muted" x="322" y="44">0</text><text class="d-muted" x="366" y="44">1</text><text class="d-muted" x="410" y="44">2</text>
+        <text class="d-muted" x="454" y="44">3</text><text class="d-muted" x="498" y="44">4</text><text class="d-muted" x="542" y="44">5</text>
+      </g>
+      <g>
+        <rect class="d-fill" x="300" y="50" width="264" height="150"/>
+        <path class="d-stroke" d="M300 50 H564 V200 H300 Z M344 50 V200 M388 50 V200 M432 50 V200 M476 50 V200 M520 50 V200 M300 80 H564 M300 110 H564 M300 140 H564 M300 170 H564"/>
+        <rect class="d-accent-fill" x="432" y="50" width="44" height="30"/>
+      </g>
+      <path class="d-dash" d="M454 82 V206"/>
+      <path class="d-dash" d="M292 65 H430 M478 65 H566"/>
+      <text class="d-label" x="572" y="69">v = 0.1</text>
+
+      <path class="d-thin" d="M300 212 H564 M300 207 V217 M344 207 V217 M388 207 V217 M432 207 V217 M476 207 V217 M520 207 V217 M564 207 V217"/>
+      <g text-anchor="middle">
+        <text class="d-muted" x="300" y="232">0</text>
+        <text class="d-label" x="454" y="232">u = 0.583</text>
+        <text class="d-muted" x="564" y="232">1</text>
+      </g>
+      <text class="d-muted" x="300" y="258">each slot's centre: u = (slot + 0.5) / 6</text>
+    </svg>
+    <figcaption>Two texture reads per pixel. The first returns the slot as a grey. The shader uses that grey as the horizontal coordinate of the second read, and the chosen palette row as the vertical one. The texel where they cross is the colour on screen.</figcaption>
+  </figure>
+
+  <h3>The shader, one line per stage</h3>
+  <p>In LÖVE the whole effect is four lines, one per stage of the demo:</p>
+<pre><code>vec4 texel = Texel(tex, texture_coords);                  // 1. which slot?
+vec2 lookup = vec2(texel.r, (u_rowA + 0.5) / ROWS);       // 2. slot, row -> u, v
+vec3 a = Texel(palette, lookup).rgb;                      // 3. its colour
+return vec4(mix(a, b, u_blend), texel.a);                 // 4. b is row B</code></pre>
+  <p>Line 3 is a <dfn>dependent texture read</dfn>: its coordinate comes from another read, so it must wait for that one. Alpha comes from the index sprite, so transparent pixels stay transparent.</p>
+
+  <h3>Blend colours, never slots</h3>
+  <p>To fade from blue to red, read <em>both</em> rows and <code>mix</code> the two colours. Never mix slot numbers: halfway between slot 1 and slot 3 is slot 2, a different part of the sprite. That fact also explains the most common bug.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 135" role="img" aria-label="A number line for the red channel from 0 to 1, divided into six slots named outline, shade, cloth, light, skin and trim. A curved arrow joins the outline value 0.083 to the skin value 0.75. Halfway along, at 0.417, the value lands in the cloth slot.">
+      <g>
+        <rect class="d-box" x="20" y="50" width="53.3" height="24"/>
+        <rect class="d-box" x="73.3" y="50" width="53.3" height="24"/>
+        <rect class="d-accent-soft" x="126.7" y="50" width="53.3" height="24"/>
+        <rect class="d-box" x="180" y="50" width="53.3" height="24"/>
+        <rect class="d-box" x="233.3" y="50" width="53.3" height="24"/>
+        <rect class="d-box" x="286.7" y="50" width="53.3" height="24"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-muted" x="46.7" y="92">outline</text>
+        <text class="d-muted" x="100" y="92">shade</text>
+        <text class="d-text" x="153.3" y="92">cloth</text>
+        <text class="d-muted" x="206.7" y="92">light</text>
+        <text class="d-muted" x="260" y="92">skin</text>
+        <text class="d-muted" x="313.3" y="92">trim</text>
+      </g>
+      <path class="d-accent" d="M47 48 Q153 12 260 48" fill="none"/>
+      <circle class="d-text" cx="46.7" cy="62" r="4"/>
+      <circle class="d-text" cx="260" cy="62" r="4"/>
+      <circle class="d-accent-fill" cx="153.3" cy="62" r="5"/>
+      <text class="d-label" x="153.3" y="120" text-anchor="middle">halfway: r = 0.417, a cloth slot</text>
+    </svg>
+    <figcaption>Blending two slot numbers gives a third slot. Where a skin pixel touches an outline pixel, linear filtering invents greys in between, and the palette turns them into cloth, shade and light colours.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Which row is row 0</p>
+    <p>In LÖVE and Godot, <code>v = 0</code> is the <em>top</em> row of the image, as in a paint program. Unity puts <code>v = 0</code> at the <em>bottom</em>, so its code uses <code>1.0 - (row + 0.5) / rows</code>. The demo's <code>gl_FragCoord</code> starts at the canvas's bottom-left with y up; its palette keeps row 0 at the top, like LÖVE.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Pick rows A and B and drag <em>Blend</em>. Step through <em>Stage</em>: stored greys, the lookup (u red, v green), palette A. Move the pink probe by clicking, dragging or with the arrow keys; the panel below shows the slot it reads. Then turn on <em>Linear filtering</em> and watch the face's edge.</p>
+
+  <figure class="demo wide" data-demo="palette-swap">
+    <canvas id="palette-shader"></canvas>
+    <canvas id="palette-table"></canvas>
+    <figcaption>Top: the live shader. Bottom: the palette texture, row A outlined, row B dashed, the probe's u marked underneath. With linear filtering, the probe can land between slots.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE program builds both images in code and draws the soldier eight times larger. Press 1 to 5 to fade to that row. Palettes, sprite and maths match the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local COLUMNS, ROWS = 6, 5               <span class="c">-- slots per palette, palettes</span>
+local SPRITE_W, SPRITE_H = 16, 20
+local FADE_TIME = 0.5                    <span class="c">-- seconds for a palette change</span>
+local rowA, rowB, blend = 0, 1, 0
+local fading = false
+local sprite, palette, shader
+
+local PALETTES = {                       <span class="c">-- one row per palette, one colour per slot</span>
+  { "1a1729", "213d8c", "386bdb", "75abff", "facca3", "fac738" },  <span class="c">-- 0 Blue</span>
+  { "2a1217", "8c1c24", "db3b38", "ff8573", "facca3", "f2f2e0" },  <span class="c">-- 1 Red</span>
+  { "122112", "2e6129", "4f9940", "8fd166", "cc9970", "8c5926" },  <span class="c">-- 2 Forest</span>
+  { "0d0a14", "331f4d", "5c3585", "8f63c2", "b8b3d1", "eb385c" },  <span class="c">-- 3 Elite</span>
+  { "0f380f", "306230", "8bac0f", "9bbc0f", "9bbc0f", "306230" },  <span class="c">-- 4 Four greens</span>
+}
+
+local pixelcode = [[
+uniform Image palette;
+uniform float u_rowA;
+uniform float u_rowB;
+uniform float u_blend;
+const float ROWS = 5.0;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec4 texel = Texel(tex, texture_coords);    // r = (slot + 0.5) / 6
+  vec3 a = Texel(palette, vec2(texel.r, (u_rowA + 0.5) / ROWS)).rgb;
+  vec3 b = Texel(palette, vec2(texel.r, (u_rowB + 0.5) / ROWS)).rgb;
+  return vec4(mix(a, b, u_blend), texel.a) * color;
+}
+]]
+
+local function hex(s)
+  return tonumber(s:sub(1, 2), 16) / 255, tonumber(s:sub(3, 4), 16) / 255,
+         tonumber(s:sub(5, 6), 16) / 255
+end
+
+local function len(x, y) return math.sqrt(x * x + y * y) end
+
+local function box(x, y, bx, by)          <span class="c">-- signed distance to a box at 0, 0</span>
+  local qx, qy = math.abs(x) - bx, math.abs(y) - by
+  return len(math.max(qx, 0), math.max(qy, 0)) + math.min(math.max(qx, qy), 0)
+end
+
+<span class="c">-- the slot of one sprite pixel, y measured up from the bottom; nil = transparent</span>
+local function spriteIndex(x, y)
+  local head = len(x - 8, y - 15.5) - 5
+  if head &lt;= 0 then
+    if head &gt; -1 then return 0 end
+    if len(x - 6.5, y - 14.5) &lt; 0.6 or len(x - 9.5, y - 14.5) &lt; 0.6 then return 0 end
+    if math.abs(y - 16.5) &lt; 0.6 then return 5 end
+    if y &gt; 17 then return x &lt; 7 and 3 or 2 end
+    return 4
+  end
+  local body = box(x - 8, y - 7, 3, 3) - 1.5
+  local feet = math.min(box(x - 5.5, y - 1.5, 1.5, 1.5), box(x - 10.5, y - 1.5, 1.5, 1.5))
+  local hands = math.min(len(x - 2.5, y - 5.5), len(x - 13.5, y - 5.5)) - 1.6
+  local d = math.min(body, feet, hands)
+  if d &gt; 0 then return nil end
+  if d &gt; -1 then return 0 end
+  if hands &lt;= -1 then return 4 end
+  if body &gt; -1 then return 1 end
+  if math.abs(y - 6.5) &lt; 0.6 then return 5 end
+  if x &lt; 6 then return 3 end
+  if x &gt; 10 then return 1 end
+  return 2
+end
+
+function love.load()
+  local data = love.image.newImageData(SPRITE_W, SPRITE_H)   <span class="c">-- starts transparent</span>
+  for y = 0, SPRITE_H - 1 do
+    for x = 0, SPRITE_W - 1 do
+      local slot = spriteIndex(x + 0.5, SPRITE_H - y - 0.5)  <span class="c">-- image rows count down</span>
+      if slot then
+<span class="k">        local grey = (slot + 0.5) / COLUMNS</span>
+        data:setPixel(x, y, grey, grey, grey, 1)
+      end
+    end
+  end
+  sprite = love.graphics.newImage(data)
+  sprite:setFilter("nearest", "nearest")
+
+  local pal = love.image.newImageData(COLUMNS, ROWS)
+  for row = 1, ROWS do
+    for col = 1, COLUMNS do
+      local r, g, b = hex(PALETTES[row][col])
+      pal:setPixel(col - 1, row - 1, r, g, b, 1)
+    end
+  end
+  palette = love.graphics.newImage(pal)
+  palette:setFilter("nearest", "nearest")
+
+  shader = love.graphics.newShader(pixelcode)
+  shader:send("palette", palette)
+end
+
+function love.keypressed(key)
+  local n = tonumber(key)
+  if n and n &gt;= 1 and n &lt;= ROWS and not fading then
+    rowB = n - 1                         <span class="c">-- fade towards this row</span>
+    fading = true
+  end
+end
+
+function love.update(dt)
+  if fading then
+    blend = math.min(blend + dt / FADE_TIME, 1)
+    if blend &gt;= 1 then
+      rowA, blend, fading = rowB, 0, false   <span class="c">-- the new palette is now the current one</span>
+    end
+  end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  love.graphics.clear(0.28, 0.30, 0.36)
+<span class="k">  shader:send("u_rowA", rowA)</span>
+  shader:send("u_rowB", rowB)
+  shader:send("u_blend", blend)
+  love.graphics.setShader(shader)
+  love.graphics.draw(sprite, w / 2 - 64, h / 2 - 80, 0, 8, 8)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_rowA;    // palette row for A (row 0 = top row of the palette image)
+uniform float u_rowB;    // palette row for B
+uniform float u_blend;   // 0 = all A, 1 = all B
+uniform float u_linear;  // 1 = linear filtering on the index sprite (the mistake)
+uniform float u_stage;   // 0 stored index, 1 lookup (u, v), 2 palette A only, 3 final
+uniform vec2 u_probe;    // demo only: the probed point, in sprite pixels
+
+const vec2 SPRITE_SIZE = vec2(16.0, 20.0);   // the index sprite, in pixels
+const float COLUMNS = 6.0;                   // colour slots per palette
+const float ROWS = 5.0;                      // palettes in the palette image
+const float PIXEL = 0.042;                   // one sprite pixel, in canvas heights
+
+float sdBox(vec2 p, vec2 b) {
+  vec2 q = abs(p) - b;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
+// The art: which slot (0 to 5) one sprite pixel uses, or -1.0 if transparent. y is up.
+float spriteIndex(vec2 sp) {
+  float head = length(sp - vec2(8.0, 15.5)) - 5.0;
+  if (head &lt;= 0.0) {
+    if (head &gt; -1.0) return 0.0;                                     // outline
+    if (length(sp - vec2(6.5, 14.5)) &lt; 0.6 || length(sp - vec2(9.5, 14.5)) &lt; 0.6) return 0.0;  // eyes
+    if (abs(sp.y - 16.5) &lt; 0.6) return 5.0;                          // cap band
+    if (sp.y &gt; 17.0) return sp.x &lt; 7.0 ? 3.0 : 2.0;                  // cap, lit on the left
+    return 4.0;                                                      // face
+  }
+  float body = sdBox(sp - vec2(8.0, 7.0), vec2(3.0)) - 1.5;
+  float feet = min(sdBox(sp - vec2(5.5, 1.5), vec2(1.5)), sdBox(sp - vec2(10.5, 1.5), vec2(1.5)));
+  float hands = min(length(sp - vec2(2.5, 5.5)), length(sp - vec2(13.5, 5.5))) - 1.6;
+  float d = min(min(body, feet), hands);
+  if (d &gt; 0.0) return -1.0;               // outside: transparent
+  if (d &gt; -1.0) return 0.0;               // outline
+  if (hands &lt;= -1.0) return 4.0;          // hands
+  if (body &gt; -1.0) return 1.0;            // boots
+  if (abs(sp.y - 6.5) &lt; 0.6) return 5.0;  // belt
+  if (sp.x &lt; 6.0) return 3.0;             // lit side
+  if (sp.x &gt; 10.0) return 1.0;            // shaded side
+  return 2.0;                             // cloth
+}
+
+// One texel of the index sprite as (r, a). The grey stores r = (slot + 0.5) / COLUMNS.
+vec2 indexTexel(vec2 cell) {
+  if (cell.x &lt; 0.0 || cell.y &lt; 0.0 || cell.x &gt;= SPRITE_SIZE.x || cell.y &gt;= SPRITE_SIZE.y) return vec2(0.0);
+  float slot = spriteIndex(cell + 0.5);
+  if (slot &lt; 0.0) return vec2(0.0);
+  return vec2((slot + 0.5) / COLUMNS, 1.0);
+}
+
+// Stands in for reading the index texture, with nearest or linear filtering.
+vec2 sampleIndex(vec2 sp) {
+  if (u_linear &lt; 0.5) return indexTexel(floor(sp));
+  vec2 t = sp - 0.5;
+  vec2 c = floor(t);
+  vec2 f = t - c;
+  vec2 bottom = mix(indexTexel(c), indexTexel(c + vec2(1.0, 0.0)), f.x);
+  vec2 top = mix(indexTexel(c + vec2(0.0, 1.0)), indexTexel(c + vec2(1.0, 1.0)), f.x);
+  return mix(bottom, top, f.y);
+}
+
+vec3 pick(float i, vec3 c0, vec3 c1, vec3 c2, vec3 c3, vec3 c4, vec3 c5) {
+  vec3 c = c0;
+  if (i &gt; 0.5) c = c1;
+  if (i &gt; 1.5) c = c2;
+  if (i &gt; 2.5) c = c3;
+  if (i &gt; 3.5) c = c4;
+  if (i &gt; 4.5) c = c5;
+  return c;
+}
+
+// The palette image: 6 columns (slots) by 5 rows (palettes), row 0 at the top.
+vec3 paletteTexel(float col, float row) {
+  if (row &lt; 0.5) return pick(col,   // row 0: Blue
+    vec3(0.102, 0.090, 0.161), vec3(0.129, 0.239, 0.549), vec3(0.220, 0.420, 0.859),
+    vec3(0.459, 0.671, 1.000), vec3(0.980, 0.800, 0.639), vec3(0.980, 0.780, 0.220));
+  if (row &lt; 1.5) return pick(col,   // row 1: Red
+    vec3(0.165, 0.071, 0.090), vec3(0.549, 0.110, 0.141), vec3(0.859, 0.231, 0.220),
+    vec3(1.000, 0.522, 0.451), vec3(0.980, 0.800, 0.639), vec3(0.949, 0.949, 0.878));
+  if (row &lt; 2.5) return pick(col,   // row 2: Forest
+    vec3(0.071, 0.129, 0.071), vec3(0.180, 0.380, 0.161), vec3(0.310, 0.600, 0.251),
+    vec3(0.561, 0.820, 0.400), vec3(0.800, 0.600, 0.439), vec3(0.549, 0.349, 0.149));
+  if (row &lt; 3.5) return pick(col,   // row 3: Elite
+    vec3(0.051, 0.039, 0.078), vec3(0.200, 0.122, 0.302), vec3(0.361, 0.208, 0.522),
+    vec3(0.561, 0.388, 0.761), vec3(0.722, 0.702, 0.820), vec3(0.922, 0.220, 0.361));
+  return pick(col,                  // row 4: Four greens
+    vec3(0.059, 0.220, 0.059), vec3(0.188, 0.384, 0.188), vec3(0.545, 0.675, 0.059),
+    vec3(0.608, 0.737, 0.059), vec3(0.608, 0.737, 0.059), vec3(0.188, 0.384, 0.188));
+}
+
+// Stands in for reading the palette texture: nearest filtering, clamp to edge.
+// v = 0 is the top of the image, as in LOVE and Godot.
+vec3 samplePalette(vec2 uv) {
+  vec2 t = clamp(floor(uv * vec2(COLUMNS, ROWS)), vec2(0.0), vec2(COLUMNS - 1.0, ROWS - 1.0));
+  return paletteTexel(t.x, t.y);
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up
+  vec2 tile = floor(p * 8.0);
+  vec3 bg = mix(vec3(0.28, 0.30, 0.36), vec3(0.32, 0.34, 0.40), mod(tile.x + tile.y, 2.0));
+  vec2 sp = (p + 0.5 * SPRITE_SIZE * PIXEL) / PIXEL;   // sprite pixels, (0, 0) bottom-left
+
+  vec2 texel = sampleIndex(sp);                          // 1. read the index sprite: (r, a)
+  vec2 lookupA = vec2(texel.x, (u_rowA + 0.5) / ROWS);   // 2. r becomes u, the row becomes v
+  vec2 lookupB = vec2(texel.x, (u_rowB + 0.5) / ROWS);
+  vec3 a = samplePalette(lookupA);                       // 3. read the palette
+  vec3 b = samplePalette(lookupB);
+  vec3 rgb = mix(a, b, u_blend);                         // 4. blend colours, never slots
+
+  if (u_stage &lt; 2.5) rgb = a;
+  if (u_stage &lt; 1.5) rgb = vec3(lookupA, 0.0);
+  if (u_stage &lt; 0.5) rgb = vec3(texel.x);
+  vec3 col = mix(bg, rgb, texel.y);                      // alpha comes from the index sprite
+
+  // demo only: a ring around the probe
+  if (abs(length(sp - u_probe) - 0.45) &lt; 0.1) col = vec3(1.0, 0.3, 0.6);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a Sprite2D whose texture is the index sprite.
+// Set the Sprite2D's Texture Filter to Nearest.
+shader_type canvas_item;
+
+uniform sampler2D palette : filter_nearest, repeat_disable;
+uniform float row_a = 0.0;
+uniform float row_b = 1.0;
+uniform float blend : hint_range(0.0, 1.0) = 0.0;
+const float ROWS = 5.0;
+
+void fragment() {
+    vec4 texel = texture(TEXTURE, UV);   // r = (slot + 0.5) / 6
+    // Godot's UV v = 0 is the top row, like LÖVE: row 0 is the top of the palette image
+<span class="k">    vec3 a = texture(palette, vec2(texel.r, (row_a + 0.5) / ROWS)).rgb;</span>
+    vec3 b = texture(palette, vec2(texel.r, (row_b + 0.5) / ROWS)).rgb;
+    COLOR = vec4(mix(a, b, blend), texel.a);
+}
+
+// From GDScript: material.set_shader_parameter("row_a", 2.0)</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, for a SpriteRenderer whose sprite is the index sprite.
+Shader "GameDevDaily/PaletteSwapSprite"
+{
+    Properties
+    {
+        [PerRendererData] _MainTex ("Index sprite", 2D) = "white" {}
+        _PaletteTex ("Palette", 2D) = "white" {}
+        _Rows ("Rows in the palette", Float) = 5
+        _RowA ("Palette A row", Float) = 0
+        _RowB ("Palette B row", Float) = 1
+        _Blend ("Blend", Range(0, 1)) = 0
+    }
+    SubShader
+    {
+        Tags { "Queue" = "Transparent" "RenderType" = "Transparent" "IgnoreProjector" = "True" }
+        Cull Off
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            sampler2D _PaletteTex;
+            float _Rows;
+            float _RowA;
+            float _RowB;
+            float _Blend;
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+                float4 color : COLOR;
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+                float4 color : COLOR;
+            };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                o.color = v.color;
+                return o;
+            }
+
+            float4 frag (v2f i) : SV_Target
+            {
+                float4 texel = tex2D(_MainTex, i.uv);    // r = (slot + 0.5) / 6
+                // Unity's v = 0 is the BOTTOM row of the image: count rows from the top
+                float vA = 1.0 - (_RowA + 0.5) / _Rows;
+                float vB = 1.0 - (_RowB + 0.5) / _Rows;
+<span class="k">                float3 a = tex2D(_PaletteTex, float2(texel.r, vA)).rgb;</span>
+                float3 b = tex2D(_PaletteTex, float2(texel.r, vB)).rgb;
+                return float4(lerp(a, b, _Blend), texel.a) * i.color;
+            }
+            ENDCG
+        }
+    }
+}
+// From C#: spriteRenderer.material.SetFloat("_RowA", 2f);</code></pre>
+  </div>
+  <p>The demo emulates both textures with maths, since the page has no image files. In Unity, set both textures to Filter Mode <em>Point</em>, Compression <em>None</em>, no mipmaps, and untick <em>sRGB (Color Texture)</em> on the index sprite only. In Godot, keep compression lossless and mipmaps off. For URP, use a Sprite Unlit Shader Graph: <em>Sample Texture 2D</em> on the sprite, its R and the row into a <em>Vector 2</em>, a second <em>Sample Texture 2D</em> on the palette with a Point <em>Sampler State</em>, two lookups into a <em>Lerp</em> for Base Color, and the sprite's alpha into Alpha.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Filtering the index sprite.</strong> Linear filtering and mipmaps average neighbouring greys, and an averaged slot is a different slot. Use nearest filtering and no mipmaps; if you need smooth scaling, scale the coloured result in a second pass.</li>
+    <li><strong>Lossy compression.</strong> Block compression shifts greys a few levels. Six slots tolerate it; with 64 slots each column is four grey levels wide. Store index sprites uncompressed.</li>
+    <li><strong>The index sprite treated as a colour.</strong> Marked as sRGB, the grey is converted to linear on read: 0.583 arrives as about 0.30, slot 1. Untick sRGB in Unity; in LÖVE with gamma-correct rendering, pass <code>{ linear = true }</code> to <code>newImage</code>. The palette is colour and keeps the normal setting.</li>
+    <li><strong>Aiming at texel edges.</strong> Storing <code>slot / 6</code> lands on column borders, where a tiny error picks the neighbour.</li>
+    <li><strong>The row upside down.</strong> In Unity, row 0 read without the flip gives the last palette.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Very little, even on a phone. Each pixel does two or three texture reads, and a 6 by 5 palette stays in the cache. Some older mobile GPUs ran dependent reads noticeably slower; current ones handle a few per pixel easily. The win is memory: five teams cost one sprite sheet plus 30 texels. Making slot 0 transparent lets the index sprite use a single 8-bit channel, a quarter of an RGBA sheet.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>This is how 8-bit and 16-bit consoles drew everything: tiles stored slot numbers and the video hardware looked them up in palette memory. On the NES, each sprite uses one of four palettes of three colours plus transparent. Swapping a palette cost almost nothing, so many characters of that era are recolours: in the original <cite>Super Mario Bros.</cite>, Luigi is Mario with a different palette, and fighting games such as <cite>Street Fighter II</cite> give the second player of a mirror match alternate colours. Modern GPUs have no palette hardware, so the shader in this lesson rebuilds it with a texture.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Give the soldier a "poisoned" look that comes and goes.</p>
+  <ol>
+    <li>Add a sixth row to <code>PALETTES</code>: copy the blue row and change the skin slot (4) to a sickly green, such as <code>"9fd36a"</code>. Set <code>ROWS = 6</code> in Lua and <code>const float ROWS = 6.0;</code> in the shader.</li>
+    <li>Add <code>local poisoned = false</code>. In <code>love.keypressed</code>, toggle it with the P key, set <code>blend = 0</code> when it turns off, and ignore the number keys while it is on.</li>
+    <li>In <code>love.update</code>, while <code>poisoned</code> is true, set <code>rowB = 5</code> and <code>blend = 0.5 + 0.5 * math.sin(love.timer.getTime() * 4)</code>.</li>
+  </ol>
+  <p>You are done when pressing P makes only the face and hands pulse green while the cap, cloth and belt keep their colours, and pressing P again stops it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>An index sprite stores a slot per pixel; a small palette texture stores one row of colours per palette.</li>
+    <li>The shader reads the slot, uses it as <code>u</code> and the palette row as <code>v</code>, and reads the palette again: a dependent texture read.</li>
+    <li>Store <code>(slot + 0.5) / slots</code> and use <code>(row + 0.5) / rows</code> so every read lands in a texel's centre.</li>
+    <li>Blend looked-up colours, never slots; so the index sprite needs nearest filtering, no mipmaps, no lossy compression and no sRGB conversion.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, sprite outlines: reading the alpha of neighbouring texels to draw a clean border around any sprite.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>NESdev Wiki, <cite>PPU palettes</cite>: how the NES hardware stores and looks up its background and sprite palettes.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Shader:send</cite> and <cite>love.graphics.newImage</cite> (for the <code>linear</code> setting).</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite> and <cite>Shading language</cite> (for sampler hints such as <code>filter_nearest</code>).</li>
+    <li>Unity documentation, <cite>Texture Import Settings</cite> (Filter Mode, sRGB, compression) and Shader Graph's <cite>Sampler State Node</cite>.</li>
+    <li>Inigo Quilez, <cite>2D distance functions</cite>, for the box distance used to draw the soldier.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_rowA;    // palette row for A (row 0 = top row of the palette image)",
+    "uniform float u_rowB;    // palette row for B",
+    "uniform float u_blend;   // 0 = all A, 1 = all B",
+    "uniform float u_linear;  // 1 = linear filtering on the index sprite (the mistake)",
+    "uniform float u_stage;   // 0 stored index, 1 lookup (u, v), 2 palette A only, 3 final",
+    "uniform vec2 u_probe;    // demo only: the probed point, in sprite pixels",
+    "",
+    "const vec2 SPRITE_SIZE = vec2(16.0, 20.0);   // the index sprite, in pixels",
+    "const float COLUMNS = 6.0;                   // colour slots per palette",
+    "const float ROWS = 5.0;                      // palettes in the palette image",
+    "const float PIXEL = 0.042;                   // one sprite pixel, in canvas heights",
+    "",
+    "float sdBox(vec2 p, vec2 b) {",
+    "  vec2 q = abs(p) - b;",
+    "  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);",
+    "}",
+    "",
+    "// The art: which slot (0 to 5) one sprite pixel uses, or -1.0 if transparent. y is up.",
+    "float spriteIndex(vec2 sp) {",
+    "  float head = length(sp - vec2(8.0, 15.5)) - 5.0;",
+    "  if (head <= 0.0) {",
+    "    if (head > -1.0) return 0.0;                                     // outline",
+    "    if (length(sp - vec2(6.5, 14.5)) < 0.6 || length(sp - vec2(9.5, 14.5)) < 0.6) return 0.0;  // eyes",
+    "    if (abs(sp.y - 16.5) < 0.6) return 5.0;                          // cap band",
+    "    if (sp.y > 17.0) return sp.x < 7.0 ? 3.0 : 2.0;                  // cap, lit on the left",
+    "    return 4.0;                                                      // face",
+    "  }",
+    "  float body = sdBox(sp - vec2(8.0, 7.0), vec2(3.0)) - 1.5;",
+    "  float feet = min(sdBox(sp - vec2(5.5, 1.5), vec2(1.5)), sdBox(sp - vec2(10.5, 1.5), vec2(1.5)));",
+    "  float hands = min(length(sp - vec2(2.5, 5.5)), length(sp - vec2(13.5, 5.5))) - 1.6;",
+    "  float d = min(min(body, feet), hands);",
+    "  if (d > 0.0) return -1.0;               // outside: transparent",
+    "  if (d > -1.0) return 0.0;               // outline",
+    "  if (hands <= -1.0) return 4.0;          // hands",
+    "  if (body > -1.0) return 1.0;            // boots",
+    "  if (abs(sp.y - 6.5) < 0.6) return 5.0;  // belt",
+    "  if (sp.x < 6.0) return 3.0;             // lit side",
+    "  if (sp.x > 10.0) return 1.0;            // shaded side",
+    "  return 2.0;                             // cloth",
+    "}",
+    "",
+    "// One texel of the index sprite as (r, a). The grey stores r = (slot + 0.5) / COLUMNS.",
+    "vec2 indexTexel(vec2 cell) {",
+    "  if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= SPRITE_SIZE.x || cell.y >= SPRITE_SIZE.y) return vec2(0.0);",
+    "  float slot = spriteIndex(cell + 0.5);",
+    "  if (slot < 0.0) return vec2(0.0);",
+    "  return vec2((slot + 0.5) / COLUMNS, 1.0);",
+    "}",
+    "",
+    "// Stands in for reading the index texture, with nearest or linear filtering.",
+    "vec2 sampleIndex(vec2 sp) {",
+    "  if (u_linear < 0.5) return indexTexel(floor(sp));",
+    "  vec2 t = sp - 0.5;",
+    "  vec2 c = floor(t);",
+    "  vec2 f = t - c;",
+    "  vec2 bottom = mix(indexTexel(c), indexTexel(c + vec2(1.0, 0.0)), f.x);",
+    "  vec2 top = mix(indexTexel(c + vec2(0.0, 1.0)), indexTexel(c + vec2(1.0, 1.0)), f.x);",
+    "  return mix(bottom, top, f.y);",
+    "}",
+    "",
+    "vec3 pick(float i, vec3 c0, vec3 c1, vec3 c2, vec3 c3, vec3 c4, vec3 c5) {",
+    "  vec3 c = c0;",
+    "  if (i > 0.5) c = c1;",
+    "  if (i > 1.5) c = c2;",
+    "  if (i > 2.5) c = c3;",
+    "  if (i > 3.5) c = c4;",
+    "  if (i > 4.5) c = c5;",
+    "  return c;",
+    "}",
+    "",
+    "// The palette image: 6 columns (slots) by 5 rows (palettes), row 0 at the top.",
+    "vec3 paletteTexel(float col, float row) {",
+    "  if (row < 0.5) return pick(col,   // row 0: Blue",
+    "    vec3(0.102, 0.090, 0.161), vec3(0.129, 0.239, 0.549), vec3(0.220, 0.420, 0.859),",
+    "    vec3(0.459, 0.671, 1.000), vec3(0.980, 0.800, 0.639), vec3(0.980, 0.780, 0.220));",
+    "  if (row < 1.5) return pick(col,   // row 1: Red",
+    "    vec3(0.165, 0.071, 0.090), vec3(0.549, 0.110, 0.141), vec3(0.859, 0.231, 0.220),",
+    "    vec3(1.000, 0.522, 0.451), vec3(0.980, 0.800, 0.639), vec3(0.949, 0.949, 0.878));",
+    "  if (row < 2.5) return pick(col,   // row 2: Forest",
+    "    vec3(0.071, 0.129, 0.071), vec3(0.180, 0.380, 0.161), vec3(0.310, 0.600, 0.251),",
+    "    vec3(0.561, 0.820, 0.400), vec3(0.800, 0.600, 0.439), vec3(0.549, 0.349, 0.149));",
+    "  if (row < 3.5) return pick(col,   // row 3: Elite",
+    "    vec3(0.051, 0.039, 0.078), vec3(0.200, 0.122, 0.302), vec3(0.361, 0.208, 0.522),",
+    "    vec3(0.561, 0.388, 0.761), vec3(0.722, 0.702, 0.820), vec3(0.922, 0.220, 0.361));",
+    "  return pick(col,                  // row 4: Four greens",
+    "    vec3(0.059, 0.220, 0.059), vec3(0.188, 0.384, 0.188), vec3(0.545, 0.675, 0.059),",
+    "    vec3(0.608, 0.737, 0.059), vec3(0.608, 0.737, 0.059), vec3(0.188, 0.384, 0.188));",
+    "}",
+    "",
+    "// Stands in for reading the palette texture: nearest filtering, clamp to edge.",
+    "// v = 0 is the top of the image, as in LOVE and Godot.",
+    "vec3 samplePalette(vec2 uv) {",
+    "  vec2 t = clamp(floor(uv * vec2(COLUMNS, ROWS)), vec2(0.0), vec2(COLUMNS - 1.0, ROWS - 1.0));",
+    "  return paletteTexel(t.x, t.y);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up",
+    "  vec2 tile = floor(p * 8.0);",
+    "  vec3 bg = mix(vec3(0.28, 0.30, 0.36), vec3(0.32, 0.34, 0.40), mod(tile.x + tile.y, 2.0));",
+    "  vec2 sp = (p + 0.5 * SPRITE_SIZE * PIXEL) / PIXEL;   // sprite pixels, (0, 0) bottom-left",
+    "",
+    "  vec2 texel = sampleIndex(sp);                          // 1. read the index sprite: (r, a)",
+    "  vec2 lookupA = vec2(texel.x, (u_rowA + 0.5) / ROWS);   // 2. r becomes u, the row becomes v",
+    "  vec2 lookupB = vec2(texel.x, (u_rowB + 0.5) / ROWS);",
+    "  vec3 a = samplePalette(lookupA);                       // 3. read the palette",
+    "  vec3 b = samplePalette(lookupB);",
+    "  vec3 rgb = mix(a, b, u_blend);                         // 4. blend colours, never slots",
+    "",
+    "  if (u_stage < 2.5) rgb = a;",
+    "  if (u_stage < 1.5) rgb = vec3(lookupA, 0.0);",
+    "  if (u_stage < 0.5) rgb = vec3(texel.x);",
+    "  vec3 col = mix(bg, rgb, texel.y);                      // alpha comes from the index sprite",
+    "",
+    "  // demo only: a ring around the probe",
+    "  if (abs(length(sp - u_probe) - 0.45) < 0.1) col = vec3(1.0, 0.3, 0.6);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var PALETTES = [
+    { name: "Blue", colors: ["1a1729", "213d8c", "386bdb", "75abff", "facca3", "fac738"] },
+    { name: "Red", colors: ["2a1217", "8c1c24", "db3b38", "ff8573", "facca3", "f2f2e0"] },
+    { name: "Forest", colors: ["122112", "2e6129", "4f9940", "8fd166", "cc9970", "8c5926"] },
+    { name: "Elite", colors: ["0d0a14", "331f4d", "5c3585", "8f63c2", "b8b3d1", "eb385c"] },
+    { name: "Four greens", colors: ["0f380f", "306230", "8bac0f", "9bbc0f", "9bbc0f", "306230"] }
+  ];
+  var SLOT_NAMES = ['outline', 'shade', 'cloth', 'light', 'skin', 'trim'];
+  var COLUMNS = 6, ROWS = 5;
+  var SPRITE_W = 16, SPRITE_H = 20;
+  var PIXEL = 0.042;            // one sprite pixel, in canvas heights (as in the shader)
+  var FADE_TIME = 0.5;          // seconds, as FADE_TIME in the Lua
+
+  var reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var probe = [5.0, 13.5];      // between an outline texel and a skin texel
+  var handle = null;
+  var table = null;
+  var fadeTarget = null;
+  var lastTime = 0;
+
+  var rowOptions = PALETTES.map(function (p, i) { return { value: String(i), label: i + '. ' + p.name }; });
+
+  var ui = DemoKit.controls('[data-demo="palette-swap"]');
+  var rowA = ui.select({ label: 'Palette A (row)', options: rowOptions, value: '0', onChange: changed });
+  var rowB = ui.select({ label: 'Palette B (row)', options: rowOptions, value: '1', onChange: changed });
+  var blend = ui.slider({ label: 'Blend A to B', min: 0, max: 1, step: 0.01, value: 0, onInput: function () { fadeTarget = null; changed(); } });
+  ui.button({ label: 'Fade between A and B', onClick: fade });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Stored grey (slot)' },
+      { value: '1', label: '2. Lookup (u, v) as red, green' },
+      { value: '2', label: '3. Palette A colour' },
+      { value: '3', label: '4. Final: mix of A and B' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+  var linear = ui.toggle({ label: 'Linear filtering on the index sprite (mistake)', value: false, onChange: changed });
+  var probeOut = ui.readout({ label: 'Probe' });
+
+  // ---- CPU copies of the shader maths, for the palette panel ----
+  function len(x, y) { return Math.sqrt(x * x + y * y); }
+  function clamp(x, a, b) { return Math.min(Math.max(x, a), b); }
+
+  function sdBox(x, y, bx, by) {
+    var qx = Math.abs(x) - bx, qy = Math.abs(y) - by;
+    return len(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0);
+  }
+
+  function spriteIndex(x, y) {
+    var head = len(x - 8, y - 15.5) - 5;
+    if (head <= 0) {
+      if (head > -1) return 0;
+      if (len(x - 6.5, y - 14.5) < 0.6 || len(x - 9.5, y - 14.5) < 0.6) return 0;
+      if (Math.abs(y - 16.5) < 0.6) return 5;
+      if (y > 17) return x < 7 ? 3 : 2;
+      return 4;
+    }
+    var body = sdBox(x - 8, y - 7, 3, 3) - 1.5;
+    var feet = Math.min(sdBox(x - 5.5, y - 1.5, 1.5, 1.5), sdBox(x - 10.5, y - 1.5, 1.5, 1.5));
+    var hands = Math.min(len(x - 2.5, y - 5.5), len(x - 13.5, y - 5.5)) - 1.6;
+    var d = Math.min(body, feet, hands);
+    if (d > 0) return -1;
+    if (d > -1) return 0;
+    if (hands <= -1) return 4;
+    if (body > -1) return 1;
+    if (Math.abs(y - 6.5) < 0.6) return 5;
+    if (x < 6) return 3;
+    if (x > 10) return 1;
+    return 2;
+  }
+
+  // [r, a] of one texel
+  function indexTexel(cx, cy) {
+    if (cx < 0 || cy < 0 || cx >= SPRITE_W || cy >= SPRITE_H) return [0, 0];
+    var slot = spriteIndex(cx + 0.5, cy + 0.5);
+    if (slot < 0) return [0, 0];
+    return [(slot + 0.5) / COLUMNS, 1];
+  }
+
+  function mix2(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+
+  function sampleIndex(x, y) {
+    if (!linear.value) return indexTexel(Math.floor(x), Math.floor(y));
+    var tx = x - 0.5, ty = y - 0.5;
+    var cx = Math.floor(tx), cy = Math.floor(ty);
+    var fx = tx - cx, fy = ty - cy;
+    var bottom = mix2(indexTexel(cx, cy), indexTexel(cx + 1, cy), fx);
+    var top = mix2(indexTexel(cx, cy + 1), indexTexel(cx + 1, cy + 1), fx);
+    return mix2(bottom, top, fy);
+  }
+
+  function slotOf(r) { return clamp(Math.floor(r * COLUMNS), 0, COLUMNS - 1); }
+
+  function probeInfo() {
+    var t = sampleIndex(probe[0], probe[1]);
+    var slot = slotOf(t[0]);
+    var centre = Math.abs(t[0] * COLUMNS - (slot + 0.5)) < 0.01;
+    return { r: t[0], a: t[1], slot: slot, centre: centre };
+  }
+
+  function probeText(info) {
+    if (info.a <= 0) return 'transparent pixel (alpha 0)';
+    var text = 'r = ' + info.r.toFixed(3) + ', slot ' + info.slot + ' (' + SLOT_NAMES[info.slot] + ')';
+    if (!info.centre) text += ', made by filtering';
+    if (info.a < 1) text += ', alpha ' + info.a.toFixed(2);
+    return text;
+  }
+
+  function changed() {
+    probeOut.set(probeText(probeInfo()));
+    if (handle) handle.redraw();
+    if (table) table.redraw();
+  }
+
+  // ---- the fade button ----
+  function fade() {
+    var target = blend.value < 0.5 ? 1 : 0;
+    if (reduceMotion) {
+      fadeTarget = null;
+      blend.set(target);
+      changed();
+      return;
+    }
+    var running = fadeTarget !== null;
+    fadeTarget = target;
+    if (!running) {
+      lastTime = performance.now();
+      requestAnimationFrame(fadeStep);
+    }
+  }
+
+  function fadeStep(now) {
+    if (fadeTarget === null) return;
+    var dt = Math.min(Math.max((now - lastTime) / 1000, 0), 0.1);
+    lastTime = now;
+    var v = blend.value;
+    var dir = fadeTarget > v ? 1 : -1;
+    v += dir * dt / FADE_TIME;
+    if ((dir > 0 && v >= fadeTarget) || (dir < 0 && v <= fadeTarget)) {
+      v = fadeTarget;
+      fadeTarget = null;
+    }
+    blend.set(v);
+    changed();
+    if (fadeTarget !== null) requestAnimationFrame(fadeStep);
+  }
+
+  // ---- probe input on the shader canvas ----
+  function setProbe(p, s) {
+    var nx = (p.x - s.width / 2) / s.height;
+    var ny = (s.height / 2 - p.y) / s.height;
+    probe = [
+      clamp((nx + 0.5 * SPRITE_W * PIXEL) / PIXEL, -1, SPRITE_W + 1),
+      clamp((ny + 0.5 * SPRITE_H * PIXEL) / PIXEL, -1, SPRITE_H + 1)
+    ];
+    changed();
+  }
+
+  handle = DemoKit.shader('#palette-shader', {
+    fragment: fragment,
+    aspect: 16 / 9,
+    minHeight: 220,
+    maxHeight: 360,
+    animate: false,
+    keys: true,
+    drag: true,
+    label: 'A live fragment shader drawing a small pixel-art soldier on a grey tiled floor. The soldier is coloured by looking up each pixel\'s slot in a palette, and changes team colours as the palette rows and the blend change. A pink ring marks the probe, which clicking, dragging or the arrow keys move.',
+    uniforms: {
+      u_rowA: function () { return Number(rowA.value); },
+      u_rowB: function () { return Number(rowB.value); },
+      u_blend: function () { return blend.value; },
+      u_linear: function () { return linear.value ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); },
+      u_probe: function () { return probe; }
+    },
+    onDown: function (p, s) { setProbe(p, s); },
+    onMove: function (p, s) { if (p.down) setProbe(p, s); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var step = 0.25;
+      if (key === 'arrowleft') probe = [probe[0] - step, probe[1]];
+      else if (key === 'arrowright') probe = [probe[0] + step, probe[1]];
+      else if (key === 'arrowup') probe = [probe[0], probe[1] + step];
+      else if (key === 'arrowdown') probe = [probe[0], probe[1] - step];
+      else return;
+      probe = [clamp(probe[0], -1, SPRITE_W + 1), clamp(probe[1], -1, SPRITE_H + 1)];
+      changed();
+    }
+  });
+
+  // ---- the palette texture panel ----
+  table = DemoKit.canvas('#palette-table', {
+    height: 250,
+    animate: false,
+    label: 'The palette texture as a grid of six slots by five rows of colours. Row A is outlined, row B is dashed, and a marker under the grid shows the u coordinate the probe reads, with the slot it lands in.',
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width;
+      var a = Number(rowA.value), b = Number(rowB.value);
+      var labelW = Math.min(110, Math.round(w * 0.28));
+      var gx = labelW, gw = w - labelW - 14, colW = gw / COLUMNS;
+      var gy = 28, rowH = 28, gh = ROWS * rowH;
+      var info = probeInfo();
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'alphabetic';
+
+      // slot numbers
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      for (var i = 0; i < COLUMNS; i++) ctx.fillText(String(i), gx + (i + 0.5) * colW, 18);
+      ctx.textAlign = 'left';
+      ctx.fillText('slot', 4, 18);
+
+      // rows of colours
+      for (var r = 0; r < ROWS; r++) {
+        var y = gy + r * rowH;
+        var tag = (r === a ? 'A' : '') + (r === b ? (r === a ? ' B' : 'B') : '');
+        ctx.fillStyle = tag ? c.ink : c.ink3;
+        ctx.textAlign = 'left';
+        ctx.fillText(r + '. ' + PALETTES[r].name, 4, y + rowH / 2 + 4);
+        if (tag) {
+          ctx.textAlign = 'right';
+          ctx.fillText(tag, gx - 6, y + rowH / 2 + 4);
+        }
+        for (var k = 0; k < COLUMNS; k++) {
+          ctx.fillStyle = '#' + PALETTES[r].colors[k];
+          ctx.fillRect(gx + k * colW + 1, y + 1, colW - 2, rowH - 2);
+        }
+      }
+
+      // row A solid, row B dashed
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = c.topic;
+      ctx.strokeRect(gx - 1.5, gy + a * rowH - 1.5, gw + 3, rowH + 3);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = c.ink;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(gx + 3, gy + b * rowH + 3, gw - 6, rowH - 6);
+      ctx.setLineDash([]);
+
+      // u axis
+      var axisY = gy + gh + 14;
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx, axisY);
+      ctx.lineTo(gx + gw, axisY);
+      for (var t = 0; t <= COLUMNS; t++) {
+        ctx.moveTo(gx + t * colW, axisY - 4);
+        ctx.lineTo(gx + t * colW, axisY + 4);
+      }
+      ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('u', gx - 6, axisY + 4);
+      ctx.textAlign = 'center';
+      ctx.fillText('0', gx, axisY + 18);
+      ctx.fillText('1', gx + gw, axisY + 18);
+
+      // the probe's u
+      ctx.textAlign = 'left';
+      if (info.a > 0) {
+        var px = gx + info.r * gw;
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(px, gy);
+        ctx.lineTo(px, axisY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = c.bad;
+        ctx.beginPath();
+        ctx.moveTo(px, axisY - 2);
+        ctx.lineTo(px - 6, axisY + 9);
+        ctx.lineTo(px + 6, axisY + 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = c.ink;
+        ctx.fillText('Probe r = u = ' + info.r.toFixed(3) + ': slot ' + info.slot + ', ' + SLOT_NAMES[info.slot], 4, axisY + 36);
+        ctx.fillStyle = info.centre ? c.ink3 : c.bad;
+        ctx.fillText(info.centre ? 'Lands in the centre of its column.' : 'Between slots: filtering made this value.', 4, axisY + 54);
+      } else {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('Probe is on a transparent pixel (alpha 0).', 4, axisY + 36);
+      }
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

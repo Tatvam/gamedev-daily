@@ -49,7 +49,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Snapping to the ground** — Why characters launch off the top of slopes and how a snap distance keeps them attached. Demo: run down a hill with a snap toggle and a snap distance slider. (published 2026-11-21, snapping-to-ground)
 - [x] **Steps and stairs** — How a character can climb small ledges without jumping. Demo: walk into steps of different heights with a step height slider. (published 2026-11-22, steps-and-stairs)
 - [x] **Moving platforms** — How a rider is carried by a platform and keeps the velocity of the platform when jumping off. Demo: ride horizontal and vertical platforms with toggles for carrying and velocity inheritance. (published 2026-11-23, moving-platforms)
-- [ ] **Pushing crates** — How a kinematic character passes motion to dynamic bodies. Demo: push crates of adjustable mass with a slider for push force.
+- [x] **Pushing crates** — How a kinematic character passes motion to dynamic bodies. Demo: push crates of adjustable mass with a slider for push force. (published 2026-11-24, pushing-crates)
 - [ ] **Triggers and sensors** — How overlap areas detect entering and leaving without blocking movement, as with Area2D in Godot and trigger colliders in Unity. Demo: drag a character through zones and watch enter, stay and exit events appear in a log.
 
 ## Track 5: Springs, constraints, and soft bodies

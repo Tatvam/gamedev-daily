@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2D lights and shadows: projecting edges away from the light · Game Dev Daily</title>
+<meta name="description" content="How 2D lights cast hard shadows by pushing the edges of blocking shapes away from the light, and how Godot and Unity set up lights and occluders.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>2D lights and shadows: projecting edges away from the light</h1>
+  <p class="lede">How 2D lights cast hard shadows by pushing the edges of blocking shapes away from the light, and how Godot and Unity set up lights and occluders.</p>
+</header>
+
+<section data-section="hook">
+  <p>You give the player a torch in a dark dungeon. The glow looks lovely, until you notice it shines straight through the walls and lights up the enemy waiting behind a pillar. A light that ignores walls is just a bright circle. This lesson shows how engines cut the shadows out of it.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A light is brightness added on top</h2>
+  <p>In a 2D engine, a <dfn>light</dfn> is a shape of brightness, usually a circle that fades towards its edge, that is added on top of the colours of the scene. Where no light reaches, the scene shows only its <dfn>ambient</dfn> colour, the dim base level everything has. Lights add up: two overlapping lights make the overlap brighter.</p>
+  <p>A <dfn>shadow</dfn> is the part of a light's area that the light cannot reach. A point is in shadow when the straight line from the light to that point crosses a blocking shape. Engines call the blocking shape an <dfn>occluder</dfn> (Godot) or a <dfn>shadow caster</dfn> (Unity). It is usually a simple polygon traced around the sprite, not the sprite's pixels.</p>
+  <p>Rather than test every pixel against every edge, engines build the shadow as a shape and skip adding light inside it.</p>
+
+  <h2>Pushing an edge away from the light</h2>
+  <p>Take one edge of a box, from corner <code>a</code> to corner <code>b</code>. Draw a ray from the light through <code>a</code> and keep going; do the same through <code>b</code>. Everything between those rays, beyond the edge, is hidden by it. To make it a polygon, push each corner along its ray by a fixed distance, the <dfn>shadow length</dfn>:</p>
+<pre><code>local dx, dy = a.x - light.x, a.y - light.y
+local len = math.sqrt(dx * dx + dy * dy)
+local a2x = a.x + dx / len * SHADOW_LENGTH
+local a2y = a.y + dy / len * SHADOW_LENGTH</code></pre>
+  <p>The four points <code>a</code>, <code>b</code>, <code>b2</code>, <code>a2</code> make a <dfn>shadow quad</dfn>. Pushing a shape outwards like this is called <dfn>extruding</dfn> it. Do it for every edge of every occluder, and the shadow is the union of all the quads.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 260" role="img" aria-label="A light on the left and a square box in the middle. Dashed rays leave the light and pass the top-left and bottom-left corners of the box. Only the left edge faces the light; the top, right and bottom edges face away. Each edge facing away is pushed away from the light, and together the pushed edges form the shadow, a dark shape that fans out to the right of the box.">
+      <polygon class="d-fill" points="230,110 478,32 544,52 550,182 490,186 230,170"/>
+      <path class="d-dash" d="M70 160 L478 32"/>
+      <path class="d-dash" d="M70 160 L490 186"/>
+      <path class="d-thin" d="M290 110 L544 52 M290 170 L550 182"/>
+      <rect class="d-box" x="230" y="110" width="60" height="60"/>
+      <path class="d-stroke" style="stroke-width:5" d="M230 110 H290 V170 H230"/>
+      <path class="d-accent" style="stroke-width:5" d="M230 110 V170"/>
+      <path class="d-stroke" d="M478 32 L544 52 L550 182 L490 186"/>
+      <circle class="d-accent-fill" cx="70" cy="160" r="9"/>
+      <text class="d-text" x="70" y="192" text-anchor="middle">light</text>
+      <text class="d-text" x="260" y="145" text-anchor="middle">box</text>
+      <text class="d-label" x="400" y="128" text-anchor="middle">shadow</text>
+      <text class="d-muted" x="560" y="40">pushed</text>
+      <text class="d-muted" x="560" y="56">corners</text>
+      <path class="d-accent" style="stroke-width:5" d="M20 222 H44"/>
+      <text class="d-text" x="52" y="227">edge facing the light</text>
+      <path class="d-stroke" style="stroke-width:5" d="M230 222 H254"/>
+      <text class="d-text" x="262" y="227">edge facing away, extruded</text>
+      <path class="d-dash" d="M470 222 H494"/>
+      <text class="d-text" x="502" y="227">ray from light</text>
+    </svg>
+    <figcaption>The three edges facing away from the light are pushed along rays from the light. Their quads join into one shadow that starts at the back of the box and fans outwards.</figcaption>
+  </figure>
+
+  <h3>Which edges to extrude</h3>
+  <p>Extruding all four edges works, but half the quads overlap the others. For a closed shape it is enough to extrude only the edges that face away from the light (or only the ones that face it). An edge <dfn>faces the light</dfn> when the light is on the outside of it. With corners listed clockwise on screen (y pointing down), the outward normal of edge <code>a</code> to <code>b</code> is <code>(b.y - a.y, -(b.x - a.x))</code>, and the edge faces the light when the dot product of that normal with <code>light - a</code> is positive.</p>
+  <p>Check it with small numbers from the demo. The top edge of the first box runs from (146, 93) to (214, 93), and the light starts at (320, 180). The normal is (0, -68), pointing up. The vector to the light is (174, 87). The dot product is 0 &times; 174 + (-68) &times; 87 = -5916, which is negative, so the top edge faces away. That is right: the light is below it.</p>
+  <p>The choice also decides whether the box darkens itself. Quads from the back edges start behind the box, so it stays lit. Quads from the front edges start at the side nearest the light and cover the box too. Both are valid looks.</p>
+
+  <h3>How far to push</h3>
+  <p>Past the light's radius there is no light to remove, so a shadow length at least as long as the radius looks infinite. Too short, and shadows stop in mid air.</p>
+
+  <h2>What happens each frame, and who owns what</h2>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 150" role="img" aria-label="Four steps run for each light every frame. One: find the occluders inside the light's range, owned by the occluder nodes or components. Two: build shadow quads. Three: draw the light, skipping the shadows, owned by the light. Four: add the result onto the scene, owned by the renderer.">
+      <rect class="d-box" x="10" y="20" width="135" height="64" rx="8"/>
+      <text class="d-text" x="77" y="47" text-anchor="middle">Find occluders</text>
+      <text class="d-text" x="77" y="65" text-anchor="middle">in light range</text>
+      <rect class="d-box" x="172" y="20" width="135" height="64" rx="8"/>
+      <text class="d-text" x="239" y="47" text-anchor="middle">Build shadow</text>
+      <text class="d-text" x="239" y="65" text-anchor="middle">quads</text>
+      <rect class="d-box" x="334" y="20" width="135" height="64" rx="8"/>
+      <text class="d-text" x="401" y="47" text-anchor="middle">Draw the light,</text>
+      <text class="d-text" x="401" y="65" text-anchor="middle">skip shadows</text>
+      <rect class="d-box" x="496" y="20" width="135" height="64" rx="8"/>
+      <text class="d-text" x="563" y="47" text-anchor="middle">Add onto</text>
+      <text class="d-text" x="563" y="65" text-anchor="middle">the scene</text>
+      <path class="d-accent" d="M147 52 H168 M162 47 L168 52 L162 57"/>
+      <path class="d-accent" d="M309 52 H330 M324 47 L330 52 L324 57"/>
+      <path class="d-accent" d="M471 52 H492 M486 47 L492 52 L486 57"/>
+      <text class="d-muted" x="77" y="108" text-anchor="middle">shape: occluder</text>
+      <text class="d-muted" x="239" y="108" text-anchor="middle">renderer</text>
+      <text class="d-muted" x="401" y="108" text-anchor="middle">colour, radius: light</text>
+      <text class="d-muted" x="563" y="108" text-anchor="middle">renderer</text>
+      <text class="d-label" x="320" y="140" text-anchor="middle">repeated for every light with shadows on, after your update code</text>
+    </svg>
+    <figcaption>Your scripts move lights and occluders during the update. The renderer reads their positions afterwards, so the shadows always match this frame.</figcaption>
+  </figure>
+  <p>Your code never touches a shadow polygon; you move objects and the renderer rebuilds shadows every frame. The cost grows with <em>lights &times; occluder edges</em>, which is why both engines make shadows opt-in per light. Both do this work on the GPU with techniques that differ between engines and versions, so treat the demo as the idea, not either engine's code.</p>
+
+  <h3>How Godot and Unity express it</h3>
+  <p><strong>Godot 4</strong> has <code>PointLight2D</code> and <code>DirectionalLight2D</code>, both based on <code>Light2D</code>. A point light draws its <code>texture</code>, so it needs one. Shadows are off until you set <code>shadow_enabled</code>. Occluders are <code>LightOccluder2D</code> nodes holding an <code>OccluderPolygon2D</code> resource; the Sprite2D menu in the editor can create one traced from the sprite. The polygon's <code>cull_mode</code> chooses whether edges cast from both sides or only one, based on the polygon's winding. A <code>CanvasModulate</code> node sets the ambient level, and bit masks such as <code>light_mask</code> decide which items a light touches.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6) needs the Universal Render Pipeline with the 2D Renderer, which the 2D URP project template sets up. Lights are <code>Light2D</code> components (namespace <code>UnityEngine.Rendering.Universal</code>) of several types, including Global for the ambient level and Spot for a point light with an optional cone. Shadows are switched on per light in its Shadows settings, or with <code>shadowsEnabled</code> in code; <code>shadowIntensity</code> sets how dark they are. Occluders are <strong>Shadow Caster 2D</strong> components, whose shape can come from the sprite, a shape you edit, or (in Unity 6) a 2D collider. Lights only affect the sorting layers listed in their Target Sorting Layers.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Drag anywhere on the scene to move the light, or click it and use the arrow keys. Turn on <strong>Show construction</strong> to see the rays through each corner and the edges that are extruded. Then switch <strong>Edges that cast</strong> between the three choices and watch the quad count and whether the boxes darken themselves. Finally drag <strong>Shadow length</strong> below the light radius.</p>
+
+  <figure class="demo" data-demo="shadows">
+    <canvas id="shadows"></canvas>
+    <figcaption>Orange edges are extruded, blue edges are skipped, and each extruded edge's quad is outlined. Every choice gives the same shadow on the floor; only the work and the self-shadowing change. The model leaves out what real engines add: soft edges, light textures, normal maps, several lights and GPU shadow buffers.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers: a 640 by 360 window, the same four boxes, a light radius of 260 and a shadow length of 600. It uses the stencil buffer as the "skip shadows" step: shadow quads are written into it, and the light is only added where the stencil is still zero. The mouse moves the light, <kbd>1</kbd>, <kbd>2</kbd> and <kbd>3</kbd> choose which edges cast, and <kbd>R</kbd> shows the construction rays.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Mouse moves the light. 1, 2, 3 pick the edges that cast.</span>
+<span class="c">-- R shows the construction rays.</span>
+local LIGHT_RADIUS = 260
+local SHADOW_LENGTH = 600
+local light = { x = 320, y = 180 }
+local mode = "all"           <span class="c">-- "all", "away" or "facing"</span>
+local showRays = false
+local boxes = {}
+
+local function makeBox(cx, cy, hw, hh, angle)
+  local c, s = math.cos(angle), math.sin(angle)
+  local offsets = { { -hw, -hh }, { hw, -hh }, { hw, hh }, { -hw, hh } }  <span class="c">-- clockwise on screen</span>
+  local corners = {}
+  for i = 1, 4 do
+    local ox, oy = offsets[i][1], offsets[i][2]
+    corners[i] = { x = cx + ox * c - oy * s, y = cy + ox * s + oy * c }
+  end
+  return corners
+end
+
+<span class="k">-- the edge a -&gt; b faces the light when the light is on its outer side
+local function facesLight(a, b)
+  local nx, ny = b.y - a.y, -(b.x - a.x)          -- outward normal (y down)
+  return nx * (light.x - a.x) + ny * (light.y - a.y) &gt; 0
+end
+
+-- push a corner straight away from the light
+local function project(p)
+  local dx, dy = p.x - light.x, p.y - light.y
+  local len = math.sqrt(dx * dx + dy * dy)
+  if len &lt; 0.0001 then return p.x, p.y end
+  return p.x + dx / len * SHADOW_LENGTH, p.y + dy / len * SHADOW_LENGTH
+end</span>
+
+local function castsShadow(a, b)
+  if mode == "all" then return true end
+  if mode == "away" then return not facesLight(a, b) end
+  return facesLight(a, b)
+end
+
+local function shadowQuads()
+  local quads = {}
+  for _, corners in ipairs(boxes) do
+    for i = 1, #corners do
+      local a, b = corners[i], corners[i % #corners + 1]
+      if castsShadow(a, b) then
+<span class="k">        local ax, ay = project(a)
+        local bx, by = project(b)
+        quads[#quads + 1] = { a.x, a.y, b.x, b.y, bx, by, ax, ay }</span>
+      end
+    end
+  end
+  return quads
+end
+
+local function flatten(corners)
+  local points = {}
+  for _, p in ipairs(corners) do
+    points[#points + 1] = p.x
+    points[#points + 1] = p.y
+  end
+  return points
+end
+
+function love.load()
+  love.window.setMode(640, 360)
+  boxes = {
+    makeBox(180, 115, 34, 22, 0),
+    makeBox(450, 110, 26, 26, 0.6),
+    makeBox(350, 260, 60, 12, 0),
+    makeBox(130, 270, 18, 18, 0),
+  }
+end
+
+function love.keypressed(key)
+  if key == "1" then mode = "all" end
+  if key == "2" then mode = "away" end
+  if key == "3" then mode = "facing" end
+  if key == "r" then showRays = not showRays end
+end
+
+function love.update(dt)
+  light.x, light.y = love.mouse.getPosition()
+end
+
+function love.draw()
+  <span class="c">-- 1. the unlit world: dark floor and dark boxes</span>
+  love.graphics.clear(0.08, 0.09, 0.11)
+  love.graphics.setColor(0.23, 0.25, 0.29)
+  for _, corners in ipairs(boxes) do love.graphics.polygon("fill", flatten(corners)) end
+
+  <span class="c">-- 2. write every shadow quad into the stencil buffer</span>
+  local quads = shadowQuads()
+  love.graphics.stencil(function()
+    for _, q in ipairs(quads) do love.graphics.polygon("fill", q) end
+  end, "replace", 1)
+
+  <span class="c">-- 3. add the light only where the stencil is still 0 (eight rings fake a falloff)</span>
+<span class="k">  love.graphics.setStencilTest("equal", 0)</span>
+  love.graphics.setBlendMode("add")
+  love.graphics.setColor(1, 0.84, 0.55, 0.1)
+  for i = 1, 8 do love.graphics.circle("fill", light.x, light.y, LIGHT_RADIUS * i / 8) end
+  love.graphics.setBlendMode("alpha")
+  love.graphics.setStencilTest()
+
+  if showRays then
+    love.graphics.setColor(0.56, 0.72, 1)
+    for _, q in ipairs(quads) do
+      love.graphics.line(light.x, light.y, q[5], q[6])
+      love.graphics.line(light.x, light.y, q[7], q[8])
+    end
+  end
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.circle("fill", light.x, light.y, 5)
+  love.graphics.print("edges: " .. mode .. "   shadow quads: " .. #quads, 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># light_demo.gd for Godot 4. Attach to the root Node2D of a new 2D scene and run.</span>
+<span class="c"># The engine builds the shadows; this script only sets up the nodes and moves the light.</span>
+extends Node2D
+
+<span class="c"># centre, half size, rotation: the same four boxes as the Lua version</span>
+const BOXES := [
+    [Vector2(180, 115), Vector2(34, 22), 0.0],
+    [Vector2(450, 110), Vector2(26, 26), 0.6],
+    [Vector2(350, 260), Vector2(60, 12), 0.0],
+    [Vector2(130, 270), Vector2(18, 18), 0.0],
+]
+var light: PointLight2D
+
+func _ready() -&gt; void:
+    var ambient := CanvasModulate.new()            <span class="c"># darkens everything</span>
+    ambient.color = Color(0.15, 0.16, 0.2)
+    add_child(ambient)
+
+    var gradient := Gradient.new()
+    gradient.set_color(0, Color.WHITE)             <span class="c"># centre of the light</span>
+    gradient.set_color(1, Color.BLACK)             <span class="c"># edge: adds nothing</span>
+    var texture := GradientTexture2D.new()
+    texture.gradient = gradient
+    texture.fill = GradientTexture2D.FILL_RADIAL
+    texture.fill_from = Vector2(0.5, 0.5)
+    texture.fill_to = Vector2(1.0, 0.5)
+    texture.width = 520                            <span class="c"># radius 260</span>
+    texture.height = 520
+
+    light = PointLight2D.new()
+    light.texture = texture
+    light.color = Color(1.0, 0.84, 0.55)
+<span class="k">    light.shadow_enabled = true                    # off by default</span>
+    add_child(light)
+
+    for b in BOXES:
+        var half: Vector2 = b[1]
+        var corners := PackedVector2Array([
+            Vector2(-half.x, -half.y), Vector2(half.x, -half.y),
+            Vector2(half.x, half.y), Vector2(-half.x, half.y)])
+        var body := Node2D.new()
+        body.position = b[0]
+        body.rotation = b[2]
+        var visual := Polygon2D.new()
+        visual.polygon = corners
+        visual.color = Color(0.55, 0.58, 0.65)
+        body.add_child(visual)
+<span class="k">        var occluder := LightOccluder2D.new()
+        occluder.occluder = OccluderPolygon2D.new()
+        occluder.occluder.polygon = corners</span>
+        <span class="c"># Try occluder.occluder.cull_mode = OccluderPolygon2D.CULL_CLOCKWISE</span>
+        <span class="c"># and CULL_COUNTER_CLOCKWISE to see which edges stop casting.</span>
+        body.add_child(occluder)
+        add_child(body)
+
+func _process(_delta: float) -&gt; void:
+    light.global_position = get_global_mouse_position()</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// LightFollow.cs. Unity 2022 LTS or Unity 6, with URP and the 2D Renderer</span>
+<span class="c">// (start from the 2D URP project template). Scene setup in the editor:</span>
+<span class="c">//   1. Add a Light 2D and set its Light Type to Spot (older URP versions may call it Point).</span>
+<span class="c">//      Set its outer radius to about 2.6 units and enable Shadows in its Inspector.</span>
+<span class="c">//   2. If the scene has a Global Light 2D, lower its intensity, for example to 0.15.</span>
+<span class="c">//   3. Make four square sprites as the boxes and add a Shadow Caster 2D to each.</span>
+<span class="c">//   4. Attach this script to the light and press Play.</span>
+<span class="c">// Uses the Input Manager; if Active Input Handling is the Input System package only,</span>
+<span class="c">// switch it to Both.</span>
+using UnityEngine;
+using UnityEngine.Rendering.Universal;
+
+[RequireComponent(typeof(Light2D))]
+public class LightFollow : MonoBehaviour
+{
+    Light2D light2D;
+
+    void Awake()
+    {
+        light2D = GetComponent&lt;Light2D&gt;();
+<span class="k">        light2D.shadowsEnabled = true;    // the same switch as the Inspector checkbox
+        light2D.shadowIntensity = 1f;     // 0 to 1: how much light the shadow removes</span>
+    }
+
+    void Update()
+    {
+        Vector3 world = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        transform.position = new Vector3(world.x, world.y, transform.position.z);
+        if (Input.GetKeyDown(KeyCode.S))
+            light2D.shadowsEnabled = !light2D.shadowsEnabled;   <span class="c">// compare with and without</span>
+    }
+}</code></pre>
+  </div>
+  <p>Only the Lua version builds shadow quads by hand. In Godot and Unity you describe the occluders and switch shadows on, and the renderer runs the four steps from the diagram above for every light, every frame.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Shadows are opt-in.</strong> In Godot a light casts nothing until <code>shadow_enabled</code> is on, even with occluders in the scene; in Unity check the light's Shadows setting. Adding occluders alone changes nothing.</li>
+    <li><strong>The light inside an occluder.</strong> A light inside a box sees every edge facing away, and the quads cover everything. Keep a torch outside the carrier's occluder, or mask it out.</li>
+    <li><strong>Occluders that do not match the art.</strong> A box on a round barrel casts square shadows. Trace the sprite, but with few edges: each edge costs work for every light.</li>
+    <li><strong>Many shadowed lights.</strong> Give shadows only to lights that need them, keep ranges small, and use unshadowed lights for decoration.</li>
+    <li><strong>Expecting soft shadows.</strong> A point light casts a hard edge. Engines blur it with filtering, for example Godot's <code>shadow_filter</code>.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The same edge-extrusion idea works in 3D, where it is called <dfn>shadow volumes</dfn>: silhouette edges of a mesh are pushed away from the light into closed volumes, and the stencil buffer marks which pixels are inside them. Franklin Crow described shadow volumes in 1977, and id Software's <cite>Doom 3</cite> (2004) is a well-known game that lit its scenes with stencil shadow volumes.</p>
+  <p>The flip side of a shadow is visibility: the area a light reaches is the area an eye at that point can see, which is how top-down games hide what the player cannot see. Amit Patel's <cite>2D Visibility</cite> on Red Blob Games builds that polygon from wall corners.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the tab for your engine in a fresh project and move the light around the boxes. Then add a fifth occluder shaped like an L (six corners, still listed clockwise in the Lua version). You are done when the L casts one clean shadow from every side. Stretch goal in Lua: add a second light and draw both, clearing the stencil buffer between them, and watch the overlaps add up.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A 2D light adds brightness; a shadow is where the renderer skips adding it.</li>
+    <li>A shadow quad comes from pushing an edge's two corners away from the light along rays through them.</li>
+    <li>Extruding only the edges facing away (or only those facing the light) is enough for a closed shape, and it decides whether the object darkens itself.</li>
+    <li>The occluder owns the shape, the light owns colour, radius and shadow settings, and the renderer rebuilds shadows each frame after your update.</li>
+    <li>Godot uses <code>Light2D</code> nodes with <code>LightOccluder2D</code>; Unity uses Light 2D with Shadow Caster 2D in the URP 2D Renderer. Shadows are opt-in in both.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>With the scene lit, the next lesson makes the characters in it move: sprite animation with sprite sheets and frame timers.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>2D lights and shadows</cite>, and the class reference for <cite>PointLight2D</cite>, <cite>LightOccluder2D</cite> and <cite>OccluderPolygon2D</cite>.</li>
+    <li>Unity Technologies, Unity Manual (URP section), <cite>Light 2D component reference</cite> and <cite>Shadow Caster 2D</cite>, and the URP scripting reference for <cite>Light2D</cite>.</li>
+    <li>Amit Patel, <cite>2D Visibility</cite>, Red Blob Games.</li>
+    <li>Franklin C. Crow, <cite>Shadow Algorithms for Computer Graphics</cite>, SIGGRAPH 1977. The paper that introduced shadow volumes.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 640, H = 360;            // world size, the same as the Lua window
+  var light = { x: 320, y: 180 };
+  var off = document.createElement('canvas');
+  var octx = off.getContext('2d');
+  var view = { k: 1, ox: 0, oy: 0 };
+  var demo = null;
+
+  // centre x, centre y, half width, half height, angle: the same boxes as makeBox in the Lua
+  function makeBox(cx, cy, hw, hh, angle) {
+    var c = Math.cos(angle), s = Math.sin(angle);
+    var offsets = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];   // clockwise on screen
+    return offsets.map(function (o) {
+      return { x: cx + o[0] * c - o[1] * s, y: cy + o[0] * s + o[1] * c };
+    });
+  }
+  var boxes = [
+    makeBox(180, 115, 34, 22, 0),
+    makeBox(450, 110, 26, 26, 0.6),
+    makeBox(350, 260, 60, 12, 0),
+    makeBox(130, 270, 18, 18, 0)
+  ];
+
+  function refresh() { if (demo) demo.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="shadows"]');
+  var mode = ui.select({ label: 'Edges that cast', value: 'all', options: [
+    { value: 'all', label: 'All edges' },
+    { value: 'away', label: 'Edges facing away from the light' },
+    { value: 'facing', label: 'Edges facing the light' }
+  ], onChange: refresh });
+  var rays = ui.toggle({ label: 'Show construction', value: false, onChange: refresh });
+  var radius = ui.slider({ label: 'Light radius', min: 80, max: 400, step: 10, value: 260, unit: ' px', onInput: refresh });
+  var length = ui.slider({ label: 'Shadow length', min: 0, max: 600, step: 10, value: 600, unit: ' px', onInput: refresh });
+  var outQuads = ui.readout({ label: 'Shadow quads' });
+  var outFacing = ui.readout({ label: 'Edges facing the light' });
+
+  function facesLight(a, b) {
+    var nx = b.y - a.y, ny = -(b.x - a.x);         // outward normal, y down
+    return nx * (light.x - a.x) + ny * (light.y - a.y) > 0;
+  }
+
+  function project(p) {
+    var dx = p.x - light.x, dy = p.y - light.y;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.0001) return { x: p.x, y: p.y };
+    return { x: p.x + dx / len * length.value, y: p.y + dy / len * length.value };
+  }
+
+  function castsShadow(facing) {
+    if (mode.value === 'all') return true;
+    if (mode.value === 'away') return !facing;
+    return facing;
+  }
+
+  // Every edge with its facing result, and a quad for each edge that casts.
+  function build() {
+    var edges = [], quads = [];
+    for (var i = 0; i < boxes.length; i++) {
+      var corners = boxes[i];
+      for (var j = 0; j < corners.length; j++) {
+        var a = corners[j], b = corners[(j + 1) % corners.length];
+        var facing = facesLight(a, b);
+        var casts = castsShadow(facing);
+        edges.push({ a: a, b: b, facing: facing, casts: casts });
+        if (casts) quads.push([a, b, project(b), project(a)]);
+      }
+    }
+    return { edges: edges, quads: quads };
+  }
+
+  function path(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+  }
+
+  function setView(s) {
+    view.k = Math.min(s.width / W, s.height / H);
+    view.ox = (s.width - W * view.k) / 2;
+    view.oy = (s.height - H * view.k) / 2;
+  }
+
+  function toWorld(p) {
+    light.x = DemoKit.clamp((p.x - view.ox) / view.k, 0, W);
+    light.y = DemoKit.clamp((p.y - view.oy) / view.k, 0, H);
+  }
+
+  var lastText = '';
+
+  demo = DemoKit.canvas('#shadows', {
+    aspect: 16 / 9, minHeight: 240, maxHeight: 440,
+    drag: true, keys: true,
+    label: 'A dark room seen from above with four boxes and a warm light. Drag or use the arrow keys to move the light; the boxes cast shadows away from it.',
+    onResize: setView,
+    onDown: function (p) { toWorld(p); },
+    onMove: function (p) { if (p.down) toWorld(p); },
+    onKey: function (key, down) {
+      if (!down) return;
+      if (key === 'arrowleft') light.x -= 6;
+      if (key === 'arrowright') light.x += 6;
+      if (key === 'arrowup') light.y -= 6;
+      if (key === 'arrowdown') light.y += 6;
+      light.x = DemoKit.clamp(light.x, 0, W);
+      light.y = DemoKit.clamp(light.y, 0, H);
+    },
+    update: function (dt, s) {
+      var v = 200 * dt;
+      if (s.keys.has('arrowleft')) light.x -= v;
+      if (s.keys.has('arrowright')) light.x += v;
+      if (s.keys.has('arrowup')) light.y -= v;
+      if (s.keys.has('arrowdown')) light.y += v;
+      light.x = DemoKit.clamp(light.x, 0, W);
+      light.y = DemoKit.clamp(light.y, 0, H);
+    },
+    draw: function (ctx, s) {
+      setView(s);
+      var k = view.k, i, q;
+      var result = build();
+
+      // 1. the unlit world: dark floor with a grid, dark boxes
+      ctx.fillStyle = '#14161b';
+      ctx.fillRect(0, 0, s.width, s.height);
+      ctx.save();
+      ctx.translate(view.ox, view.oy);
+      ctx.scale(k, k);
+      ctx.strokeStyle = '#262a33';
+      ctx.lineWidth = 1 / k;
+      ctx.beginPath();
+      for (var gx = 0; gx <= W; gx += 40) { ctx.moveTo(gx, 0); ctx.lineTo(gx, H); }
+      for (var gy = 0; gy <= H; gy += 40) { ctx.moveTo(0, gy); ctx.lineTo(W, gy); }
+      ctx.stroke();
+      for (i = 0; i < boxes.length; i++) {
+        path(ctx, boxes[i]);
+        ctx.fillStyle = '#3b404c';
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 2. the light map: a radial glow with every shadow quad cut out of it
+      var pw = Math.max(1, Math.round(s.width * s.dpr)), ph = Math.max(1, Math.round(s.height * s.dpr));
+      if (off.width !== pw || off.height !== ph) { off.width = pw; off.height = ph; }
+      octx.setTransform(1, 0, 0, 1, 0, 0);
+      octx.globalCompositeOperation = 'source-over';
+      octx.clearRect(0, 0, pw, ph);
+      octx.setTransform(s.dpr * k, 0, 0, s.dpr * k, s.dpr * view.ox, s.dpr * view.oy);
+      var r = radius.value;
+      var g = octx.createRadialGradient(light.x, light.y, 0, light.x, light.y, r);
+      g.addColorStop(0, 'rgba(255, 216, 150, 0.95)');
+      g.addColorStop(0.45, 'rgba(255, 200, 120, 0.45)');
+      g.addColorStop(1, 'rgba(255, 190, 110, 0)');
+      octx.fillStyle = g;
+      octx.beginPath();
+      octx.arc(light.x, light.y, r, 0, Math.PI * 2);
+      octx.fill();
+      octx.globalCompositeOperation = 'destination-out';
+      octx.fillStyle = '#000';
+      for (i = 0; i < result.quads.length; i++) {
+        path(octx, result.quads[i]);
+        octx.fill();
+      }
+      octx.globalCompositeOperation = 'source-over';
+
+      // 3. add the light map onto the scene
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(off, 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(view.ox, view.oy);
+      ctx.scale(k, k);
+
+      // box outlines so the boxes stay readable in shadow
+      ctx.lineWidth = 1.5 / k;
+      ctx.strokeStyle = '#6b7282';
+      for (i = 0; i < boxes.length; i++) { path(ctx, boxes[i]); ctx.stroke(); }
+
+      if (rays.value) {
+        // rays from the light through each extruded corner
+        ctx.setLineDash([5 / k, 5 / k]);
+        ctx.lineWidth = 1 / k;
+        ctx.strokeStyle = 'rgba(143, 184, 255, 0.75)';
+        ctx.beginPath();
+        for (i = 0; i < result.quads.length; i++) {
+          q = result.quads[i];
+          ctx.moveTo(light.x, light.y); ctx.lineTo(q[2].x, q[2].y);
+          ctx.moveTo(light.x, light.y); ctx.lineTo(q[3].x, q[3].y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // quad outlines
+        ctx.strokeStyle = 'rgba(255, 159, 67, 0.8)';
+        ctx.lineWidth = 1.5 / k;
+        for (i = 0; i < result.quads.length; i++) { path(ctx, result.quads[i]); ctx.stroke(); }
+        // edges: orange if extruded, blue if skipped
+        ctx.lineWidth = 4 / k;
+        for (i = 0; i < result.edges.length; i++) {
+          var e = result.edges[i];
+          ctx.strokeStyle = e.casts ? '#ff9f43' : '#6fb7ff';
+          ctx.beginPath();
+          ctx.moveTo(e.a.x, e.a.y);
+          ctx.lineTo(e.b.x, e.b.y);
+          ctx.stroke();
+        }
+      }
+
+      // the light itself
+      ctx.beginPath();
+      ctx.arc(light.x, light.y, 7 / Math.max(k, 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = '#fff6df';
+      ctx.fill();
+      ctx.lineWidth = 2 / k;
+      ctx.strokeStyle = '#ffb347';
+      ctx.stroke();
+      ctx.restore();
+
+      var facingCount = 0;
+      for (i = 0; i < result.edges.length; i++) if (result.edges[i].facing) facingCount++;
+      var text = result.quads.length + ' of ' + result.edges.length + '|' + facingCount;
+      if (text !== lastText) {
+        lastText = text;
+        outQuads.set(result.quads.length + ' of ' + result.edges.length + ' edges');
+        outFacing.set(String(facingCount));
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

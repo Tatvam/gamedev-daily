@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokemon Gold and Silver: compression, and the story of the second region · Game Dev Daily</title>
+<meta name="description" content="How an LZ-style command stream of fills, zero runs and copies shrinks game data, and what is fact and what is legend about Iwata's compression in Pokemon Gold.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-24">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pokemon Gold and Silver: compression, and the story of the second region</h1>
+  <p class="lede">How an LZ-style command stream of fills, zero runs and copies shrinks game data, and what is fact and what is legend about Iwata's compression in Pokemon Gold.</p>
+</header>
+
+<section data-section="hook">
+  <p>Beat the Elite Four in Pokemon Gold or Silver and the game is not over: a whole second region, Kanto from the first games, opens up. Fans often say this was only possible because Satoru Iwata, then at HAL Laboratory, wrote compression that squeezed the game small enough. The real story is less tidy. This page rebuilds the kind of compression the game uses and separates the record from the retelling.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: everything in 2 megabytes</h2>
+  <p>Pokemon Gold and Silver came out in Japan in 1999 for the Game Boy Color. Its <dfn>ROM</dfn>, the read-only game data on the cartridge, is 2 megabytes, seen by the console through 16 KB windows called <dfn>banks</dfn> (see the <a href="2026-11-20-nes-bank-switching.html">bank switching lesson</a>).</p>
+  <p>Those 128 banks hold the program, maps, music, text and pictures of 251 Pokemon, front and back. Game Boy graphics are built from 8 by 8 pixel <dfn>tiles</dfn> with 2 bits per pixel, so every tile costs 16 bytes. A picture 7 tiles square is 49 tiles, or 784 bytes, before any compression.</p>
+
+  <figure class="diagram compact">
+    <svg viewBox="0 0 360 150" role="img" aria-label="A bar divided into 128 equal banks of 16 kilobytes each, totalling 2 megabytes. Below, one 8 by 8 tile at 2 bits per pixel is 16 bytes, and a 7 by 7 tile picture is 784 bytes.">
+      <text class="d-text" x="20" y="22">Cartridge ROM: 2 MB = 128 banks × 16 KB</text>
+      <rect class="d-box" x="20" y="34" width="320" height="26"/>
+      <path class="d-thin" d="M40 34 V60 M60 34 V60 M80 34 V60 M100 34 V60 M120 34 V60 M140 34 V60 M160 34 V60 M180 34 V60 M200 34 V60 M220 34 V60 M240 34 V60 M260 34 V60 M280 34 V60 M300 34 V60 M320 34 V60"/>
+      <rect class="d-accent-soft" x="20" y="34" width="20" height="26"/>
+      <text class="d-muted" x="20" y="78">each cell here stands for 8 banks</text>
+      <rect class="d-fill" x="20" y="94" width="40" height="40"/>
+      <path class="d-thin" d="M25 94 V134 M30 94 V134 M35 94 V134 M40 94 V134 M45 94 V134 M50 94 V134 M55 94 V134 M20 99 H60 M20 104 H60 M20 109 H60 M20 114 H60 M20 119 H60 M20 124 H60 M20 129 H60"/>
+      <text class="d-mono" x="76" y="110">1 tile = 8 × 8 × 2 bits</text>
+      <text class="d-mono" x="76" y="128">= 16 bytes; 49 tiles = 784</text>
+    </svg>
+    <figcaption>The budget every byte of the game had to fit inside.</figcaption>
+  </figure>
+
+  <h2>The trick: describe the data instead of storing it</h2>
+  <p><dfn>Compression</dfn> means storing a shorter description that a program, the <dfn>decompressor</dfn>, can turn back into the exact original bytes. Game data is full of patterns that allow this.</p>
+  <p><dfn>Run-length encoding</dfn> replaces a run such as "seven grass tiles" with a count and a value. <dfn>Back-references</dfn>, the idea behind Abraham Lempel and Jacob Ziv's LZ77 method of 1977, replace a repeated stretch with "copy n bytes from d bytes back". Formats that mix the two are called <dfn>LZ-style</dfn>.</p>
+  <p>Gold and Silver store much of their graphics this way. The fan-made <dfn>disassembly</dfn>, which turns the ROM back into readable source code, documents the format as a stream of <dfn>commands</dfn>. Each command starts with a header byte: the top 3 bits pick the command and the low 5 bits give a count, so one command covers 1 to 32 bytes (a long form allows longer runs). The commands are:</p>
+  <ul>
+    <li><strong>Literal:</strong> the next n bytes are copied as they are.</li>
+    <li><strong>Iterate:</strong> repeat one byte n times.</li>
+    <li><strong>Alternate:</strong> repeat a pair of bytes, a b a b, for n bytes.</li>
+    <li><strong>Zero fill:</strong> write n zero bytes, with nothing else stored.</li>
+    <li><strong>Repeat, flip and reverse:</strong> copy n bytes from earlier output, either as they were, with the bits of each byte reversed, or in backwards order.</li>
+  </ul>
+  <p>A byte of FF ends the stream. Flip suits graphics: in a Game Boy tile each bit is one pixel, so reversing a byte's bits mirrors that row of pixels.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" role="img" aria-label="Top: a header byte split into 3 command bits and 5 count bits. Below, five examples. Literal, header 02, stores 5 6 7 and expands to 5 6 7. Fill, header 24, stores 1 and expands to five 1s. Alternate, header 45, stores 3 4 and expands to 3 4 3 4 3 4. Zero, header 63, stores nothing and expands to four 0s. Copy, header 83, stores 08 and copies 4 bytes from 9 bytes back.">
+      <text class="d-text" x="20" y="24">Header byte</text>
+      <rect class="d-accent-soft" x="120" y="8" width="96" height="26"/>
+      <rect class="d-box" x="216" y="8" width="160" height="26"/>
+      <path class="d-thin" d="M152 8 V34 M184 8 V34 M248 8 V34 M280 8 V34 M312 8 V34 M344 8 V34"/>
+      <text class="d-label" x="168" y="52" text-anchor="middle">command (0 to 7)</text>
+      <text class="d-muted" x="296" y="52" text-anchor="middle">count − 1 (0 to 31)</text>
+      <text class="d-muted" x="400" y="26">header = command × 32 + count − 1</text>
+
+      <text class="d-muted" x="20" y="92">Command</text>
+      <text class="d-muted" x="150" y="92">Stored bytes</text>
+      <text class="d-muted" x="360" y="92">Expands to</text>
+      <path class="d-thin" d="M20 100 H620"/>
+
+      <text class="d-text" x="20" y="128">Literal, n = 3</text>
+      <text class="d-mono" x="150" y="128">02 05 06 07</text>
+      <text class="d-mono" x="360" y="128">5 6 7</text>
+      <text class="d-muted" x="560" y="128">4 bytes</text>
+
+      <text class="d-text" x="20" y="168">Fill, n = 5</text>
+      <text class="d-mono" x="150" y="168">24 01</text>
+      <text class="d-mono" x="360" y="168">1 1 1 1 1</text>
+      <text class="d-muted" x="560" y="168">2 bytes</text>
+
+      <text class="d-text" x="20" y="208">Alternate, n = 6</text>
+      <text class="d-mono" x="150" y="208">45 03 04</text>
+      <text class="d-mono" x="360" y="208">3 4 3 4 3 4</text>
+      <text class="d-muted" x="560" y="208">3 bytes</text>
+
+      <text class="d-text" x="20" y="248">Zero, n = 4</text>
+      <text class="d-mono" x="150" y="248">63</text>
+      <text class="d-mono" x="360" y="248">0 0 0 0</text>
+      <text class="d-muted" x="560" y="248">1 byte</text>
+
+      <text class="d-text" x="20" y="288">Copy, n = 4</text>
+      <text class="d-mono" x="150" y="288">83 08</text>
+      <text class="d-mono" x="360" y="288">4 bytes from 9 back</text>
+      <path class="d-accent" d="M150 302 H300"/>
+      <text class="d-muted" x="150" y="320">distance − 1 is stored, so 08 means 9</text>
+    </svg>
+    <figcaption>The simplified format used below, bytes in hexadecimal. The real format adds flip, reverse, a long form and longer distances.</figcaption>
+  </figure>
+
+  <p>The demo and code use this simplified version on a tile map, a grid of tile numbers, because its patterns are easy to see. The game mainly compresses tile graphics, but the commands work on any bytes.</p>
+
+  <h2>Fact and legend</h2>
+  <p>Here is what can be pinned down. In Nintendo's <cite>Iwata Asks</cite> interview about the remakes HeartGold and SoulSilver, Game Freak's Shigeki Morimoto thanks Iwata for creating the tools for compressing the Pokemon graphics, and Iwata agrees that he did. The same conversation recalls him porting the battle program to Pokemon Stadium on the Nintendo 64 in about a week.</p>
+  <div class="callout warn">
+    <p class="callout-title">Often repeated, not confirmed</p>
+    <p>That this compression freed the room for Kanto is the popular version, but no primary source I know of says so. Fan researchers, and a widely reported 2023 video by Did You Know Gaming?, argue the main gain was <em>speed</em>: graphics unpacked faster, so battles appeared sooner. Treat "saved Kanto" as legend, and the speed account as better supported but still second-hand.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The map below is 20 by 12 tiles, one byte each: 240 bytes. Press <em>Restart</em>, then <em>Step</em>, to watch the decompressor rebuild it command by command; a dashed outline marks where a copy reads from. Turn commands off to see each one's share of the saving. Paint with the brush (click, drag, or arrow keys and Enter) and watch the size change. Try <em>Noise</em> for data with no patterns.</p>
+
+  <figure class="demo" data-demo="lzmap">
+    <canvas id="lzmap"></canvas>
+    <figcaption>The bars compare the raw map with the compressed stream, coloured by command. The encoder is greedy: it takes whichever command saves the most bytes at each position.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's format and encoder in plain Lua for LÖVE. Data is a table of byte values, indexed from 1. With every command allowed, the demo's <em>Town</em> map compresses from 240 bytes to 44; with only literals it grows to 249.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- header byte = command * 32 + (count - 1), count is 1..32</span>
+local LIT, FILL, ALT, ZERO, COPY, MAXN, STOP = 0, 1, 2, 3, 4, 32, 255
+
+function decompress(src)
+  local out, p = {}, 1
+  while src[p] ~= STOP do
+    local cmd, n = math.floor(src[p] / 32), src[p] % 32 + 1
+    p = p + 1
+    for k = 0, n - 1 do
+      if cmd == LIT then out[#out + 1] = src[p + k]
+      elseif cmd == FILL then out[#out + 1] = src[p]
+      elseif cmd == ALT then out[#out + 1] = src[p + k % 2]
+      elseif cmd == ZERO then out[#out + 1] = 0
+<span class="k">      else out[#out + 1] = out[#out + 1 - (src[p] + 1)] end  -- COPY</span>
+    end
+    if cmd == LIT then p = p + n
+    elseif cmd == FILL or cmd == COPY then p = p + 1
+    elseif cmd == ALT then p = p + 2 end
+  end
+  return out
+end
+
+local function runLength(i, max, test)  <span class="c">-- bytes from i that pass test(j)</span>
+  local len = 0
+  while len &lt; max and test(i + len) do len = len + 1 end
+  return len
+end
+
+<span class="c">-- on = { [FILL] = true, [ALT] = true, [ZERO] = true, [COPY] = true }</span>
+function compress(d, on)
+  local out, lit, i = {}, {}, 1
+  local function emit(...)                <span class="c">-- trailing nils are dropped</span>
+    for _, b in ipairs({ ... }) do out[#out + 1] = b end
+  end
+  local function flush()
+    if #lit &gt; 0 then emit(LIT * 32 + #lit - 1, unpack(lit)); lit = {} end
+  end
+  while i &lt;= #d do
+    local max, best, pick = math.min(MAXN, #d - i + 1), 0, nil
+    local function try(cmd, len, cost, a, b)  <span class="c">-- keep the biggest saving</span>
+<span class="k">      if on[cmd] and len - cost &gt; best then best, pick = len - cost, { cmd, len, a, b } end</span>
+    end
+    try(ZERO, runLength(i, max, function (j) return d[j] == 0 end), 1)
+    try(FILL, runLength(i, max, function (j) return d[j] == d[i] end), 2, d[i])
+    try(ALT, runLength(i, max, function (j) return d[j] == d[i + (j - i) % 2] end), 3, d[i], d[i + 1])
+    for dist = 1, math.min(256, i - 1) do
+      try(COPY, runLength(i, max, function (j) return d[j] == d[j - dist] end), 2, dist - 1)
+    end
+    if pick then
+      flush()
+      emit(pick[1] * 32 + pick[2] - 1, pick[3], pick[4])
+      i = i + pick[2]
+    else
+      lit[#lit + 1] = d[i]; i = i + 1
+      if #lit == MAXN then flush() end
+    end
+  end
+  flush(); emit(STOP)
+  return out
+end</code></pre>
+  </div>
+  <p>A copy may overlap what it writes: with distance 2 and count 20 it keeps re-copying the pair it just wrote, because the decoder works one byte at a time.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Compression can make data bigger.</strong> With only literals the 240-byte map becomes 249 bytes, and <em>Noise</em> barely shrinks. Store data raw when compressing does not help.</li>
+    <li><strong>Decompression costs time.</strong> On a Game Boy, unpacking a picture before a battle is a visible pause. Measure decode time, not only size.</li>
+    <li><strong>Greedy is not optimal.</strong> The best command now can block a better one two bytes later. Offline tools can search harder.</li>
+    <li><strong>Trust no input.</strong> A copy distance pointing before the start of the output reads garbage, and one bad header shifts every command after it. Test that every packed asset unpacks to the exact original in your build.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>The fan disassemblies of Pokemon Gold, Silver and Crystal document the command format described above for the games' compressed graphics. Fans have noted that it closely resembles the format in other HAL Laboratory games such as EarthBound; I could not confirm that from a primary source.</p>
+  <p>LZ-style compression never left. The Deflate method inside zip files and PNG images combines LZ77 back-references with Huffman coding, and the PlayStation 5 has a hardware decoder for Kraken, from RAD Game Tools' Oodle library, so streaming compressed data costs no processor time.</p>
+  <p>The lesson for today: the Gold and Silver debate, size or speed, is a choice engines still make. A web game wants a small download, so it picks a high ratio. An open world streaming data mid-play wants fast decoding, so it picks something like LZ4, which compresses less but unpacks very quickly. Pick the format for the bottleneck you actually have.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Paste the Lua into <code>main.lua</code>. Build your own 20 by 12 tile map, call <code>compress</code> with all commands on, then <code>decompress</code> the result and check that every byte matches the original. Print both sizes. You are done when the check passes and you can name the command that saved the most bytes. Bonus: add a reverse-copy command and a mirror-symmetric map that benefits from it.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Gold and Silver fit 251 Pokemon into a 2 MB cartridge, with much of the graphics compressed.</li>
+    <li>Their format is a stream of commands: literal bytes, runs of one byte, alternating pairs, zero runs, and copies of earlier output.</li>
+    <li>Iwata did write compression tools for the games' graphics; that they freed the room for Kanto is legend, and the best-supported account says the gain was speed.</li>
+    <li>Compression only wins on data with patterns, and is paid for in decoding time.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we see how Chris Sawyer wrote RollerCoaster Tycoon almost entirely in assembly language to simulate thousands of park guests on ordinary computers.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: searches worked, but no source page could be opened, so none are linked. The hardware facts are widely documented. The Iwata Asks content comes from search excerpts of the interview, and the size-or-speed dispute from news coverage of the 2023 video. Look up these works:</p>
+  <ul>
+    <li>Nintendo, <cite>Iwata Asks: Pokemon HeartGold Version and SoulSilver Version</cite>, with Tsunekazu Ishihara and Shigeki Morimoto.</li>
+    <li>pret, <cite>pokegold</cite> and <cite>pokecrystal</cite> disassembly projects, the file <code>home/decompress.asm</code>, whose comments document the LZ command format.</li>
+    <li>Did You Know Gaming?, video on Satoru Iwata's work on Pokemon Gold and Silver (2023), and the news coverage of it.</li>
+    <li>Jacob Ziv and Abraham Lempel, <cite>A Universal Algorithm for Sequential Data Compression</cite>, IEEE Transactions on Information Theory, 1977. The LZ77 paper.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 20, H = 12, MAXN = 32;
+  var LIT = 0, FILL = 1, ALT = 2, ZERO = 3, COPY = 4;
+  var NAMES = ['Literal', 'Fill', 'Alternate', 'Zero', 'Copy'];
+  var TILE_NAMES = ['Grass', 'Path', 'Water', 'Round bush', 'Square bush', 'Roof', 'Wall', 'Door', 'Fence'];
+
+  function town(x, y) {
+    if (y <= 1 || y >= 10) return (x % 2 === 0) ? 3 : 4;
+    if (x === 0) return 3;
+    if (x === W - 1) return 4;
+    var house = (x >= 3 && x <= 6) || (x >= 12 && x <= 15);
+    if (y === 3 && house) return 5;
+    if (y === 4 && house) return (x === 5 || x === 14) ? 7 : 6;
+    if (y === 6 && x >= 2 && x <= 7) return 8;
+    if (y === 7) return 1;
+    if ((y === 8 || y === 9) && x >= 13 && x <= 17) return 2;
+    return 0;
+  }
+
+  var data = [];
+  function loadMap(name) {
+    var rng = DemoKit.rng(7);
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        var v = 0;
+        if (name === 'town') v = town(x, y);
+        else if (name === 'noise') v = Math.floor(rng() * 9);
+        data[y * W + x] = v;
+      }
+    }
+  }
+
+  // ---- encoder: the same greedy rules as the Lua on the page ----
+  function encode(d, on) {
+    var out = [], cmds = [], lit = [], litStart = 0, i = 0, n = d.length;
+    function flush() {
+      if (!lit.length) return;
+      var c = { cmd: LIT, n: lit.length, start: litStart, bytes: [LIT * 32 + lit.length - 1].concat(lit) };
+      cmds.push(c);
+      out = out.concat(c.bytes);
+      lit = [];
+    }
+    while (i < n) {
+      var max = Math.min(MAXN, n - i), best = 0, pick = null, len;
+      var tryCmd = function (cmd, l, cost, extra) {
+        if (on[cmd] && l - cost > best) { best = l - cost; pick = { cmd: cmd, n: l, extra: extra }; }
+      };
+      len = 0; while (len < max && d[i + len] === 0) len++;
+      tryCmd(ZERO, len, 1, { bytes: [] });
+      len = 0; while (len < max && d[i + len] === d[i]) len++;
+      tryCmd(FILL, len, 2, { bytes: [d[i]] });
+      len = 0; while (len < max && d[i + len] === d[i + (len % 2)]) len++;
+      tryCmd(ALT, len, 3, { bytes: [d[i], d[i + 1]] });
+      for (var dist = 1; dist <= Math.min(256, i); dist++) {
+        len = 0; while (len < max && d[i + len] === d[i + len - dist]) len++;
+        tryCmd(COPY, len, 2, { bytes: [dist - 1], dist: dist });
+      }
+      if (pick) {
+        flush();
+        var c = { cmd: pick.cmd, n: pick.n, start: i, dist: pick.extra.dist || 0,
+                  bytes: [pick.cmd * 32 + pick.n - 1].concat(pick.extra.bytes) };
+        cmds.push(c);
+        out = out.concat(c.bytes);
+        i += pick.n;
+      } else {
+        if (!lit.length) litStart = i;
+        lit.push(d[i]); i++;
+        if (lit.length === MAXN) flush();
+      }
+    }
+    flush();
+    out.push(255);
+    return { size: out.length, cmds: cmds };
+  }
+
+  // ---- state ----
+  var enc = { size: 0, cmds: [] };
+  var step = 0;
+  var cursor = { x: 9, y: 5 };
+  var showCursor = false;
+
+  function rebuild() {
+    var on = [true, fillT.value, altT.value, zeroT.value, copyT.value];
+    enc = encode(data, on);
+    step = enc.cmds.length;
+    var saved = data.length - enc.size;
+    sizeOut.set(data.length + ' to ' + enc.size + ' bytes' +
+      (saved >= 0 ? ' (' + Math.round(100 * saved / data.length) + '% saved)' : ' (' + (-saved) + ' bytes bigger)'));
+    bankOut.set(Math.floor(16384 / data.length) + ' raw, ' + Math.floor(16384 / enc.size) + ' compressed');
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="lzmap"]');
+  var mapSel = ui.select({
+    label: 'Map',
+    options: [{ value: 'town', label: 'Town' }, { value: 'noise', label: 'Noise' }, { value: 'blank', label: 'Blank (all grass)' }],
+    value: 'town',
+    onChange: function (v) { loadMap(v); rebuild(); redraw(); }
+  });
+  var fillT = ui.toggle({ label: 'Fill', value: true, onChange: function () { rebuild(); redraw(); } });
+  var altT = ui.toggle({ label: 'Alternate', value: true, onChange: function () { rebuild(); redraw(); } });
+  var zeroT = ui.toggle({ label: 'Zero', value: true, onChange: function () { rebuild(); redraw(); } });
+  var copyT = ui.toggle({ label: 'Copy', value: true, onChange: function () { rebuild(); redraw(); } });
+  ui.button({ label: 'Restart', onClick: function () { step = 0; redraw(); } });
+  ui.button({ label: 'Step', onClick: function () { if (step < enc.cmds.length) step++; redraw(); } });
+  ui.button({ label: 'Show all', onClick: function () { step = enc.cmds.length; redraw(); } });
+  var brushSel = ui.select({
+    label: 'Brush',
+    options: TILE_NAMES.map(function (nm, k) { return { value: String(k), label: nm + ' (' + k + ')' }; }),
+    value: '2'
+  });
+  var sizeOut = ui.readout({ label: 'Size' });
+  var bankOut = ui.readout({ label: 'Maps per 16 KB bank' });
+
+  // ---- drawing ----
+  var TILE_COL = ['#9cc76c', '#d8c290', '#4a8bd4', '#9cc76c', '#9cc76c', '#c4554c', '#ebdfc2', '#ebdfc2', '#9cc76c'];
+  function cmdColor(cmd, c) {
+    return [c.ink3, c.topic, '#2a9db0', c.good, '#8a5cd6'][cmd];
+  }
+
+  function drawTile(ctx, v, x, y, s) {
+    ctx.fillStyle = TILE_COL[v];
+    ctx.fillRect(x, y, s, s);
+    var m = s / 2;
+    if (v === 1) {
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(x + s * 0.2, y + s * 0.3, s * 0.15, s * 0.15);
+      ctx.fillRect(x + s * 0.6, y + s * 0.6, s * 0.15, s * 0.15);
+    } else if (v === 2) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.15, y + m); ctx.lineTo(x + s * 0.4, y + s * 0.35);
+      ctx.lineTo(x + s * 0.6, y + m); ctx.lineTo(x + s * 0.85, y + s * 0.35);
+      ctx.stroke();
+    } else if (v === 3) {
+      ctx.fillStyle = '#2f6b35';
+      ctx.beginPath(); ctx.arc(x + m, y + m, s * 0.4, 0, Math.PI * 2); ctx.fill();
+    } else if (v === 4) {
+      ctx.fillStyle = '#3d7d2c';
+      ctx.fillRect(x + s * 0.15, y + s * 0.15, s * 0.7, s * 0.7);
+    } else if (v === 5) {
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(x, y + s * 0.45, s, s * 0.12);
+      ctx.fillRect(x, y + s * 0.85, s, s * 0.15);
+    } else if (v === 6) {
+      ctx.fillStyle = '#6a8cb8';
+      ctx.fillRect(x + s * 0.3, y + s * 0.3, s * 0.4, s * 0.35);
+    } else if (v === 7) {
+      ctx.fillStyle = '#6b4a30';
+      ctx.fillRect(x + s * 0.25, y + s * 0.25, s * 0.5, s * 0.75);
+    } else if (v === 8) {
+      ctx.fillStyle = '#8a6a44';
+      ctx.fillRect(x, y + s * 0.35, s, s * 0.12);
+      ctx.fillRect(x, y + s * 0.6, s, s * 0.12);
+      ctx.fillRect(x + s * 0.4, y + s * 0.2, s * 0.2, s * 0.65);
+    }
+  }
+
+  function layout(s) {
+    var cell = Math.max(8, Math.floor(Math.min((s.width - 24) / W, (s.height - 220) / H)));
+    return { cell: cell, mx: Math.round((s.width - cell * W) / 2), my: 10 };
+  }
+
+  function outlineRange(ctx, L, start, n, dashed, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = dashed ? 2 : 3;
+    if (dashed) ctx.setLineDash([4, 3]);
+    for (var k = start; k < start + n; k++) {
+      var x = k % W, y = Math.floor(k / W);
+      ctx.strokeRect(L.mx + x * L.cell + 1.5, L.my + y * L.cell + 1.5, L.cell - 3, L.cell - 3);
+    }
+    ctx.restore();
+  }
+
+  function hex(v) { return (v < 16 ? '0' : '') + v.toString(16).toUpperCase(); }
+
+  function describe(c) {
+    if (c.cmd === LIT) return 'Literal: ' + c.n + ' bytes stored as they are';
+    if (c.cmd === FILL) return 'Fill: tile ' + c.bytes[1] + ' written ' + c.n + ' times';
+    if (c.cmd === ALT) return 'Alternate: ' + c.bytes[1] + ' and ' + c.bytes[2] + ' for ' + c.n + ' bytes';
+    if (c.cmd === ZERO) return 'Zero: ' + c.n + ' grass tiles, nothing else stored';
+    return 'Copy: ' + c.n + ' bytes from ' + c.dist + ' back';
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var L = layout(s);
+    var decoded = 0;
+    if (step > 0) { var lastC = enc.cmds[step - 1]; decoded = lastC.start + lastC.n; }
+
+    // map
+    for (var k = 0; k < W * H; k++) {
+      var x = L.mx + (k % W) * L.cell, y = L.my + Math.floor(k / W) * L.cell;
+      if (k < decoded) drawTile(ctx, data[k], x, y, L.cell);
+      else {
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(x, y, L.cell, L.cell);
+      }
+    }
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(L.mx + 0.5, L.my + 0.5, W * L.cell - 1, H * L.cell - 1);
+
+    var cur = step > 0 ? enc.cmds[step - 1] : null;
+    if (cur) {
+      if (cur.cmd === COPY) outlineRange(ctx, L, cur.start - cur.dist, Math.min(cur.n, cur.dist), true, c.ink);
+      outlineRange(ctx, L, cur.start, cur.n, false, cmdColor(cur.cmd, c));
+    }
+    if (showCursor) {
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(L.mx + cursor.x * L.cell - 1, L.my + cursor.y * L.cell - 1, L.cell + 2, L.cell + 2);
+    }
+
+    // status text
+    var ty = L.my + H * L.cell + 24;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillStyle = c.ink;
+    var x0 = 12;
+    ctx.fillText('Step ' + step + ' of ' + enc.cmds.length, x0, ty);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText(cur ? describe(cur) : 'Nothing decoded yet. Press Step.', x0, ty + 18);
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = c.ink2;
+    if (cur) {
+      var shown = cur.bytes.slice(0, 6).map(hex).join(' ') + (cur.bytes.length > 6 ? ' ...' : '');
+      ctx.fillText('Stored: ' + shown + ' (' + cur.bytes.length + (cur.bytes.length === 1 ? ' byte)' : ' bytes)'), x0, ty + 36);
+    } else {
+      ctx.fillText('Header = command x 32 + count - 1', x0, ty + 36);
+    }
+
+    // size bars
+    var barW = s.width - 24;
+    var scale = barW / Math.max(data.length, enc.size);
+    var by = ty + 62;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Raw map: ' + data.length + ' bytes', x0, by);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(x0, by + 6, data.length * scale, 16);
+    ctx.strokeStyle = c.line;
+    ctx.strokeRect(x0 + 0.5, by + 6.5, data.length * scale - 1, 15);
+    if (decoded > 0) {
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(x0, by + 6, decoded * scale, 16);
+    }
+
+    var cy = by + 46;
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Compressed stream: ' + enc.size + ' bytes', x0, cy);
+    var px = x0;
+    for (var i = 0; i < enc.cmds.length; i++) {
+      var cm = enc.cmds[i], w = cm.bytes.length * scale;
+      ctx.globalAlpha = i < step ? 1 : 0.3;
+      ctx.fillStyle = cmdColor(cm.cmd, c);
+      ctx.fillRect(px, cy + 6, w, 16);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.surface;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px + 0.5, cy + 6.5, Math.max(0, w - 1), 15);
+      if (i === step - 1) {
+        ctx.strokeStyle = c.ink;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px - 1, cy + 5, w + 2, 18);
+      }
+      px += w;
+    }
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(px, cy + 6, scale, 16); // FF terminator
+
+    // legend
+    var ly = cy + 46, lx = x0;
+    ctx.font = '12px system-ui, sans-serif';
+    for (var n = 0; n < 5; n++) {
+      var tw = ctx.measureText(NAMES[n]).width + 32;
+      if (lx + tw > s.width - 12) { lx = x0; ly += 20; }
+      ctx.fillStyle = cmdColor(n, c);
+      ctx.fillRect(lx, ly - 10, 12, 12);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(NAMES[n], lx + 17, ly);
+      lx += tw;
+    }
+  }
+
+  function paintAt(p, s) {
+    var L = layout(s);
+    var x = Math.floor((p.x - L.mx) / L.cell), y = Math.floor((p.y - L.my) / L.cell);
+    if (x < 0 || x >= W || y < 0 || y >= H) return;
+    var v = parseInt(brushSel.value, 10) || 0;
+    if (data[y * W + x] === v) return;
+    data[y * W + x] = v;
+    rebuild();
+    redraw();
+  }
+
+  var handle = DemoKit.canvas('#lzmap', {
+    height: 460,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A 20 by 12 tile map that a decompressor rebuilds one command at a time. The current command\'s tiles are outlined, and two bars compare the raw size with the compressed stream, coloured by command type. Click or drag to paint tiles, or use the arrow keys and Enter.',
+    draw: draw,
+    onDown: function (p, s) { showCursor = false; paintAt(p, s); },
+    onMove: function (p, s) { if (p.down) paintAt(p, s); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var moved = true;
+      if (key === 'arrowleft') cursor.x = Math.max(0, cursor.x - 1);
+      else if (key === 'arrowright') cursor.x = Math.min(W - 1, cursor.x + 1);
+      else if (key === 'arrowup') cursor.y = Math.max(0, cursor.y - 1);
+      else if (key === 'arrowdown') cursor.y = Math.min(H - 1, cursor.y + 1);
+      else if (key === 'enter' || key === ' ' || key === 'space') {
+        data[cursor.y * W + cursor.x] = parseInt(brushSel.value, 10) || 0;
+        rebuild();
+      } else moved = false;
+      if (moved) { showCursor = true; redraw(); }
+    }
+  });
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  loadMap('town');
+  rebuild();
+  redraw();
+})();
+</script>
+</body>
+</html>
