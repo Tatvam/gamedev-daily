@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triggers and sensors · Game Dev Daily</title>
+<meta name="description" content="How a trigger notices bodies without blocking them, and how comparing this step's overlap with the last one gives clean enter, stay and exit events.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Triggers and sensors</h1>
+  <p class="lede">How a trigger notices bodies without blocking them, and how comparing this step's overlap with the last one gives clean enter, stay and exit events.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your hero steps on a spike trap that should take 10 hit points, and is dead before the sprite has finished one frame of the hurt animation. A checkpoint chimes sixty times a second. A door opens when you walk up to it and never closes again.</p>
+  <p>All three are the same bug. The code asks "is the player touching this?" when it should ask "did the player <em>just start</em> touching this?"</p>
+</section>
+
+<section data-section="concept">
+  <h2>A shape that notices but does not block</h2>
+  <p>A <dfn>trigger</dfn>, also called a <dfn>sensor</dfn>, is a collision shape that is tested for overlap like any other, but is never pushed out of. Bodies walk straight through it. Its only job is to report who is inside. Spike traps, healing pools, checkpoints and door sensors are all triggers.</p>
+  <p>The overlap test itself is the AABB test from earlier in this track: two boxes overlap when their intervals overlap on both axes. The hard part is not the test. It is deciding <em>when</em> to act on it.</p>
+
+  <h3>The bug: acting on every step</h3>
+  <p>The first version most people write looks like this:</p>
+<pre><code>if overlaps(player, spikes) then
+  player.hp = player.hp - 10    <span class="c">-- runs on every step you stand there</span>
+end</code></pre>
+  <p>In words: as long as the player is inside, take 10 hit points. But the physics runs 60 steps per second, so ten steps, one sixth of a second, empties a 100 hit point bar.</p>
+  <p>This check is not wrong. It is the right answer to a different question. A healing pool that gives 20 hit points per second <em>should</em> act every step, adding <code>20 × STEP</code> each time. What is missing are the two moments in between: the step the body arrives and the step it leaves.</p>
+
+  <h2>The fix: compare with the last step</h2>
+  <p>Give each trigger a memory: the set of bodies that were inside it on the previous step. Then every step, for every body, you have two yes-or-no answers, "was it inside?" and "is it inside now?". Four combinations give four results:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Was inside</th><th>Inside now</th><th>Event</th><th>Typical use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>no</td><td>no</td><td>nothing</td><td></td></tr>
+      <tr><td>no</td><td>yes</td><td><strong>enter</strong></td><td>damage once, ring a checkpoint, open a door</td></tr>
+      <tr><td>yes</td><td>yes</td><td><strong>stay</strong></td><td>heal or burn over time, show a prompt</td></tr>
+      <tr><td>yes</td><td>no</td><td><strong>exit</strong></td><td>close the door, hide the prompt</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>An <dfn>enter event</dfn> fires once, on the first step of an overlap. An <dfn>exit event</dfn> fires once, on the first step without it. A <dfn>stay event</dfn> fires on every step in between. After deciding, the trigger writes "inside now" into its memory, ready for the next step.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A body moves right through a trigger zone in six steps. Rows below each step show whether it was inside on the last step, whether it is inside now, and the resulting event: nothing, enter, stay, stay, exit, nothing.">
+      <rect class="d-accent-soft" x="200" y="20" width="240" height="80" rx="4"/>
+      <path class="d-dash" d="M200 20 H440 V100 H200 Z"/>
+      <text class="d-label" x="320" y="38" text-anchor="middle">trigger</text>
+      <text class="d-muted" x="12" y="72">step</text>
+      <g>
+        <rect class="d-box" x="120" y="50" width="30" height="30"/>
+        <rect class="d-accent-fill" x="200" y="50" width="30" height="30"/>
+        <rect class="d-accent-fill" x="280" y="50" width="30" height="30"/>
+        <rect class="d-accent-fill" x="360" y="50" width="30" height="30"/>
+        <rect class="d-box" x="450" y="50" width="30" height="30"/>
+        <rect class="d-box" x="530" y="50" width="30" height="30"/>
+      </g>
+      <g text-anchor="middle">
+        <text class="d-mono" x="135" y="118">1</text>
+        <text class="d-mono" x="215" y="118">2</text>
+        <text class="d-mono" x="295" y="118">3</text>
+        <text class="d-mono" x="375" y="118">4</text>
+        <text class="d-mono" x="465" y="118">5</text>
+        <text class="d-mono" x="545" y="118">6</text>
+      </g>
+      <path class="d-thin" d="M12 130 H600"/>
+      <text class="d-muted" x="12" y="156">was in</text>
+      <text class="d-muted" x="12" y="186">in now</text>
+      <text class="d-text" x="12" y="224">event</text>
+      <g text-anchor="middle">
+        <text class="d-text" x="135" y="156">no</text>
+        <text class="d-text" x="215" y="156">no</text>
+        <text class="d-text" x="295" y="156">yes</text>
+        <text class="d-text" x="375" y="156">yes</text>
+        <text class="d-text" x="465" y="156">yes</text>
+        <text class="d-text" x="545" y="156">no</text>
+        <text class="d-text" x="135" y="186">no</text>
+        <text class="d-text" x="215" y="186">yes</text>
+        <text class="d-text" x="295" y="186">yes</text>
+        <text class="d-text" x="375" y="186">yes</text>
+        <text class="d-text" x="465" y="186">no</text>
+        <text class="d-text" x="545" y="186">no</text>
+        <text class="d-muted" x="135" y="224">–</text>
+        <text class="d-label" x="215" y="224">enter</text>
+        <text class="d-text" x="295" y="224">stay</text>
+        <text class="d-text" x="375" y="224">stay</text>
+        <text class="d-label" x="465" y="224">exit</text>
+        <text class="d-muted" x="545" y="224">–</text>
+      </g>
+    </svg>
+    <figcaption>One body crossing one trigger in six steps. The overlap test alone gives only the "in now" row. Keeping the row above it, last step's answer, is what turns it into events.</figcaption>
+  </figure>
+
+  <h3>One step by hand</h3>
+  <p>In the demo the player is a 24 px box walking right at 200 px/s, so it moves 200 / 60 = 3.33 px per step. Say its right edge is at 118 and the spikes start at x = 120.</p>
+  <ol>
+    <li>Step 1: the right edge moves to 121.33, past 120. Was inside: no. Inside now: yes. <strong>Enter</strong>: hit points go from 100 to 90.</li>
+    <li>Step 2: was inside: yes. Inside now: yes. <strong>Stay</strong>. The spikes have no stay action, so nothing happens. Hit points stay at 90.</li>
+    <li>With the naive check, step 2 would also take 10, and so would every step after it: 0 hit points after 10 steps.</li>
+  </ol>
+  <p>The healing pool has only a stay action: 20 × (1/60) = 0.33 hit points per step, so 30 steps, half a second, give back 10.</p>
+
+  <div class="callout">
+    <p class="callout-title">Correct versus good</p>
+    <p>Real spikes would hurt every time you push down on them. Games pick one hit on entry, often followed by a short spell of invulnerability, because that reads clearly to the player. A trigger is a game rule wearing a collision shape.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with the naive check. Walk into the spikes and watch the log flood and the hit points vanish. Cross the checkpoint line and it rings on every step. Walk into the light zone and out again: the light never turns off. Now switch to <strong>Enter, stay and exit</strong>, press Reset, and repeat: each zone fires once on the way in and once on the way out.</p>
+
+  <figure class="demo wide" data-demo="triggers">
+    <canvas id="triggers"></canvas>
+    <figcaption>Dashed shapes are triggers: you walk through them. The dashed outline behind the player is its position on the previous step. Keyboard: click the scene, then use the arrow keys or WASD. Touch or mouse: drag the player. Drag it fast across the thin checkpoint line and it can jump over it without ringing.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's step in Lua, with the same zones and numbers. Each zone keeps a table <code>inside</code> of the bodies that overlapped it on the last step, so one trigger can track many bodies at once.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP, RUN = 1 / 60, 200           <span class="c">-- fixed step (s), walking speed (px/s)</span>
+local HP_MAX, SPIKE_DAMAGE, HEAL_RATE = 100, 10, 20
+
+local player = { x = 48, y = 138, w = 24, h = 24, hp = HP_MAX }
+local checkpoints, lightOn = 0, false
+
+<span class="c">-- A trigger is a box with up to three callbacks. It never blocks anything.</span>
+local zones = {
+  { name = "spikes", x = 120, y = 30, w = 100, h = 80,
+    onEnter = function (b) b.hp = math.max(b.hp - SPIKE_DAMAGE, 0) end },
+  { name = "pool", x = 120, y = 190, w = 120, h = 80,
+    onStay = function (b) b.hp = math.min(b.hp + HEAL_RATE * STEP, HP_MAX) end },
+  { name = "checkpoint", x = 296, y = 0, w = 8, h = 300,
+    onEnter = function (b) checkpoints = checkpoints + 1 end },
+  { name = "light", x = 390, y = 30, w = 170, h = 90,
+    onEnter = function (b) lightOn = true end,
+    onExit = function (b) lightOn = false end },
+}
+for _, z in ipairs(zones) do z.inside = {} end  <span class="c">-- bodies inside last step</span>
+
+local function overlaps(a, b)
+  return a.x &lt; b.x + b.w and b.x &lt; a.x + a.w
+     and a.y &lt; b.y + b.h and b.y &lt; a.y + a.h
+end
+
+local function updateTriggers(bodies)
+  for _, z in ipairs(zones) do
+    for _, b in ipairs(bodies) do
+<span class="k">      local was = z.inside[b] == true
+      local now = overlaps(b, z)</span>
+      if now and not was then
+        if z.onEnter then z.onEnter(b) end
+      elseif now and was then
+        if z.onStay then z.onStay(b) end
+      elseif was and not now then
+        if z.onExit then z.onExit(b) end
+      end
+<span class="k">      z.inside[b] = now or nil              -- remember for the next step</span>
+    end
+  end
+end
+
+local function physicsStep(dx, dy)
+  player.x = math.max(0, math.min(player.x + dx * RUN * STEP, 600 - player.w))
+  player.y = math.max(0, math.min(player.y + dy * RUN * STEP, 300 - player.h))
+  updateTriggers({ player })                <span class="c">-- after moving, never before</span>
+end
+
+local accumulator = 0
+function love.update(dt)
+  local dx, dy = 0, 0
+  if love.keyboard.isDown("right", "d") then dx = dx + 1 end
+  if love.keyboard.isDown("left", "a") then dx = dx - 1 end
+  if love.keyboard.isDown("down", "s") then dy = dy + 1 end
+  if love.keyboard.isDown("up", "w") then dy = dy - 1 end
+  if dx ~= 0 and dy ~= 0 then dx, dy = dx * 0.7071, dy * 0.7071 end
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    physicsStep(dx, dy)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  for _, z in ipairs(zones) do
+    love.graphics.rectangle("line", z.x, z.y, z.w, z.h)
+  end
+  love.graphics.rectangle("fill", player.x, player.y, player.w, player.h)
+  love.graphics.print("HP " .. math.floor(player.hp) .. "  checkpoints " .. checkpoints, 10, 310)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># Godot 4: an Area2D is a trigger. It emits body_entered and body_exited.</span>
+<span class="c"># There is no stay signal: ask for the overlapping bodies each physics step.</span>
+extends Area2D
+
+@export var damage := 10
+@export var heal_rate := 0.0     <span class="c"># hit points per second, 0 for spikes</span>
+
+func _ready() -&gt; void:
+    body_entered.connect(_on_body_entered)
+    body_exited.connect(_on_body_exited)
+
+func _on_body_entered(body: Node2D) -&gt; void:
+<span class="k">    if damage &gt; 0 and body.has_method("take_damage"):
+        body.take_damage(damage)</span>
+
+func _on_body_exited(body: Node2D) -&gt; void:
+    pass   <span class="c"># close a door, hide a prompt</span>
+
+func _physics_process(delta: float) -&gt; void:
+    if heal_rate &gt; 0.0:
+        for body in get_overlapping_bodies():
+            if body.has_method("heal"):
+                body.heal(heal_rate * delta)</code></pre>
+<pre data-lang="C# (Unity)"><code>using UnityEngine;
+
+<span class="c">// Unity 2D: tick Is Trigger on this object's Collider2D. Trigger messages</span>
+<span class="c">// are only sent if at least one of the two objects has a Rigidbody2D.</span>
+public class Zone : MonoBehaviour
+{
+    public int damage = 10;
+    public float healRate = 0f;   <span class="c">// hit points per second, 0 for spikes</span>
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+<span class="k">        if (damage &gt; 0 &amp;&amp; other.TryGetComponent(out Health health))
+            health.Damage(damage);</span>
+    }
+
+    void OnTriggerStay2D(Collider2D other)
+    {
+        if (healRate &gt; 0f &amp;&amp; other.TryGetComponent(out Health health))
+            health.Heal(healRate * Time.fixedDeltaTime);
+    }
+
+    void OnTriggerExit2D(Collider2D other)
+    {
+        <span class="c">// close a door, hide a prompt</span>
+    }
+}</code></pre>
+  </div>
+  <p>In the GDScript and C# tabs, <code>take_damage</code>, <code>heal</code> and the <code>Health</code> component are your own code, not engine API. The engines keep the "inside last step" memory for you; you choose which event each action belongs to. In LÖVE's own <code>love.physics</code>, a fixture marked with <code>setSensor(true)</code> plays the same role, and the world's begin and end contact callbacks are its enter and exit.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A one-shot action in a stay handler.</strong> Damage, score and sounds in a stay handler, or in an "is overlapping" check, run on every step. Put them in enter. Keep stay for things measured per second, and multiply them by the step.</li>
+    <li><strong>Thin triggers and fast bodies.</strong> A trigger is tested at the end of each step, just like a wall, so it can tunnel. In the demo, drag the player fast across the 8 px checkpoint line and it may never ring. Make goal lines thicker than a body moves in one step, or sweep the path from the previous position as in the swept AABB lesson.</li>
+    <li><strong>Exit that never comes.</strong> If a body is deleted, disabled or teleported while inside, some code paths never see it leave. Engines differ on whether they report an exit in these cases, so test yours. In your own code, remove deleted bodies from every <code>inside</code> table and decide whether that counts as an exit.</li>
+    <li><strong>Checking before moving.</strong> Update triggers after the step's movement, in the fixed step, not in the draw function. Otherwise events depend on the frame rate or arrive a step late.</li>
+    <li><strong>Changing the world inside a callback.</strong> Deleting bodies while the engine is still reporting events can break its loop over contacts. Record what to do and do it after the step.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Every major engine has this idea built in. Godot has <code>Area2D</code> and <code>Area3D</code> with <code>body_entered</code> and <code>body_exited</code> signals. Unity has the <code>Is Trigger</code> checkbox on colliders and the <code>OnTriggerEnter</code>, <code>OnTriggerStay</code> and <code>OnTriggerExit</code> messages, with <code>2D</code> versions for 2D physics. Box2D calls them sensors, and LÖVE exposes them through <code>Fixture:setSensor</code>.</p>
+  <p>Typical uses: checkpoints, pickups, hazard and kill zones, camera zones, "press E" prompts, and areas that start a cutscene the first time you enter.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Add a "press E to talk" prompt to your game. Put a trigger around a sign or a character. Show the prompt on enter, hide it on exit, and only accept the E key while the player is inside.</p>
+  <p>You are done when the prompt appears exactly once each time you walk in, disappears as you walk out, and pressing E outside does nothing.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A trigger is a collision shape that reports overlap but never blocks or pushes.</li>
+    <li>"Is it overlapping?" alone is the stay event. Acting on it for one-shot actions repeats them every step.</li>
+    <li>Remember who was inside last step. Not before and yes now is enter; yes before and no now is exit.</li>
+    <li>Damage, score and sounds go in enter. Things measured per second go in stay, multiplied by the step.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next track starts with springs: how a force that grows with stretch pulls a body back towards its rest position.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>Using Area2D</cite> and the class reference for <cite>Area2D</cite>. Signals, monitoring and overlapping bodies.</li>
+    <li>Unity Technologies, <cite>Unity Scripting Reference: MonoBehaviour.OnTriggerEnter2D</cite>, <cite>OnTriggerStay2D</cite>, <cite>OnTriggerExit2D</cite> and <cite>Collider2D.isTrigger</cite>.</li>
+    <li>Erin Catto, <cite>Box2D documentation</cite>, the sections on sensors and contact events.</li>
+    <li>LÖVE wiki, <cite>Fixture:setSensor</cite> and <cite>World:setCallbacks</cite>.</li>
+    <li>Christer Ericson, <cite>Real-Time Collision Detection</cite>. The AABB overlap test that every trigger here relies on.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Same numbers as the Lua. The world is 600 by 300 px.
+  var STEP = 1 / 60, RUN = 200;
+  var HP_MAX = 100, SPIKE_DAMAGE = 10, HEAL_RATE = 20;
+  var WORLD_W = 600, WORLD_H = 300;
+  var HUD_H = 34;
+  var MAX_LOG = 80;
+
+  var player, prev, zones, accumulator, stepCount, log, checkpoints, lightOn, drag;
+  var view = { k: 1, ox: 0, oy: HUD_H };
+
+  function say(text, color) {
+    log.unshift({ n: stepCount, text: text, color: color || null });
+    if (log.length > MAX_LOG) log.length = MAX_LOG;
+  }
+
+  function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
+
+  function makeZones() {
+    return [
+      { name: 'spikes', x: 120, y: 30, w: 100, h: 80, tone: 'bad',
+        onEnter: function (b) { b.hp = Math.max(b.hp - SPIKE_DAMAGE, 0); say('enter spikes  -10 hp', 'bad'); },
+        naive: function (b) { b.hp = Math.max(b.hp - SPIKE_DAMAGE, 0); say('spikes  -10 hp', 'bad'); } },
+      { name: 'pool', x: 120, y: 190, w: 120, h: 80, tone: 'good',
+        onEnter: function () { this.healed = 0; say('enter pool', 'good'); },
+        onStay: function (b) {
+          var before = b.hp;
+          b.hp = Math.min(b.hp + HEAL_RATE * STEP, HP_MAX);
+          this.healed += b.hp - before;
+        },
+        onExit: function () { say('exit pool, healed ' + fmt(this.healed) + ' hp', 'good'); },
+        naive: function (b) { b.hp = Math.min(b.hp + HEAL_RATE * STEP, HP_MAX); say('pool  +0.33 hp', 'good'); } },
+      { name: 'checkpoint', x: 296, y: 0, w: 8, h: 300, tone: 'topic',
+        onEnter: function () { checkpoints += 1; say('checkpoint! (' + checkpoints + ')', 'topic'); },
+        naive: function () { checkpoints += 1; say('checkpoint! (' + checkpoints + ')', 'topic'); } },
+      { name: 'light', x: 390, y: 30, w: 170, h: 90, tone: 'warn',
+        onEnter: function () { lightOn = true; say('enter light zone: on', 'warn'); },
+        onExit: function () { lightOn = false; say('exit light zone: off', 'warn'); },
+        naive: function () { lightOn = true; say('light on', 'warn'); } }
+    ];
+  }
+
+  function reset() {
+    player = { x: 48, y: 138, w: 24, h: 24, hp: HP_MAX };
+    prev = { x: player.x, y: player.y };
+    zones = makeZones();
+    for (var i = 0; i < zones.length; i++) {
+      zones[i].inside = false;   // the demo has one body, so one flag per zone is the whole set
+      zones[i].stayTime = 0;
+      zones[i].healed = 0;
+      zones[i].flash = 0;
+      zones[i].exitTimer = 0;
+    }
+    accumulator = 0;
+    stepCount = 0;
+    log = [];
+    checkpoints = 0;
+    lightOn = false;
+    drag = null;
+  }
+
+  var ui = DemoKit.controls('[data-demo="triggers"]');
+  var modeSel = ui.select({
+    label: 'Method',
+    options: [
+      { value: 'naive', label: 'Act while overlapping' },
+      { value: 'events', label: 'Enter, stay and exit' }
+    ],
+    value: 'naive'
+  });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+
+  reset();
+
+  function overlaps(a, b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w &&
+           a.y < b.y + b.h && b.y < a.y + a.h;
+  }
+
+  function updateTriggers(b) {
+    var naive = modeSel.value === 'naive';
+    for (var i = 0; i < zones.length; i++) {
+      var z = zones[i];
+      var was = z.inside;
+      var now = overlaps(b, z);
+      if (naive) {
+        if (now) { z.naive(b); z.flash = 0.35; }
+      } else if (now && !was) {
+        z.stayTime = 0;
+        z.onEnter.call(z, b);
+        z.flash = 0.5;
+      } else if (now && was) {
+        z.stayTime += STEP;
+        if (z.onStay) z.onStay.call(z, b);
+      } else if (was && !now) {
+        if (z.onExit) z.onExit.call(z, b);
+        else say('exit ' + z.name, z.tone);
+        z.exitTimer = 0.6;
+      }
+      if (now && !was) z.exitTimer = 0;
+      z.inside = now;
+    }
+  }
+
+  function clampPlayer() {
+    player.x = Math.max(0, Math.min(player.x, WORLD_W - player.w));
+    player.y = Math.max(0, Math.min(player.y, WORLD_H - player.h));
+  }
+
+  function physicsStep(dx, dy) {
+    prev.x = player.x;
+    prev.y = player.y;
+    if (drag) {
+      // Dragging puts the player straight at the pointer: a fast drag is a big jump.
+      player.x = drag.tx;
+      player.y = drag.ty;
+    } else {
+      player.x += dx * RUN * STEP;
+      player.y += dy * RUN * STEP;
+    }
+    clampPlayer();
+    stepCount += 1;
+    updateTriggers(player);
+  }
+
+  function readInput(s) {
+    var dx = 0, dy = 0;
+    if (s.keys) {
+      if (s.keys.has('arrowright') || s.keys.has('d')) dx += 1;
+      if (s.keys.has('arrowleft') || s.keys.has('a')) dx -= 1;
+      if (s.keys.has('arrowdown') || s.keys.has('s')) dy += 1;
+      if (s.keys.has('arrowup') || s.keys.has('w')) dy -= 1;
+    }
+    if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+    return { dx: dx, dy: dy };
+  }
+
+  function toWorld(p) {
+    return { x: (p.x - view.ox) / view.k, y: (p.y - view.oy) / view.k };
+  }
+
+  function toneColor(c, tone) {
+    if (tone === 'bad') return c.bad;
+    if (tone === 'good') return c.good;
+    if (tone === 'warn') return c.warn;
+    return c.topic;
+  }
+
+  function zoneState(z) {
+    if (modeSel.value === 'naive') return z.inside ? 'acting every step' : '';
+    if (z.inside) {
+      return z.stayTime < 0.25 ? 'enter' : 'stay ' + z.stayTime.toFixed(1) + ' s';
+    }
+    if (z.exitTimer > 0) return 'exit';
+    return 'outside';
+  }
+
+  DemoKit.canvas('#triggers', {
+    height: 460,
+    drag: true,
+    keys: true,
+    label: 'A top-down room with four trigger zones: spikes, a healing pool, a thin checkpoint line and a light sensor. Move the player square with the arrow keys or by dragging it, and read the event log below the room.',
+    onDown: function (p) {
+      var w = toWorld(p);
+      var m = 20;
+      if (w.x > player.x - m && w.x < player.x + player.w + m &&
+          w.y > player.y - m && w.y < player.y + player.h + m) {
+        drag = { ox: w.x - player.x, oy: w.y - player.y, tx: player.x, ty: player.y };
+      }
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      var w = toWorld(p);
+      drag.tx = w.x - drag.ox;
+      drag.ty = w.y - drag.oy;
+    },
+    onUp: function () { drag = null; },
+    update: function (dt, s) {
+      var input = readInput(s);
+      accumulator += Math.min(dt, 0.25);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        physicsStep(input.dx, input.dy);
+        accumulator -= STEP;
+        guard++;
+      }
+      if (guard === 20) accumulator = 0;
+      for (var i = 0; i < zones.length; i++) {
+        zones[i].flash = Math.max(0, zones[i].flash - dt);
+        zones[i].exitTimer = Math.max(0, zones[i].exitTimer - dt);
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var k = Math.min((s.width - 16) / WORLD_W, (s.height - HUD_H - 130) / WORLD_H);
+      k = Math.max(k, 0.1);
+      var ox = (s.width - WORLD_W * k) / 2;
+      var oy = HUD_H;
+      view.k = k; view.ox = ox; view.oy = oy;
+      function X(x) { return ox + x * k; }
+      function Y(y) { return oy + y * k; }
+      var font = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+      var i, z;
+
+      // HUD: hit points bar, checkpoint count, light.
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      ctx.font = '600 13px ' + font;
+      ctx.fillStyle = c.ink;
+      var hpText = 'HP ' + Math.floor(player.hp);
+      ctx.fillText(hpText, 8, 21);
+      var bx = 8 + ctx.measureText('HP 100').width + 8;
+      var bw = 60;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(bx, 11, bw, 12);
+      ctx.fillStyle = player.hp > 30 ? c.good : c.bad;
+      ctx.fillRect(bx, 11, bw * player.hp / HP_MAX, 12);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, 11.5, bw - 1, 11);
+      ctx.textAlign = 'right';
+      ctx.font = '12px ' + font;
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Checkpoints ' + checkpoints + ' · Light ' + (lightOn ? 'on' : 'off'), s.width - 8, 21);
+
+      // Room.
+      ctx.fillStyle = c.surface;
+      ctx.fillRect(X(0), Y(0), WORLD_W * k, WORLD_H * k);
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(X(0), Y(0), WORLD_W * k, WORLD_H * k);
+
+      // Zones.
+      for (i = 0; i < zones.length; i++) {
+        z = zones[i];
+        var col = toneColor(c, z.tone);
+        var zx = X(z.x), zy = Y(z.y), zw = z.w * k, zh = z.h * k;
+        ctx.globalAlpha = 0.12 + (z.inside ? 0.1 : 0) + z.flash * 0.6;
+        ctx.fillStyle = col;
+        ctx.fillRect(zx, zy, zw, zh);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(zx + 0.75, zy + 0.75, zw - 1.5, zh - 1.5);
+        ctx.setLineDash([]);
+
+        // Small pictures so each zone reads at a glance.
+        ctx.strokeStyle = col;
+        ctx.fillStyle = col;
+        if (z.name === 'spikes') {
+          var n = 6, sw = zw / n, base = zy + zh - 3;
+          ctx.beginPath();
+          for (var t = 0; t < n; t++) {
+            ctx.moveTo(zx + t * sw + 2, base);
+            ctx.lineTo(zx + t * sw + sw / 2, base - Math.min(16, zh * 0.3));
+            ctx.lineTo(zx + (t + 1) * sw - 2, base);
+          }
+          ctx.globalAlpha = 0.6;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else if (z.name === 'pool') {
+          ctx.lineWidth = 1.5;
+          for (var r = 0; r < 2; r++) {
+            var wy = zy + zh * (0.62 + r * 0.2);
+            ctx.beginPath();
+            for (var q = 0; q <= 20; q++) {
+              var px = zx + 6 + (zw - 12) * q / 20;
+              var py = wy + Math.sin(q * 0.9) * 2.5;
+              if (q === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          }
+        } else if (z.name === 'light') {
+          var lx = zx + zw - 22 * Math.max(k, 0.6), ly = zy + zh / 2 + 6;
+          var lr = Math.max(7, 12 * k);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+          if (lightOn) {
+            ctx.globalAlpha = 0.25;
+            ctx.beginPath();
+            ctx.arc(lx, ly, lr * 2.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.beginPath();
+            ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.stroke();
+          }
+        }
+
+        // Labels.
+        ctx.textAlign = 'left';
+        // The checkpoint line is thin, so its labels sit beside it, near the bottom of the room.
+        var lxText = z.name === 'checkpoint' ? zx + zw + 4 : zx + 4;
+        var lyText = z.name === 'checkpoint' ? zy + zh - 26 : zy + 15;
+        ctx.font = '600 12px ' + font;
+        ctx.fillStyle = c.ink;
+        ctx.fillText(z.name, lxText, lyText);
+        if (debug.value) {
+          var st = zoneState(z);
+          if (st) {
+            ctx.font = '12px ' + font;
+            ctx.fillStyle = (st === 'enter' || st === 'exit' || st === 'acting every step') ? col : c.ink2;
+            ctx.fillText(st, lxText, lyText + 15);
+          }
+        }
+      }
+
+      // Previous position and player.
+      if (debug.value) {
+        ctx.strokeStyle = c.ink3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(X(prev.x) + 0.5, Y(prev.y) + 0.5, player.w * k - 1, player.h * k - 1);
+        ctx.setLineDash([]);
+        if (Math.abs(prev.x - player.x) + Math.abs(prev.y - player.y) > 0.01) {
+          ctx.beginPath();
+          ctx.moveTo(X(prev.x + player.w / 2), Y(prev.y + player.h / 2));
+          ctx.lineTo(X(player.x + player.w / 2), Y(player.y + player.h / 2));
+          ctx.stroke();
+        }
+      }
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(X(player.x), Y(player.y), player.w * k, player.h * k);
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = drag ? 2 : 1;
+      ctx.strokeRect(X(player.x) + 0.5, Y(player.y) + 0.5, player.w * k - 1, player.h * k - 1);
+
+      // Event log, newest first.
+      var top = Y(WORLD_H) + 22;
+      ctx.textAlign = 'left';
+      ctx.font = '600 12px ' + font;
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Event log, newest first (step ' + stepCount + ')', 8, top);
+      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      var lines = Math.max(0, Math.floor((s.height - top - 8) / 16));
+      if (log.length === 0) {
+        ctx.fillStyle = c.ink3;
+        ctx.fillText('nothing yet: walk into a zone', 8, top + 18);
+      }
+      for (i = 0; i < Math.min(lines, log.length); i++) {
+        var e = log[i];
+        ctx.fillStyle = c.ink3;
+        var num = String(e.n);
+        ctx.fillText(num, 8, top + 18 + i * 16);
+        ctx.fillStyle = e.color ? toneColor(c, e.color) : c.ink2;
+        ctx.fillText(e.text, 8 + 48, top + 18 + i * 16);
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

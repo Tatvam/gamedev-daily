@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RollerCoaster Tycoon: a thousand guests on a 1999 PC · Game Dev Daily</title>
+<meta name="description" content="Why Chris Sawyer wrote RollerCoaster Tycoon in assembly, and how cutting the work done per guest lets a simulation hold far more of them.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>RollerCoaster Tycoon: a thousand guests on a 1999 PC</h1>
+  <p class="lede">Why Chris Sawyer wrote RollerCoaster Tycoon in assembly, and how cutting the work done per guest lets a simulation hold far more of them.</p>
+</header>
+
+<section data-section="hook">
+  <p>Zoom out over a busy park in RollerCoaster Tycoon and you see crowds: hundreds, often more than a thousand small people walking the paths, queuing, eating, getting lost and complaining about the price of umbrellas. Every one of them is simulated, not painted on. The game ran on ordinary home PCs of 1999, which were many times slower than a cheap phone today.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: cost per guest times the number of guests</h2>
+  <p>A crowd simulation has one simple cost formula. If each guest takes some amount of work per frame, the whole park takes that amount multiplied by the number of guests. Double the crowd and you double the bill. The computer has a fixed amount of time to pay that bill before the next frame is due: the <dfn>frame budget</dfn>, about 16.7 milliseconds at 60 frames per second.</p>
+  <p>That means a small waste per guest is never small. An extra hundred instructions per guest does not matter with ten guests. With two thousand guests it is two hundred thousand extra instructions, every frame. Home PCs of the late 1990s ran at a few hundred megahertz at best, so a designer who wanted big crowds had to make each guest very cheap.</p>
+
+  <h2>The trick: write it close to the machine</h2>
+  <p>Chris Sawyer designed and programmed RollerCoaster Tycoon, released for Windows in 1999, almost entirely in x86 <dfn>assembly language</dfn>. Assembly is a text form of the processor's own instructions: one line is roughly one instruction, such as "add these two registers" or "load this byte from memory". There is no compiler deciding things for you. The programmer chooses which values live in the processor's fast <dfn>registers</dfn>, how many bytes each field takes and in what order data sits in memory.</p>
+  <p>Sawyer's own FAQ, as reported by search summaries I could read in this session, describes the game as about 99 percent assembly, with a small amount of C to talk to Windows and DirectX. He had already written Transport Tycoon (1994) the same way. In later interviews he is reported to have said that a higher-level language would have made the game slower or forced him to simplify the simulation. I could not open those pages, so treat the exact wording as reported, not quoted.</p>
+  <p>Assembly does not make code fast by magic; a slow idea in assembly is still slow. What it gives is total control and a habit: you see every instruction you spend, so you notice when a guest does work it does not need.</p>
+
+  <h2>Rebuilding the idea: do not think every frame</h2>
+  <p>We cannot rebuild hand-written x86 in a web page, and this page does not claim to show RollerCoaster Tycoon's own pathfinding. What we can rebuild is the arithmetic that drove the whole design. Take one common guest task, walking to a ride, and write it two ways.</p>
+  <ul>
+    <li><strong>Wasteful:</strong> every frame, every guest searches the paths from scratch to find its route. On our small park that search checks over 30 tiles per guest on average.</li>
+    <li><strong>Cheap:</strong> once, for each ride, the game builds a <dfn>direction table</dfn>: for every path tile, which neighbouring tile is one step closer to that ride. A guest only decides anything when it arrives at a new tile, and then it reads one entry from the table. The rest of the time it just walks.</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 320" role="img" aria-label="Left: a short path of path tiles, each with an arrow pointing one step toward ride A, which is a direction table. Right: two bars for 1000 guests. Re-planning every frame costs about 35 units per guest, 35,000 in total, which passes a budget line at 30,000. Looking up the table costs about 1 unit per guest, about 1,000 in total.">
+      <text class="d-text" x="16" y="28">Direction table toward ride A</text>
+      <rect class="d-accent-fill" x="16" y="56" width="40" height="40" rx="4"/>
+      <text class="d-text" x="36" y="81" text-anchor="middle">A</text>
+      <rect class="d-box" x="60" y="56" width="40" height="40"/>
+      <rect class="d-box" x="104" y="56" width="40" height="40"/>
+      <rect class="d-box" x="148" y="56" width="40" height="40"/>
+      <rect class="d-box" x="148" y="100" width="40" height="40"/>
+      <rect class="d-box" x="148" y="144" width="40" height="40"/>
+      <rect class="d-box" x="104" y="144" width="40" height="40"/>
+      <path class="d-accent" d="M92 76 H68 M74 70 L68 76 L74 82"/>
+      <path class="d-accent" d="M136 76 H112 M118 70 L112 76 L118 82"/>
+      <path class="d-accent" d="M180 76 H156 M162 70 L156 76 L162 82"/>
+      <path class="d-accent" d="M168 132 V108 M162 114 L168 108 L174 114"/>
+      <path class="d-accent" d="M168 176 V152 M162 158 L168 152 L174 158"/>
+      <path class="d-accent" d="M112 164 H136 M130 158 L136 164 L130 170"/>
+      <text class="d-muted" x="16" y="214">Built once per ride.</text>
+      <text class="d-muted" x="16" y="234">A guest on any tile reads</text>
+      <text class="d-muted" x="16" y="254">one arrow and steps.</text>
+
+      <text class="d-text" x="250" y="28">Work per frame with 1,000 guests</text>
+      <text class="d-muted" x="250" y="70">Re-plan every frame</text>
+      <text class="d-muted" x="250" y="88">1,000 × about 35</text>
+      <rect class="d-bad-fill" x="250" y="98" width="370" height="26"/>
+      <text class="d-label" x="258" y="116">about 35,000</text>
+      <text class="d-muted" x="250" y="168">Look up the table</text>
+      <text class="d-muted" x="250" y="186">1,000 × about 1</text>
+      <rect class="d-good" x="250" y="196" width="11" height="26"/>
+      <text class="d-label" x="268" y="214">about 1,000</text>
+      <path class="d-dash" d="M567 48 V246"/>
+      <text class="d-muted" x="567" y="268" text-anchor="middle">budget 30,000</text>
+      <text class="d-muted" x="250" y="300">One unit is one guest moved or one tile checked.</text>
+    </svg>
+    <figcaption>The direction table moves the expensive search out of the per-guest loop. The budget of 30,000 units is a made-up number for this page, standing in for a slow 1999 PC.</figcaption>
+  </figure>
+
+  <p>The table costs something too: building it for four rides checks 324 tiles. But that happens once, not once per guest per frame. Moving work out of the loop that runs most often is the single most useful optimisation habit there is.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Find the loop that runs once per entity per frame. Every unit of work you remove there is multiplied by the size of your crowd.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Raise the guest count and watch the graph under the park. In <em>Re-plan every frame</em> mode the bars start crossing the budget line somewhere around 900 to 1,000 guests, and the park drops into slow motion, because a game that cannot finish its work in time runs slower. Switch to <em>Look up the direction table</em> and the same crowd costs almost nothing. Use <em>Show arrows toward</em> to see the table that the player never sees. Guests are coloured by the ride they are heading for.</p>
+
+  <figure class="demo wide" data-demo="park-crowd">
+    <canvas id="park-crowd"></canvas>
+    <figcaption>The work count is exact and the same on every device. The measured time is real JavaScript time on your own machine, so it varies; the slow motion follows the work count, not your device.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's cheap mode in Lua, with the same park, the same four rides and the same walking speed of 2 tiles per second. <code>buildDirections</code> runs once per ride. <code>updateGuest</code> runs once per guest per frame, and on most frames it only adds to a timer.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local MAP = {
+  "........................", ".A#######....#######B...",
+  "........#....#......#...", "........#....#......#...",
+  "..#############.....#...", "..#.....#.....#######...",
+  "..#.....#.......#.......", "..#.....#.......#.......",
+  "..########......#####...", "..#......#..........#...",
+  ".C#......#######....#D..", ".........#..............",
+  ".........#..............", ".........E..............",
+}
+local W, H, SPEED, TILE = 24, 14, 2, 20   <span class="c">-- SPEED in tiles per second</span>
+local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local rides, guests, entrance = {}, {}, nil
+
+local function walkable(x, y)
+  return x &gt;= 1 and y &gt;= 1 and x &lt;= W and y &lt;= H and MAP[y]:sub(x, x) ~= "."
+end
+
+<span class="c">-- Runs once per ride: step[i] is the next tile toward the ride</span>
+local function buildDirections(tx, ty)
+  local step, queue, head = { [ty * W + tx] = { tx, ty } }, { { tx, ty } }, 1
+  while head &lt;= #queue do
+    local x, y = queue[head][1], queue[head][2]
+    head = head + 1
+    for _, d in ipairs(DIRS) do
+      local nx, ny = x + d[1], y + d[2]
+      if walkable(nx, ny) and not step[ny * W + nx] then
+        step[ny * W + nx] = { x, y }
+        queue[#queue + 1] = { nx, ny }
+      end
+    end
+  end
+  return step
+end
+
+<span class="c">-- Runs once per guest per frame</span>
+local function updateGuest(g, dt)
+  g.t = g.t + SPEED * dt
+  if g.t &lt; 1 then return end              <span class="c">-- still walking: no decision</span>
+  g.t = g.t - 1
+  g.x, g.y = g.nx, g.ny
+  if g.x == g.ride.x and g.y == g.ride.y then
+    g.ride = rides[love.math.random(#rides)]
+  end
+<span class="k">  local nxt = g.ride.step[g.y * W + g.x]  -- one table lookup</span>
+  g.nx, g.ny = nxt[1], nxt[2]
+end
+
+function love.load()
+  love.math.setRandomSeed(7)
+  for y = 1, H do
+    for x = 1, W do
+      local ch = MAP[y]:sub(x, x)
+      if ch == "E" then entrance = { x, y } end
+      if ch:match("%u") and ch ~= "E" then
+        rides[#rides + 1] = { x = x, y = y, step = buildDirections(x, y) }
+      end
+    end
+  end
+  for i = 1, 1000 do
+    local ex, ey = entrance[1], entrance[2]
+    local g = { x = ex, y = ey, t = -love.math.random() * 10,
+                ride = rides[love.math.random(#rides)] }
+    local nxt = g.ride.step[ey * W + ex]
+    g.nx, g.ny = nxt[1], nxt[2]
+    guests[i] = g
+  end
+end
+
+function love.update(dt)
+  for _, g in ipairs(guests) do updateGuest(g, dt) end
+end
+
+function love.draw()
+  for _, g in ipairs(guests) do
+    local u = math.max(0, math.min(1, g.t))
+    local px = (g.x + (g.nx - g.x) * u) * TILE
+    local py = (g.y + (g.ny - g.y) * u) * TILE
+    love.graphics.rectangle("fill", px, py, 3, 3)
+  end
+end</code></pre>
+  </div>
+  <p>A guest with a negative <code>t</code> is still waiting at the entrance, so the crowd leaves over five seconds. The wasteful version replaces the highlighted lookup with a full search, run every frame.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Reaching for assembly, or any clever trick, before measuring.</strong> Modern compilers write better machine code than most people do by hand. The large wins come from doing less work, which you find by timing the per-entity loop, not by guessing.</li>
+    <li><strong>Hidden per-frame work.</strong> Searches, sorts, string building and allocating new tables inside the per-entity update look harmless with ten entities. Ask of every line: does this have to happen every frame, for every one?</li>
+    <li><strong>A stale table.</strong> When the player builds or deletes a path, the direction tables are wrong until you rebuild them. Rebuild on the edit, not every frame.</li>
+    <li><strong>Memory for speed.</strong> One table per destination costs one entry per tile per ride. On a large map with hundreds of destinations, build tables only for popular targets.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Sawyer used the same approach for Transport Tycoon and for RollerCoaster Tycoon 2 (2002). Much of what players know about the sequel's internals comes from OpenRCT2, an open-source project that rewrote the original assembly routines one by one in C, and later C++, while keeping the game's behaviour. It still needs the original game's data files to run.</p>
+  <p>Assembly was common in 1990s PC games for the hottest loops, such as drawing sprites; a PC Gamer report quotes an Age of Empires developer saying that game leaned on it to scroll and fill the screen quickly. RollerCoaster Tycoon stands out for using it for nearly everything.</p>
+  <p>The lesson for today: the per-entity multiplication never went away. Phone games pay for wasted work in battery and heat, browser games in one busy thread, and servers in how many players one machine holds. Data-oriented engine designs, which pack each kind of entity data together and update it in tight loops, answer the same question Sawyer answered in assembly.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua code in LÖVE. Then write a second <code>updateGuest</code> that searches from the guest's tile every frame instead of reading the table, and add a key that switches between the two. Wrap the loop in <code>love.update</code> with two calls to <code>love.timer.getTime()</code> and print the difference. You are done when you can name the guest count at which the wasteful version passes 16 milliseconds on your machine, and how many guests the cheap version handles in the same time.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A crowd costs the work per member times the number of members, so per-guest waste is multiplied by the whole park.</li>
+    <li>Chris Sawyer wrote RollerCoaster Tycoon almost entirely in x86 assembly, which gave him control over every instruction spent per guest.</li>
+    <li>Assembly helps only when the work itself is lean; the biggest wins come from doing less, less often.</li>
+    <li>Move expensive work out of the per-entity loop: build a shared table once and let each entity read it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at how Grand Theft Auto III streamed its city from the disc around the player, so the whole city never had to fit in memory.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: no source page could be opened in this session, so none are linked. The statements about the share of assembly, the use of C for Windows and DirectX, and Sawyer's reasons come from search summaries of the works below; check them there. The demo's park, budget and costs are this page's own and are not measurements of RollerCoaster Tycoon.</p>
+  <ul>
+    <li>Chris Sawyer, <cite>...about Chris Sawyer &amp; Game Development</cite>, FAQ on chrissawyergames.com.</li>
+    <li>Atari Club on Medium, <cite>Interview with RollerCoaster Tycoon's creator, Chris Sawyer</cite> (25th anniversary interview).</li>
+    <li>PCGamesN, <cite>RollerCoaster Tycoon: the best-optimised game of all time?</cite></li>
+    <li>larstofus.com, <cite>The gold standard of optimization: A look under the hood of RollerCoaster Tycoon</cite>.</li>
+    <li>The OpenRCT2 project, source code and wiki, on GitHub.</li>
+    <li>PC Gamer, report on Age of Empires and assembly code.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAP = [
+    '........................',
+    '.A#######....#######B...',
+    '........#....#......#...',
+    '........#....#......#...',
+    '..#############.....#...',
+    '..#.....#.....#######...',
+    '..#.....#.......#.......',
+    '..#.....#.......#.......',
+    '..########......#####...',
+    '..#......#..........#...',
+    '.C#......#######....#D..',
+    '.........#..............',
+    '.........#..............',
+    '.........E..............'
+  ];
+  var W = 24, H = 14;
+  var SPEED = 2;            // tiles per second
+  var BUDGET = 30000;       // made-up work units per frame
+  var HISTORY = 120;
+  var DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  function walkable(x, y) {
+    return x >= 0 && y >= 0 && x < W && y < H && MAP[y].charAt(x) !== '.';
+  }
+
+  var rides = [];
+  var entrance = 0;
+  for (var yy = 0; yy < H; yy++) {
+    for (var xx = 0; xx < W; xx++) {
+      var ch = MAP[yy].charAt(xx);
+      if (ch === 'E') entrance = yy * W + xx;
+      else if (ch >= 'A' && ch <= 'D') rides.push({ name: ch, idx: yy * W + xx, step: null });
+    }
+  }
+  rides.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+
+  // Shared scratch space for the searches.
+  var parent = new Int16Array(W * H);
+  var mark = new Int32Array(W * H);
+  var queue = new Int16Array(W * H);
+  var stamp = 0;
+  var lastVisits = 0;
+
+  // Breadth-first search outward from the ride. Stops early when it reaches stopIdx
+  // (pass -1 to cover the whole park). Neighbour order is fixed, so the early-stopping
+  // search and the full one assign the same parents.
+  function search(ride, stopIdx) {
+    stamp++;
+    var head = 0, tail = 0, visits = 0;
+    parent[ride.idx] = ride.idx;
+    mark[ride.idx] = stamp;
+    queue[tail++] = ride.idx;
+    while (head < tail) {
+      var cur = queue[head++];
+      visits++;
+      if (cur === stopIdx) break;
+      var x = cur % W, y = (cur - x) / W;
+      for (var k = 0; k < 4; k++) {
+        var nx = x + DIRS[k][0], ny = y + DIRS[k][1];
+        if (!walkable(nx, ny)) continue;
+        var n = ny * W + nx;
+        if (mark[n] === stamp) continue;
+        mark[n] = stamp;
+        parent[n] = cur;
+        queue[tail++] = n;
+      }
+    }
+    lastVisits = visits;
+  }
+
+  var tableCost = 0;
+  rides.forEach(function (r) {
+    search(r, -1);
+    tableCost += lastVisits;
+    r.step = new Int16Array(W * H).fill(-1);
+    for (var i = 0; i < W * H; i++) if (mark[i] === stamp) r.step[i] = parent[i];
+  });
+
+  var rng = DemoKit.rng(7);
+  var guests = [];
+
+  function addGuest() {
+    var ride = rides[Math.floor(rng() * rides.length)];
+    guests.push({
+      cur: entrance,
+      nxt: ride.step[entrance],
+      t: -rng() * 10,
+      ride: ride,
+      ox: (rng() - 0.5) * 0.6,
+      oy: (rng() - 0.5) * 0.6
+    });
+  }
+
+  function setCount(n) {
+    while (guests.length < n) addGuest();
+    if (guests.length > n) guests.length = n;
+  }
+
+  var ui = DemoKit.controls('[data-demo="park-crowd"]');
+  var countSl = ui.slider({ label: 'Guests', min: 0, max: 3000, step: 50, value: 300,
+    onInput: function (v) { setCount(v); } });
+  var modeSel = ui.select({
+    label: 'Guest update',
+    options: [
+      { value: 'cheap', label: 'Look up the direction table' },
+      { value: 'waste', label: 'Re-plan every frame' }
+    ],
+    value: 'waste'
+  });
+  var arrowSel = ui.select({
+    label: 'Show arrows toward',
+    options: [{ value: 'none', label: 'No arrows' }, { value: '0', label: 'Ride A' }, { value: '1', label: 'Ride B' },
+              { value: '2', label: 'Ride C' }, { value: '3', label: 'Ride D' }],
+    value: 'none',
+    onChange: function () { if (handle) handle.redraw(); }
+  });
+  var workOut = ui.readout({ label: 'Work this frame' });
+  var speedOut = ui.readout({ label: 'Park speed' });
+  var msOut = ui.readout({ label: 'Measured on this device' });
+
+  setCount(countSl.value);
+
+  var history = [];
+  var lastWork = 0;
+  var speedFactor = 1;
+  var msAvg = 0;
+
+  function update(dt, s) {
+    var t0 = performance.now();
+    var waste = modeSel.value === 'waste';
+    var simDt = dt * speedFactor;
+    var work = 0;
+    for (var i = 0; i < guests.length; i++) {
+      var g = guests[i];
+      work += 1;                                  // move the guest
+      g.t += SPEED * simDt;
+      if (g.t >= 1) {
+        g.t -= 1;
+        g.cur = g.nxt;
+        if (g.cur === g.ride.idx) g.ride = rides[Math.floor(rng() * rides.length)];
+        if (!waste) {
+          g.nxt = g.ride.step[g.cur];               // one lookup
+          work += 1;
+        }
+      }
+      if (waste) {
+        search(g.ride, g.cur);                    // full search, every frame
+        g.nxt = parent[g.cur];
+        work += lastVisits;
+      }
+    }
+    lastWork = work;
+    speedFactor = work > BUDGET ? BUDGET / work : 1;
+    history.push(work);
+    if (history.length > HISTORY) history.shift();
+    var ms = performance.now() - t0;
+    msAvg = msAvg === 0 ? ms : msAvg * 0.9 + ms * 0.1;
+    if (s.frame % 10 === 0) refreshReadouts();
+  }
+
+  function fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+
+  function refreshReadouts() {
+    workOut.set(fmt(lastWork) + ' units');
+    speedOut.set(Math.round(speedFactor * 100) + '%');
+    msOut.set(msAvg.toFixed(2) + ' ms');
+  }
+
+  function rideColor(c, k) { return [c.topic, c.good, c.warn, c.ink2][k]; }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var ts = Math.max(8, Math.floor(Math.min((s.width - 24) / W, (s.height - 170) / H)));
+    var mx = Math.floor((s.width - ts * W) / 2), my = 8;
+
+    // ground and paths
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(mx, my, ts * W, ts * H);
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        if (!walkable(x, y)) continue;
+        ctx.fillStyle = c.line;
+        ctx.fillRect(mx + x * ts, my + y * ts, ts, ts);
+      }
+    }
+    ctx.font = '600 ' + Math.max(10, Math.floor(ts * 0.7)) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    rides.forEach(function (r, k) {
+      var rx = r.idx % W, ry = (r.idx - rx) / W;
+      ctx.fillStyle = rideColor(c, k);
+      ctx.fillRect(mx + rx * ts, my + ry * ts, ts, ts);
+      ctx.fillStyle = c.surface;
+      ctx.fillText(r.name, mx + rx * ts + ts / 2, my + ry * ts + ts / 2 + 1);
+    });
+    var ex = entrance % W, ey = (entrance - ex) / W;
+    ctx.fillStyle = c.ink3;
+    ctx.fillRect(mx + ex * ts, my + ey * ts, ts, ts);
+    ctx.fillStyle = c.surface;
+    ctx.fillText('E', mx + ex * ts + ts / 2, my + ey * ts + ts / 2 + 1);
+    ctx.textBaseline = 'alphabetic';
+
+    // the direction table the player never sees
+    if (arrowSel.value !== 'none') {
+      var r = rides[parseInt(arrowSel.value, 10)];
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = Math.max(1, ts / 12);
+      for (var i = 0; i < W * H; i++) {
+        var to = r.step[i];
+        if (to < 0 || to === i) continue;
+        var ax = i % W, ay = (i - ax) / W;
+        var bx = to % W, by = (to - bx) / W;
+        var dx = bx - ax, dy = by - ay;
+        var cx = mx + ax * ts + ts / 2, cy = my + ay * ts + ts / 2;
+        var L = ts * 0.32, hd = ts * 0.16;
+        var tx = cx + dx * L, ty = cy + dy * L;
+        ctx.beginPath();
+        ctx.moveTo(cx - dx * L, cy - dy * L);
+        ctx.lineTo(tx, ty);
+        ctx.moveTo(tx - dx * hd - dy * hd, ty - dy * hd - dx * hd);
+        ctx.lineTo(tx, ty);
+        ctx.lineTo(tx - dx * hd + dy * hd, ty - dy * hd + dx * hd);
+        ctx.stroke();
+      }
+    }
+
+    // guests, batched by colour
+    var gs = Math.max(2, Math.round(ts / 6));
+    for (var k = 0; k < rides.length; k++) {
+      ctx.fillStyle = rideColor(c, k);
+      for (var j = 0; j < guests.length; j++) {
+        var g = guests[j];
+        if (g.ride !== rides[k]) continue;
+        var u = Math.max(0, Math.min(1, g.t));
+        var ax2 = g.cur % W, ay2 = (g.cur - ax2) / W;
+        var bx2 = g.nxt % W, by2 = (g.nxt - bx2) / W;
+        var px = mx + (ax2 + (bx2 - ax2) * u + 0.5 + g.ox) * ts;
+        var py = my + (ay2 + (by2 - ay2) * u + 0.5 + g.oy) * ts;
+        ctx.fillRect(px - gs / 2, py - gs / 2, gs, gs);
+      }
+    }
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    for (var k2 = 0; k2 < rides.length; k2++) {
+      // outline ride tiles so they stay visible under crowds
+      var rr = rides[k2], rx2 = rr.idx % W, ry2 = (rr.idx - rx2) / W;
+      ctx.strokeRect(mx + rx2 * ts + 0.5, my + ry2 * ts + 0.5, ts - 1, ts - 1);
+    }
+
+    // work graph
+    var gx0 = 12, gx1 = s.width - 12;
+    var gy0 = my + ts * H + 40, gy1 = s.height - 48;
+    var gh = gy1 - gy0, gw = gx1 - gx0;
+    var yMax = BUDGET * 3;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillText('Work: ' + fmt(lastWork) + ' units' +
+      (speedFactor < 1 ? ', speed ' + Math.round(speedFactor * 100) + '%' : ''), gx0, gy0 - 12);
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(gx0, gy0, gw, gh);
+    var bw = gw / HISTORY;
+    for (var h = 0; h < history.length; h++) {
+      var v = history[h];
+      var bh = Math.min(gh, gh * v / yMax);
+      ctx.fillStyle = v > BUDGET ? c.bad : c.good;
+      ctx.fillRect(gx0 + (HISTORY - history.length + h) * bw, gy1 - bh, Math.max(1, bw - 0.5), bh);
+    }
+    var ly = gy1 - gh * BUDGET / yMax;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(gx0, ly); ctx.lineTo(gx1, ly);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.ink2;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('budget ' + fmt(BUDGET), gx0 + 6, ly - 6);
+    ctx.fillText('0', gx0 + 6, gy1 - 4);
+    ctx.fillText(fmt(yMax), gx0 + 6, gy0 + 14);
+    ctx.fillStyle = c.ink3;
+    ctx.fillText('Tables: ' + fmt(tableCost) + ' units, once', gx0, gy1 + 18);
+  }
+
+  var handle = DemoKit.canvas('#park-crowd', {
+    height: 470,
+    label: 'A small theme park seen from above, with four rides, an entrance and coloured dots for guests walking the paths. Below it, a bar graph shows the work done each frame against a dashed budget line.',
+    update: update,
+    draw: draw
+  });
+
+  refreshReadouts();
+  handle.redraw();
+})();
+</script>
+</body>
+</html>

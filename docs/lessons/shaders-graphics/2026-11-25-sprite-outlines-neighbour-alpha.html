@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite outlines: asking the neighbours for alpha · Game Dev Daily</title>
+<meta name="description" content="A transparent pixel next to an opaque one becomes outline: sample the alpha of nearby texels, take the max, and paint where the sprite is not.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sprite outlines: asking the neighbours for alpha</h1>
+  <p class="lede">A transparent pixel next to an opaque one becomes outline: sample the alpha of nearby texels, take the max, and paint where the sprite is not.</p>
+</header>
+
+<section data-section="hook">
+  <p>You hover over a chest and it gets a bright border, or you select a unit and a coloured line appears around it. An artist could draw an outlined copy of every frame, but then every animation exists twice and the colour is fixed. A shader can draw that border on any sprite, in any colour, from the sprite's alpha alone.</p>
+</section>
+
+<section data-section="concept">
+  <h2>An outline is "empty here, but something next to me"</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. So far our sprite shaders read one <dfn>texel</dfn> (one pixel of the sprite's texture) and changed it. That is not enough here: a pixel just outside the sprite reads alpha 0, exactly like a pixel far away.</p>
+  <p>But a shader may read the texture as often as it likes, anywhere. So each pixel asks "is there sprite <em>next to</em> me?" It reads the alpha a short step to the right, left, up and down, and keeps the largest value. Call that <code>n</code>, the <dfn>neighbour alpha</dfn>. Its own alpha is <code>a</code>.</p>
+  <ul>
+    <li><code>a = 1</code>: the pixel is sprite. Draw the texel as normal.</li>
+    <li><code>a = 0</code> and <code>n = 1</code>: empty, but touching the sprite. This is outline.</li>
+    <li><code>a = 0</code> and <code>n = 0</code>: empty and far away. Stay transparent.</li>
+  </ul>
+  <p>Those three cases fold into one line, <code>outline = n * (1.0 - a)</code>. The final colour mixes the outline colour with the texel using <code>a</code> as the mask, and the alpha becomes <code>max(a, n)</code> so the outline is visible too.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Left: a seven by seven grid of texels. The top-right three by three block is sprite. The centre texel, which is empty, is ringed. Its four straight neighbours one texel away are empty, so four samples miss; its upper-right diagonal neighbour is sprite, so only the eight-sample version hits. Right: four steps. Read own alpha a. Take n, the largest alpha among the neighbours. Outline equals n times one minus a. Colour is the mix of the outline colour and the texel by a, with alpha max of a and n.">
+      <g>
+        <rect class="d-accent-soft" x="150" y="20" width="90" height="90"/>
+        <path class="d-thin" d="M30 20 V230 M60 20 V230 M90 20 V230 M120 20 V230 M150 20 V230 M180 20 V230 M210 20 V230 M240 20 V230"/>
+        <path class="d-thin" d="M30 20 H240 M30 50 H240 M30 80 H240 M30 110 H240 M30 140 H240 M30 170 H240 M30 200 H240 M30 230 H240"/>
+        <text class="d-label" x="195" y="70" text-anchor="middle">sprite</text>
+        <rect class="d-accent" x="125" y="115" width="20" height="20"/>
+        <circle class="d-stroke" cx="165" cy="125" r="6"/>
+        <circle class="d-stroke" cx="105" cy="125" r="6"/>
+        <circle class="d-stroke" cx="135" cy="95" r="6"/>
+        <circle class="d-stroke" cx="135" cy="155" r="6"/>
+        <circle class="d-dash" cx="105" cy="95" r="6"/>
+        <circle class="d-dash" cx="105" cy="155" r="6"/>
+        <circle class="d-dash" cx="165" cy="155" r="6"/>
+        <circle class="d-accent-fill" cx="165" cy="95" r="7"/>
+      </g>
+      <text class="d-muted" x="30" y="254">square: the pixel being shaded (a = 0)</text>
+      <text class="d-muted" x="30" y="272">solid rings: 4 samples, all miss</text>
+      <text class="d-muted" x="30" y="290">dashed: the 4 diagonals; the filled one hits</text>
+
+      <rect class="d-box" x="290" y="20" width="340" height="50" rx="6"/>
+      <text class="d-text" x="304" y="41">1. own alpha</text>
+      <text class="d-mono" x="304" y="60">a = texel.a</text>
+      <rect class="d-box" x="290" y="86" width="340" height="50" rx="6"/>
+      <text class="d-text" x="304" y="107">2. largest alpha among the samples</text>
+      <text class="d-mono" x="304" y="126">n = max(alpha(uv + offset), ...)</text>
+      <rect class="d-accent-soft" x="290" y="152" width="340" height="50" rx="6"/>
+      <text class="d-text" x="304" y="173">3. empty here, sprite nearby</text>
+      <text class="d-mono" x="304" y="192">outline = n * (1.0 - a)</text>
+      <rect class="d-box" x="290" y="218" width="340" height="62" rx="6"/>
+      <text class="d-text" x="304" y="239">4. paint it</text>
+      <text class="d-mono" x="304" y="256">rgb = mix(outlineColor, texel.rgb, a)</text>
+      <text class="d-mono" x="304" y="272">alpha = max(a, n)</text>
+      <path class="d-stroke" d="M460 70 V86 M460 136 V152 M460 202 V218"/>
+    </svg>
+    <figcaption>Left: with four samples, a pixel diagonally off a corner sees nothing, so the corner of the outline is cut off. The diagonals fill it. Right: what the shader does for every pixel of the sprite's rectangle.</figcaption>
+  </figure>
+
+  <h3>Steps are measured in texels</h3>
+  <p>Texture coordinates run from 0 to 1 across the whole texture, so "one texel to the right" is not <code>+1.0</code>. It is <code>1.0 / width</code>. The game sends that <dfn>texel size</dfn>, <code>(1 / width, 1 / height)</code>, as a uniform, and the offset becomes <code>texelSize * thickness</code>. Godot gives it to you as <code>TEXTURE_PIXEL_SIZE</code>, and Unity fills a <code>_MainTex_TexelSize</code> vector for you if you declare it.</p>
+
+  <h3>The outline needs somewhere to be drawn</h3>
+  <p>The shader only runs for pixels inside the rectangle (the <dfn>quad</dfn>) that the sprite is drawn on. If the art touches the edge of its image, the outline falls outside the quad, where no shader call ever runs. The fix is in the image: leave a transparent border at least as wide as the thickest outline. The demo's mushroom is 16 by 16 texels inside a 24 by 24 image, which leaves room for 4.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which way is up does not matter here</p>
+    <p>The demo counts texels from the bottom-left with y up, like <code>gl_FragCoord</code>. LÖVE and Godot put texture coordinate (0, 0) at the top-left with y down; Unity puts UV (0, 0) at the bottom-left. The samples are symmetric, so the outline is the same in all of them. A one-sided offset, such as a drop shadow, is where direction matters.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The yellow square marks one texel, and the dots are the texels its shader reads: a filled dot hits the sprite, a hollow one misses. Move it with the pointer, or focus the canvas and use the arrow keys. It starts off the lower-left corner of the cap: switch <em>Samples</em> between 4 and 8 and watch that corner fill in. Set <em>Thickness</em> to 3 with 4 samples and look for holes around the thin sprout. Step through <em>Stage</em> to see <code>a</code>, <code>n</code> and the mask, and turn off the border to see the outline cut off at the quad's edge.</p>
+
+  <figure class="demo wide" data-demo="outline">
+    <canvas id="outline-shader"></canvas>
+    <figcaption>The whole canvas is one fragment shader. The light line is the edge of the sprite's quad; in stages 2 to 4 everything outside it is darkened, because the sprite's shader never runs there.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE program builds the same 24 by 24 mushroom in code, so there is no image file, and draws it twelve times larger with an 8-sample outline. The up and down arrow keys change the thickness from 1 to 4 texels.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SIZE = 24                          <span class="c">-- texture size, with a 4 texel empty border</span>
+local OUTLINE_COLOR = { 0.10, 0.06, 0.14 }
+local thickness = 1                      <span class="c">-- in texels, 1 to 4</span>
+local sprite, shader
+
+local pixelcode = [[
+uniform vec2 u_texelSize;     // 1 / texture size: one texel in UV units
+uniform float u_thickness;    // in texels
+uniform vec3 u_outlineColor;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec4 texel = Texel(tex, texture_coords);
+  vec2 o = u_texelSize * u_thickness;
+  float n = 0.0;
+  n = max(n, Texel(tex, texture_coords + vec2(o.x, 0.0)).a);
+  n = max(n, Texel(tex, texture_coords - vec2(o.x, 0.0)).a);
+  n = max(n, Texel(tex, texture_coords + vec2(0.0, o.y)).a);
+  n = max(n, Texel(tex, texture_coords - vec2(0.0, o.y)).a);
+  n = max(n, Texel(tex, texture_coords + o).a);                  // the diagonals
+  n = max(n, Texel(tex, texture_coords - o).a);
+  n = max(n, Texel(tex, texture_coords + vec2(o.x, -o.y)).a);
+  n = max(n, Texel(tex, texture_coords + vec2(-o.x, o.y)).a);
+  vec3 rgb = mix(u_outlineColor, texel.rgb, texel.a);
+  return vec4(rgb, max(texel.a, n)) * color;
+}
+]]
+
+local function near(x, y, cx, cy, r)
+  local dx, dy = x - cx, y - cy
+  return dx * dx + dy * dy &lt; r * r
+end
+
+<span class="c">-- the demo's mushroom; tx, ty count texels from the bottom-left like the demo</span>
+local function mushroomPixel(tx, ty)
+  local x, y = tx + 0.5 - 4, ty + 0.5 - 4    <span class="c">-- texel centre in the 16 by 16 drawing</span>
+  local r, g, b, a = 0, 0, 0, 0
+  if math.abs(x - 8) &lt; 2.6 and y &gt; 0 and y &lt; 7 then r, g, b, a = 0.93, 0.87, 0.74, 1 end
+  if near(x, y, 6.5, 3.5, 0.6) or near(x, y, 9.5, 3.5, 0.6) then r, g, b, a = 0.12, 0.08, 0.10, 1 end
+  local ex, ey = (x - 8) / 7.8, (y - 7) / 7.5
+  if ex * ex + ey * ey &lt; 1 and y &gt; 6 then
+    local k = (y - 6) / 8
+    r, g, b, a = 0.70 + 0.20 * k, 0.13 + 0.12 * k, 0.16 + 0.06 * k, 1
+    if near(x, y, 4.5, 10.5, 1.6) or near(x, y, 11.5, 11.5, 1.8) or near(x, y, 8.5, 8.5, 1.1) then
+      r, g, b = 0.97, 0.94, 0.88
+    end
+  end
+  if (x == 8.5 and y &gt; 14 and y &lt; 16) or (y == 15.5 and (x == 9.5 or x == 10.5)) then
+    r, g, b, a = 0.30, 0.62, 0.25, 1                  <span class="c">-- the thin sprout</span>
+  end
+  return r, g, b, a
+end
+
+function love.load()
+  local data = love.image.newImageData(SIZE, SIZE)
+  data:mapPixel(function(x, y) return mushroomPixel(x, SIZE - 1 - y) end)  <span class="c">-- LÖVE rows go down</span>
+  sprite = love.graphics.newImage(data)
+  sprite:setFilter("nearest", "nearest")
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "up" then thickness = math.min(thickness + 1, 4) end
+  if key == "down" then thickness = math.max(thickness - 1, 1) end
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  love.graphics.clear(0.30, 0.48, 0.34)
+<span class="k">  shader:send("u_texelSize", { 1 / SIZE, 1 / SIZE })</span>
+  shader:send("u_thickness", thickness)
+  shader:send("u_outlineColor", OUTLINE_COLOR)
+  love.graphics.setShader(shader)
+  love.graphics.draw(sprite, w / 2 - SIZE * 6, h / 2 - SIZE * 6, 0, 12, 12)
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_thickness;     // in texels, 1.0 to 4.0
+uniform float u_mode;          // 0 four samples, 1 eight samples, 2 every texel in a disc
+uniform vec3 u_outlineColor;
+uniform float u_padding;       // 1 the quad keeps the 4 texel border, 0 trimmed to the art
+uniform float u_stage;         // 0 texel, 1 own alpha, 2 neighbour alpha, 3 outline, 4 final
+uniform vec2 u_probe;          // the texel marked with a square
+uniform float u_showQuad;
+
+const vec2 TEX_SIZE = vec2(24.0, 24.0);   // the "texture", border included
+
+// The "texture": colour and alpha of texel t (whole numbers, y up).
+vec4 sprite(vec2 t) {
+  if (t.x &lt; 0.0 || t.y &lt; 0.0 || t.x &gt;= TEX_SIZE.x || t.y &gt;= TEX_SIZE.y) return vec4(0.0);
+  vec2 c = t + 0.5 - 4.0;                  // texel centre in the 16 by 16 drawing
+  vec4 col = vec4(0.0);
+  if (abs(c.x - 8.0) &lt; 2.6 &amp;&amp; c.y &gt; 0.0 &amp;&amp; c.y &lt; 7.0) col = vec4(0.93, 0.87, 0.74, 1.0);   // stem
+  if (length(c - vec2(6.5, 3.5)) &lt; 0.6 || length(c - vec2(9.5, 3.5)) &lt; 0.6)
+    col = vec4(0.12, 0.08, 0.10, 1.0);                                                  // eyes
+  if (length((c - vec2(8.0, 7.0)) / vec2(7.8, 7.5)) &lt; 1.0 &amp;&amp; c.y &gt; 6.0) {               // cap
+    float k = (c.y - 6.0) / 8.0;
+    col = vec4(0.70 + 0.20 * k, 0.13 + 0.12 * k, 0.16 + 0.06 * k, 1.0);
+    if (length(c - vec2(4.5, 10.5)) &lt; 1.6 || length(c - vec2(11.5, 11.5)) &lt; 1.8 ||
+        length(c - vec2(8.5, 8.5)) &lt; 1.1) col = vec4(0.97, 0.94, 0.88, 1.0);            // spots
+  }
+  if ((abs(c.x - 8.5) &lt; 0.1 &amp;&amp; c.y &gt; 14.0 &amp;&amp; c.y &lt; 16.0) ||
+      (abs(c.y - 15.5) &lt; 0.1 &amp;&amp; (abs(c.x - 9.5) &lt; 0.1 || abs(c.x - 10.5) &lt; 0.1)))
+    col = vec4(0.30, 0.62, 0.25, 1.0);                                                  // sprout
+  return col;
+}
+
+float alphaAt(vec2 t) {
+  return sprite(t).a;
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up
+
+  vec2 tile = floor(p * 8.0);                                           // grass background
+  vec3 bg = mix(vec3(0.30, 0.48, 0.34), vec3(0.35, 0.54, 0.38), mod(tile.x + tile.y, 2.0));
+
+  float texelSize = 0.84 / TEX_SIZE.y;           // the quad is 0.84 of the canvas height
+  vec2 sp = (p + 0.42) / texelSize;              // position in texels, (0, 0) bottom-left
+  vec2 t = floor(sp);                            // which texel this pixel shows
+  float lo = u_padding &gt; 0.5 ? 0.0 : 4.0;
+  float hi = TEX_SIZE.x - lo;
+  bool inQuad = sp.x &gt;= lo &amp;&amp; sp.x &lt; hi &amp;&amp; sp.y &gt;= lo &amp;&amp; sp.y &lt; hi;
+  float r = u_thickness;
+  float onePixel = 1.0 / (u_resolution.y * texelSize);   // one screen pixel, in texels
+
+  vec3 col = bg;
+  if (inQuad) {
+    vec4 texel = sprite(t);
+    float a = texel.a;                                       // 1. own alpha
+    float n = 0.0;                                           // 2. neighbour alpha
+    if (u_mode &lt; 1.5) {
+      n = max(n, alphaAt(t + vec2(r, 0.0)));
+      n = max(n, alphaAt(t - vec2(r, 0.0)));
+      n = max(n, alphaAt(t + vec2(0.0, r)));
+      n = max(n, alphaAt(t - vec2(0.0, r)));
+      if (u_mode &gt; 0.5) {
+        n = max(n, alphaAt(t + vec2(r, r)));
+        n = max(n, alphaAt(t - vec2(r, r)));
+        n = max(n, alphaAt(t + vec2(r, -r)));
+        n = max(n, alphaAt(t + vec2(-r, r)));
+      }
+    } else {
+      for (int j = -4; j &lt;= 4; j++) {
+        for (int i = -4; i &lt;= 4; i++) {
+          vec2 o = vec2(float(i), float(j));
+          float d = dot(o, o);
+          if (d &gt; 0.5 &amp;&amp; d &lt;= r * r + r + 0.25) n = max(n, alphaAt(t + o));
+        }
+      }
+    }
+    float outline = n * (1.0 - a);                           // 3. outline mask
+    vec4 outc = vec4(mix(u_outlineColor, texel.rgb, a), max(a, n));   // 4. paint
+    col = mix(bg, outc.rgb, outc.a);
+
+    if (u_stage &lt; 3.5) col = vec3(outline);
+    if (u_stage &lt; 2.5) col = vec3(n);
+    if (u_stage &lt; 1.5) col = vec3(a);
+    if (u_stage &lt; 0.5) col = mix(bg, texel.rgb, a);
+
+    vec2 f = fract(sp);                                      // faint texel grid in stages 2 to 4
+    if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 3.5 &amp;&amp; min(f.x, f.y) &lt; onePixel) col = mix(col, vec3(0.5), 0.4);
+
+    float edge = min(min(sp.x - lo, hi - sp.x), min(sp.y - lo, hi - sp.y));
+    if (u_showQuad &gt; 0.5 &amp;&amp; edge &lt; 1.5 * onePixel) col = vec3(0.95, 0.95, 0.85);
+  } else if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 3.5) {
+    col = bg * 0.4;                                          // the sprite's shader never runs here
+  }
+
+  // teaching overlay: the marked texel and the texels its shader reads
+  vec2 dt = t - u_probe;
+  bool isProbe = abs(dt.x) &lt; 0.5 &amp;&amp; abs(dt.y) &lt; 0.5;
+  bool isSample = false;
+  if (u_mode &lt; 1.5) {
+    bool ax = abs(abs(dt.x) - r) &lt; 0.5;
+    bool ay = abs(abs(dt.y) - r) &lt; 0.5;
+    bool zx = abs(dt.x) &lt; 0.5;
+    bool zy = abs(dt.y) &lt; 0.5;
+    isSample = (ax &amp;&amp; zy) || (zx &amp;&amp; ay) || (u_mode &gt; 0.5 &amp;&amp; ax &amp;&amp; ay);
+  } else {
+    float dd = dot(dt, dt);
+    isSample = dd &gt; 0.5 &amp;&amp; dd &lt;= r * r + r + 0.25;
+  }
+  vec2 g = fract(sp) - 0.5;
+  if (isProbe) {
+    float box = max(abs(g.x), abs(g.y));
+    if (box &gt; 0.26) col = vec3(0.08);
+    if (box &gt; 0.32 &amp;&amp; box &lt; 0.5) col = vec3(1.0, 0.85, 0.2);
+  }
+  if (isSample) {
+    float len = length(g);
+    vec3 under = col;
+    bool hit = alphaAt(t) &gt; 0.5;
+    if (len &lt; 0.42) col = vec3(0.95);
+    if (len &lt; 0.33) col = vec3(0.08);
+    if (len &lt; 0.23) col = hit ? vec3(1.0, 0.85, 0.2) : under;   // filled: hit, hollow: miss
+  }
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4, a ShaderMaterial on a Sprite2D.
+shader_type canvas_item;
+
+uniform vec4 outline_color : source_color = vec4(0.10, 0.06, 0.14, 1.0);
+uniform float thickness : hint_range(1.0, 4.0, 1.0) = 1.0;   // in texels
+
+void fragment() {
+    vec4 texel = texture(TEXTURE, UV);
+    vec2 o = TEXTURE_PIXEL_SIZE * thickness;   // one texel = 1 / texture size
+    float n = 0.0;
+    n = max(n, texture(TEXTURE, UV + vec2(o.x, 0.0)).a);
+    n = max(n, texture(TEXTURE, UV - vec2(o.x, 0.0)).a);
+    n = max(n, texture(TEXTURE, UV + vec2(0.0, o.y)).a);
+    n = max(n, texture(TEXTURE, UV - vec2(0.0, o.y)).a);
+    n = max(n, texture(TEXTURE, UV + o).a);
+    n = max(n, texture(TEXTURE, UV - o).a);
+    n = max(n, texture(TEXTURE, UV + vec2(o.x, -o.y)).a);
+    n = max(n, texture(TEXTURE, UV + vec2(-o.x, o.y)).a);
+<span class="k">    COLOR = vec4(mix(outline_color.rgb, texel.rgb, texel.a), max(texel.a, n));</span>
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, for a SpriteRenderer.
+// Set the sprite's Mesh Type to Full Rect in its import settings.
+Shader "GameDevDaily/SpriteOutline"
+{
+    Properties
+    {
+        [PerRendererData] _MainTex ("Sprite", 2D) = "white" {}
+        _OutlineColor ("Outline colour", Color) = (0.10, 0.06, 0.14, 1)
+        _Thickness ("Thickness (texels)", Range(1, 4)) = 1
+    }
+    SubShader
+    {
+        Tags { "Queue" = "Transparent" "RenderType" = "Transparent" "IgnoreProjector" = "True" }
+        Cull Off
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float4 _MainTex_TexelSize;   // Unity fills this: x = 1/width, y = 1/height
+            fixed4 _OutlineColor;
+            float _Thickness;
+
+            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                o.color = v.color;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                fixed4 texel = tex2D(_MainTex, i.uv);
+                float2 o = _MainTex_TexelSize.xy * _Thickness;
+                float n = 0;
+                n = max(n, tex2D(_MainTex, i.uv + float2(o.x, 0)).a);
+                n = max(n, tex2D(_MainTex, i.uv - float2(o.x, 0)).a);
+                n = max(n, tex2D(_MainTex, i.uv + float2(0, o.y)).a);
+                n = max(n, tex2D(_MainTex, i.uv - float2(0, o.y)).a);
+                n = max(n, tex2D(_MainTex, i.uv + o).a);
+                n = max(n, tex2D(_MainTex, i.uv - o).a);
+                n = max(n, tex2D(_MainTex, i.uv + float2(o.x, -o.y)).a);
+                n = max(n, tex2D(_MainTex, i.uv + float2(-o.x, o.y)).a);
+<span class="k">                fixed4 c = fixed4(lerp(_OutlineColor.rgb, texel.rgb, texel.a), max(texel.a, n));</span>
+                return c * i.color;
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Unity shader is for the Built-in render pipeline. In URP the same maths can be built in a Sprite Unlit Shader Graph: one <em>Sample Texture 2D</em> node per offset, the alphas combined with <em>Maximum</em> nodes, and a <em>Lerp</em> for the colour. HLSL spells <code>mix</code> as <code>lerp</code>. The Godot version ignores the node's <code>modulate</code>; multiply by <code>COLOR</code> first if you need it.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>No room for the outline.</strong> If the art reaches the edge of its image, the outline is clipped by the quad. Leave a transparent border at least as wide as the outline. Unity adds a second trap: by default a sprite's Mesh Type is <em>Tight</em>, a mesh that hugs the opaque pixels, so there is no empty space for the outline even with a border. Set it to <em>Full Rect</em>.</li>
+    <li><strong>Offsets in the wrong units.</strong> An offset of <code>1.0</code> in UV space is the whole texture. Multiply the thickness by the texel size.</li>
+    <li><strong>Sprite sheets bleed.</strong> In a sheet or atlas, the samples of one frame can reach into the next frame and draw a stray outline. Leave at least the outline thickness of empty space between frames.</li>
+    <li><strong>Thick outlines get holes and corners.</strong> Sampling only at distance <code>thickness</code> jumps over thin parts, like the sprout at thickness 3. Eight samples make square corners. Reading every texel within the radius fixes both, at a much higher price.</li>
+    <li><strong>Thickness grows with scale.</strong> The offset is in texels, so a sprite drawn three times larger gets a three times wider outline. For a fixed screen width, divide the thickness by the scale.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The main cost is texture reads: 5 per pixel with 4 samples, 9 with 8, and 69 for the full disc at thickness 4 (the readout shows the count). Every pixel of the quad pays it, border included, so a 24 by 24 image runs the shader on 2.25 times as many pixels as a trimmed 16 by 16 one. On a phone, 9 reads on a handful of sprites is fine; a big disc on hundreds of sprites is not. For thick, round outlines on many sprites, bake them into the art, or precompute a distance field so one read gives the distance to the edge.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Coloured outlines are a common way for 2D games to mark the object under the cursor, the selected unit or something the player can pick up. Many pixel-art games draw dark outlines into the sprites by hand instead; a shader outline is what you reach for when the colour or the visibility has to change while the game runs.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Add a <code>hovered</code> flag that is true while the mouse is over the mushroom's 288 by 288 pixel rectangle, and only draw the outline when it is set. Send a thickness of 0 otherwise, or draw without the shader.</li>
+    <li>Change the shader into a drop shadow: read only one sample, at <code>uv - o</code>, which in LÖVE is up and to the left, so the shadow falls down and to the right. Give it a dark colour with alpha 0.5.</li>
+    <li>Make an inner outline: take the <em>smallest</em> alpha of the samples, <code>m</code>, and paint where <code>a * (1.0 - m)</code> is 1.</li>
+  </ol>
+  <p>You are done when the mushroom gets an outline on hover, and you can switch between outline, drop shadow and inner outline with a key.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A pixel cannot tell it is on the border from its own texel. Read the alpha of its neighbours and keep the largest, <code>n</code>.</li>
+    <li><code>outline = n * (1.0 - a)</code>: empty here, sprite nearby. Paint with <code>mix(outlineColor, texel.rgb, a)</code> and alpha <code>max(a, n)</code>.</li>
+    <li>Offsets are <code>thickness * texelSize</code>, never whole UV units.</li>
+    <li>The outline can only appear inside the quad: give the art a transparent border, and use Full Rect sprites in Unity.</li>
+    <li>4 samples cut corners, 8 make them square, and thick outlines need more reads, which cost on every pixel of the quad.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, 2D water: distorting, scrolling and tinting a reflection of the scene above it.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Shader:send</cite> and <cite>ImageData:mapPixel</cite>.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite> (built-ins such as <code>TEXTURE_PIXEL_SIZE</code>).</li>
+    <li>Unity documentation, <cite>Accessing shader properties in Cg/HLSL</cite> (the <code>_TexelSize</code> vector) and <cite>Sprite (2D and UI) import settings</cite> (Mesh Type).</li>
+    <li>Unity documentation, <cite>Sample Texture 2D Node</cite> and <cite>Maximum Node</cite> (Shader Graph).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_thickness;     // in texels, 1.0 to 4.0",
+    "uniform float u_mode;          // 0 four samples, 1 eight samples, 2 every texel in a disc",
+    "uniform vec3 u_outlineColor;",
+    "uniform float u_padding;       // 1 the quad keeps the 4 texel border, 0 trimmed to the art",
+    "uniform float u_stage;         // 0 texel, 1 own alpha, 2 neighbour alpha, 3 outline, 4 final",
+    "uniform vec2 u_probe;          // the texel marked with a square",
+    "uniform float u_showQuad;",
+    "",
+    "const vec2 TEX_SIZE = vec2(24.0, 24.0);   // the \"texture\", border included",
+    "",
+    "// The \"texture\": colour and alpha of texel t (whole numbers, y up).",
+    "vec4 sprite(vec2 t) {",
+    "  if (t.x < 0.0 || t.y < 0.0 || t.x >= TEX_SIZE.x || t.y >= TEX_SIZE.y) return vec4(0.0);",
+    "  vec2 c = t + 0.5 - 4.0;                  // texel centre in the 16 by 16 drawing",
+    "  vec4 col = vec4(0.0);",
+    "  if (abs(c.x - 8.0) < 2.6 && c.y > 0.0 && c.y < 7.0) col = vec4(0.93, 0.87, 0.74, 1.0);   // stem",
+    "  if (length(c - vec2(6.5, 3.5)) < 0.6 || length(c - vec2(9.5, 3.5)) < 0.6)",
+    "    col = vec4(0.12, 0.08, 0.10, 1.0);                                                  // eyes",
+    "  if (length((c - vec2(8.0, 7.0)) / vec2(7.8, 7.5)) < 1.0 && c.y > 6.0) {               // cap",
+    "    float k = (c.y - 6.0) / 8.0;",
+    "    col = vec4(0.70 + 0.20 * k, 0.13 + 0.12 * k, 0.16 + 0.06 * k, 1.0);",
+    "    if (length(c - vec2(4.5, 10.5)) < 1.6 || length(c - vec2(11.5, 11.5)) < 1.8 ||",
+    "        length(c - vec2(8.5, 8.5)) < 1.1) col = vec4(0.97, 0.94, 0.88, 1.0);            // spots",
+    "  }",
+    "  if ((abs(c.x - 8.5) < 0.1 && c.y > 14.0 && c.y < 16.0) ||",
+    "      (abs(c.y - 15.5) < 0.1 && (abs(c.x - 9.5) < 0.1 || abs(c.x - 10.5) < 0.1)))",
+    "    col = vec4(0.30, 0.62, 0.25, 1.0);                                                  // sprout",
+    "  return col;",
+    "}",
+    "",
+    "float alphaAt(vec2 t) {",
+    "  return sprite(t).a;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;   // (0, 0) centre, y up",
+    "",
+    "  vec2 tile = floor(p * 8.0);                                           // grass background",
+    "  vec3 bg = mix(vec3(0.30, 0.48, 0.34), vec3(0.35, 0.54, 0.38), mod(tile.x + tile.y, 2.0));",
+    "",
+    "  float texelSize = 0.84 / TEX_SIZE.y;           // the quad is 0.84 of the canvas height",
+    "  vec2 sp = (p + 0.42) / texelSize;              // position in texels, (0, 0) bottom-left",
+    "  vec2 t = floor(sp);                            // which texel this pixel shows",
+    "  float lo = u_padding > 0.5 ? 0.0 : 4.0;",
+    "  float hi = TEX_SIZE.x - lo;",
+    "  bool inQuad = sp.x >= lo && sp.x < hi && sp.y >= lo && sp.y < hi;",
+    "  float r = u_thickness;",
+    "  float onePixel = 1.0 / (u_resolution.y * texelSize);   // one screen pixel, in texels",
+    "",
+    "  vec3 col = bg;",
+    "  if (inQuad) {",
+    "    vec4 texel = sprite(t);",
+    "    float a = texel.a;                                       // 1. own alpha",
+    "    float n = 0.0;                                           // 2. neighbour alpha",
+    "    if (u_mode < 1.5) {",
+    "      n = max(n, alphaAt(t + vec2(r, 0.0)));",
+    "      n = max(n, alphaAt(t - vec2(r, 0.0)));",
+    "      n = max(n, alphaAt(t + vec2(0.0, r)));",
+    "      n = max(n, alphaAt(t - vec2(0.0, r)));",
+    "      if (u_mode > 0.5) {",
+    "        n = max(n, alphaAt(t + vec2(r, r)));",
+    "        n = max(n, alphaAt(t - vec2(r, r)));",
+    "        n = max(n, alphaAt(t + vec2(r, -r)));",
+    "        n = max(n, alphaAt(t + vec2(-r, r)));",
+    "      }",
+    "    } else {",
+    "      for (int j = -4; j <= 4; j++) {",
+    "        for (int i = -4; i <= 4; i++) {",
+    "          vec2 o = vec2(float(i), float(j));",
+    "          float d = dot(o, o);",
+    "          if (d > 0.5 && d <= r * r + r + 0.25) n = max(n, alphaAt(t + o));",
+    "        }",
+    "      }",
+    "    }",
+    "    float outline = n * (1.0 - a);                           // 3. outline mask",
+    "    vec4 outc = vec4(mix(u_outlineColor, texel.rgb, a), max(a, n));   // 4. paint",
+    "    col = mix(bg, outc.rgb, outc.a);",
+    "",
+    "    if (u_stage < 3.5) col = vec3(outline);",
+    "    if (u_stage < 2.5) col = vec3(n);",
+    "    if (u_stage < 1.5) col = vec3(a);",
+    "    if (u_stage < 0.5) col = mix(bg, texel.rgb, a);",
+    "",
+    "    vec2 f = fract(sp);                                      // faint texel grid in stages 2 to 4",
+    "    if (u_stage > 0.5 && u_stage < 3.5 && min(f.x, f.y) < onePixel) col = mix(col, vec3(0.5), 0.4);",
+    "",
+    "    float edge = min(min(sp.x - lo, hi - sp.x), min(sp.y - lo, hi - sp.y));",
+    "    if (u_showQuad > 0.5 && edge < 1.5 * onePixel) col = vec3(0.95, 0.95, 0.85);",
+    "  } else if (u_stage > 0.5 && u_stage < 3.5) {",
+    "    col = bg * 0.4;                                          // the sprite's shader never runs here",
+    "  }",
+    "",
+    "  // teaching overlay: the marked texel and the texels its shader reads",
+    "  vec2 dt = t - u_probe;",
+    "  bool isProbe = abs(dt.x) < 0.5 && abs(dt.y) < 0.5;",
+    "  bool isSample = false;",
+    "  if (u_mode < 1.5) {",
+    "    bool ax = abs(abs(dt.x) - r) < 0.5;",
+    "    bool ay = abs(abs(dt.y) - r) < 0.5;",
+    "    bool zx = abs(dt.x) < 0.5;",
+    "    bool zy = abs(dt.y) < 0.5;",
+    "    isSample = (ax && zy) || (zx && ay) || (u_mode > 0.5 && ax && ay);",
+    "  } else {",
+    "    float dd = dot(dt, dt);",
+    "    isSample = dd > 0.5 && dd <= r * r + r + 0.25;",
+    "  }",
+    "  vec2 g = fract(sp) - 0.5;",
+    "  if (isProbe) {",
+    "    float box = max(abs(g.x), abs(g.y));",
+    "    if (box > 0.26) col = vec3(0.08);",
+    "    if (box > 0.32 && box < 0.5) col = vec3(1.0, 0.85, 0.2);",
+    "  }",
+    "  if (isSample) {",
+    "    float len = length(g);",
+    "    vec3 under = col;",
+    "    bool hit = alphaAt(t) > 0.5;",
+    "    if (len < 0.42) col = vec3(0.95);",
+    "    if (len < 0.33) col = vec3(0.08);",
+    "    if (len < 0.23) col = hit ? vec3(1.0, 0.85, 0.2) : under;   // filled: hit, hollow: miss",
+    "  }",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var TEX = 24;          // texture size in texels, border included
+  var QUAD = 0.84;       // quad height as a fraction of the canvas height
+  var COLORS = {
+    dark: [0.10, 0.06, 0.14],
+    white: [1.0, 1.0, 1.0],
+    gold: [1.0, 0.80, 0.20],
+    cyan: [0.35, 0.90, 1.0]
+  };
+
+  var probe = [3, 9];    // starts just off the lower-left corner of the cap
+  var handle = null;
+
+  // The same sprite as the shader, alpha only, for the readouts.
+  function near(x, y, cx, cy, r) {
+    var dx = x - cx, dy = y - cy;
+    return dx * dx + dy * dy < r * r;
+  }
+  function alphaAt(tx, ty) {
+    if (tx < 0 || ty < 0 || tx >= TEX || ty >= TEX) return 0;
+    var x = tx + 0.5 - 4, y = ty + 0.5 - 4;
+    if (Math.abs(x - 8) < 2.6 && y > 0 && y < 7) return 1;
+    var ex = (x - 8) / 7.8, ey = (y - 7) / 7.5;
+    if (ex * ex + ey * ey < 1 && y > 6) return 1;
+    if (Math.abs(x - 8.5) < 0.1 && y > 14 && y < 16) return 1;
+    if (Math.abs(y - 15.5) < 0.1 && (Math.abs(x - 9.5) < 0.1 || Math.abs(x - 10.5) < 0.1)) return 1;
+    return 0;
+  }
+  function offsets() {
+    var r = thickness.value, list = [];
+    if (mode.value === '2') {
+      for (var j = -4; j <= 4; j++) {
+        for (var i = -4; i <= 4; i++) {
+          var d = i * i + j * j;
+          if (d > 0 && d <= r * r + r) list.push([i, j]);
+        }
+      }
+      return list;
+    }
+    list.push([r, 0], [-r, 0], [0, r], [0, -r]);
+    if (mode.value === '1') list.push([r, r], [-r, -r], [r, -r], [-r, r]);
+    return list;
+  }
+
+  var ui = DemoKit.controls('[data-demo="outline"]');
+  var thickness = ui.slider({ label: 'Thickness', min: 1, max: 4, step: 1, value: 1, unit: ' texels', onInput: changed });
+  var mode = ui.select({
+    label: 'Samples',
+    options: [
+      { value: '0', label: '4: left, right, up, down' },
+      { value: '1', label: '8: adds the diagonals' },
+      { value: '2', label: 'Every texel within the radius' }
+    ],
+    value: '0',
+    onChange: changed
+  });
+  var color = ui.select({
+    label: 'Outline colour',
+    options: [
+      { value: 'dark', label: 'Dark ink' },
+      { value: 'white', label: 'White' },
+      { value: 'gold', label: 'Gold' },
+      { value: 'cyan', label: 'Cyan' }
+    ],
+    value: 'dark',
+    onChange: changed
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Texel, no outline' },
+      { value: '1', label: '2. Own alpha a' },
+      { value: '2', label: '3. Neighbour alpha n' },
+      { value: '3', label: '4. Outline mask n * (1 - a)' },
+      { value: '4', label: '5. Final colour' }
+    ],
+    value: '4',
+    onChange: changed
+  });
+  var padding = ui.toggle({ label: '4 texel empty border in the image', value: true, onChange: changed });
+  var showQuad = ui.toggle({ label: 'Show the quad edge', value: true, onChange: changed });
+  var reads = ui.readout({ label: 'Texture reads per pixel' });
+  var probeOut = ui.readout({ label: 'Marked texel' });
+
+  function changed() {
+    var list = offsets();
+    reads.set(String(1 + list.length));
+    var a = alphaAt(probe[0], probe[1]);
+    var n = 0;
+    for (var k = 0; k < list.length; k++) n = Math.max(n, alphaAt(probe[0] + list[k][0], probe[1] + list[k][1]));
+    var what = a > 0 ? 'sprite' : (n > 0 ? 'outline' : 'empty');
+    probeOut.set('(' + probe[0] + ', ' + probe[1] + ')  a = ' + a + ', n = ' + n + ': ' + what);
+    if (handle) handle.redraw();
+  }
+
+  function moveProbeTo(p, s) {
+    if (!s.height) return;
+    var px = (p.x - 0.5 * s.width) / s.height;
+    var py = (0.5 * s.height - p.y) / s.height;     // y up, like gl_FragCoord
+    var tx = Math.floor((px + QUAD / 2) / (QUAD / TEX));
+    var ty = Math.floor((py + QUAD / 2) / (QUAD / TEX));
+    if (tx < 0 || ty < 0 || tx >= TEX || ty >= TEX) return;
+    if (tx === probe[0] && ty === probe[1]) return;
+    probe = [tx, ty];
+    changed();
+  }
+
+  handle = DemoKit.shader('#outline-shader', {
+    fragment: fragment,
+    aspect: 16 / 10,
+    minHeight: 300,
+    maxHeight: 440,
+    animate: false,
+    keys: true,
+    label: 'A live fragment shader drawing a pixel-art mushroom with a red spotted cap and a thin green sprout on a grass background, with an outline around it. A yellow square marks one texel and dots mark the texels its shader reads; filled dots hit the sprite. Move the pointer or use the arrow keys to move the square. Controls set the outline thickness, the number of samples, the colour, the stage of the shader shown, and whether the image has an empty border.',
+    uniforms: {
+      u_thickness: function () { return thickness.value; },
+      u_mode: function () { return Number(mode.value); },
+      u_outlineColor: function () { return COLORS[color.value]; },
+      u_padding: function () { return padding.value ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); },
+      u_probe: function () { return probe; },
+      u_showQuad: function () { return showQuad.value ? 1 : 0; }
+    },
+    onMove: moveProbeTo,
+    onDown: moveProbeTo,
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      var x = probe[0], y = probe[1];
+      if (key === 'arrowleft') x -= 1;
+      else if (key === 'arrowright') x += 1;
+      else if (key === 'arrowup') y += 1;
+      else if (key === 'arrowdown') y -= 1;
+      else return;
+      probe = [DemoKit.clamp(x, 0, TEX - 1), DemoKit.clamp(y, 0, TEX - 1)];
+      changed();
+    }
+  });
+
+  changed();
+})();
+</script>
+</body>
+</html>

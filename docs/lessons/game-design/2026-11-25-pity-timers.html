@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pity timers: putting a ceiling on bad luck · Game Dev Daily</title>
+<meta name="description" content="How a counter that guarantees a rare reward after a set number of misses caps the worst run of bad luck, what it does to the real drop rate, and when to skip it.">
+<meta name="gdd:topic" content="game-design">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-design">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Pity timers: putting a ceiling on bad luck</h1>
+  <p class="lede">How a counter that guarantees a rare reward after a set number of misses caps the worst run of bad luck, what it does to the real drop rate, and when to skip it.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your rare sword drops 2 percent of the time. Most players get it soon. But one player in a hundred opens 228 chests or more without it, and that player writes the angry review. The average is fine. The worst case is the problem.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A guarantee at the end of the drought</h2>
+  <p>A <dfn>pity timer</dfn> is a counter of attempts since the last rare reward. Every attempt adds one. The attempt that brings the counter to a set number, the <dfn>pity threshold</dfn>, gives the rare for certain, and any rare resets the counter to zero. Many online games call the same idea <dfn>bad luck protection</dfn>.</p>
+  <p>Pseudo-random distribution, from the last lesson, bent the odds on every roll. A pity timer leaves them alone: a 2 percent chest with a threshold of 90 still pays 2 percent on openings 1 to 89. It does nothing for lucky or average players. It only cuts off the long tail of very unlucky ones.</p>
+
+  <h3>Hard pity and soft pity</h3>
+  <p>The plain version is called <dfn>hard pity</dfn>: a flat chance, then a sudden 100 percent. It has a visible edge: players learn the rare arrives "on 90", and the openings before it feel like paying off a debt.</p>
+  <p><dfn>Soft pity</dfn> smooths that edge. Shortly before the threshold, the chance starts climbing with every miss, so most unlucky players get the rare a few openings early. Here soft pity starts three quarters of the way, at opening 68 of 90, and rises in a straight line to 100 percent. That is one simple choice, not a standard; a fixed step per miss also works.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 262" role="img" aria-label="Graph of the rare chance on each opening since the last rare. The chance is flat at 2 percent. With hard pity it jumps straight to 100 percent at opening 90. With soft pity it ramps up in a straight line from opening 68 to 100 percent at opening 90.">
+      <path class="d-stroke" d="M70 40 V210 H610"/>
+      <text class="d-muted" x="62" y="214" text-anchor="end">0%</text>
+      <text class="d-muted" x="62" y="54" text-anchor="end">100%</text>
+      <path class="d-stroke d-thin d-dash" d="M70 50 H600"/>
+
+      <path class="d-accent" d="M70 203 H547 V50"/>
+      <circle class="d-accent-fill" cx="547" cy="50" r="5"/>
+      <path class="d-stroke d-dash" d="M430 203 L547 50"/>
+
+      <text class="d-text" x="80" y="192">base chance, 2%, on every opening</text>
+      <text class="d-text" x="540" y="36" text-anchor="end">hard pity: opening 90 always pays</text>
+      <text class="d-label" x="472" y="122" text-anchor="end">soft pity ramp</text>
+      <text class="d-label" x="472" y="138" text-anchor="end">from opening 68</text>
+
+      <text class="d-muted" x="70" y="230" text-anchor="middle">0</text>
+      <text class="d-muted" x="430" y="230" text-anchor="middle">68</text>
+      <text class="d-muted" x="547" y="230" text-anchor="middle">90</text>
+      <text class="d-muted" x="70" y="254">Openings since the last rare (the counter)</text>
+    </svg>
+    <figcaption>The rare chance on each opening since the last rare. Hard pity (solid) pays for certain at the threshold. Soft pity (dashed) starts raising the chance earlier, so the wall is rarely reached.</figcaption>
+  </figure>
+
+  <h3>What it does to the numbers</h3>
+  <p>A pity timer always raises the real average rate, because it turns some long waits into shorter ones. With a 2 percent base chance:</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Setup</th><th class="num">Average wait</th><th class="num">Real rate</th><th class="num">1 in 100 waits lasts</th><th class="num">Worst case</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>No pity</td><td class="num">50.0</td><td class="num">2.00%</td><td class="num">228 or more</td><td class="num">no limit</td></tr>
+      <tr><td>Hard pity at 90</td><td class="num">41.9</td><td class="num">2.39%</td><td class="num">90</td><td class="num">90</td></tr>
+      <tr><td>Hard and soft pity at 90</td><td class="num">38.7</td><td class="num">2.59%</td><td class="num">78</td><td class="num">90</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>With hard pity at 90, about 17 percent of all rares come from the guarantee, and the other 83 percent arrive by plain luck exactly as before. That is the shape you want: a safety net that catches a minority.</p>
+  <p>So the number on the box is no longer the real rate. Show players the real one, which the code below calculates. And if your economy was balanced around 2 percent, rares are now about a fifth more common: accept that, or lower the base chance.</p>
+
+  <h3>Choosing a threshold</h3>
+  <p>A reasonable starting point is two to three times the average wait: 100 to 150 openings at 2 percent. Then tune by how many rares come from the guarantee.</p>
+  <ul>
+    <li><strong>Too high</strong> and it is decoration: at 2 percent with a threshold of 300, about 1 wait in 400 reaches it.</li>
+    <li><strong>Too low</strong> and the timer becomes the schedule. At a threshold of 50, 37 percent of rares come from the guarantee, and players start counting to 50 instead of hoping. The rare starts to feel like a wage.</li>
+  </ul>
+  <p>Think in time too. Ninety openings might be one evening or two months.</p>
+
+  <h3>When not to use it</h3>
+  <ul>
+    <li><strong>Common effects.</strong> Above about 15 percent, droughts are short; pseudo-random distribution or a shuffle bag suits them better.</li>
+    <li><strong>Short runs.</strong> In a 40-room roguelike run, a threshold of 90 never triggers, and scarcity is part of the run.</li>
+    <li><strong>Items players must have.</strong> If progress needs the item, do not make it random at all.</li>
+    <li><strong>Games where variance is the fun.</strong> A party game may want the wild streaks.</li>
+  </ul>
+
+  <div class="callout warn">
+    <p class="callout-title">Pity can be turned against the player</p>
+    <p>When attempts cost real money, the threshold becomes the real price of the item: 90 pulls times the price of a pull. A visible counter at 70 of 90 pressures players to finish, because stopping feels like losing what they already paid. Pity is also used to justify very low base rates. If you sell attempts, show the base rate, the real rate and the worst-case cost in money before purchase, and do not let counters quietly expire. Some app stores and countries already require paid random items to show their odds.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>With the pity timer off, press "Open 1000" a few times: the waits stretch far to the right. Switch pity on. The same rolls replay, but every long wait now stops at the threshold and piles into one tall bar at the dashed line. Turn on soft pity and watch that bar spread into a slope. Then drag the threshold down to 30 and see how much of the reward comes from the guarantee.</p>
+
+  <figure class="demo wide" data-demo="pity">
+    <canvas id="pity"></canvas>
+    <figcaption>Controls: press Open 1, tap the chest, or focus the scene and press Space or O. The top meter is the pity counter, with the soft pity zone shaded. In the chart, bars are your results and the line is the exact expected shape. Changing a setting replays the same rolls.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The system is <code>rareChance</code> and <code>openBox</code>. <code>realRate</code> works out the true average once. Set <code>SOFT_PITY</code> to <code>true</code> for the ramp.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local BASE_CHANCE = 0.02    <span class="c">-- 2 percent on a normal opening</span>
+local PITY = 90             <span class="c">-- opening 90 since the last rare always pays</span>
+local SOFT_PITY = false      <span class="c">-- true: chance ramps up over the last quarter</span>
+local SOFT_START = math.floor(PITY * 0.75 + 0.5)   <span class="c">-- 68</span>
+
+local sinceRare = 0         <span class="c">-- save this with the player's progress</span>
+
+<span class="c">-- The rare chance on the nth opening since the last rare.</span>
+local function rareChance(n)
+<span class="k">  if n &gt;= PITY then return 1 end</span>
+  if SOFT_PITY and n &gt; SOFT_START then
+    local t = (n - SOFT_START) / (PITY - SOFT_START)
+    return BASE_CHANCE + (1 - BASE_CHANCE) * t
+  end
+  return BASE_CHANCE
+end
+
+local function openBox()
+  sinceRare = sinceRare + 1
+  if love.math.random() &lt; rareChance(sinceRare) then
+<span class="k">    sinceRare = 0</span>
+    return "rare"
+  end
+  return "common"
+end
+
+<span class="c">-- The real average rate once pity is included.</span>
+local function realRate()
+  local expected, survive = 0, 1
+  for n = 1, PITY do
+    local chance = rareChance(n)
+    expected = expected + n * survive * chance
+    survive = survive * (1 - chance)
+  end
+  return 1 / expected
+end
+
+function love.load()
+  print(string.format("Real rate: %.2f%%", realRate() * 100))   <span class="c">-- 2.39%</span>
+end
+
+function love.keypressed(key)
+  if key == "space" then
+    print(openBox(), "since last rare: " .. sinceRare)
+  end
+end</code></pre>
+  </div>
+  <p><code>realRate</code> adds up every possible wait, weighted by its chance, and stops at the threshold, where the chance is 1.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting to save the counter.</strong> If <code>sinceRare</code> resets on restart, a player with short sessions never reaches the threshold. Save it, or keep it on the server.</li>
+    <li><strong>Showing the base rate as the rate.</strong> With pity, "2 percent" understates the real chance. Show <code>realRate()</code>, or lower the base so the real rate matches the number you want.</li>
+    <li><strong>One counter for many things.</strong> Decide what each counter protects: one item, one tier or one box type. A counter reset by any rare does not help a player chasing one specific rare.</li>
+    <li><strong>Resetting only on the pity payout.</strong> Reset on every drop of the protected reward. Otherwise a lucky drop leaves the counter high and the next guarantee comes too soon.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Genshin Impact is the example players discuss most. Its wish banners guarantee a 5-star item within 90 wishes, as community wikis and guides consistently report. Players analysing large sets of recorded pulls report that the chance also rises from roughly wish 74, which they call soft pity. That comes from community analysis, not an official statement, and I could not open the wiki pages to check details.</p>
+  <p>Hearthstone guides describe a legendary card guaranteed within the first ten packs of each new set, a change press coverage dates to 2017, and a timer of about 40 packs between legendaries. Sources disagree on how officially the 40-pack figure was confirmed, so treat it as reported.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Pick the rarest random reward in your game. Note its base chance and how many attempts a player makes per hour. Set the demo to that chance, read the 1-in-100 wait, and turn it into hours. If that feels unfair, add <code>rareChance</code> and <code>openBox</code> with a threshold of two to three times the average wait, and print <code>realRate()</code>. You are done when the worst case is a time you would accept as a player, and you have decided whether to lower the base chance.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A pity timer counts misses and guarantees the reward at a threshold, so the worst case has a hard limit.</li>
+    <li>It leaves most attempts alone and cuts off only the unlucky tail. Soft pity ramps up just before the threshold.</li>
+    <li>Pity always raises the real rate. Calculate it, show it, and rebalance the base chance if needed.</li>
+    <li>A threshold of two to three times the average wait is a reasonable start. Too high does nothing; too low turns the rare into a wage.</li>
+    <li>With real money, the threshold is the real price. Be open about it.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we look at shuffle bags, which prevent both droughts and floods by drawing outcomes from a bag without putting them back.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Game Dev Daily, <a href="2026-11-24-pseudo-random-distribution.html"><cite>Pseudo-random distribution: making 25 percent feel like 25 percent</cite></a>, the lesson before this one.</li>
+    <li>Genshin Impact community wiki, <cite>Wish</cite>, and Hearthstone community wiki, <cite>Card packs</cite>. Found through a search but not opened, so no links are given.</li>
+    <li>Apple, <cite>App Store Review Guidelines</cite>, section 3.1.1, on showing odds for paid random items. Not opened.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------ shared maths
+  function softStart(T) { return Math.floor(T * 0.75 + 0.5); }
+
+  // Chance of a rare on the nth opening since the last rare.
+  function rareChance(n, p, pityOn, T, softOn) {
+    if (pityOn && n >= T) return 1;
+    if (pityOn && softOn) {
+      var S = softStart(T);
+      if (n > S) return p + (1 - p) * (n - S) / (T - S);
+    }
+    return p;
+  }
+
+  // dist[i] = chance that the next rare arrives on opening i + 1.
+  function waitDist(p, pityOn, T, softOn) {
+    var out = [], survive = 1;
+    for (var n = 1; survive > 1e-10 && n <= 20000; n++) {
+      var c = rareChance(n, p, pityOn, T, softOn);
+      out.push(survive * c);
+      survive *= 1 - c;
+    }
+    return out;
+  }
+  function expectedWait(d) {
+    var e = 0;
+    for (var i = 0; i < d.length; i++) e += (i + 1) * d[i];
+    return e;
+  }
+  function wait1in100(d) {
+    var tail = 1, k = 1;
+    for (var i = 0; i < d.length; i++) {
+      if (tail >= 0.01 - 1e-12) k = i + 1;
+      tail -= d[i];
+    }
+    return k;
+  }
+  function pct(x, digits) { return (x * 100).toFixed(digits === undefined ? 1 : digits) + '%'; }
+
+  // ------------------------------------------------------------------ controls
+  var SEED = 20261125;
+  var BINS = 30;
+
+  var ui = DemoKit.controls('[data-demo="pity"]');
+  var baseSl = ui.slider({ label: 'Rare chance per opening', min: 0.5, max: 10, step: 0.5, value: 2, unit: '%',
+    onInput: function () { resetSession(); } });
+  var pityTg = ui.toggle({ label: 'Pity timer', value: false, onChange: function () { resetSession(); } });
+  var threshSl = ui.slider({ label: 'Pity threshold', min: 10, max: 200, step: 5, value: 90, unit: ' openings',
+    onInput: function () { resetSession(); } });
+  var softTg = ui.toggle({ label: 'Soft pity (last quarter ramps up)', value: false, onChange: function () { resetSession(); } });
+  ui.button({ label: 'Open 1', onClick: function () { openBox(true); refresh(); } });
+  ui.button({ label: 'Open 10', onClick: function () { openMany(10); } });
+  ui.button({ label: 'Open 1000', onClick: function () { openMany(1000); } });
+  ui.button({ label: 'Same rolls again', onClick: function () { resetSession(); } });
+  ui.button({ label: 'New rolls', onClick: function () { SEED = SEED + 7919; resetSession(); } });
+  var foundOut = ui.readout({ label: 'Found' });
+  var rateOut = ui.readout({ label: 'Expected real rate' });
+  var worstOut = ui.readout({ label: 'Worst case' });
+  var longOut = ui.readout({ label: 'Longest wait so far' });
+  var zoneOut = ui.readout({ label: 'Rares in the pity zone' });
+
+  function params() {
+    return { p: baseSl.value / 100, pityOn: pityTg.value, T: threshSl.value, softOn: softTg.value };
+  }
+
+  // ------------------------------------------------------------------ session state
+  var rng, sinceRare, openings, rares, zoneRares, waits, longest, pop, lid;
+  var handle = null;
+
+  function resetSession() {
+    rng = DemoKit.rng(SEED);
+    sinceRare = 0; openings = 0; rares = 0; zoneRares = 0;
+    waits = []; longest = 0; pop = null; lid = 0;
+    refresh();
+  }
+
+  function openBox(animate) {
+    var q = params();
+    sinceRare += 1;
+    var chance = rareChance(sinceRare, q.p, q.pityOn, q.T, q.softOn);
+    var rare = rng() < chance;   // one random number per opening, so settings can be compared
+    openings += 1;
+    var current = sinceRare;
+    if (current > longest) longest = current;
+    if (rare) {
+      rares += 1;
+      if (chance > q.p) zoneRares += 1;
+      waits.push(current);
+      sinceRare = 0;
+    }
+    if (animate) {
+      pop = { rare: rare, pity: rare && chance >= 1, t: 0 };
+      lid = 1;
+    }
+    return rare;
+  }
+
+  function openMany(n) {
+    var any = false;
+    for (var i = 0; i < n; i++) { if (openBox(false)) any = true; }
+    pop = { rare: any, pity: false, t: 0, batch: n };
+    lid = 1;
+    refresh();
+  }
+
+  function refresh() {
+    var q = params();
+    var d = waitDist(q.p, q.pityOn, q.T, q.softOn);
+    var e = expectedWait(d);
+    foundOut.set(rares + ' rares in ' + openings + ' openings' + (openings ? ' (' + pct(rares / openings, 2) + ')' : ''));
+    rateOut.set('one per ' + e.toFixed(1) + ' openings (' + pct(1 / e, 2) + ')');
+    worstOut.set(q.pityOn ? q.T + ' openings (1 in 100 waits: ' + wait1in100(d) + ')'
+                          : 'no limit (1 in 100 waits: ' + wait1in100(d) + ' or more)');
+    longOut.set(String(longest));
+    zoneOut.set(q.pityOn ? zoneRares + (rares ? ' (' + pct(zoneRares / rares, 0) + ' of rares)' : '') : 'pity is off');
+    if (handle) handle.redraw();
+  }
+
+  // Chart range depends only on the base chance and the threshold slider, so toggling pity
+  // keeps the same axis and the two results can be compared.
+  function chartMax(q) {
+    var tail = Math.ceil(Math.log(0.005) / Math.log(1 - q.p));
+    return Math.max(tail, Math.ceil(q.T * 1.15), BINS);
+  }
+
+  resetSession();
+
+  handle = DemoKit.canvas('#pity', {
+    height: 440,
+    keys: true,
+    label: 'A treasure chest that can be opened repeatedly. A meter shows the pity counter, and a chart shows how many openings each rare item took.',
+    onKey: function (key, isDown) {
+      if (isDown && (key === 'space' || key === 'o')) { openBox(true); refresh(); }
+    },
+    onDown: function (p) {
+      if (p.y < 130) { openBox(true); refresh(); }
+    },
+    update: function (dt) {
+      lid = Math.max(0, lid - dt * 3);
+      if (pop) {
+        pop.t += dt;
+        if (pop.t > 1.2) pop = null;
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors, w = s.width, h = s.height;
+      var q = params();
+      ctx.font = '13px system-ui, sans-serif';
+
+      // ---------------- pity meter
+      var next = rareChance(sinceRare + 1, q.p, q.pityOn, q.T, q.softOn);
+      var scale = q.pityOn ? q.T : chartMax(q);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Next opening: ' + pct(next) + ' rare chance', 12, 20);
+      ctx.textAlign = 'right';
+      ctx.fillText('Since last rare: ' + sinceRare + (q.pityOn ? ' / ' + q.T : ' (no cap)'), w - 12, 20);
+
+      var mx = 12, mw = w - 24, my = 30, mh = 14;
+      ctx.fillStyle = c.surface2; ctx.fillRect(mx, my, mw, mh);
+      if (q.pityOn && q.softOn) {
+        var sx = mx + mw * softStart(q.T) / q.T;
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = c.warn;
+        ctx.fillRect(sx, my, mx + mw - sx, mh);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(mx, my, mw * Math.min(1, sinceRare / scale), mh);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+
+      // ---------------- chest
+      var cx = w * 0.3, cy = 108;
+      var lift = lid * 10;
+      ctx.fillStyle = c.surface2; ctx.strokeStyle = c.ink2; ctx.lineWidth = 2;
+      ctx.fillRect(cx - 34, cy - 30, 68, 30);
+      ctx.strokeRect(cx - 34, cy - 30, 68, 30);
+      ctx.beginPath();
+      ctx.moveTo(cx - 36, cy - 32 - lift);
+      ctx.lineTo(cx - 36, cy - 44 - lift);
+      ctx.quadraticCurveTo(cx, cy - 58 - lift, cx + 36, cy - 44 - lift);
+      ctx.lineTo(cx + 36, cy - 32 - lift);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = c.ink2;
+      ctx.fillRect(cx - 4, cy - 22, 8, 10);
+
+      // result text, fades out once (no flashing)
+      ctx.textAlign = 'left';
+      var tx = cx + 52;
+      if (pop) {
+        var a = Math.max(0, 1 - pop.t / 1.2);
+        ctx.globalAlpha = 0.3 + 0.7 * a;
+        if (pop.batch) {
+          ctx.fillStyle = c.ink2;
+          ctx.font = '14px system-ui, sans-serif';
+          ctx.fillText('Opened ' + pop.batch + ' chests', tx, cy - 28);
+        } else if (pop.rare) {
+          ctx.fillStyle = c.topic;
+          ctx.font = 'bold 18px system-ui, sans-serif';
+          ctx.fillText('RARE!', tx, cy - 28);
+          if (pop.pity) {
+            ctx.font = '12px system-ui, sans-serif';
+            ctx.fillText('given by the pity timer', tx, cy - 12);
+          }
+        } else {
+          ctx.fillStyle = c.ink2;
+          ctx.font = '14px system-ui, sans-serif';
+          ctx.fillText('common', tx, cy - 28);
+        }
+        ctx.globalAlpha = 1;
+      } else if (!openings) {
+        ctx.fillStyle = c.ink3;
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.fillText('Tap here or press Space', tx, cy - 28);
+      }
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(12, 130.5); ctx.lineTo(w - 12, 130.5); ctx.stroke();
+
+      // ---------------- histogram
+      var maxX = chartMax(q);
+      var binSize = Math.ceil(maxX / BINS);
+      var nb = Math.ceil(maxX / binSize);
+      var d = waitDist(q.p, q.pityOn, q.T, q.softOn);
+      var exact = [], sim = [];
+      var i;
+      for (i = 0; i < nb; i++) { exact.push(0); sim.push(0); }
+      for (i = 0; i < d.length; i++) exact[Math.min(nb - 1, Math.floor(i / binSize))] += d[i];
+      for (i = 0; i < waits.length; i++) sim[Math.min(nb - 1, Math.floor((waits[i] - 1) / binSize))] += 1 / waits.length;
+
+      var peak = 0;
+      for (i = 0; i < nb; i++) peak = Math.max(peak, exact[i], sim[i]);
+      var yMax = Math.max(0.05, peak * 1.1);
+
+      var left = 42, right = 12, top = 172, bottom = 56;
+      var pw = w - left - right, ph = h - top - bottom;
+      var bw = pw / nb;
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Openings each rare took (' + waits.length + ' rares so far)', 12, 150);
+      // legend
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(left, 158, 12, 8);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('your results', left + 16, 166);
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(left + 104, 162); ctx.lineTo(left + 122, 162); ctx.stroke();
+      ctx.fillText('expected', left + 126, 166);
+
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, top); ctx.lineTo(left, top + ph); ctx.lineTo(left + pw, top + ph);
+      ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('0%', left - 6, top + ph + 4);
+      ctx.fillText(Math.round(yMax * 100) + '%', left - 6, top + 8);
+
+      for (i = 0; i < nb; i++) {
+        var bh = sim[i] / yMax * ph;
+        if (bh > 0) {
+          ctx.fillStyle = c.topic;
+          ctx.globalAlpha = 0.75;
+          ctx.fillRect(left + i * bw + 1, top + ph - bh, Math.max(1, bw - 2), bh);
+          ctx.globalAlpha = 1;
+        }
+      }
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (i = 0; i < nb; i++) {
+        var px = left + (i + 0.5) * bw;
+        var py = top + ph - exact[i] / yMax * ph;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      if (q.pityOn) {
+        var gx = left + (q.T / (nb * binSize)) * pw;
+        ctx.strokeStyle = c.warn; ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.moveTo(gx, top - 4); ctx.lineTo(gx, top + ph); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = c.warn;
+        ctx.textAlign = gx > left + pw - 90 ? 'right' : 'left';
+        ctx.fillText('guarantee at ' + q.T, gx + (ctx.textAlign === 'left' ? 5 : -5), top + 10);
+      }
+
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      ctx.fillText('1', left + bw * 0.5, top + ph + 16);
+      var mid = Math.round(nb * binSize / 2);
+      ctx.fillText(String(mid), left + pw / 2, top + ph + 16);
+      ctx.textAlign = 'left';
+      ctx.fillText('Openings per rare (last bar: ' + ((nb - 1) * binSize + 1) + '+)', 12, h - 12);
+      ctx.textAlign = 'right';
+      ctx.fillText(String(nb * binSize), left + pw, top + ph + 16);
+    }
+  });
+  refresh();
+})();
+</script>
+</body>
+</html>

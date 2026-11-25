@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite animation: sprite sheets, frame timers and holds · Game Dev Daily</title>
+<meta name="description" content="How a sprite sheet and a frame timer make a sprite walk, how per-frame hold times change the feel, and how AnimatedSprite2D and Animator do it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sprite animation: sprite sheets, frame timers and holds</h1>
+  <p class="lede">How a sprite sheet and a frame timer make a sprite walk, how per-frame hold times change the feel, and how AnimatedSprite2D and Animator do it.</p>
+</header>
+
+<section data-section="hook">
+  <p>You import eight frames of a walk cycle, press play, and the character walks. But it looks like a puppet on a treadmill: every pose gets exactly the same time on screen, so nothing has weight. Animators fix this by holding some frames longer than others. This lesson shows the small machine that plays the frames, and where the timing lives.</p>
+</section>
+
+<section data-section="concept">
+  <h2>One image, many frames</h2>
+  <p>A <dfn>frame</dfn> of sprite animation is one still drawing. A <dfn>sprite sheet</dfn> (also called an atlas) is a single image that holds all the frames side by side, usually on a grid. In the demo below the sheet is 384 by 64 pixels: eight frames, each 48 by 64.</p>
+  <p>To show frame 3, the engine does not cut the image up. It draws only the rectangle of the sheet that belongs to frame 3. That rectangle is called a <dfn>region</dfn> in Godot and a <dfn>quad</dfn> in LÖVE; in Unity each rectangle becomes its own <code>Sprite</code> asset that points into the shared texture. With frames in one row, frame <code>i</code> starts at <code>x = (i - 1) * 48</code>.</p>
+  <p>Keeping every frame in one texture matters for speed. As the lesson on draw calls showed, sprites that share a texture can be batched together. A hundred walking enemies drawn from one sheet can still be one batch.</p>
+
+  <h2>A frame timer chooses the frame</h2>
+  <p>Animation is a clock plus a list. The clock is a <dfn>frame timer</dfn>: a number that grows by the frame's delta time and is checked against how long the current frame should stay on screen. When the timer passes that time, the player subtracts it and moves to the next frame, wrapping back to frame 1 for a looping animation.</p>
+<pre><code>timer = timer + dt
+local hold = durations[frame] / fps
+while timer &gt;= hold do
+  timer = timer - hold
+  frame = frame % FRAME_COUNT + 1
+  hold = durations[frame] / fps
+end</code></pre>
+  <p>This is the same idea as the fixed timestep accumulator from earlier in this track. The leftover time is kept, not thrown away, so the animation stays in step with the clock. The <code>while</code> lets a long, slow frame of the game skip several animation frames rather than fall behind.</p>
+
+  <h2>Holds: where the timing lives</h2>
+  <p>The <dfn>animation frame rate</dfn> (fps) says how many frames play per second when every frame has equal weight. A <dfn>hold</dfn> is a multiplier on one frame: hold 2 means "stay twice as long". The time a frame stays on screen is:</p>
+<pre><code>seconds on screen = hold / fps</code></pre>
+  <p>Check it with the demo's numbers. At 10 fps, a frame with hold 1 shows for 0.1 s. With all eight holds at 1, one cycle takes 8 / 10 = 0.8 s. Give the two <dfn>contact frames</dfn> (the poses where both feet touch the ground, frames 1 and 5) a hold of 2, and the holds add up to 10, so the cycle takes 1.0 s. The character now seems to settle into each step.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Top: a sprite sheet of eight numbered frames in one row. Frame 3 is highlighted and an arrow labelled draw only this region leads to a screen box. Bottom: a timeline of one cycle at 10 frames per second. Frames 1 and 5 are twice as wide as the others because their hold is 2. A playhead labelled timer sits inside frame 3. The timeline runs from 0 to 1.0 seconds.">
+      <text class="d-label" x="20" y="20">sprite sheet: one texture, eight 48 × 64 frames</text>
+      <rect class="d-box" x="20" y="32" width="50" height="56"/>
+      <rect class="d-box" x="70" y="32" width="50" height="56"/>
+      <rect class="d-accent-soft" x="120" y="32" width="50" height="56"/>
+      <rect class="d-box" x="170" y="32" width="50" height="56"/>
+      <rect class="d-box" x="220" y="32" width="50" height="56"/>
+      <rect class="d-box" x="270" y="32" width="50" height="56"/>
+      <rect class="d-box" x="320" y="32" width="50" height="56"/>
+      <rect class="d-box" x="370" y="32" width="50" height="56"/>
+      <rect class="d-accent" style="fill:none;stroke-width:3" x="120" y="32" width="50" height="56"/>
+      <text class="d-text" x="45" y="65" text-anchor="middle">1</text>
+      <text class="d-text" x="95" y="65" text-anchor="middle">2</text>
+      <text class="d-text" x="145" y="65" text-anchor="middle">3</text>
+      <text class="d-text" x="195" y="65" text-anchor="middle">4</text>
+      <text class="d-text" x="245" y="65" text-anchor="middle">5</text>
+      <text class="d-text" x="295" y="65" text-anchor="middle">6</text>
+      <text class="d-text" x="345" y="65" text-anchor="middle">7</text>
+      <text class="d-text" x="395" y="65" text-anchor="middle">8</text>
+      <text class="d-muted" x="145" y="108" text-anchor="middle">x = (3 − 1) × 48</text>
+      <path class="d-accent" d="M432 60 H498 M492 55 L498 60 L492 65"/>
+      <text class="d-muted" x="465" y="48" text-anchor="middle">draw only</text>
+      <text class="d-muted" x="465" y="84" text-anchor="middle">this region</text>
+      <rect class="d-box" x="506" y="32" width="114" height="56" rx="8"/>
+      <text class="d-text" x="563" y="65" text-anchor="middle">screen</text>
+
+      <text class="d-label" x="20" y="150">one cycle at 10 fps, contacts held ×2</text>
+      <rect class="d-box" x="20" y="162" width="120" height="34"/>
+      <rect class="d-box" x="140" y="162" width="60" height="34"/>
+      <rect class="d-accent-soft" x="200" y="162" width="60" height="34"/>
+      <rect class="d-box" x="260" y="162" width="60" height="34"/>
+      <rect class="d-box" x="320" y="162" width="120" height="34"/>
+      <rect class="d-box" x="440" y="162" width="60" height="34"/>
+      <rect class="d-box" x="500" y="162" width="60" height="34"/>
+      <rect class="d-box" x="560" y="162" width="60" height="34"/>
+      <text class="d-text" x="80" y="184" text-anchor="middle">1 (×2)</text>
+      <text class="d-text" x="170" y="184" text-anchor="middle">2</text>
+      <text class="d-text" x="230" y="184" text-anchor="middle">3</text>
+      <text class="d-text" x="290" y="184" text-anchor="middle">4</text>
+      <text class="d-text" x="380" y="184" text-anchor="middle">5 (×2)</text>
+      <text class="d-text" x="470" y="184" text-anchor="middle">6</text>
+      <text class="d-text" x="530" y="184" text-anchor="middle">7</text>
+      <text class="d-text" x="590" y="184" text-anchor="middle">8</text>
+      <path class="d-accent" style="stroke-width:3" d="M248 156 V202"/>
+      <text class="d-label" x="248" y="220" text-anchor="middle">timer</text>
+      <text class="d-muted" x="20" y="240">0 s</text>
+      <text class="d-muted" x="320" y="240" text-anchor="middle">0.5 s</text>
+      <text class="d-muted" x="620" y="240" text-anchor="end">1.0 s</text>
+    </svg>
+    <figcaption>The sheet decides what each frame looks like. The holds decide how long each one stays. The timer walks along the timeline and picks the region to draw.</figcaption>
+  </figure>
+
+  <h2>Who owns what, and in what order</h2>
+  <p>There are three pieces, and engines split them the same way:</p>
+  <ul>
+    <li><strong>The texture</strong> (the sheet) is a shared asset. Every enemy uses the same one.</li>
+    <li><strong>The animation data</strong> (the list of regions, the fps, the holds, whether it loops) is also a shared asset. Godot calls it a <code>SpriteFrames</code> resource; Unity calls it an <code>AnimationClip</code>.</li>
+    <li><strong>The player</strong> owns the current frame and the timer. This state belongs to each instance, which is why two enemies using the same walk can be on different frames.</li>
+  </ul>
+  <p>Each frame the engine advances every player's timer, picks the region, and the renderer draws it later in the frame. In Unity the Animator's update runs after all <code>Update</code> calls and before <code>LateUpdate</code> (with the default update mode). In Godot an <code>AnimatedSprite2D</code> advances itself during the process step, alongside your <code>_process</code> code.</p>
+
+  <h3>How Godot and Unity express it</h3>
+  <p><strong>Godot 4</strong> uses an <code>AnimatedSprite2D</code> node with a <code>SpriteFrames</code> resource. The SpriteFrames editor panel can slice a sheet on a grid for you. Each animation has a speed in frames per second and a loop setting, and each frame has its own <em>duration</em>, which is exactly the hold multiplier above: a frame shows for duration / (fps &times; playing speed). The node's <code>speed_scale</code> speeds up or slows down the whole animation, <code>frame_changed</code> fires when the frame changes, and <code>animation_finished</code> fires when a non-looping animation ends. The other common route is a <code>Sprite2D</code> with <code>hframes</code> and <code>vframes</code> set, and an <code>AnimationPlayer</code> that keys its <code>frame</code> property.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6) slices the sheet at import: set the texture's Sprite Mode to Multiple and use the Sprite Editor's Slice tool. An <code>AnimationClip</code> holds keyframes for the <code>SpriteRenderer</code>'s sprite, and an <code>Animator</code> with an Animator Controller plays it. There is no hold field. A sprite stays until the next keyframe, so you hold a frame by spacing its keys further apart on the clip's timeline, whose sample rate plays the role of fps. <code>Animator.speed</code> scales playback. Dragging several sliced sprites into the Scene view creates a clip and controller for you.</p>
+  <p>The trade-off: Godot's per-frame durations are explicit numbers that are easy to read and tweak. Unity's timeline places sprite keys next to any other animated property, such as a hitbox or an animation event. Godot reaches the same thing through <code>AnimationPlayer</code>, and Unity can be driven by a small script like the C# tab below.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Watch the walk at the default 10 fps with even holds. Then switch <strong>Timing</strong> to <em>Hold contacts</em> and notice that the steps gain weight while the drawings stay the same. Pick a frame with <strong>Edit frame</strong> (or click it on the sheet) and drag <strong>Hold</strong> to see its slice of the timeline stretch. Pause and use <strong>Next frame</strong>, or focus the canvas and press the arrow keys, to step through the sheet one frame at a time.</p>
+
+  <figure class="demo" data-demo="walk">
+    <canvas id="walk"></canvas>
+    <figcaption>The big figure is just the highlighted region of the sheet, scaled up. The timeline shows one cycle with each frame as wide as its time on screen. The model leaves out what engines add: blending between animations, flipping, events and per-instance offsets.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers. It draws the same eight poses into a 384 by 64 canvas at start-up, so it needs no image file, then plays them with the frame timer. <kbd>Up</kbd> and <kbd>Down</kbd> change the fps, and <kbd>S</kbd> saves the sheet as <code>walk_sheet.png</code> in LÖVE's save folder, so you can use it in the Godot and Unity versions.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Up/Down change the fps. S saves the sheet as a PNG.</span>
+local FRAME_W, FRAME_H = 48, 64
+local FRAME_COUNT = 8
+local fps = 10
+local durations = { 1, 1, 1, 1, 1, 1, 1, 1 }  <span class="c">-- try { 2, 1, 1, 1, 2, 1, 1, 1 }</span>
+local frame = 1
+local timer = 0
+local sheet, quads
+
+local function limb(x, y, angle, bend)
+  local kx, ky = x + math.sin(angle) * 13, y + math.cos(angle) * 13
+  local fx = kx + math.sin(angle - bend) * 13
+  local fy = ky + math.cos(angle - bend) * 13
+  love.graphics.line(x, y, kx, ky, fx, fy)
+end
+
+<span class="c">-- draw walk pose i with the frame's top-left corner at (ox, oy)</span>
+local function drawPose(i, ox, oy)
+  local phase = (i - 1) / FRAME_COUNT * 2 * math.pi
+  local swing = math.cos(phase) * 0.5
+  local hx, hy = ox + 24, oy + 34 + math.abs(math.cos(phase)) * 3
+  love.graphics.setColor(0.55, 0.55, 0.6)           <span class="c">-- far leg and arm</span>
+  limb(hx, hy, -swing, math.max(0, math.sin(phase)) * 0.9)
+  limb(hx, hy - 18, swing * 0.8, 0)
+  love.graphics.setColor(0.1, 0.1, 0.12)            <span class="c">-- body, near leg and arm</span>
+  love.graphics.line(hx, hy, hx, hy - 20)
+  love.graphics.circle("line", hx, hy - 26, 6)
+  limb(hx, hy, swing, math.max(0, -math.sin(phase)) * 0.9)
+  limb(hx, hy - 18, -swing * 0.8, 0)
+end
+
+function love.load()
+  sheet = love.graphics.newCanvas(FRAME_W * FRAME_COUNT, FRAME_H)
+  sheet:setFilter("nearest", "nearest")
+  love.graphics.setCanvas(sheet)
+  love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setLineWidth(3)
+  for i = 1, FRAME_COUNT do drawPose(i, (i - 1) * FRAME_W, 0) end
+  love.graphics.setCanvas()
+  quads = {}
+  for i = 1, FRAME_COUNT do
+<span class="k">    quads[i] = love.graphics.newQuad((i - 1) * FRAME_W, 0, FRAME_W, FRAME_H, sheet:getDimensions())</span>
+  end
+end
+
+function love.update(dt)
+<span class="k">  timer = timer + dt
+  local hold = durations[frame] / fps
+  while timer &gt;= hold do
+    timer = timer - hold
+    frame = frame % FRAME_COUNT + 1
+    hold = durations[frame] / fps
+  end</span>
+end
+
+function love.keypressed(key)
+  if key == "up" then fps = math.min(30, fps + 1) end
+  if key == "down" then fps = math.max(1, fps - 1) end
+  if key == "s" then sheet:newImageData():encode("png", "walk_sheet.png") end
+end
+
+function love.draw()
+  love.graphics.clear(0.95, 0.94, 0.9)
+  love.graphics.setColor(1, 1, 1)
+<span class="k">  love.graphics.draw(sheet, quads[frame], 220, 60, 0, 3, 3)</span>  <span class="c">-- one region, 3x</span>
+  love.graphics.draw(sheet, 20, 300)                       <span class="c">-- the whole sheet</span>
+  love.graphics.setColor(0.9, 0.4, 0.1)
+  love.graphics.rectangle("line", 20 + (frame - 1) * FRAME_W, 300, FRAME_W, FRAME_H)
+  love.graphics.setColor(0, 0, 0)
+  love.graphics.print(string.format("frame %d   fps %d   on screen %.3f s",
+    frame, fps, durations[frame] / fps), 20, 20)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># walk_sprite.gd for Godot 4. Add an AnimatedSprite2D to a new 2D scene, attach this</span>
+<span class="c"># script, and put the 384 x 64 sheet saved by the Lua version at res://walk_sheet.png.</span>
+extends AnimatedSprite2D
+
+const FRAME_W := 48
+const FRAME_H := 64
+const FRAME_COUNT := 8
+const HOLDS := [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  <span class="c"># try 2.0 for frames 1 and 5</span>
+
+func _ready() -&gt; void:
+    var sheet: Texture2D = load("res://walk_sheet.png")
+    var anim_frames := SpriteFrames.new()
+    anim_frames.add_animation(&amp;"walk")
+    anim_frames.set_animation_speed(&amp;"walk", 10.0)       <span class="c"># fps</span>
+    anim_frames.set_animation_loop(&amp;"walk", true)
+    for i in FRAME_COUNT:
+        var region := AtlasTexture.new()            <span class="c"># a rectangle of the shared sheet</span>
+        region.atlas = sheet
+        region.region = Rect2(i * FRAME_W, 0, FRAME_W, FRAME_H)
+<span class="k">        anim_frames.add_frame(&amp;"walk", region, HOLDS[i])  # third argument: the hold</span>
+    sprite_frames = anim_frames
+    texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+    position = Vector2(200, 150)
+    scale = Vector2(3, 3)
+    play(&amp;"walk")
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event.is_action_pressed("ui_up"):
+        speed_scale += 0.25                         <span class="c"># whole animation faster</span>
+    elif event.is_action_pressed("ui_down"):
+        speed_scale = maxf(0.25, speed_scale - 0.25)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// SpriteFrameTimer.cs for Unity 2022 LTS or Unity 6. Import walk_sheet.png, set Sprite Mode</span>
+<span class="c">// to Multiple, slice it into 48 x 64 cells in the Sprite Editor, then add this to a GameObject</span>
+<span class="c">// with a SpriteRenderer and drag the eight sprites into Frames.</span>
+using UnityEngine;
+
+[RequireComponent(typeof(SpriteRenderer))]
+public class SpriteFrameTimer : MonoBehaviour
+{
+    public Sprite[] frames;
+    public float[] holds = { 1, 1, 1, 1, 1, 1, 1, 1 };  <span class="c">// try 2 for frames 1 and 5</span>
+    public float fps = 10f;
+
+    SpriteRenderer spriteRenderer;
+    int frame;                                         <span class="c">// 0-based in C#</span>
+    float timer;
+
+    void Awake() { spriteRenderer = GetComponent&lt;SpriteRenderer&gt;(); }
+
+    float Hold(int i) =&gt; Mathf.Max(i &lt; holds.Length ? holds[i] : 1f, 0.01f) / Mathf.Max(fps, 0.01f);
+
+    void Update()
+    {
+        if (frames == null || frames.Length == 0) return;
+<span class="k">        timer += Time.deltaTime;
+        while (timer &gt;= Hold(frame))
+        {
+            timer -= Hold(frame);
+            frame = (frame + 1) % frames.Length;
+        }</span>
+        spriteRenderer.sprite = frames[frame];
+    }
+}
+
+<span class="c">// With an Animator and a clip made in the Animation window instead:</span>
+<span class="c">//   GetComponent&lt;Animator&gt;().speed = 1.5f;   // every clip plays 1.5 times faster</span>
+<span class="c">//   GetComponent&lt;Animator&gt;().Play("Walk");   // "Walk" is a state name in the controller</span></code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong><code>if</code> instead of <code>while</code>.</strong> With <code>if</code>, the timer can advance at most one animation frame per game frame. On a slow machine, or at a high animation fps, the animation quietly plays slower than you designed.</li>
+    <li><strong>Restarting every frame.</strong> Code that says "play walk" every update, and resets the timer each time, freezes on frame 1. In your own player, reset only when the animation actually changes. In an engine, check what its play call does when that animation is already playing.</li>
+    <li><strong>Fighting the Animator.</strong> In Unity, if a clip animates the sprite, the Animator writes it after <code>Update</code>, so a sprite you set in <code>Update</code> is overwritten. Change it in <code>LateUpdate</code>, or change the animation instead.</li>
+    <li><strong>Blurry or bleeding frames.</strong> Smooth texture filtering blurs pixel art and can pull in pixels from the neighbouring frame. Use nearest filtering (Godot's texture filter setting, Unity's Filter Mode Point) and leave a pixel or two of padding between frames.</li>
+    <li><strong>Feet sliding.</strong> If the character moves faster than the animation steps, the feet skate over the ground. Scale playback with movement speed (<code>speed_scale</code> or <code>Animator.speed</code>) rather than retiming every frame.</li>
+    <li><strong>Performance.</strong> The timer costs almost nothing. What costs is texture switching: keep a character's frames in one sheet, and similar characters in a shared atlas, so the renderer can batch them.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Holding drawings is older than games. Hand-drawn film animation often works "on twos", showing each drawing for two of the 24 film frames per second, and switches to "on ones" for fast action. Animators lean on the same choice in games: the wind-up of an attack held long, the hit itself on screen for a moment, the follow-through quick.</p>
+  <p>Pixel-art tools treat timing per frame for the same reason. Aseprite, a widely used pixel-art editor, stores a duration in milliseconds for each frame and includes those durations in its sprite sheet JSON export. That maps directly onto Godot's per-frame duration, or onto key spacing in a Unity clip.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Take an attack or jump animation from your own project. Hold the anticipation frame (the wind-up) at 3, the impact frame at 2, and the last follow-through frames at 0.5. In Godot, set the frame durations in the SpriteFrames panel; in Unity, move the sprite keys on the clip's timeline. Then make something happen on a specific frame: a dust puff or a sound on the impact frame, using <code>frame_changed</code> and the <code>frame</code> property in Godot, or an animation event on the clip in Unity. You are done when the impact feels heavier and the effect fires on the exact frame at any <code>speed_scale</code> or <code>Animator.speed</code>.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A sprite sheet is one texture; each frame is a rectangle of it, so many animated sprites can still batch together.</li>
+    <li>A frame timer accumulates delta time and advances with a <code>while</code>, keeping the leftover time.</li>
+    <li>A frame stays on screen for hold / fps seconds. Holds change the feel without new drawings.</li>
+    <li>The sheet and the animation data are shared assets; the current frame and timer belong to each instance.</li>
+    <li>Godot stores a duration per frame in <code>SpriteFrames</code>; Unity holds a sprite by spacing keys in an <code>AnimationClip</code>.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we move values instead of frames: tweens and easing curves, and how Godot's Tween and Unity's options make motion speed up and slow down.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Godot Engine documentation, <cite>2D sprite animation</cite>, and the class reference for <cite>AnimatedSprite2D</cite> and <cite>SpriteFrames</cite>.</li>
+    <li>Unity Technologies, Unity Manual, <cite>Sprite Editor</cite>, <cite>Animation window</cite> and <cite>Animator Controller</cite>, and the scripting reference for <cite>Animator</cite>.</li>
+    <li>Richard Williams, <cite>The Animator's Survival Kit</cite>. Timing, spacing, and working on ones and twos.</li>
+    <li>Aseprite documentation, <cite>Sprite Sheet</cite> export.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FRAME_W = 48, FRAME_H = 64, FRAME_COUNT = 8;
+  var PRESETS = {
+    even: [1, 1, 1, 1, 1, 1, 1, 1],
+    contacts: [2, 1, 1, 1, 2, 1, 1, 1],
+    passing: [1, 1, 0.5, 1, 1, 1, 0.5, 1]
+  };
+  var durations = PRESETS.even.slice();
+  var frame = 1;      // 1-based, like the Lua
+  var timer = 0;
+  var editFrame = 1;
+  var stripRect = { x: 0, y: 0, cell: 0, h: 0 };
+
+  var sheet = document.createElement('canvas');
+  sheet.width = FRAME_W * FRAME_COUNT;
+  sheet.height = FRAME_H;
+  var sctx = sheet.getContext('2d');
+
+  function limb(c, x, y, angle, bend) {
+    var kx = x + Math.sin(angle) * 13, ky = y + Math.cos(angle) * 13;
+    var fx = kx + Math.sin(angle - bend) * 13, fy = ky + Math.cos(angle - bend) * 13;
+    c.beginPath();
+    c.moveTo(x, y); c.lineTo(kx, ky); c.lineTo(fx, fy);
+    c.stroke();
+  }
+
+  function drawPose(c, i, ox, oy, near, far) {
+    var phase = (i - 1) / FRAME_COUNT * 2 * Math.PI;
+    var swing = Math.cos(phase) * 0.5;
+    var hx = ox + 24, hy = oy + 34 + Math.abs(Math.cos(phase)) * 3;
+    c.strokeStyle = far;
+    limb(c, hx, hy, -swing, Math.max(0, Math.sin(phase)) * 0.9);
+    limb(c, hx, hy - 18, swing * 0.8, 0);
+    c.strokeStyle = near;
+    c.beginPath(); c.moveTo(hx, hy); c.lineTo(hx, hy - 20); c.stroke();
+    c.beginPath(); c.arc(hx, hy - 26, 6, 0, Math.PI * 2); c.stroke();
+    limb(c, hx, hy, swing, Math.max(0, -Math.sin(phase)) * 0.9);
+    limb(c, hx, hy - 18, -swing * 0.8, 0);
+  }
+
+  function buildSheet(colors) {
+    sctx.clearRect(0, 0, sheet.width, sheet.height);
+    sctx.lineWidth = 3;
+    sctx.lineCap = 'round';
+    sctx.lineJoin = 'round';
+    for (var i = 1; i <= FRAME_COUNT; i++) {
+      drawPose(sctx, i, (i - 1) * FRAME_W, 0, colors.ink, colors.ink3);
+    }
+  }
+
+  function holdSeconds(i) { return durations[i - 1] / fps.value; }
+  function totalHolds() {
+    var t = 0;
+    for (var i = 0; i < FRAME_COUNT; i++) t += durations[i];
+    return t;
+  }
+  function fmtHold(v) { return '×' + (Math.round(v * 10) / 10); }
+
+  var ui = DemoKit.controls('[data-demo="walk"]');
+  var fps = ui.slider({ label: 'Frame rate', min: 1, max: 30, step: 1, value: 10, unit: ' fps',
+    onInput: function () { redraw(); } });
+  var preset = ui.select({
+    label: 'Timing',
+    options: [
+      { value: 'even', label: 'Even (all ×1)' },
+      { value: 'contacts', label: 'Hold contacts (1 and 5 ×2)' },
+      { value: 'passing', label: 'Quick passing (3 and 7 ×0.5)' },
+      { value: 'custom', label: 'Custom' }
+    ],
+    value: 'even',
+    onChange: function (v) {
+      if (PRESETS[v]) durations = PRESETS[v].slice();
+      hold.set(durations[editFrame - 1]);
+      redraw();
+    }
+  });
+  var frameOptions = [];
+  for (var n = 1; n <= FRAME_COUNT; n++) frameOptions.push({ value: String(n), label: 'Frame ' + n });
+  var editSel = ui.select({ label: 'Edit frame', options: frameOptions, value: '1',
+    onChange: function (v) { selectEdit(parseInt(v, 10)); } });
+  var hold = ui.slider({ label: 'Hold', min: 0.5, max: 4, step: 0.5, value: 1, unit: '×',
+    onInput: function (v) {
+      durations[editFrame - 1] = v;
+      preset.set('custom');
+      redraw();
+    } });
+  ui.button({ label: 'Next frame', onClick: function () { step(1); } });
+
+  function selectEdit(i) {
+    editFrame = i;
+    editSel.set(String(i));
+    hold.set(durations[i - 1]);
+    redraw();
+  }
+
+  function step(dir) {
+    timer = 0;
+    frame = ((frame - 1 + dir + FRAME_COUNT) % FRAME_COUNT) + 1;
+    redraw();
+  }
+
+  function redraw() { if (handle) handle.redraw(); }
+
+  var handle = DemoKit.canvas('#walk', {
+    height: 400,
+    keys: true,
+    label: 'A stick figure walk cycle played from an eight-frame sprite sheet, with a timeline of frame durations below it.',
+    update: function (dt) {
+      timer += dt;
+      var h = holdSeconds(frame);
+      while (timer >= h) {
+        timer -= h;
+        frame = frame % FRAME_COUNT + 1;
+        h = holdSeconds(frame);
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') step(1);
+      if (key === 'arrowleft') step(-1);
+    },
+    onDown: function (p) {
+      var r = stripRect;
+      if (p.y >= r.y && p.y <= r.y + r.h && p.x >= r.x && p.x < r.x + r.cell * FRAME_COUNT) {
+        var i = Math.floor((p.x - r.x) / r.cell) + 1;
+        selectEdit(Math.max(1, Math.min(FRAME_COUNT, i)));
+      }
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width, pad = 12;
+      buildSheet(c);
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textBaseline = 'alphabetic';
+
+      // big view: the current region, scaled up
+      var k = 2.4;
+      var bw = FRAME_W * k, bh = FRAME_H * k;
+      var bx = Math.max(w * 0.5 - bw / 2, 150);
+      if (bx + bw > w - pad) bx = w - pad - bw;
+      var by = 12;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, by + 61 * k); ctx.lineTo(bx + bw, by + 61 * k); ctx.stroke();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sheet, (frame - 1) * FRAME_W, 0, FRAME_W, FRAME_H, bx, by, bw, bh);
+      ctx.imageSmoothingEnabled = true;
+
+      // info text
+      var hs = holdSeconds(frame);
+      ctx.fillStyle = c.ink;
+      ctx.fillText('Frame ' + frame + ' of ' + FRAME_COUNT, pad, 30);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('hold ' + fmtHold(durations[frame - 1]), pad, 52);
+      ctx.fillText('on screen ' + hs.toFixed(3) + ' s', pad, 72);
+      ctx.fillText('timer ' + Math.min(timer, hs).toFixed(3) + ' s', pad, 92);
+      ctx.fillText('cycle ' + (totalHolds() / fps.value).toFixed(2) + ' s', pad, 112);
+
+      // timeline
+      var ty = 318, th = 28, tw = w - pad * 2;
+      var total = totalHolds();
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('One cycle, each frame as wide as its time', pad, ty - 10);
+      var x = pad, elapsedBefore = 0;
+      for (var i = 1; i <= FRAME_COUNT; i++) {
+        var segW = durations[i - 1] / total * tw;
+        ctx.fillStyle = i === frame ? c.topic : c.surface2;
+        ctx.globalAlpha = i === frame ? 0.3 : 1;
+        ctx.fillRect(x, ty, segW, th);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = c.line;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, ty + 0.5, segW - 1, th - 1);
+        if (segW >= 14) {
+          ctx.fillStyle = c.ink;
+          ctx.textAlign = 'center';
+          ctx.fillText(String(i), x + segW / 2, ty + 19);
+          ctx.textAlign = 'left';
+        }
+        if (i < frame) elapsedBefore += durations[i - 1];
+        x += segW;
+      }
+      var elapsed = elapsedBefore / fps.value + Math.min(timer, hs);
+      var cycle = total / fps.value;
+      var px = pad + (cycle > 0 ? elapsed / cycle : 0) * tw;
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(px, ty - 4); ctx.lineTo(px, ty + th + 4); ctx.stroke();
+
+      // the sprite sheet strip
+      var cell = Math.min(60, (w - pad * 2) / FRAME_COUNT);
+      var ch = cell * FRAME_H / FRAME_W;
+      var sy = 200;
+      stripRect = { x: pad, y: sy, cell: cell, h: ch };
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('Sprite sheet (click a frame to edit it)', pad, sy - 10);
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(pad, sy, cell * FRAME_COUNT, ch);
+      ctx.drawImage(sheet, 0, 0, sheet.width, sheet.height, pad, sy, cell * FRAME_COUNT, ch);
+      ctx.font = '11px system-ui, sans-serif';
+      for (var j = 1; j <= FRAME_COUNT; j++) {
+        var cx = pad + (j - 1) * cell;
+        ctx.strokeStyle = c.line;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx + 0.5, sy + 0.5, cell - 1, ch - 1);
+        if (durations[j - 1] !== 1) {
+          ctx.fillStyle = c.warn;
+          ctx.fillText(fmtHold(durations[j - 1]), cx + 3, sy + 12);
+        }
+      }
+      if (editFrame >= 1) {
+        ctx.strokeStyle = c.ink2;
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(pad + (editFrame - 1) * cell + 3, sy + 3, cell - 6, ch - 6);
+        ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(pad + (frame - 1) * cell + 1.5, sy + 1.5, cell - 3, ch - 3);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo Canyon: shout the bridge before you walk it · Game Dev Daily</title>
+<meta name="description" content="A rhythm platformer where every shout returns two seconds later as a brief platform, so you build the path ahead on the beat. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-25">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Echo Canyon: shout the bridge before you walk it</h1>
+  <p class="lede">A rhythm platformer where every shout returns two seconds later as a brief platform, so you build the path ahead on the beat. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>A small traveller walks through a canyon and will not stop, and the only thing you can do is shout. Every shout bounces off the far wall and comes back two seconds later as a ledge of solid sound under their feet, so you are always singing the bridge for a gap you have not reached yet.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: see the gap, shout early, walk the echo</h2>
+  <p>The traveller walks to the right at a steady 100 units per second over a canyon floor broken by gaps. You have one action, the shout. A shout does nothing right away. Two seconds later its <dfn>echo</dfn> returns and becomes a short platform exactly where the traveller is at that moment. If the traveller is over a gap, the echo holds them up for a few steps. If the traveller is over rock, the echo is wasted.</p>
+  <p>Because the traveller never changes speed, two seconds in time is always 200 units of distance. So the real skill is reading space as time: when the gap is 200 units ahead, it is time to shout. A shout that has not returned yet is a <dfn>pending echo</dfn>, and the prototype draws it as a dashed outline so you can see where it will land.</p>
+  <p>Every ten seconds you watch a gap slide toward the landing point and tap a short rhythm to cover it. Every minute you cross a run of gaps that grow wider, managing your breath between them. Every session you push your best distance on a canyon that is the same every time, so you can learn its rhythm like a song.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: spot a gap two seconds ahead, shout a rhythm on the beat, and walk across your echoes, which leads back to spotting the next gap. Beside it, two longer loops: every minute a run of wider gaps with breath to manage, and every session the same canyon learned like a song.">
+      <defs>
+        <marker id="ec-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Spot the gap</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">two seconds ahead</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Shout a rhythm</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">one tap per step</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Walk the echoes</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">breath comes back on rock</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ec-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ec-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ec-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">wider gaps, breath</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">saved for them</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">one fixed canyon,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">learned like a song</text>
+    </svg>
+    <figcaption>The short loop: what you shout now decides where you can stand two seconds from now.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Echoes return after two seconds.</strong> Each echo is a platform 80 units long that starts 20 units behind the traveller and reaches 60 ahead. It lasts 1.2 seconds, then fades.</li>
+    <li><strong>The traveller needs something underfoot.</strong> Their feet are 16 units wide. If neither rock nor an echo is under them, they fall and the run ends.</li>
+    <li><strong>Shouts cost breath.</strong> You hold up to five breaths. Each shout uses one. Breath comes back at one every 0.9 seconds, but only while walking on rock, never on echoes.</li>
+    <li><strong>Echoes too close cancel.</strong> If a new shout would land within 30 units of a pending echo, the two sound waves cancel and both are lost. Mashing builds nothing.</li>
+  </ul>
+  <p>Put those numbers together and a rhythm falls out. One echo carries the traveller 68 units, which is 0.68 seconds of walking. Shouts closer than 0.3 seconds cancel. So a long gap needs a steady beat somewhere between those two limits, and half a second, 120 beats per minute, sits comfortably in the middle.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="A side view. On the left, a traveller on rock shouts, and the sound arcs up to the far wall and back down to a point 200 units ahead, over a gap. Three shouts half a second apart become three overlapping platforms that bridge the gap to the rock on the right.">
+      <defs>
+        <marker id="ec-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <path class="d-thin" d="M20 26 H620"/>
+      <text class="d-muted" x="320" y="20" text-anchor="middle">far canyon wall</text>
+      <rect class="d-fill" x="20" y="160" width="260" height="50"/>
+      <rect class="d-fill" x="440" y="160" width="180" height="50"/>
+      <path class="d-stroke" d="M20 160 H280 V210 M440 210 V160 H620"/>
+      <circle class="d-stroke" cx="80" cy="122" r="7"/>
+      <path class="d-stroke" d="M80 129 V146 L72 160 M80 146 L88 160"/>
+      <path class="d-accent" d="M86 116 Q180 -10 270 150" marker-end="url(#ec-arrow2)"/>
+      <text class="d-label" x="150" y="58" text-anchor="middle">shout</text>
+      <text class="d-label" x="276" y="88">back 2 s later</text>
+      <rect class="d-accent-fill" x="260" y="160" width="80" height="10"/>
+      <rect class="d-accent-soft" x="310" y="172" width="80" height="10"/>
+      <rect class="d-accent-fill" x="360" y="184" width="80" height="10" opacity="0.6"/>
+      <path class="d-dash" d="M80 196 V222 M280 196 V222"/>
+      <text class="d-muted" x="180" y="220" text-anchor="middle">200 units = 2 s</text>
+      <text class="d-muted" x="530" y="112" text-anchor="middle">a beat of shouts</text>
+      <text class="d-muted" x="530" y="130" text-anchor="middle">overlaps into a bridge</text>
+    </svg>
+    <figcaption>Three shouts half a second apart return as three platforms 50 units apart (drawn stacked here so you can see each one; in the game they sit at the same height).</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is a voice that shapes the world: you are not jumping over danger, you are singing a path into it. The constraint is the delay. Every action is a promise to your future self, and you are always living with choices made two seconds ago while making the next ones.</p>
+  <p>That split attention is the hook. Your eyes are on the gap ahead while your feet are on a bridge you built earlier, and a mistake shows up after you can no longer fix it. Breath stops you from shouting all the time, so quiet stretches of rock matter: they are where you recover.</p>
+  <p>The hardest part to build is making the delay readable. If players cannot tell where an echo will land, the game feels random. The landing guide and the dashed pending echoes in the prototype exist for that reason.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Tap once to set the traveller walking. Watch the dashed "lands here" line ahead of them: when it reaches the start of a gap, shout, then keep shouting on a steady beat until the line reaches rock again. Then try mashing, and try shouting all the time, and see what breaks.</p>
+
+  <figure class="demo wide" data-demo="echo-canyon">
+    <canvas id="echo-canyon"></canvas>
+    <figcaption>Controls: tap or click anywhere on the canvas to shout. With the keyboard, click the canvas first, then press <kbd>Space</kbd>, <kbd>Up</kbd> or <kbd>Z</kbd> to shout. <kbd>R</kbd> or the Restart button starts over. Distance, breath and best distance are shown at the top. The canyon is the same on every run. Turn off the landing guide once you can feel the two-second delay.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: shouts go into a list of pending echoes, each counts down, and when it reaches zero it becomes a platform. Drawing, the start screen and level generation are left out. The names and numbers match the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local SPEED, DELAY, LIFE = 100, 2.0, 1.2
+local BACK, AHEAD, FOOT, TOO_CLOSE = 20, 60, 8, 30
+local MAX_BREATH, REGEN = 5, 0.9
+local walkerX, breath, falling = 0, MAX_BREATH, false
+local pending, platforms = {}, {}
+local ground = { {a = -400, b = 600}, {a = 660, b = 900} }  <span class="c">-- rock</span>
+
+local function shout()
+  if falling or breath &lt; 1 then return end
+  breath = breath - 1
+<span class="k">  local target = walkerX + SPEED * DELAY   -- where I will be when it returns</span>
+  for i = #pending, 1, -1 do
+    if math.abs(pending[i].x - target) &lt; TOO_CLOSE then
+      table.remove(pending, i)              <span class="c">-- too close: both echoes cancel</span>
+      return
+    end
+  end
+  table.insert(pending, {x = target, t = DELAY})
+end
+
+local function standsOn(list)
+  for _, s in ipairs(list) do
+    if walkerX + FOOT &gt; s.a and walkerX - FOOT &lt; s.b then return true end
+  end
+  return false
+end
+
+function love.update(dt)
+  if falling then return end
+  walkerX = walkerX + SPEED * dt
+  for i = #pending, 1, -1 do
+    local e = pending[i]
+    e.t = e.t - dt
+<span class="k">    if e.t &lt;= 0 then                        -- the echo returns as a platform
+      table.remove(pending, i)
+      table.insert(platforms, {a = e.x - BACK, b = e.x + AHEAD, life = LIFE})
+    end</span>
+  end
+  for i = #platforms, 1, -1 do
+    platforms[i].life = platforms[i].life - dt
+    if platforms[i].life &lt;= 0 then table.remove(platforms, i) end
+  end
+  local onRock = standsOn(ground)
+  if onRock then breath = math.min(MAX_BREATH, breath + dt / REGEN) end
+  if not onRock and not standsOn(platforms) then falling = true end
+end
+
+function love.keypressed(key)
+  if key == "space" or key == "up" or key == "z" then shout() end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole idea. The echo's position is fixed at the moment of the shout, as <code>walkerX + SPEED * DELAY</code>. Because the traveller moves at a constant speed, that is exactly where they will be when the timer runs out, so the platform always arrives under their feet. If you later add anything that changes the traveller's speed, this promise breaks, and you must decide whether the echo follows the place or the traveller.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>A constant beat solves everything.</strong> If breath refills too fast, players tap a steady rhythm forever and never look at the canyon. Test it: tap at 120 beats per minute without looking and see how far you get. In the prototype you run dry on the long stretches of rock and have nothing left for the gap. If a blind rhythm survives, slow the refill.</li>
+    <li><strong>The guide becomes the game.</strong> With the landing line on, the task is "tap when the line touches the gap", which is pure reaction. Ask testers to turn it off after a few runs and watch whether they still cross the first gaps. If not, the delay needs a louder cue, such as a rising tone that peaks as the echo lands.</li>
+    <li><strong>Mistakes that land too late to understand.</strong> A fall caused by a bad shout two seconds ago can feel unfair. Show the cause: the prototype draws cancelled and pending echoes, and a replay of the last three seconds after a fall would help even more.</li>
+    <li><strong>Sound latency.</strong> Audio delay varies by device, so let the platform's visual appearance be the true signal and the sound follow it.</li>
+    <li><strong>Sameness.</strong> Gaps of different widths are only rhythms of different lengths. After a few minutes, vary the pattern: a narrow pillar of rock in the middle of a gap breaks one long beat into two short ones.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Auto-running with a single action is well explored. <cite>Canabalt</cite> is a one-button runner where you press to jump between rooftops, and <cite>Geometry Dash</cite> and the <cite>BIT.TRIP RUNNER</cite> games tie an auto-moving character to music, so levels play like songs. Protecting a walker who will not stop is the heart of <cite>Lemmings</cite>, where you give skills to marching creatures, including builders who lay down stairs.</p>
+  <p>Echo Canyon sits between those: like a runner it is about timing, and like <cite>Lemmings</cite> you build the floor instead of dodging. The difference is the fixed delay. You never act on what is under you now, only on what will be under you in two seconds. I am not aware of a game built around exactly this, but delayed and recorded actions appear in many puzzle games, so similar ideas may well exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with rectangles for rock and platforms, a circle for the traveller, a dashed rectangle for each pending echo and a short click sound when an echo lands. Hand-place five gaps of widths 50, 90, 130, 90 and 170 units.</p>
+  <p>Give it to a friend with the landing guide off and explain only "shouts come back two seconds later". The one question: <strong>by their third run, do they start shouting before they can see the gap reach them, by counting?</strong> If they do, the delay has become a rhythm in their head and the game works. If they still shout late, the delay is too long for this speed: try 1.5 seconds before adding any visual help.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one hand-made canyon, shouts, pending echoes, breath, cancelling, a distance score and an echo sound.</li>
+    <li><strong>One-month version:</strong> ten canyons each set to a piece of music, pillars and overhangs that change the rhythm, a short replay after each fall, and a timing calibration screen.</li>
+    <li><strong>Cut first:</strong> story, characters and anything that changes the traveller's speed. The fixed delay and the steady walk are the game.</li>
+    <li><strong>Hardest part:</strong> making a two-second delay feel learnable rather than random. Spend your playtests on readability before content.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: echoes that return at the height of your shout, with a short tap for a low ledge and a held shout for a high one, so the canyon can climb.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On response and why delayed results must still feel connected to the input.</li>
+    <li>Raph Koster, <cite>A Theory of Fun for Game Design</cite> (Paraglyph Press, 2004). On fun as learning patterns, which is what a fixed canyon asks the player to do.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On balancing a resource like breath against the player's urge to act.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var SPEED = 100, DELAY = 2.0, LIFE = 1.2;
+  var BACK = 20, AHEAD = 60, FOOT = 8, TOO_CLOSE = 30;
+  var MAX_BREATH = 5, REGEN = 0.9, UNITS_PER_M = 20, LEFT = 60;
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var rng, ground, genEnd, genCount;
+  var walkerX, breath, started, falling, fallY, fallV, over, overT;
+  var pending, platforms, waves, msg, msgBad, msgT;
+  var best = 0, handle = null;
+
+  var ui = DemoKit.controls('[data-demo="echo-canyon"]');
+  ui.button({ label: 'Restart (R)', onClick: function () { restart(); } });
+  var guide = ui.toggle({ label: 'Landing guide', value: true, onChange: function () { if (handle) handle.redraw(); } });
+
+  function say(text, bad, time) { msg = text; msgBad = bad; msgT = time || 1.2; }
+
+  function generate(upTo) {
+    while (genEnd < upTo) {
+      genCount = genCount + 1;
+      var maxGap = Math.min(180, 70 + genCount * 12);
+      var gap = 40 + Math.floor(rng() * (maxGap - 40));
+      var len = 180 + Math.floor(rng() * 180);
+      var a = genEnd + gap;
+      ground.push({ a: a, b: a + len });
+      genEnd = a + len;
+    }
+  }
+
+  function restart() {
+    rng = DemoKit.rng(7);
+    ground = [{ a: -400, b: 600 }];
+    genEnd = 600; genCount = 0;
+    generate(1600);
+    walkerX = 0; breath = MAX_BREATH;
+    started = false; falling = false; fallY = 0; fallV = 0; over = false; overT = 0;
+    pending = []; platforms = []; waves = [];
+    say('Tap to start walking', false, 99);
+    if (handle) handle.redraw();
+  }
+
+  function standsOn(list) {
+    for (var i = 0; i < list.length; i++) {
+      if (walkerX + FOOT > list[i].a && walkerX - FOOT < list[i].b) return true;
+    }
+    return false;
+  }
+
+  function metres() { return Math.floor(walkerX / UNITS_PER_M); }
+
+  function shout() {
+    if (over) { if (overT > 0.5) restart(); return; }
+    if (falling) return;
+    if (!started) { started = true; say('Shout when the guide line reaches a gap', false, 3); return; }
+    if (breath < 1) { say('Out of breath: walk on rock to recover', true, 1.2); return; }
+    breath = breath - 1;
+    if (!reduced) waves.push({ x: walkerX, t: 0 });
+    var target = walkerX + SPEED * DELAY;
+    for (var i = pending.length - 1; i >= 0; i--) {
+      if (Math.abs(pending[i].x - target) < TOO_CLOSE) {
+        pending.splice(i, 1);
+        say('Too close: the two echoes cancelled', true, 1.4);
+        return;
+      }
+    }
+    pending.push({ x: target, t: DELAY });
+  }
+
+  function update(dt) {
+    if (msgT < 90) msgT = Math.max(0, msgT - dt);
+    for (var w = waves.length - 1; w >= 0; w--) {
+      waves[w].t = waves[w].t + dt;
+      if (waves[w].t > 0.6) waves.splice(w, 1);
+    }
+    if (over) { overT = overT + dt; return; }
+    if (falling) {
+      fallV = fallV + 900 * dt;
+      fallY = fallY + fallV * dt;
+      if (fallY > 160) {
+        over = true; overT = 0;
+        best = Math.max(best, metres());
+        say('You fell at ' + metres() + ' m. Tap or press R to retry', true, 99);
+      }
+      return;
+    }
+    if (!started) return;
+    walkerX = walkerX + SPEED * dt;
+    for (var i = pending.length - 1; i >= 0; i--) {
+      var e = pending[i];
+      e.t = e.t - dt;
+      if (e.t <= 0) {
+        pending.splice(i, 1);
+        platforms.push({ a: e.x - BACK, b: e.x + AHEAD, life: LIFE });
+      }
+    }
+    for (var j = platforms.length - 1; j >= 0; j--) {
+      platforms[j].life = platforms[j].life - dt;
+      if (platforms[j].life <= 0) platforms.splice(j, 1);
+    }
+    var onRock = standsOn(ground);
+    if (onRock) breath = Math.min(MAX_BREATH, breath + dt / REGEN);
+    if (!onRock && !standsOn(platforms)) {
+      falling = true; fallV = 0;
+      say('No ground underfoot!', true, 99);
+    }
+    while (ground.length > 2 && ground[0].b < walkerX - 800) ground.shift();
+    generate(walkerX + 1600);
+  }
+
+  function wallY(u) {
+    return 46 + 14 * Math.sin(u * 0.031) + 9 * Math.sin(u * 0.083 + 1.7);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, W = s.width, H = s.height;
+    var k = Math.min(1.4, W / 460);
+    var camX = walkerX - LEFT;
+    var gy = Math.round(H * 0.64);
+    function sx(x) { return (x - camX) * k; }
+    ctx.textBaseline = 'alphabetic';
+
+    // Far canyon wall (slow parallax), where the shouts bounce
+    ctx.fillStyle = c.surface2;
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    for (var px = 0; px <= W + 16; px += 16) ctx.lineTo(px, wallY(px / k + camX * 0.3));
+    ctx.lineTo(W + 16, 0); ctx.closePath(); ctx.fill();
+
+    // Rock
+    for (var g = 0; g < ground.length; g++) {
+      var a = sx(ground[g].a), b = sx(ground[g].b);
+      if (b < 0 || a > W) continue;
+      ctx.fillStyle = c.ink3; ctx.globalAlpha = 0.45;
+      ctx.fillRect(a, gy, b - a, H - gy);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = c.ink2; ctx.fillRect(a, gy, b - a, 3);
+    }
+
+    // Landing guide
+    if (guide.value && started && !over && !falling) {
+      var lx = sx(walkerX + SPEED * DELAY);
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(lx, gy - 46); ctx.lineTo(lx, gy + 14); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.topic; ctx.font = '12px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText('lands here', lx, gy - 52);
+    }
+
+    // Pending echoes: dashed outline, filling up as the echo travels back
+    var ph = Math.max(8, 10 * k);
+    for (var p = 0; p < pending.length; p++) {
+      var e = pending[p];
+      var x0 = sx(e.x - BACK), x1 = sx(e.x + AHEAD);
+      var done = 1 - e.t / DELAY;
+      ctx.fillStyle = c.topic; ctx.globalAlpha = 0.22;
+      ctx.fillRect(x0, gy, (x1 - x0) * done, ph);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+      ctx.strokeRect(x0 + 0.5, gy + 0.5, x1 - x0 - 1, ph - 1);
+      ctx.setLineDash([]);
+    }
+
+    // Echo platforms
+    for (var q = 0; q < platforms.length; q++) {
+      var pl = platforms[q];
+      ctx.fillStyle = c.topic; ctx.globalAlpha = Math.min(1, pl.life / 0.3);
+      ctx.fillRect(sx(pl.a), gy, sx(pl.b) - sx(pl.a), ph);
+      ctx.globalAlpha = 1;
+    }
+
+    // Traveller
+    var tx = sx(walkerX), ty = gy + fallY;
+    var swing = (started && !falling && !over) ? Math.sin(walkerX / 9) * 6 : 0;
+    ctx.strokeStyle = c.ink; ctx.fillStyle = c.ink; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - 16); ctx.lineTo(tx + swing, ty);
+    ctx.moveTo(tx, ty - 16); ctx.lineTo(tx - swing, ty);
+    ctx.moveTo(tx, ty - 16); ctx.lineTo(tx + 1, ty - 34);
+    ctx.moveTo(tx + 1, ty - 29); ctx.lineTo(tx - swing * 0.8, ty - 20);
+    ctx.moveTo(tx + 1, ty - 29); ctx.lineTo(tx + 6, ty - 22);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(tx + 2, ty - 41, 6.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineCap = 'butt';
+
+    // Shout waves rising toward the far wall
+    for (var v = 0; v < waves.length; v++) {
+      var wv = waves[v], f = wv.t / 0.6;
+      ctx.strokeStyle = c.topic; ctx.globalAlpha = 1 - f; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx(wv.x) + 4, gy - 44, 8 + f * 60, -Math.PI * 0.8, -Math.PI * 0.2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // HUD
+    ctx.fillStyle = c.ink; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'left';
+    ctx.fillText('Distance ' + metres() + ' m', 10, 20);
+    ctx.fillStyle = c.ink2; ctx.font = '13px ' + FONT;
+    ctx.fillText('Breath', 10, 40);
+    for (var bIdx = 0; bIdx < MAX_BREATH; bIdx++) {
+      var full = Math.min(1, Math.max(0, breath - bIdx));
+      var cx = 64 + bIdx * 16;
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(cx, 35, 5.5, 0, Math.PI * 2); ctx.stroke();
+      if (full > 0) {
+        ctx.fillStyle = c.topic; ctx.globalAlpha = full >= 1 ? 1 : 0.35;
+        ctx.beginPath(); ctx.arc(cx, 35, 5.5, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.fillStyle = c.ink3; ctx.font = '13px ' + FONT; ctx.textAlign = 'right';
+    ctx.fillText('Best ' + best + ' m', W - 10, 20);
+
+    if (msgT > 0) {
+      ctx.fillStyle = msgBad ? c.bad : c.ink2; ctx.font = '600 14px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(msg, W / 2, 72);
+    }
+  }
+
+  restart();
+  handle = DemoKit.canvas('#echo-canyon', {
+    height: 300,
+    keys: true,
+    label: 'Echo Canyon prototype: a traveller walks right over a canyon with gaps. Each shout returns two seconds later as a short platform under the traveller. Distance, breath and best distance are shown at the top.',
+    update: update,
+    draw: draw,
+    onDown: function () { shout(); },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space' || key === 'arrowup' || key === 'z') shout();
+      else if (key === 'r') restart();
+    }
+  });
+  var cv = document.getElementById('echo-canyon');
+  if (cv) cv.style.touchAction = 'manipulation';
+})();
+</script>
+</body>
+</html>
