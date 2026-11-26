@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2D water: a mirrored, wobbling reflection · Game Dev Daily</title>
+<meta name="description" content="Flip the scene about the waterline, nudge the lookup with moving waves, then tint it: three steps turn any 2D scene into reflective water.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-26">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>2D water: a mirrored, wobbling reflection</h1>
+  <p class="lede">Flip the scene about the waterline, nudge the lookup with moving waves, then tint it: three steps turn any 2D scene into reflective water.</p>
+</header>
+
+<section data-section="hook">
+  <p>A lake in a side-view game looks dead if it is a flat blue rectangle. The water that feels alive shows a wobbling, darkened copy of the hut, the trees and the sunset above it. Nobody draws that copy by hand: one shader makes it from the picture that is already on screen.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Water is a picture of the scene, read upside down</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For a water pixel, the question is: which colour from the scene above should I show? The answer has three parts, and each one is a line or two of code.</p>
+
+  <h3>1. Mirror: read the point the same distance above the line</h3>
+  <p>Call the height of the water's surface the <dfn>waterline</dfn>. A pixel below it is some distance <code>d</code> under the line. A still lake shows what is the same distance <em>above</em> the line, at the same <code>x</code>. That is the whole mirror:</p>
+<pre><code>float d = uv.y - waterLine;            // how far below the line (negative above it)
+vec2 r = vec2(uv.x, waterLine - d);    // the point to read: d above the line</code></pre>
+  <p>Here <code>uv</code> runs from 0 at the top of the screen to 1 at the bottom, as texture coordinates do in LÖVE and Godot. The shader reads the finished scene as a texture at <code>r</code>, so pixels just under the line show things just above it, and the bottom of the screen shows the sky.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Left: a scene with a hut above a horizontal water line, and a dashed upside-down copy of the hut below it. A pixel P lies a distance d below the line; it reads the point R, the same distance d above the line. Right: three steps. One, mirror: r equals uv.x and water line minus d. Two, wobble: add wave times wave height times calm to r. Three, tint: mix the scene at r with the water colour by the tint amount.">
+      <rect class="d-box" x="20" y="20" width="280" height="130"/>
+      <rect class="d-accent-soft" x="20" y="150" width="280" height="110"/>
+      <path class="d-stroke" d="M20 150 H300"/>
+      <text class="d-label" x="292" y="40" text-anchor="end">scene</text>
+      <text class="d-label" x="292" y="250" text-anchor="end">water</text>
+
+      <rect class="d-fill" x="232" y="100" width="44" height="50"/>
+      <path class="d-stroke" d="M224 100 L254 70 L284 100 Z"/>
+      <rect class="d-dash" x="232" y="150" width="44" height="50"/>
+      <path class="d-dash" d="M224 200 L254 230 L284 200 Z"/>
+
+      <path class="d-thin" d="M96 95 H104 M100 95 V205 M96 205 H104"/>
+      <text class="d-text" x="86" y="128" text-anchor="end">d</text>
+      <text class="d-text" x="86" y="184" text-anchor="end">d</text>
+      <path class="d-dash" d="M130 198 V103"/>
+      <circle class="d-accent-fill" cx="130" cy="95" r="6"/>
+      <rect class="d-accent" x="125" y="200" width="10" height="10"/>
+      <text class="d-text" x="142" y="99">R: read here</text>
+      <text class="d-text" x="142" y="209">P: this pixel</text>
+      <text class="d-muted" x="20" y="282">dashed hut: what the water shows</text>
+
+      <rect class="d-box" x="330" y="20" width="300" height="64" rx="6"/>
+      <text class="d-text" x="344" y="44">1. mirror</text>
+      <text class="d-mono" x="344" y="68">r = (uv.x, waterLine - d)</text>
+      <rect class="d-box" x="330" y="104" width="300" height="64" rx="6"/>
+      <text class="d-text" x="344" y="128">2. wobble</text>
+      <text class="d-mono" x="344" y="152">r += wave * waveHeight * calm</text>
+      <rect class="d-accent-soft" x="330" y="188" width="300" height="64" rx="6"/>
+      <text class="d-text" x="344" y="212">3. tint</text>
+      <text class="d-mono" x="344" y="236">mix(scene(r), waterColor, tint)</text>
+      <path class="d-stroke" d="M480 84 V104 M480 168 V188"/>
+    </svg>
+    <figcaption>Left: the pixel P, a distance d under the line, shows the colour at R, the same distance above it. Right: the three steps every water pixel runs.</figcaption>
+  </figure>
+
+  <h3>2. Wobble: move the read point with a wave</h3>
+  <p>A perfect mirror looks like glass. Real water bends the reflection, and we already know how to bend things: add a wave to the coordinates before reading. This is <dfn>UV distortion</dfn>, and making the wave's phase depend on time scrolls it:</p>
+<pre><code>float wave = sin(d * 90.0 - t * 3.0) * 0.6 + sin(uv.x * 20.0 + d * 40.0 + t * 2.0) * 0.4;
+float calm = clamp(d * 12.0, 0.0, 1.0);
+vec2 offset = vec2(wave, 0.5 * wave) * waveHeight * calm;</code></pre>
+  <p>Here <code>t</code> is time multiplied by a speed. The first sine makes horizontal bands that travel downwards, towards the viewer. The second adds a slanted pattern so the bands do not look like a ruler. <code>wave</code> stays between -1 and 1, and <code>waveHeight</code> scales it into UV units, so 0.01 means one hundredth of the screen.</p>
+  <p><code>calm</code> is the detail that sells it. It is 0 at the waterline and reaches 1 a short way down. Without it, the reflection right at the shore jumps around and splits away from the object it reflects. With it, the hut's reflection stays attached to the hut and only ripples further out. It also keeps the vertical part of the offset smaller than <code>d</code>, so the read point never crosses the waterline and the water never reflects itself.</p>
+
+  <h3>3. Tint: water is not a mirror</h3>
+  <p>Water absorbs light and has its own colour. <code>mix(reflection, waterColor, tint)</code> pulls the reflection towards that colour, and darkening with depth makes the far edge of the lake read as deeper. A thin bright line right at the waterline gives the surface an edge.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which way is down</p>
+    <p>WebGL's <code>gl_FragCoord</code> has (0, 0) at the bottom-left with y up, so the demo flips it first: <code>uv.y = 1.0 - uv.y</code>. After that, its formulas are the same as the LÖVE and Godot versions, where texture coordinates and <code>SCREEN_UV</code> have (0, 0) at the top-left with y down. Unity's texture UVs have (0, 0) at the bottom-left with y up, so in the Unity tab <code>d = waterLine - uv.y</code> and the mirror adds <code>d</code> instead of subtracting it.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Step through <em>Stage</em> first. Stage 2 colours each pixel by the coordinate it reads: the gradient below the yellow waterline is the one above, flipped. Stage 3 is the plain mirror, stage 4 the wave before it is scaled, stage 5 the bent reflection. Then raise <em>Wave height</em> and watch the shore: the hut's reflection stays attached while the far water ripples. Push <em>Tint</em> to 1 and the reflection disappears into flat paint.</p>
+
+  <figure class="demo wide" data-demo="water">
+    <canvas id="water-shader"></canvas>
+    <figcaption>The whole canvas is one fragment shader. The scene above the line is drawn with maths and stands in for the screen texture a game would read; the water reads it at the mirrored, wobbled point.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>LÖVE has no built-in screen texture, so the program draws the scene into a <dfn>canvas</dfn> (an off-screen image), then draws that canvas to the screen through the water shader. Above the line the shader passes the texel through. Below it, it reads the canvas at the mirrored point. The up and down arrows change the wave height.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local WATER_LINE = 0.62                  <span class="c">-- 0 is the top of the screen, 1 the bottom</span>
+local WATER_COLOR = { 0.10, 0.35, 0.55 }
+local waveHeight = 0.008                 <span class="c">-- in UV units</span>
+local speed = 1.0
+local tint = 0.35
+local time = 0
+local sceneCanvas, shader
+
+local pixelcode = [[
+uniform float u_time;
+uniform float u_waterLine;
+uniform float u_waveHeight;
+uniform float u_speed;
+uniform float u_tint;
+uniform vec3 u_waterColor;
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = texture_coords;                 // (0, 0) top-left, y down
+  float d = uv.y - u_waterLine;             // depth below the waterline
+  if (d &lt; 0.0) return Texel(tex, uv) * color;
+  vec2 r = vec2(uv.x, u_waterLine - d);     // 1. mirror
+  float t = u_time * u_speed;               // 2. wobble
+  float wave = sin(d * 90.0 - t * 3.0) * 0.6 + sin(uv.x * 20.0 + d * 40.0 + t * 2.0) * 0.4;
+  float calm = clamp(d * 12.0, 0.0, 1.0);
+  vec2 offset = vec2(wave, 0.5 * wave) * u_waveHeight * calm;
+  vec3 refl = Texel(tex, r + offset).rgb;
+  vec3 water = mix(refl, u_waterColor, u_tint);         // 3. tint
+  water *= 1.0 - 0.35 * smoothstep(0.0, 0.38, d);       // darker further down
+  water += 0.3 * (1.0 - smoothstep(0.0, 0.01, d));      // bright edge at the line
+  return vec4(water, 1.0) * color;
+}
+]]
+
+function love.load()
+  sceneCanvas = love.graphics.newCanvas()   <span class="c">-- the size of the window</span>
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+  time = time + dt
+end
+
+function love.keypressed(key)
+  if key == "up" then waveHeight = math.min(waveHeight + 0.002, 0.02) end
+  if key == "down" then waveHeight = math.max(waveHeight - 0.002, 0) end
+end
+
+<span class="c">-- the world above the water: sky, sun, a drifting cloud, the shore and a hut</span>
+local function drawScene(w, h)
+  love.graphics.clear(0.30, 0.52, 0.85)
+  love.graphics.setColor(1.0, 0.93, 0.70)
+  love.graphics.circle("fill", 0.78 * w, 0.24 * h, 0.07 * h)
+  local cx = (time * 0.03 * h) % (w + 0.6 * h) - 0.3 * h
+  love.graphics.setColor(1.0, 0.98, 0.95)
+  love.graphics.circle("fill", cx, 0.17 * h, 0.05 * h)
+  love.graphics.circle("fill", cx + 0.06 * h, 0.15 * h, 0.065 * h)
+  love.graphics.circle("fill", cx + 0.13 * h, 0.17 * h, 0.045 * h)
+  love.graphics.setColor(0.30, 0.55, 0.28)
+  love.graphics.rectangle("fill", 0, 0.575 * h, w, h)
+  local hx = 0.26 * w
+  love.graphics.setColor(0.85, 0.72, 0.52)
+  love.graphics.rectangle("fill", hx - 0.06 * h, 0.50 * h, 0.12 * h, 0.10 * h)
+  love.graphics.setColor(0.75, 0.22, 0.18)
+  love.graphics.polygon("fill", hx - 0.08 * h, 0.50 * h, hx + 0.08 * h, 0.50 * h, hx, 0.42 * h)
+  love.graphics.setColor(1, 1, 1)
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  love.graphics.setCanvas(sceneCanvas)
+  drawScene(w, h)
+  love.graphics.setCanvas()
+
+  shader:send("u_time", time)
+  shader:send("u_waterLine", WATER_LINE)
+<span class="k">  shader:send("u_waveHeight", waveHeight)</span>
+  shader:send("u_speed", speed)
+  shader:send("u_tint", tint)
+  shader:send("u_waterColor", WATER_COLOR)
+  love.graphics.setShader(shader)
+  love.graphics.draw(sceneCanvas)          <span class="c">-- above the line as it is, below it reflected</span>
+  love.graphics.setShader()
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_waveHeight;    // in UV units
+uniform float u_speed;
+uniform float u_tint;          // 0 pure reflection, 1 flat water colour
+uniform vec3 u_waterColor;
+uniform float u_stage;         // 0 scene, 1 coordinates, 2 mirror, 3 wave, 4 bent mirror, 5 final
+
+const float WATER_LINE = 0.62; // 0 top, 1 bottom
+
+// The "screen texture": the scene, drawn with maths. uv has (0, 0) at the top-left.
+vec3 scene(vec2 uv) {
+  uv = clamp(uv, 0.0, 1.0);                       // like a clamped texture
+  float aspect = u_resolution.x / u_resolution.y;
+  vec2 p = vec2(uv.x * aspect, uv.y);             // x scaled so circles stay round
+  vec3 col = mix(vec3(0.30, 0.52, 0.85), vec3(0.98, 0.80, 0.62), smoothstep(0.05, 0.6, uv.y));
+
+  float sd = length(p - vec2(aspect * 0.78, 0.24));                       // sun and glow
+  col += vec3(1.0, 0.75, 0.40) * 0.35 * (1.0 - smoothstep(0.0, 0.25, sd));
+  col = mix(col, vec3(1.0, 0.93, 0.70), 1.0 - smoothstep(0.065, 0.072, sd));
+
+  float cx = mod(u_time * 0.03, aspect + 0.6) - 0.3;                     // drifting cloud
+  float cl = min(length(p - vec2(cx, 0.17)) - 0.05, length(p - vec2(cx + 0.06, 0.15)) - 0.065);
+  cl = min(cl, length(p - vec2(cx + 0.13, 0.17)) - 0.045);
+  cl = min(cl, max(abs(p.y - 0.195) - 0.025, abs(p.x - cx - 0.065) - 0.11));
+  col = mix(col, vec3(1.0, 0.98, 0.95), 1.0 - smoothstep(0.0, 0.004, cl));
+
+  float hill = 0.47 + 0.05 * sin(p.x * 3.0 + 1.0) + 0.025 * sin(p.x * 7.3);   // far hills
+  if (uv.y &gt; hill) col = vec3(0.47, 0.47, 0.66);
+  float ground = 0.575 + 0.015 * sin(p.x * 5.0 + 2.0);                        // shore
+  if (uv.y &gt; ground) col = vec3(0.30, 0.55, 0.28);
+
+  float hx = aspect * 0.26;                                                   // hut
+  if (abs(p.x - hx) &lt; 0.06 &amp;&amp; uv.y &gt; 0.50 &amp;&amp; uv.y &lt; 0.60) col = vec3(0.85, 0.72, 0.52);
+  if (uv.y &gt; 0.42 &amp;&amp; uv.y &lt;= 0.50 &amp;&amp; abs(p.x - hx) &lt; uv.y - 0.42) col = vec3(0.75, 0.22, 0.18);
+  if (abs(p.x - hx - 0.02) &lt; 0.015 &amp;&amp; uv.y &gt; 0.545 &amp;&amp; uv.y &lt; 0.60) col = vec3(0.35, 0.20, 0.12);
+  if (abs(p.x - hx + 0.03) &lt; 0.012 &amp;&amp; abs(uv.y - 0.535) &lt; 0.012) col = vec3(0.95, 0.85, 0.40);
+
+  float tx = aspect * 0.55;                                                   // tree
+  if (abs(p.x - tx) &lt; 0.012 &amp;&amp; uv.y &gt; 0.48 &amp;&amp; uv.y &lt; 0.60) col = vec3(0.40, 0.26, 0.16);
+  if (length(p - vec2(tx, 0.44)) &lt; 0.065 || length(p - vec2(tx - 0.045, 0.47)) &lt; 0.045)
+    col = vec3(0.18, 0.45, 0.22);
+  return col;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  uv.y = 1.0 - uv.y;                       // y down, like texture coordinates in LÖVE and Godot
+  vec3 col = scene(uv);                    // above the water: the scene as it is
+  float d = uv.y - WATER_LINE;             // depth below the waterline, negative above it
+
+  vec2 r = vec2(uv.x, WATER_LINE - d);                                   // 1. mirror
+  float t = u_time * u_speed;                                             // 2. wobble
+  float wave = sin(d * 90.0 - t * 3.0) * 0.6 + sin(uv.x * 20.0 + d * 40.0 + t * 2.0) * 0.4;
+  float calm = clamp(d * 12.0, 0.0, 1.0);
+  vec2 offset = vec2(wave, 0.5 * wave) * u_waveHeight * calm;
+  vec3 refl = scene(r + offset);
+  vec3 water = mix(refl, u_waterColor, u_tint);                           // 3. tint
+  water *= 1.0 - 0.35 * smoothstep(0.0, 0.38, d);
+  water += 0.3 * (1.0 - smoothstep(0.0, 0.01, d));
+
+  // the stage selector: show an intermediate value instead of the final colour
+  vec2 c = d &lt; 0.0 ? uv : r;               // the coordinate this pixel reads
+  vec3 coords = vec3(c.x, c.y, 0.3);
+  vec2 g = abs(fract(c * 10.0) - 0.5);
+  if (max(g.x, g.y) &gt; 0.46) coords = vec3(1.0);
+
+  vec3 below = water;
+  if (u_stage &lt; 4.5) below = refl;
+  if (u_stage &lt; 3.5) below = vec3(0.5 + 0.5 * wave * calm);
+  if (u_stage &lt; 2.5) below = scene(r);
+  if (u_stage &lt; 0.5) below = col;
+  if (d &gt;= 0.0) col = below;
+  if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 1.5) col = coords;
+
+  float onePixel = 1.0 / u_resolution.y;
+  if (u_stage &gt; 0.5 &amp;&amp; u_stage &lt; 4.5 &amp;&amp; abs(d) &lt; onePixel) col = vec3(1.0, 0.85, 0.2);
+  gl_FragColor = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Put this on a ColorRect that covers the whole screen
+// and is drawn after (below, in the scene tree) everything it should reflect.
+shader_type canvas_item;
+
+uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear;
+uniform float water_line = 0.62;                  // 0 top, 1 bottom
+uniform float wave_height = 0.008;
+uniform float speed = 1.0;
+uniform float tint : hint_range(0.0, 1.0) = 0.35;
+uniform vec4 water_color : source_color = vec4(0.10, 0.35, 0.55, 1.0);
+
+void fragment() {
+    vec2 uv = SCREEN_UV;                          // (0, 0) top-left, y down
+    float d = uv.y - water_line;
+    vec3 col = textureLod(screen_texture, uv, 0.0).rgb;
+    if (d &gt;= 0.0) {
+        vec2 r = vec2(uv.x, water_line - d);
+        float t = TIME * speed;
+        float wave = sin(d * 90.0 - t * 3.0) * 0.6 + sin(uv.x * 20.0 + d * 40.0 + t * 2.0) * 0.4;
+        float calm = clamp(d * 12.0, 0.0, 1.0);
+        vec2 offset = vec2(wave, 0.5 * wave) * wave_height * calm;
+<span class="k">        vec3 refl = textureLod(screen_texture, r + offset, 0.0).rgb;</span>
+        col = mix(refl, water_color.rgb, tint);
+        col *= 1.0 - 0.35 * smoothstep(0.0, 0.38, d);
+        col += 0.3 * (1.0 - smoothstep(0.0, 0.01, d));
+    }
+    COLOR = vec4(col, 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline, as an image effect: a script on the camera calls
+// Graphics.Blit(source, destination, material) in OnRenderImage.
+Shader "GameDevDaily/Water2D"
+{
+    Properties
+    {
+        _MainTex ("Screen", 2D) = "white" {}
+        _WaterLine ("Water line (0 bottom, 1 top)", Range(0, 1)) = 0.38
+        _WaveHeight ("Wave height", Range(0, 0.02)) = 0.008
+        _Speed ("Speed", Range(0, 3)) = 1
+        _Tint ("Tint", Range(0, 1)) = 0.35
+        _WaterColor ("Water colour", Color) = (0.10, 0.35, 0.55, 1)
+    }
+    SubShader
+    {
+        Cull Off ZWrite Off ZTest Always
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;
+            float _WaterLine, _WaveHeight, _Speed, _Tint;
+            fixed4 _WaterColor;
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+                float2 uv = i.uv;                       // (0, 0) bottom-left, y up
+                float d = _WaterLine - uv.y;            // y up, so the subtraction is reversed
+                if (d &lt; 0) return tex2D(_MainTex, uv);
+                float2 r = float2(uv.x, _WaterLine + d);
+                float t = _Time.y * _Speed;
+                float wave = sin(d * 90 - t * 3) * 0.6 + sin(uv.x * 20 + d * 40 + t * 2) * 0.4;
+                float calm = saturate(d * 12);
+                float2 offset = float2(wave, -0.5 * wave) * _WaveHeight * calm;
+<span class="k">                float3 refl = tex2D(_MainTex, r + offset).rgb;</span>
+                float3 water = lerp(refl, _WaterColor.rgb, _Tint);
+                water *= 1 - 0.35 * smoothstep(0, 0.38, d);
+                water += 0.3 * (1 - smoothstep(0, 0.01, d));
+                return fixed4(water, 1);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>The Godot version reads the screen through <code>hint_screen_texture</code>, which holds what was drawn before the ColorRect. The Unity version is for the Built-in render pipeline; because its UVs are y up, the waterline 0.38 from the bottom is the same place as 0.62 from the top. In URP, use a Full Screen Pass Renderer Feature or the camera's Opaque Texture instead of <code>OnRenderImage</code>; the maths in <code>frag</code> stays the same. In a project set to Linear colour space, Unity converts <code>_WaterColor</code> to linear and the blend happens in linear space, so mid tints look slightly different from the demo.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The water reflects itself.</strong> If the vertical wobble is larger than <code>d</code>, pixels near the line read from below it and pick up water instead of scene. Fade the offset to 0 at the line, as <code>calm</code> does.</li>
+    <li><strong>Reading off the top of the screen.</strong> When the water is taller than the scene above it, the mirror asks for points above the top edge. With clamping you get a smear of the top row, with repeat you get the bottom of the screen. Keep the water shorter than the space above it, or fade to plain water colour where <code>r.y</code> leaves the screen.</li>
+    <li><strong>Reading the screen you are drawing to.</strong> A shader cannot read the image it is writing. That is why LÖVE draws into a canvas first, Godot copies the screen for <code>hint_screen_texture</code>, and Unity hands the finished frame to the image effect.</li>
+    <li><strong>Wave height in the wrong units.</strong> The offset is in UV units, so 1.0 is the whole screen. Values around 0.005 to 0.015 look like water; 0.1 looks like a broken television.</li>
+    <li><strong>Upside-down reflections.</strong> If your water shows the sky right at the shore, the y axis points the other way from what the code assumes. Check where (0, 0) is in your engine and swap the sign of <code>d</code>.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Per water pixel the shader does two texture reads at most, two <code>sin</code> calls and a few multiplies: cheap, even on a phone. The expensive part is getting the scene as a texture. Drawing into a canvas or copying the screen touches every pixel of the screen once more, and on mobile GPUs memory bandwidth is the scarce resource. One copy per frame is fine; one copy per puddle is not, so put all the water that reflects the same scene in one draw. On some older mobile GPUs, reads at a computed UV (a <dfn>dependent texture read</dfn>) were also slower than reads at the plain interpolated UV.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Engines expose exactly the pieces this effect needs: Godot has screen-reading shaders through <code>hint_screen_texture</code>, Unity's Built-in pipeline has <code>GrabPass</code> and image effects, URP has the Opaque Texture, and LÖVE has canvases. 3D games use the same mirror idea at a larger scale: a <dfn>planar reflection</dfn> renders the scene a second time from a camera mirrored below the water plane, and the water shader reads that image with a ripple offset, just as our 2D water reads the scene above the line.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Add a player rectangle that walks left and right on the shore with the arrow keys, drawn into the scene canvas. Check that its reflection follows it.</li>
+    <li>Make the ripples bunch up towards the horizon, as they do in perspective: replace <code>d * 90.0</code> with <code>sqrt(d) * 40.0</code>, and compare.</li>
+    <li>Fade the reflection out with depth: use <code>mix(u_tint, 1.0, smoothstep(0.0, 0.38, d))</code> as the tint amount, so the far edge of the screen is plain water colour.</li>
+  </ol>
+  <p>You are done when the player's reflection wobbles under them, the ripples are tighter near the waterline and the bottom of the screen fades to flat water.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A water pixel <code>d</code> below the waterline shows the scene <code>d</code> above it: <code>r = (uv.x, waterLine - d)</code>.</li>
+    <li>Adding a time-scrolled wave to <code>r</code> bends the reflection; scale it by <code>calm</code> so it stays attached at the shore.</li>
+    <li><code>mix</code> with a water colour and a little darkening with depth turn a mirror into water.</li>
+    <li>The shader needs the scene as a texture: a canvas in LÖVE, the screen texture in Godot, an image effect in Unity.</li>
+    <li>Know where (0, 0) is: the sign of <code>d</code> flips between y-down and y-up coordinates.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, fire: scrolling noise shaped by a gradient and mapped through a colour ramp into a campfire.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Shader:send</cite> and <cite>love.graphics.newCanvas</cite>.</li>
+    <li>Godot documentation, <cite>Screen-reading shaders</cite> and <cite>CanvasItem shaders</cite>.</li>
+    <li>Unity documentation, <cite>MonoBehaviour.OnRenderImage</cite>, <cite>Graphics.Blit</cite> and <cite>Built-in shader variables</cite> (<code>_Time</code>).</li>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite> (shaping functions and patterns with sine).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_time;",
+    "uniform float u_waveHeight;    // in UV units",
+    "uniform float u_speed;",
+    "uniform float u_tint;          // 0 pure reflection, 1 flat water colour",
+    "uniform vec3 u_waterColor;",
+    "uniform float u_stage;         // 0 scene, 1 coordinates, 2 mirror, 3 wave, 4 bent mirror, 5 final",
+    "",
+    "const float WATER_LINE = 0.62; // 0 top, 1 bottom",
+    "",
+    "// The \"screen texture\": the scene, drawn with maths. uv has (0, 0) at the top-left.",
+    "vec3 scene(vec2 uv) {",
+    "  uv = clamp(uv, 0.0, 1.0);                       // like a clamped texture",
+    "  float aspect = u_resolution.x / u_resolution.y;",
+    "  vec2 p = vec2(uv.x * aspect, uv.y);             // x scaled so circles stay round",
+    "  vec3 col = mix(vec3(0.30, 0.52, 0.85), vec3(0.98, 0.80, 0.62), smoothstep(0.05, 0.6, uv.y));",
+    "",
+    "  float sd = length(p - vec2(aspect * 0.78, 0.24));                       // sun and glow",
+    "  col += vec3(1.0, 0.75, 0.40) * 0.35 * (1.0 - smoothstep(0.0, 0.25, sd));",
+    "  col = mix(col, vec3(1.0, 0.93, 0.70), 1.0 - smoothstep(0.065, 0.072, sd));",
+    "",
+    "  float cx = mod(u_time * 0.03, aspect + 0.6) - 0.3;                     // drifting cloud",
+    "  float cl = min(length(p - vec2(cx, 0.17)) - 0.05, length(p - vec2(cx + 0.06, 0.15)) - 0.065);",
+    "  cl = min(cl, length(p - vec2(cx + 0.13, 0.17)) - 0.045);",
+    "  cl = min(cl, max(abs(p.y - 0.195) - 0.025, abs(p.x - cx - 0.065) - 0.11));",
+    "  col = mix(col, vec3(1.0, 0.98, 0.95), 1.0 - smoothstep(0.0, 0.004, cl));",
+    "",
+    "  float hill = 0.47 + 0.05 * sin(p.x * 3.0 + 1.0) + 0.025 * sin(p.x * 7.3);   // far hills",
+    "  if (uv.y > hill) col = vec3(0.47, 0.47, 0.66);",
+    "  float ground = 0.575 + 0.015 * sin(p.x * 5.0 + 2.0);                        // shore",
+    "  if (uv.y > ground) col = vec3(0.30, 0.55, 0.28);",
+    "",
+    "  float hx = aspect * 0.26;                                                   // hut",
+    "  if (abs(p.x - hx) < 0.06 && uv.y > 0.50 && uv.y < 0.60) col = vec3(0.85, 0.72, 0.52);",
+    "  if (uv.y > 0.42 && uv.y <= 0.50 && abs(p.x - hx) < uv.y - 0.42) col = vec3(0.75, 0.22, 0.18);",
+    "  if (abs(p.x - hx - 0.02) < 0.015 && uv.y > 0.545 && uv.y < 0.60) col = vec3(0.35, 0.20, 0.12);",
+    "  if (abs(p.x - hx + 0.03) < 0.012 && abs(uv.y - 0.535) < 0.012) col = vec3(0.95, 0.85, 0.40);",
+    "",
+    "  float tx = aspect * 0.55;                                                   // tree",
+    "  if (abs(p.x - tx) < 0.012 && uv.y > 0.48 && uv.y < 0.60) col = vec3(0.40, 0.26, 0.16);",
+    "  if (length(p - vec2(tx, 0.44)) < 0.065 || length(p - vec2(tx - 0.045, 0.47)) < 0.045)",
+    "    col = vec3(0.18, 0.45, 0.22);",
+    "  return col;",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 uv = gl_FragCoord.xy / u_resolution;",
+    "  uv.y = 1.0 - uv.y;                       // y down, like texture coordinates in LÖVE and Godot",
+    "  vec3 col = scene(uv);                    // above the water: the scene as it is",
+    "  float d = uv.y - WATER_LINE;             // depth below the waterline, negative above it",
+    "",
+    "  vec2 r = vec2(uv.x, WATER_LINE - d);                                   // 1. mirror",
+    "  float t = u_time * u_speed;                                             // 2. wobble",
+    "  float wave = sin(d * 90.0 - t * 3.0) * 0.6 + sin(uv.x * 20.0 + d * 40.0 + t * 2.0) * 0.4;",
+    "  float calm = clamp(d * 12.0, 0.0, 1.0);",
+    "  vec2 offset = vec2(wave, 0.5 * wave) * u_waveHeight * calm;",
+    "  vec3 refl = scene(r + offset);",
+    "  vec3 water = mix(refl, u_waterColor, u_tint);                           // 3. tint",
+    "  water *= 1.0 - 0.35 * smoothstep(0.0, 0.38, d);",
+    "  water += 0.3 * (1.0 - smoothstep(0.0, 0.01, d));",
+    "",
+    "  // the stage selector: show an intermediate value instead of the final colour",
+    "  vec2 c = d < 0.0 ? uv : r;               // the coordinate this pixel reads",
+    "  vec3 coords = vec3(c.x, c.y, 0.3);",
+    "  vec2 g = abs(fract(c * 10.0) - 0.5);",
+    "  if (max(g.x, g.y) > 0.46) coords = vec3(1.0);",
+    "",
+    "  vec3 below = water;",
+    "  if (u_stage < 4.5) below = refl;",
+    "  if (u_stage < 3.5) below = vec3(0.5 + 0.5 * wave * calm);",
+    "  if (u_stage < 2.5) below = scene(r);",
+    "  if (u_stage < 0.5) below = col;",
+    "  if (d >= 0.0) col = below;",
+    "  if (u_stage > 0.5 && u_stage < 1.5) col = coords;",
+    "",
+    "  float onePixel = 1.0 / u_resolution.y;",
+    "  if (u_stage > 0.5 && u_stage < 4.5 && abs(d) < onePixel) col = vec3(1.0, 0.85, 0.2);",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var WATER_COLORS = {
+    lake: [0.10, 0.35, 0.55],
+    pond: [0.15, 0.40, 0.30],
+    murky: [0.30, 0.28, 0.20]
+  };
+
+  var handle = null;
+  function changed() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="water"]');
+  var waveHeight = ui.slider({ label: 'Wave height', min: 0, max: 0.02, step: 0.001, value: 0.008, unit: ' UV', onInput: changed });
+  var speed = ui.slider({ label: 'Speed', min: 0, max: 3, step: 0.1, value: 1, onInput: changed });
+  var tint = ui.slider({ label: 'Tint', min: 0, max: 1, step: 0.05, value: 0.35, onInput: changed });
+  var color = ui.select({
+    label: 'Water colour',
+    options: [
+      { value: 'lake', label: 'Lake blue' },
+      { value: 'pond', label: 'Pond green' },
+      { value: 'murky', label: 'Murky brown' }
+    ],
+    value: 'lake',
+    onChange: changed
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Scene, no water' },
+      { value: '1', label: '2. Coordinate each pixel reads' },
+      { value: '2', label: '3. Plain mirror' },
+      { value: '3', label: '4. Wave (grey, before scaling)' },
+      { value: '4', label: '5. Bent mirror' },
+      { value: '5', label: '6. Final: tint and depth' }
+    ],
+    value: '5',
+    onChange: changed
+  });
+
+  handle = DemoKit.shader('#water-shader', {
+    fragment: fragment,
+    aspect: 16 / 10,
+    minHeight: 300,
+    maxHeight: 440,
+    label: 'A live fragment shader drawing a sunset scene with a hut, a tree, hills and a drifting cloud above a lake. The lake shows a rippling, tinted, upside-down reflection of the scene. Sliders set the wave height, wave speed and tint, a menu sets the water colour, and a stage menu shows each intermediate step of the shader.',
+    uniforms: {
+      u_waveHeight: function () { return waveHeight.value; },
+      u_speed: function () { return speed.value; },
+      u_tint: function () { return tint.value; },
+      u_waterColor: function () { return WATER_COLORS[color.value]; },
+      u_stage: function () { return Number(stage.value); }
+    }
+  });
+})();
+</script>
+</body>
+</html>

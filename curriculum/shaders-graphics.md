@@ -50,7 +50,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Dissolve** — How comparing noise with a threshold burns a sprite away with a glowing edge. Demo: a progress slider dissolves a sprite with sliders for edge width and edge colour. (published 2026-11-23, dissolve-noise-threshold)
 - [x] **Palette swap on the GPU** — How looking up colours in a palette texture recolours a sprite in the shader. Demo: choose a palette row to recolour a character with a slider that blends between two palettes. (published 2026-11-24, palette-swap-gpu)
 - [x] **Sprite outlines** — How sampling neighbouring texels for alpha draws an outline around a sprite. Demo: sliders for thickness and colour outline a sprite with a toggle between 4 and 8 samples. (published 2026-11-25, sprite-outlines-neighbour-alpha)
-- [ ] **2D water** — How distortion, scrolling and a tinted reflection make a water surface. Demo: sliders for wave height, speed and tint control water that reflects the scene above it.
+- [x] **2D water** — How distortion, scrolling and a tinted reflection make a water surface. Demo: sliders for wave height, speed and tint control water that reflects the scene above it. (published 2026-11-26, 2d-water-reflection)
 - [ ] **Fire** — How scrolling noise shaped by a gradient and mapped through a colour ramp becomes a flame. Demo: sliders for height, speed and turbulence shape a campfire.
 
 ## Track 5: Screen effects and post-processing

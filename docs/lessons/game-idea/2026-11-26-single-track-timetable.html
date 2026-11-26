@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Single Track Timetable: four trains, one line, one place to pass · Game Dev Daily</title>
+<meta name="description" content="A planning game where four trains share one track with a single passing loop, and you write the departure times before watching the day play out.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-26">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Single Track Timetable: four trains, one line, one place to pass</h1>
+  <p class="lede">A planning game where four trains share one track with a single passing loop, and you write the departure times before watching the day play out.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are the dispatcher of a country railway with one track, four trains and a single short stretch where two trains can pass. You write the timetable at your desk, press Play, and then you can only watch: the drivers will leave exactly when you told them, whatever is coming the other way.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: write the times, watch the day, read the chart</h2>
+  <p>The line is 10 km long, with West station at one end and East station at the other. Most of it is <dfn>single track</dfn>: one rail line used by trains in both directions. From km 6 to km 7 there is a <dfn>passing loop</dfn>, a short second track where an eastbound and a westbound train can stand side by side and pass each other.</p>
+  <p>Your only tool is the <dfn>timetable</dfn>: the minute each train leaves its station. Each train has a window its passengers will accept, so you cannot simply send them one at a time all day.</p>
+  <p>Every ten seconds you nudge one departure and watch how its line moves on the chart. Every minute you press Play and watch one day run, ending in a collision, a day with some waiting, or a perfect day. Every session is a week of days, each adding trains, loops or tighter windows.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: set the departure times, watch the day run, then read the chart for where lines touched, which leads back to setting times. Beside it, two longer loops: every minute one day of four trains, and every session a week of harder days with more trains and loops.">
+      <defs>
+        <marker id="st-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Set the times</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">drag one train's line</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Watch the day</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">only the loop signals</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Read the chart</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">where did lines touch?</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#st-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#st-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#st-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every try</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one day, four trains,</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">crash or perfect</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a week of days: more</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">trains, loops, windows</text>
+    </svg>
+    <figcaption>The short loop is one change to the timetable. The longer loops raise the number of trains that must share the line.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>The timetable is law.</strong> A train leaves its station at its set minute, even if another train is coming straight at it.</li>
+    <li><strong>One signal.</strong> At each end of the loop a signal holds a train that is about to leave the loop while a train going the other way is on the single track ahead. That is the only safety on the line.</li>
+    <li><strong>The loop holds one train each way.</strong> Two trains going the same way share a track everywhere, so a fast train that catches a slow one hits it.</li>
+    <li><strong>Collisions end the day.</strong> Two trains on the same track closer than 0.2 km have collided.</li>
+    <li><strong>The score is waiting.</strong> A train's <dfn>delay</dfn> is its arrival time minus its departure time minus its normal running time. A perfect day has no collision and zero total delay.</li>
+  </ul>
+
+  <h3>The train graph</h3>
+  <p>The game shows the plan on a <dfn>train graph</dfn>, the chart railways have long used to plan single lines: distance runs across, time runs down, and each train is a line. A steep line is a slow train. Where two lines cross, two trains are at the same place at the same time, which is only safe inside the shaded loop.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 264" role="img" aria-label="A track map above a train graph. The track runs from West at the left to East at the right, with a passing loop from km 6 to km 7. Below, time runs downward. An eastbound line and a westbound line cross inside the shaded loop column, so the trains pass. A second westbound line meets the eastbound line at km 5, outside the loop, marked with a red cross as a collision.">
+      <path class="d-stroke" d="M80 52 H560"/>
+      <path class="d-stroke" d="M356 52 L370 38 H414 L428 52"/>
+      <text class="d-muted" x="392" y="28" text-anchor="middle">passing loop</text>
+      <text class="d-text" x="80" y="76" text-anchor="middle">West</text>
+      <text class="d-text" x="560" y="76" text-anchor="middle">East</text>
+
+      <rect class="d-fill" x="368" y="90" width="48" height="112"/>
+      <path class="d-thin" d="M80 90 V202 M560 90 V202"/>
+      <text class="d-muted" x="70" y="95" text-anchor="end">0 min</text>
+      <text class="d-muted" x="70" y="175" text-anchor="end">10</text>
+
+      <path class="d-accent" d="M80 90 L560 170"/>
+      <path class="d-good" d="M560 114 L80 194"/>
+      <path class="d-bad" stroke-dasharray="5 4" d="M560 90 L320 130"/>
+      <path class="d-bad" d="M313 123 L327 137 M327 123 L313 137"/>
+
+      <path class="d-bad" d="M94 223 L104 233 M104 223 L94 233"/>
+      <text class="d-text" x="116" y="232">Lines meet on single track: collision</text>
+      <rect class="d-fill" x="92" y="242" width="14" height="14"/>
+      <text class="d-text" x="116" y="254">Lines cross inside the loop: the trains pass</text>
+    </svg>
+    <figcaption>The eastbound and westbound solid lines cross between km 6 and km 7, inside the loop, so those trains pass. A train sent from East three minutes earlier (red, dashed) would meet the eastbound train at km 5.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>The player fantasy is the calm planner whose work is judged later, not the signalman pulling levers in a panic. The constraint is that you act only before the day starts. Every decision is a prediction, and the chart is how you make it.</p>
+  <p>The one loop is what makes the times interact. It sits off-centre, so two trains leaving at the same minute do not meet in it. A slow freight occupies the line for twenty minutes and an express covers it in five, so the trains' lines have different slopes, and the place where two lines cross moves whenever you change one time.</p>
+  <p>The hardest part to build is not the simulation, which is under forty lines. It is the puzzle design: choosing windows so that at least one perfect day exists, the obvious first timetable fails, and the near misses are close enough to tempt. A brute-force search over every combination of departure minutes handles all three, and that is how the demo's windows were chosen.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The draft timetable crashes. Press Play to see where, then move the departures. Before you play, look at the dashed lines: any two that touch outside the shaded loop are trouble. The goal is a perfect day with no collision and no waiting; there are ten of them among about fourteen thousand timetables.</p>
+
+  <figure class="demo wide" data-demo="single-track-timetable">
+    <canvas id="single-track-timetable"></canvas>
+    <figcaption>Controls: drag a train's dashed line up or down on the chart, or use the sliders, to change when it leaves. With the keyboard, click the canvas, press <kbd>1</kbd> to <kbd>4</kbd> to pick a train, <kbd>Up</kbd> and <kbd>Down</kbd> (or <kbd>Left</kbd> and <kbd>Right</kbd>) to move its departure by a minute, and <kbd>Space</kbd> or <kbd>Enter</kbd> to play. Restart returns to minute 0 and keeps your timetable. With reduced motion, Play jumps straight to the end of the day.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The whole day in LÖVE: trains leave on time, move along the line, stop at the loop signal if something is coming, and the pair check finds collisions. Drawing is left out. The trains, numbers and draft timetable are the demo's.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local LINE, LOOP_A, LOOP_B, CRASH, STEP = 10, 6, 7, 0.2, 0.02   <span class="c">-- km, km, km, km, minutes</span>
+local EXIT, AHEAD = { [1] = LOOP_B, [-1] = LOOP_A }, { [1] = "east", [-1] = "west" }
+local trains = {                               <span class="c">-- speed in km per minute, dep in minutes</span>
+  { name = "Express", dir =  1, speed = 2,   dep = 4 },
+  { name = "Local W", dir = -1, speed = 1,   dep = 0 },
+  { name = "Local E", dir =  1, speed = 1,   dep = 0 },
+  { name = "Freight", dir = -1, speed = 0.5, dep = 2 },
+}
+local function section(p) return p &lt; LOOP_A and "west" or (p &gt; LOOP_B and "east" or "loop") end
+local function oncoming(tr, sec)               <span class="c">-- anyone heading the other way there?</span>
+  for _, o in ipairs(trains) do
+    if o.state == "running" and o.dir ~= tr.dir and section(o.pos) == sec then return true end
+  end
+end
+local function step(t)                         <span class="c">-- returns two trains if they collide</span>
+  for _, tr in ipairs(trains) do
+    if not tr.state and t &gt;= tr.dep then tr.state, tr.pos = "running", tr.dir == 1 and 0 or LINE end
+    if tr.state == "running" then
+      local nx, exit = tr.pos + tr.dir * tr.speed * STEP, EXIT[tr.dir]
+<span class="k">      if (tr.pos - exit) * tr.dir &lt;= 0 and (nx - exit) * tr.dir &gt; 0
+         and oncoming(tr, AHEAD[tr.dir]) then nx = exit end   -- the loop signal holds it</span>
+      tr.pos = nx
+      if nx &lt;= 0 or nx &gt;= LINE then tr.state = "arrived" end
+    end
+  end
+  for i = 1, #trains do for j = i + 1, #trains do
+    local a, b = trains[i], trains[j]
+    local sec = a.state == "running" and b.state == "running" and section(a.pos)
+    if sec and sec == section(b.pos) and (sec ~= "loop" or a.dir == b.dir)
+       and math.abs(a.pos - b.pos) &lt; CRASH then return a, b end
+  end end
+end
+local n, hitA, hitB = 0, nil, nil
+function love.update(dt)
+  local target = n * STEP + dt * 2             <span class="c">-- two minutes of the day per second</span>
+  while not hitA and n * STEP &lt; target do
+    hitA, hitB = step(n * STEP)
+    n = n + 1
+  end
+end</code></pre>
+  </div>
+  <p>The highlighted lines are the whole safety system: a train about to cross the loop exit checks the section ahead, and if a train going the other way is on it, it stops exactly at the exit. <code>EXIT</code> and <code>AHEAD</code> are looked up by direction, 1 for east and -1 for west. The loop's two tracks are why <code>section</code> returns <code>"loop"</code> and the collision test ignores trains passing each other there. Stepping the day in fixed steps of 0.02 minutes keeps every run identical, which a planning game needs: the same timetable must always give the same day.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Watching is boring.</strong> Twenty seconds of trains you cannot touch feels long on the tenth try. If testers drum their fingers, add a fast-forward and let them skip straight to the result once they have seen a day play out.</li>
+    <li><strong>The chart solves it for them.</strong> A good train graph shows every conflict before Play, and then the day is only a confirmation. That may be fine for a calm puzzle. If it feels flat, show only the plan lines for the first few days and hide them later, or add a train whose departure you do not control.</li>
+    <li><strong>Trial and error wins.</strong> With four sliders a player can poke until it works. Watch whether testers predict outcomes out loud. If they never do, give each day a limited number of Plays.</li>
+    <li><strong>Tiny timing ties.</strong> Two trains reaching a signal in the same step is decided by the order of the loop. Keep that order fixed, and design windows that do not depend on a tie; the brute-force search can flag those.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Railway management games usually let the player build the network and run trains continuously. <cite>OpenTTD</cite> has signals and a timetable for each vehicle, and players often build single lines with passing places. <cite>Factorio</cite> gives players rail signals and chain signals to keep trains apart on networks they build themselves. In <cite>Mini Metro</cite> the player draws lines and the trains run by themselves, with no timetable at all.</p>
+  <p>Single Track Timetable removes the building and the live control and keeps only the plan. It is closer to a logic puzzle than to a sandbox. Real single lines are worked with passing loops and with rules that allow only one train at a time on each section; this game deliberately keeps that rule only at the loop, so the timetable has to do the rest.</p>
+  <p>I have not played every railway puzzle game, so I will not claim no one has built this exact idea.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above and draw only the train graph: a vertical line per train from its departure point, extended down the screen as the day runs, with the loop as a shaded column. Use the four trains and windows from the demo, and keys to change one departure at a time.</p>
+  <p>Give it to three people with one sentence of rules. The one question: <strong>do players start reading the chart to predict a crash before they press Play?</strong> If you hear "these two will meet here", the chart is the game. If players only press Play and react, the planning is not visible enough yet; draw the lines larger and highlight crossings outside the loop before adding anything.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one line, one loop, four trains, the train graph, and ten hand-checked days, each with at least one perfect timetable found by brute force.</li>
+    <li><strong>One-month version:</strong> two and three loops, stations in the middle where passengers board, trains that must turn round and come back, and a week structure where each day reuses the previous day's trains.</li>
+    <li><strong>Cut first:</strong> money, buying trains and building track. They turn a sharp puzzle into a tycoon game and dilute the one decision, which train goes first.</li>
+    <li><strong>Hardest part:</strong> puzzle generation. Search every timetable, count perfect and near-perfect ones, and keep days where few are perfect and the earliest times fail.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: one train each day runs up to three minutes late, picked by a seeded roll the player sees only after Play, so the best timetable is the one with enough slack to survive it.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Edward R. Tufte, <cite>The Visual Display of Quantitative Information</cite> (Graphics Press). Discusses a historic French railway train graph as an example of a dense, readable chart.</li>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (New Riders, 2012). On designing systems whose behaviour the player predicts.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). On rules, constraints and meaningful choice.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On core loops and playtesting.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var LINE = 10, LOOP_A = 6, LOOP_B = 7, CRASH = 0.2, STEP = 0.02, DAY = 40, RATE = 2;
+  var TRAINS = [
+    { name: 'Express', dir: 1, speed: 2, min: 4, max: 14, dep: 4, col: 'topic' },
+    { name: 'Local W', dir: -1, speed: 1, min: 0, max: 10, dep: 0, col: 'good' },
+    { name: 'Local E', dir: 1, speed: 1, min: 0, max: 10, dep: 0, col: 'warn' },
+    { name: 'Freight', dir: -1, speed: 0.5, min: 2, max: 12, dep: 2, col: 'ink2' }
+  ];
+  var calm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var mode, n, acc, hit, msg, tone, selected = 0, drag = null, best = null, L = null, sliders = [];
+
+  function say(text, t) { msg = text; tone = t || 'ink2'; }
+  function section(p) { return p < LOOP_A ? 'west' : (p > LOOP_B ? 'east' : 'loop'); }
+  function start(tr) { return tr.dir === 1 ? 0 : LINE; }
+  function oncoming(tr, sec) {
+    for (var i = 0; i < TRAINS.length; i++) {
+      var o = TRAINS[i];
+      if (o.state === 'running' && o.dir !== tr.dir && section(o.pos) === sec) return true;
+    }
+    return false;
+  }
+
+  function reset() {
+    TRAINS.forEach(function (tr) { tr.state = null; tr.pos = start(tr); tr.arr = 0; tr.held = false; tr.trace = []; });
+    mode = 'plan'; n = 0; acc = 0; hit = null;
+    say('Dashed lines are your plan. Lines that touch outside the shaded loop mean trouble. Press Play.', 'ink2');
+  }
+
+  function delayOf(tr, t) {
+    if (tr.state === 'arrived') return tr.arr - tr.dep - LINE / tr.speed;
+    if (tr.state === 'running') return Math.max(0, (t - tr.dep) - Math.abs(tr.pos - start(tr)) / tr.speed);
+    return 0;
+  }
+  function totalDelay(t) { var d = 0; TRAINS.forEach(function (tr) { d += delayOf(tr, t); }); return d; }
+
+  // One fixed step of the day, in the same order as the Lua.
+  function step() {
+    var t = n * STEP;
+    for (var i = 0; i < TRAINS.length; i++) {
+      var tr = TRAINS[i];
+      if (!tr.state && t >= tr.dep) { tr.state = 'running'; tr.pos = start(tr); tr.trace.push([t, tr.pos]); }
+      if (tr.state !== 'running') continue;
+      var nx = tr.pos + tr.dir * tr.speed * STEP;
+      var exit = tr.dir === 1 ? LOOP_B : LOOP_A, ahead = tr.dir === 1 ? 'east' : 'west', wasHeld = tr.held;
+      tr.held = false;
+      if ((tr.pos - exit) * tr.dir <= 0 && (nx - exit) * tr.dir > 0 && oncoming(tr, ahead)) { nx = exit; tr.held = true; }
+      if (tr.held && !wasHeld) say(tr.name + ' waits at the loop signal for a train coming the other way.', 'warn');
+      tr.pos = nx;
+      if (nx <= 0 || nx >= LINE) {
+        tr.state = 'arrived';
+        tr.arr = t + STEP - Math.abs(nx - (LINE - start(tr))) / tr.speed;
+        tr.pos = LINE - start(tr);
+      }
+      tr.trace.push([t + STEP, tr.pos]);
+    }
+    n += 1;
+    for (var a = 0; a < TRAINS.length; a++) {
+      for (var b = a + 1; b < TRAINS.length; b++) {
+        var A = TRAINS[a], B = TRAINS[b];
+        var sec = A.state === 'running' && B.state === 'running' && section(A.pos);
+        if (sec && sec === section(B.pos) && (sec !== 'loop' || A.dir === B.dir) && Math.abs(A.pos - B.pos) < CRASH) {
+          hit = { t: n * STEP, pos: (A.pos + B.pos) / 2 }; mode = 'done';
+          say('Collision at minute ' + hit.t.toFixed(1) + ': ' + A.name + ' and ' + B.name +
+            (A.dir === B.dir ? ' ran into each other on the same track.' : ' met head-on on single track.') +
+            ' Change a departure and try again.', 'bad');
+          return;
+        }
+      }
+    }
+    var all = TRAINS.every(function (tr) { return tr.state === 'arrived'; });
+    if (all) {
+      mode = 'done';
+      var d = totalDelay(n * STEP);
+      if (best === null || d < best) best = d;
+      if (d < 0.05) say('Perfect day! All four trains arrived and nobody waited.', 'good');
+      else say('All four arrived safely, with ' + d.toFixed(1) + ' min of waiting. A perfect day has none.', 'ink');
+    } else if (n * STEP >= DAY) {
+      mode = 'done'; say('The day is over and not every train reached its station.', 'bad');
+    }
+  }
+
+  function play() {
+    if (mode === 'done') reset();
+    if (mode !== 'plan') return;
+    mode = 'run';
+    say('The day is running. Your timetable is law now.', 'ink2');
+    if (calm) { while (mode === 'run') step(); }
+  }
+
+  function setDep(i, v) {
+    var tr = TRAINS[i];
+    v = Math.max(tr.min, Math.min(tr.max, Math.round(v)));
+    selected = i;
+    if (v === tr.dep) return;
+    tr.dep = v; sliders[i].set(v);
+    reset();
+  }
+
+  function makeLayout(w, h) {
+    var mx = 44, mr = 16, top = 104, bottom = h - 62;
+    return { w: w, h: h, mx: mx, kw: (w - mx - mr) / LINE, top: top, bottom: bottom, pm: (bottom - top) / DAY };
+  }
+  function X(km) { return L.mx + km * L.kw; }
+  function Y(min) { return L.top + min * L.pm; }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height;
+    if (!L || L.w !== w || L.h !== h) L = makeLayout(w, h);
+    var t = n * STEP;
+
+    // HUD
+    ctx.font = '600 13px ' + FONT; ctx.textAlign = 'left'; ctx.fillStyle = c.ink;
+    ctx.fillText('Minute ' + t.toFixed(1) + ' of ' + DAY, 10, 18);
+    ctx.textAlign = 'right'; ctx.fillStyle = c.ink2;
+    ctx.fillText('Waiting ' + totalDelay(t).toFixed(1) + ' min' + (best !== null ? ', best ' + best.toFixed(1) : ''), w - 10, 18);
+
+    // Track map with the loop and its two signals
+    var ty = 62, ly = 46;
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0), ty); ctx.lineTo(X(LINE), ty);
+    ctx.moveTo(X(LOOP_A) - 10, ty); ctx.lineTo(X(LOOP_A), ly); ctx.lineTo(X(LOOP_B), ly); ctx.lineTo(X(LOOP_B) + 10, ty);
+    ctx.stroke();
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2; ctx.textAlign = 'center';
+    ctx.fillText('West', X(0), ty + 18); ctx.fillText('East', X(LINE), ty + 18); ctx.fillText('loop', (X(LOOP_A) + X(LOOP_B)) / 2, ly - 8);
+    var redE = mode !== 'plan' && TRAINS.some(function (o) { return o.state === 'running' && o.dir === -1 && section(o.pos) === 'east'; });
+    var redW = mode !== 'plan' && TRAINS.some(function (o) { return o.state === 'running' && o.dir === 1 && section(o.pos) === 'west'; });
+    [[X(LOOP_B) + 4, ly - 6, redE], [X(LOOP_A) - 4, ty + 8, redW]].forEach(function (sg) {
+      ctx.fillStyle = sg[2] ? c.bad : c.good; ctx.beginPath(); ctx.arc(sg[0], sg[1], 4, 0, Math.PI * 2); ctx.fill();
+    });
+    TRAINS.forEach(function (tr, i) {
+      if (tr.state !== 'running') return;
+      var yy = (tr.dir === 1 && section(tr.pos) === 'loop') ? ly : ty;
+      ctx.fillStyle = c[tr.col]; ctx.fillRect(X(tr.pos) - 9, yy - 6, 18, 12);
+      ctx.fillStyle = c.bg; ctx.font = '700 11px ' + FONT; ctx.fillText(String(i + 1), X(tr.pos), yy + 4);
+    });
+
+    // Train graph: distance across, time down
+    ctx.fillStyle = c.surface2; ctx.fillRect(X(LOOP_A), L.top, X(LOOP_B) - X(LOOP_A), L.bottom - L.top);
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.font = '12px ' + FONT; ctx.textAlign = 'right'; ctx.fillStyle = c.ink3;
+    for (var m = 0; m <= DAY; m += 10) {
+      ctx.beginPath(); ctx.moveTo(X(0), Y(m)); ctx.lineTo(X(LINE), Y(m)); ctx.stroke();
+      ctx.fillText(m + (m === 0 ? ' min' : ''), X(0) - 6, Y(m) + 4);
+    }
+    ctx.beginPath(); ctx.moveTo(X(0), L.top); ctx.lineTo(X(0), L.bottom); ctx.moveTo(X(LINE), L.top); ctx.lineTo(X(LINE), L.bottom); ctx.stroke();
+
+    TRAINS.forEach(function (tr, i) {
+      var x0 = X(start(tr)), x1 = X(LINE - start(tr)), y0 = Y(tr.dep), y1 = Y(tr.dep + LINE / tr.speed);
+      ctx.strokeStyle = c[tr.col]; ctx.lineWidth = i === selected ? 3 : 1.5; ctx.setLineDash([5, 4]);
+      ctx.globalAlpha = mode === 'plan' ? 1 : 0.5;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      if (tr.trace.length > 1) {
+        ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(X(tr.trace[0][1]), Y(tr.trace[0][0]));
+        for (var k = 1; k < tr.trace.length; k++) ctx.lineTo(X(tr.trace[k][1]), Y(tr.trace[k][0]));
+        ctx.stroke();
+      }
+      var lx = x0 + tr.dir * 12;
+      ctx.fillStyle = c[tr.col]; ctx.beginPath(); ctx.arc(lx, y0, 9, 0, Math.PI * 2); ctx.fill();
+      if (i === selected) { ctx.strokeStyle = c.ink; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.fillStyle = c.bg; ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), lx, y0 + 4);
+    });
+
+    if (mode !== 'plan') {
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(0), Y(t)); ctx.lineTo(X(LINE), Y(t)); ctx.stroke();
+    }
+    if (hit) {
+      var hx = X(hit.pos), hy = Y(hit.t);
+      ctx.strokeStyle = c.bad; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(hx - 8, hy - 8); ctx.lineTo(hx + 8, hy + 8); ctx.moveTo(hx + 8, hy - 8); ctx.lineTo(hx - 8, hy + 8); ctx.stroke();
+    }
+
+    // Message, kept clear of the Pause button in the bottom-right corner
+    ctx.textAlign = 'left'; ctx.font = '600 13px ' + FONT; ctx.fillStyle = c[tone] || c.ink2;
+    var lines = wrap(ctx, msg, w - 100);
+    for (var q = 0; q < lines.length; q++) ctx.fillText(lines[q], 10, h - 12 - (lines.length - 1 - q) * 17);
+  }
+
+  function wrap(ctx, text, maxW) {
+    var words = text.split(' '), lines = [], line = '';
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + ' ' + words[i] : words[i];
+      if (line && ctx.measureText(test).width > maxW && lines.length < 2) { lines.push(line); line = words[i]; }
+      else line = test;
+    }
+    lines.push(line);
+    return lines;
+  }
+
+  // Which train's planned line is closest to the pointer on the chart?
+  function pick(p) {
+    if (!L || p.y < L.top - 12 || p.y > L.bottom + 12) return -1;
+    var tm = (p.y - L.top) / L.pm, bestI = -1, bestD = 26;
+    TRAINS.forEach(function (tr, i) {
+      var lx = X(start(tr)) + tr.dir * 12, ly = Y(tr.dep);
+      var d = Math.hypot(p.x - lx, p.y - ly);
+      var run = (tm - tr.dep) * tr.speed;
+      if (run >= 0 && run <= LINE) d = Math.min(d, Math.abs(p.x - X(start(tr) + tr.dir * run)));
+      if (d < bestD) { bestD = d; bestI = i; }
+    });
+    return bestI;
+  }
+
+  var ui = DemoKit.controls('[data-demo="single-track-timetable"]');
+  TRAINS.forEach(function (tr, i) {
+    sliders.push(ui.slider({ label: (i + 1) + ' ' + tr.name + (tr.dir === 1 ? ' from West' : ' from East') + ', leaves at minute',
+      min: tr.min, max: tr.max, step: 1, value: tr.dep, onInput: function (v) { setDep(i, v); } }));
+  });
+  ui.button({ label: 'Play', onClick: play });
+  ui.button({ label: 'Restart', onClick: reset });
+
+  reset();
+  DemoKit.canvas('#single-track-timetable', {
+    height: 470,
+    keys: true,
+    drag: true,
+    label: 'Single Track Timetable prototype: a track map with a passing loop above a train graph of four trains. Set departure times, then play the day and see collisions and waiting.',
+    update: function (dt) {
+      if (mode !== 'run') return;
+      acc += dt * RATE;
+      while (acc >= STEP && mode === 'run') { acc -= STEP; step(); }
+    },
+    draw: draw,
+    onDown: function (p) {
+      var i = pick(p);
+      if (i < 0) return;
+      selected = i;
+      drag = { i: i, y0: p.y, dep0: TRAINS[i].dep };
+    },
+    onMove: function (p) {
+      if (!drag || !p.down) return;
+      setDep(drag.i, drag.dep0 + (p.y - drag.y0) / L.pm);
+    },
+    onUp: function () { drag = null; },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === '1' || key === '2' || key === '3' || key === '4') selected = Number(key) - 1;
+      else if (key === 'arrowdown' || key === 'arrowright') setDep(selected, TRAINS[selected].dep + 1);
+      else if (key === 'arrowup' || key === 'arrowleft') setDep(selected, TRAINS[selected].dep - 1);
+      else if (key === 'space' || key === 'enter') play();
+      else if (key === 'r') reset();
+    }
+  });
+})();
+</script>
+</body>
+</html>

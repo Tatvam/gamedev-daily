@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tweens and easing: moving values along a curve · Game Dev Daily</title>
+<meta name="description" content="How a tween turns elapsed time into a value with an easing curve, who owns and advances it, and how Godot's Tween and Unity coroutines do it.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-26">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Tweens and easing: moving values along a curve</h1>
+  <p class="lede">How a tween turns elapsed time into a value with an easing curve, who owns and advances it, and how Godot's Tween and Unity coroutines do it.</p>
+</header>
+
+<section data-section="hook">
+  <p>A menu panel slides in at constant speed and stops dead. A coin simply appears at full size. Nothing is broken, yet both feel cheap. Real objects speed up and slow down, and a small curve applied to time is the fix.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A tween is a value driven by time</h2>
+  <p>A <dfn>tween</dfn> (from "in-between") changes one value from a start <code>a</code> to an end <code>b</code> over a fixed <dfn>duration</dfn>. It simulates nothing: given the time passed, it says where the value should be. Every tween runs the same four steps each frame:</p>
+  <ol>
+    <li>Add the frame's delta time to <code>elapsed</code>.</li>
+    <li>Turn that into <dfn>progress</dfn>: <code>t = elapsed / duration</code>, clamped to 0..1.</li>
+    <li>Bend progress with an <dfn>easing function</dfn>: <code>e = ease(t)</code>.</li>
+    <li>Blend between the ends: <code>value = a + (b - a) * e</code>. This blend is called <dfn>lerp</dfn>, short for linear interpolation.</li>
+  </ol>
+  <p>Without step 3 the value moves at constant speed: <em>linear</em> motion, the mechanical menu panel.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 280" role="img" aria-label="Top: four boxes in a row joined by arrows: elapsed, plus dt each frame; t equals elapsed over d, clamped to 0 to 1; e equals ease of t, the curve; lerp of a, b and e, the value. Bottom left: a graph of the ease out quad curve with six equally spaced time ticks marked as dots on the curve. Bottom right: a track with the box positions at those six ticks, far apart at the start and bunched together near the end.">
+      <rect class="d-box" x="10" y="20" width="140" height="60" rx="8"/>
+      <text class="d-mono" x="80" y="45" text-anchor="middle">elapsed</text>
+      <text class="d-muted" x="80" y="66" text-anchor="middle">+= dt each frame</text>
+      <rect class="d-box" x="170" y="20" width="140" height="60" rx="8"/>
+      <text class="d-mono" x="240" y="45" text-anchor="middle">t = elapsed / d</text>
+      <text class="d-muted" x="240" y="66" text-anchor="middle">clamped to 0..1</text>
+      <rect class="d-accent-soft" x="330" y="20" width="140" height="60" rx="8"/>
+      <text class="d-mono" x="400" y="45" text-anchor="middle">e = ease(t)</text>
+      <text class="d-muted" x="400" y="66" text-anchor="middle">the curve</text>
+      <rect class="d-box" x="490" y="20" width="140" height="60" rx="8"/>
+      <text class="d-mono" x="560" y="45" text-anchor="middle">lerp(a, b, e)</text>
+      <text class="d-muted" x="560" y="66" text-anchor="middle">the value</text>
+      <path class="d-stroke" d="M151 50 H168 M163 45 L168 50 L163 55"/>
+      <path class="d-stroke" d="M311 50 H328 M323 45 L328 50 L323 55"/>
+      <path class="d-stroke" d="M471 50 H488 M483 45 L488 50 L483 55"/>
+
+      <text class="d-label" x="60" y="110">ease out (quad)</text>
+      <path class="d-thin" d="M60 240 H260 M60 240 V120"/>
+      <path class="d-dash" d="M60 120 H260"/>
+      <path class="d-accent" d="M60 240 Q160 120 260 120"/>
+      <circle class="d-accent-fill" cx="60" cy="240" r="4"/>
+      <circle class="d-accent-fill" cx="100" cy="196.8" r="4"/>
+      <circle class="d-accent-fill" cx="140" cy="163.2" r="4"/>
+      <circle class="d-accent-fill" cx="180" cy="139.2" r="4"/>
+      <circle class="d-accent-fill" cx="220" cy="124.8" r="4"/>
+      <circle class="d-accent-fill" cx="260" cy="120" r="4"/>
+      <text class="d-muted" x="46" y="244" text-anchor="end">0</text>
+      <text class="d-muted" x="46" y="124" text-anchor="end">1</text>
+      <text class="d-muted" x="28" y="184" text-anchor="middle">e</text>
+      <text class="d-muted" x="60" y="260" text-anchor="middle">0</text>
+      <text class="d-muted" x="260" y="260" text-anchor="middle">1</text>
+      <text class="d-muted" x="160" y="260" text-anchor="middle">t, equal steps</text>
+
+      <text class="d-label" x="330" y="150">box position at each tick</text>
+      <path class="d-stroke" d="M330 200 H610"/>
+      <circle class="d-accent-fill" cx="330" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="430.8" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="509.2" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="565.2" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="598.8" cy="200" r="5"/>
+      <circle class="d-accent-fill" cx="610" cy="200" r="5"/>
+      <text class="d-muted" x="330" y="228" text-anchor="middle">a</text>
+      <text class="d-muted" x="610" y="228" text-anchor="middle">b</text>
+      <text class="d-muted" x="470" y="254" text-anchor="middle">big steps first, then small ones</text>
+    </svg>
+    <figcaption>Time advances in equal steps. The easing curve decides how far the value moves in each one. With ease out, most of the distance is covered early and the value settles gently into place.</figcaption>
+  </figure>
+
+  <h2>Easing functions</h2>
+  <p>An easing function takes progress from 0 to 1 and returns a new number, with <code>ease(0) = 0</code> and <code>ease(1) = 1</code>. What happens in between is the feel. The common families are named by their shape:</p>
+  <ul>
+    <li><strong>Quad, cubic, sine:</strong> smooth power curves. <code>inQuad(t) = t * t</code> starts slow; <code>outQuad(t) = 1 - (1 - t)²</code> ends slow.</li>
+    <li><strong>In, out, in-out:</strong> <em>in</em> eases the start, <em>out</em> eases the end, <em>in-out</em> both. Things arriving on screen usually want <em>out</em>; things leaving want <em>in</em>.</li>
+    <li><strong>Back and elastic:</strong> overshoot past 1 and come back, so <code>e</code> can be 1.1 or more. Good for pops and bounces.</li>
+    <li><strong>Bounce:</strong> hits 1 several times, like a dropped ball.</li>
+  </ul>
+  <p>Most of these come from Robert Penner's easing equations, written for Flash in the early 2000s and copied into nearly every engine and tween library since. The names you see in Godot and in tween libraries for Unity follow his families.</p>
+
+  <h2>Who owns the tween, and when does it run</h2>
+  <p>A tween owns three things: its start and end values, its duration, and its <code>elapsed</code> clock. It does <em>not</em> own the property it writes. The node or GameObject owns that, and anything else that writes the same property every frame will fight the tween. Whichever writes last in the frame wins.</p>
+  <p><strong>Godot 4</strong> has a built-in <code>Tween</code> object. You make one with <code>create_tween()</code> on any node and add steps with <code>tween_property(object, "property", final_value, duration)</code>. Steps run one after another by default; <code>set_parallel(true)</code> makes them run together. The curve is chosen with two settings: <code>set_trans()</code> picks the family (<code>Tween.TRANS_QUAD</code>, <code>TRANS_BACK</code>, <code>TRANS_ELASTIC</code>, <code>TRANS_BOUNCE</code> and others) and <code>set_ease()</code> picks <code>EASE_IN</code>, <code>EASE_OUT</code> or <code>EASE_IN_OUT</code>. The SceneTree, not your node, advances every tween once per process frame. A tween made with <code>create_tween()</code> is bound to that node: it stops while the node is outside the tree and is killed when the node is freed.</p>
+  <p><strong>Unity</strong> (2022 LTS and Unity 6) has no general tween class for GameObjects. You write the four steps yourself, usually in a coroutine, or use a third-party library such as DOTween. A coroutine that does <code>yield return null</code> resumes once per frame after all <code>Update</code> calls and before <code>LateUpdate</code>. It belongs to the MonoBehaviour that started it and stops when that GameObject is destroyed or deactivated. For the curve you can write the formula, or expose an <code>AnimationCurve</code> field and call <code>Evaluate(t)</code>, so a designer can draw the easing in the Inspector.</p>
+  <p>The trade-off: Godot gives you sequences, parallel steps and named curves for free, from fixed families. Unity makes you write the loop, but it is plain code you can debug, and an <code>AnimationCurve</code> can be any shape.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>With <strong>outQuad</strong> the box covers most of the track early, then settles. Switch to <strong>linear</strong>: the ticks under the track become evenly spaced. Try <strong>outBack</strong> and <strong>outElastic</strong> and watch the dot rise above the 1 line as the box passes its end marker. Drag <strong>Time t</strong>, or focus the canvas and use the arrow keys, to scrub by hand. Space or <strong>Play</strong> restarts.</p>
+
+  <figure class="demo" data-demo="tween">
+    <canvas id="tween"></canvas>
+    <figcaption>Top: the curve, <code>t</code> across and <code>e</code> up. Below: one box whose position, size and opacity all use the same <code>e</code>. Ticks mark the box at each tenth of the duration. The model leaves out what engines add on top: sequences, delays, loops and callbacks.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A LÖVE 11 program with the demo's numbers: one second, x from 60 to 460, scale 0.5 to 1.5, opacity 0.15 to 1, all from one eased value. <kbd>Space</kbd> replays; <kbd>Left</kbd> and <kbd>Right</kbd> pick the easing.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Space replays, Left/Right change the easing.</span>
+local ease = {}
+function ease.linear(t) return t end
+function ease.inQuad(t) return t * t end
+function ease.outQuad(t) return 1 - (1 - t) * (1 - t) end
+function ease.inOutQuad(t)
+  if t &lt; 0.5 then return 2 * t * t end
+  return 1 - (2 - 2 * t) ^ 2 / 2
+end
+function ease.outCubic(t) return 1 - (1 - t) ^ 3 end
+function ease.inOutSine(t) return (1 - math.cos(math.pi * t)) / 2 end
+function ease.outBack(t)
+  local c1 = 1.70158
+  return 1 + (c1 + 1) * (t - 1) ^ 3 + c1 * (t - 1) ^ 2
+end
+function ease.outElastic(t)
+  if t == 0 or t == 1 then return t end
+  return 2 ^ (-10 * t) * math.sin((t * 10 - 0.75) * (2 * math.pi / 3)) + 1
+end
+function ease.outBounce(t)
+  local n, d = 7.5625, 2.75
+  if t &lt; 1 / d then return n * t * t end
+  if t &lt; 2 / d then t = t - 1.5 / d; return n * t * t + 0.75 end
+  if t &lt; 2.5 / d then t = t - 2.25 / d; return n * t * t + 0.9375 end
+  t = t - 2.625 / d
+  return n * t * t + 0.984375
+end
+
+local NAMES = { "linear", "inQuad", "outQuad", "inOutQuad", "outCubic",
+                "inOutSine", "outBack", "outElastic", "outBounce" }
+local choice = 3                         <span class="c">-- outQuad</span>
+local DURATION = 1.0
+local FROM_X, TO_X = 60, 460
+local elapsed = 0
+local x, scale, alpha = FROM_X, 0.5, 0.15
+
+local function lerp(a, b, e) return a + (b - a) * e end
+
+function love.update(dt)
+<span class="k">  elapsed = math.min(elapsed + dt, DURATION)    -- 1. advance the clock
+  local t = elapsed / DURATION                   -- 2. progress 0..1
+  local e = ease[NAMES[choice]](t)               -- 3. bend it
+  x = lerp(FROM_X, TO_X, e)                      -- 4. blend each value</span>
+  scale = lerp(0.5, 1.5, e)
+  alpha = math.max(0, math.min(1, lerp(0.15, 1, e)))  <span class="c">-- overshoot must not break colour</span>
+end
+
+function love.keypressed(key)
+  if key == "space" then elapsed = 0 end
+  if key == "right" then choice = choice % #NAMES + 1; elapsed = 0 end
+  if key == "left" then choice = (choice - 2) % #NAMES + 1; elapsed = 0 end
+end
+
+function love.draw()
+  local size = 36 * scale
+  love.graphics.setColor(0.2, 0.45, 0.85, alpha)
+  love.graphics.rectangle("fill", x - size / 2, 200 - size / 2, size, size)
+  love.graphics.setColor(0.5, 0.5, 0.5)
+  love.graphics.line(FROM_X, 240, FROM_X, 250)
+  love.graphics.line(TO_X, 240, TO_X, 250)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.print(NAMES[choice] .. string.format("   t = %.2f", elapsed / DURATION), 20, 20)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># tween_box.gd for Godot 4. Attach to a Sprite2D with any texture (icon.svg works)</span>
+<span class="c"># in a new 2D scene. ui_accept (Space or Enter by default) replays the tween.</span>
+extends Sprite2D
+
+const FROM_X := 60.0
+const TO_X := 460.0
+const DURATION := 1.0
+
+var tween: Tween
+
+func _ready() -&gt; void:
+    play_tween()
+
+func play_tween() -&gt; void:
+    if tween:
+        tween.kill()                   <span class="c"># never let two tweens fight over one property</span>
+    position = Vector2(FROM_X, 200)
+    scale = Vector2(0.5, 0.5)
+    modulate.a = 0.15
+<span class="k">    tween = create_tween().set_parallel(true)
+    tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)   # outQuad
+    tween.tween_property(self, "position:x", TO_X, DURATION)
+    tween.tween_property(self, "scale", Vector2(1.5, 1.5), DURATION)
+    tween.tween_property(self, "modulate:a", 1.0, DURATION)</span>
+    tween.finished.connect(func(): print("tween finished"))
+
+func _unhandled_input(event: InputEvent) -&gt; void:
+    if event.is_action_pressed("ui_accept"):
+        play_tween()
+
+<span class="c"># Other curves from the demo: TRANS_BACK, TRANS_ELASTIC or TRANS_BOUNCE with EASE_OUT,</span>
+<span class="c"># TRANS_SINE with EASE_IN_OUT. Godot's constants may differ slightly from the Lua ones.</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// TweenBox.cs for Unity 2022 LTS or Unity 6. Add to a GameObject with a SpriteRenderer.</span>
+<span class="c">// Positions are in world units, so the track is -4 to 4 instead of 60 to 460 pixels.</span>
+<span class="c">// Right-click the component header and choose Replay to run it again.</span>
+using System.Collections;
+using UnityEngine;
+
+[RequireComponent(typeof(SpriteRenderer))]
+public class TweenBox : MonoBehaviour
+{
+    public float fromX = -4f, toX = 4f, duration = 1f;
+    public bool useCurve = false;   <span class="c">// tick to use the curve drawn in the Inspector</span>
+    public AnimationCurve curve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+
+    SpriteRenderer spriteRenderer;
+    Coroutine running;
+
+    static float OutQuad(float t) =&gt; 1f - (1f - t) * (1f - t);
+
+    void Awake() =&gt; spriteRenderer = GetComponent&lt;SpriteRenderer&gt;();
+    void Start() =&gt; Replay();
+
+    [ContextMenu("Replay")]
+    void Replay()
+    {
+        if (running != null) StopCoroutine(running);   <span class="c">// one tween per property</span>
+        running = StartCoroutine(Tween());
+    }
+
+    IEnumerator Tween()
+    {
+        float elapsed = 0f;
+        while (true)
+        {
+<span class="k">            elapsed = Mathf.Min(elapsed + Time.deltaTime, duration);
+            float t = elapsed / Mathf.Max(duration, 0.0001f);
+            float e = useCurve ? curve.Evaluate(t) : OutQuad(t);
+            transform.position = new Vector3(Mathf.LerpUnclamped(fromX, toX, e), 0f, 0f);</span>
+            transform.localScale = Vector3.one * Mathf.LerpUnclamped(0.5f, 1.5f, e);
+            Color c = spriteRenderer.color;
+            c.a = Mathf.Clamp01(Mathf.LerpUnclamped(0.15f, 1f, e));
+            spriteRenderer.color = c;
+            if (elapsed &gt;= duration) yield break;
+            yield return null;          <span class="c">// resume next frame, after Update</span>
+        }
+    }
+}</code></pre>
+  </div>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Starting a second tween on the same property.</strong> Press a button twice and two tweens write <code>position</code> every frame; the result jitters or ends in the wrong place. Keep a reference and kill the old tween first (<code>tween.kill()</code> in Godot, <code>StopCoroutine</code> in Unity).</li>
+    <li><strong>A clamped lerp eats the overshoot.</strong> Unity's <code>Mathf.Lerp</code> and <code>Vector3.Lerp</code> clamp their third argument to 0..1, so a back or elastic curve loses its overshoot. Use <code>LerpUnclamped</code>. Do clamp values that must stay in range, such as alpha.</li>
+    <li><strong>Lerping toward the target every frame is not a tween.</strong> <code>x = lerp(x, target, 0.1)</code> is exponential smoothing: it depends on frame rate unless scaled by delta time, and never quite arrives.</li>
+    <li><strong>Pausing and time scale.</strong> A tween that reads scaled time freezes when the game pauses. In Unity use <code>Time.unscaledDeltaTime</code> for menus that animate during a pause. In Godot a bound tween follows its node's pause behaviour, which you set on the node.</li>
+    <li><strong>Tweening a physics body.</strong> If the physics engine also moves the object, the two fight. Tween a kinematic body, and in Godot consider <code>set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)</code> so the tween runs in the physics step.</li>
+    <li><strong>Performance.</strong> The maths is a few multiplications. Allocation is the real cost: a new tween object per hit on hundreds of enemies makes garbage, which is why tween libraries pool them.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Easing is everywhere in game interfaces: menus that slide and settle, damage numbers that pop with an overshoot and fade, health bars that drain smoothly instead of jumping. The talk <cite>Juice it or lose it</cite> by Martin Jonasson and Petri Purho (2012) turned a plain block-breaker lively step by step, and many of its steps were tweens of position, scale and rotation.</p>
+  <p>CSS transitions have <code>ease-in</code>, <code>ease-out</code> and <code>ease-in-out</code> timing functions, and Unity tween libraries such as DOTween offer an <code>Ease</code> setting with names like <code>OutQuad</code> and <code>OutBack</code> from Penner's families.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a pickup, button or popup in your project that appears instantly. Make it pop: tween its scale from 0 to 1 over 0.3 seconds with an <em>out back</em> curve (<code>TRANS_BACK</code> with <code>EASE_OUT</code> in Godot, or the <code>outBack</code> formula with <code>LerpUnclamped</code> in Unity). Then trigger it again while it is still playing. You are done when a rapid second trigger restarts the pop cleanly, with no flicker from two tweens fighting.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Every tween is four steps: advance <code>elapsed</code>, compute <code>t = elapsed / duration</code>, apply <code>e = ease(t)</code>, then <code>lerp(a, b, e)</code>.</li>
+    <li>The easing curve keeps time steps equal and changes how far the value moves in each one.</li>
+    <li>Use <em>out</em> for things arriving, <em>in</em> for things leaving, and back or elastic for overshoot.</li>
+    <li>The tween owns its clock, not the property: kill the old tween before starting a new one on the same value.</li>
+    <li>Godot gives you a built-in <code>Tween</code> advanced by the SceneTree; in Unity you write a coroutine (or use a library) and an <code>AnimationCurve</code> for custom shapes.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we choose between whole animations instead of single values: animation state machines, with Godot's AnimationTree and Unity's Animator Controller blending idle, walk and run.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Robert Penner, <cite>Robert Penner's Programming Macromedia Flash MX</cite>, the chapter on motion, tweening and easing, which introduced his easing equations.</li>
+    <li>Godot Engine documentation, class reference for <cite>Tween</cite> and <cite>PropertyTweener</cite> (Godot 4).</li>
+    <li>Unity Technologies, Unity Manual, <cite>Coroutines</cite> and <cite>Order of execution for event functions</cite>, and the scripting reference for <cite>AnimationCurve</cite> and <cite>Mathf.LerpUnclamped</cite>.</li>
+    <li>Martin Jonasson and Petri Purho, <cite>Juice it or lose it</cite>, conference talk, 2012.</li>
+    <li>Andrey Sitnik and Ivan Solovev, <cite>Easing Functions Cheat Sheet</cite> (easings.net), plots and formulas for each curve.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var C1 = 1.70158;
+  var EASE = {
+    linear: function (t) { return t; },
+    inQuad: function (t) { return t * t; },
+    outQuad: function (t) { return 1 - (1 - t) * (1 - t); },
+    inOutQuad: function (t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(2 - 2 * t, 2) / 2; },
+    outCubic: function (t) { return 1 - Math.pow(1 - t, 3); },
+    inOutSine: function (t) { return (1 - Math.cos(Math.PI * t)) / 2; },
+    outBack: function (t) { return 1 + (C1 + 1) * Math.pow(t - 1, 3) + C1 * Math.pow(t - 1, 2); },
+    outElastic: function (t) {
+      if (t === 0 || t === 1) return t;
+      return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+    },
+    outBounce: function (t) {
+      var n = 7.5625, d = 2.75;
+      if (t < 1 / d) return n * t * t;
+      if (t < 2 / d) { t -= 1.5 / d; return n * t * t + 0.75; }
+      if (t < 2.5 / d) { t -= 2.25 / d; return n * t * t + 0.9375; }
+      t -= 2.625 / d;
+      return n * t * t + 0.984375;
+    }
+  };
+  var NAMES = ['linear', 'inQuad', 'outQuad', 'inOutQuad', 'outCubic', 'inOutSine', 'outBack', 'outElastic', 'outBounce'];
+
+  var E_MIN = -0.25, E_MAX = 1.45;   // vertical range of the plot
+  var HOLD = 0.8;                    // pause at the end before replaying
+  var mode = 'run';                  // 'run', 'hold' or 'scrub'
+  var elapsed = 0, holdTimer = 0;
+
+  function lerp(a, b, e) { return a + (b - a) * e; }
+  function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+  function dur() { return Math.max(0.2, duration.value); }
+  function progress() { return clamp(elapsed / dur(), 0, 1); }
+
+  var ui = DemoKit.controls('[data-demo="tween"]');
+  var easing = ui.select({
+    label: 'Easing',
+    options: NAMES,
+    value: 'outQuad',
+    onChange: function () { restart(); }
+  });
+  var duration = ui.slider({
+    label: 'Duration', min: 0.2, max: 3, step: 0.1, value: 1, unit: ' s',
+    onInput: function () { redraw(); }
+  });
+  var timeSlider = ui.slider({
+    label: 'Time t', min: 0, max: 1, step: 0.01, value: 0,
+    onInput: function (v) { mode = 'scrub'; elapsed = v * dur(); redraw(); }
+  });
+  var doMove = ui.toggle({ label: 'Move', value: true, onChange: function () { redraw(); } });
+  var doScale = ui.toggle({ label: 'Scale', value: true, onChange: function () { redraw(); } });
+  var doFade = ui.toggle({ label: 'Fade', value: true, onChange: function () { redraw(); } });
+  var ticks = ui.toggle({ label: 'Equal time ticks', value: true, onChange: function () { redraw(); } });
+  ui.button({ label: 'Play', onClick: function () { restart(); if (handle) handle.play(); } });
+
+  function restart() {
+    mode = 'run';
+    elapsed = 0;
+    holdTimer = 0;
+    redraw();
+  }
+
+  function scrub(delta) {
+    mode = 'scrub';
+    elapsed = clamp(progress() + delta, 0, 1) * dur();
+    redraw();
+  }
+
+  function redraw() {
+    timeSlider.set(progress());
+    if (handle) handle.redraw();
+  }
+
+  var handle = DemoKit.canvas('#tween', {
+    height: 400,
+    keys: true,
+    label: 'An easing curve plot and a box that moves, grows and fades in along a track as a tween plays. Arrow keys scrub time, space replays.',
+    update: function (dt) {
+      if (mode === 'run') {
+        elapsed = Math.min(elapsed + dt, dur());
+        if (elapsed >= dur()) { mode = 'hold'; holdTimer = 0; }
+      } else if (mode === 'hold') {
+        holdTimer += dt;
+        if (holdTimer >= HOLD) { mode = 'run'; elapsed = 0; }
+      }
+      if (mode !== 'scrub') timeSlider.set(progress());
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowright') scrub(0.05);
+      if (key === 'arrowleft') scrub(-0.05);
+      if (key === 'space' || key === ' ') restart();
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var w = s.width, pad = 12;
+      var f = EASE[easing.value] || EASE.linear;
+      var t = progress();
+      var e = f(t);
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+
+      // ---- curve plot ----
+      var px = pad + 22, py = 22;
+      var pw = Math.min(240, w * 0.48), ph = 160;
+      function sx(tt) { return px + tt * pw; }
+      function sy(ee) { return py + (E_MAX - ee) / (E_MAX - E_MIN) * ph; }
+
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(px, py, pw, ph);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, sy(0)); ctx.lineTo(px + pw, sy(0));
+      ctx.stroke();
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(px, sy(1)); ctx.lineTo(px + pw, sy(1));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'right';
+      ctx.fillText('0', px - 5, sy(0) + 4);
+      ctx.fillText('1', px - 5, sy(1) + 4);
+      ctx.textAlign = 'left';
+      ctx.fillText('t →', px + pw - 26, py + ph + 16);
+      ctx.fillText('e', px - 16, py + 12);
+
+      // the curve itself
+      ctx.strokeStyle = c.topic;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (var i = 0; i <= 160; i++) {
+        var tt = i / 160;
+        var yy = sy(f(tt));
+        if (i === 0) ctx.moveTo(sx(tt), yy); else ctx.lineTo(sx(tt), yy);
+      }
+      ctx.stroke();
+
+      if (ticks.value) {
+        ctx.fillStyle = c.ink3;
+        for (var k = 0; k <= 10; k++) {
+          ctx.beginPath();
+          ctx.arc(sx(k / 10), sy(f(k / 10)), 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // current position on the curve
+      ctx.strokeStyle = c.ink2;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(sx(t), py + ph); ctx.lineTo(sx(t), sy(e));
+      ctx.lineTo(px, sy(e));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(sx(t), sy(e), 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- readouts ----
+      var rx = px + pw + 16;
+      ctx.fillStyle = c.ink;
+      ctx.fillText(easing.value, rx, 40);
+      ctx.fillStyle = c.ink2;
+      ctx.fillText('elapsed ' + (t * dur()).toFixed(2) + ' s', rx, 64);
+      ctx.fillText('t = ' + t.toFixed(2), rx, 86);
+      ctx.fillStyle = e > 1.0001 ? c.warn : c.ink2;
+      ctx.fillText('e = ' + e.toFixed(2), rx, 108);
+      ctx.fillStyle = c.ink3;
+      var status = mode === 'scrub' ? 'scrubbing' : (mode === 'hold' ? 'finished' : 'playing');
+      ctx.fillText(status, rx, 130);
+
+      // ---- track ----
+      var ty = 300;
+      var x0 = pad + 30;
+      var x1 = x0 + (w - pad - 36 - x0) / 1.4;   // room for overshoot up to e = 1.4
+      ctx.fillStyle = c.ink2;
+      ctx.fillText(ticks.value ? 'Ticks: the box at each tenth of the time' : 'The tweened box', pad, 236);
+
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pad, ty + 40); ctx.lineTo(w - pad, ty + 40);
+      ctx.stroke();
+
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x0, 250); ctx.lineTo(x0, ty + 46);
+      ctx.moveTo(x1, 250); ctx.lineTo(x1, ty + 46);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.ink3;
+      ctx.textAlign = 'center';
+      ctx.fillText('from', x0, ty + 62);
+      ctx.fillText('to', x1, ty + 62);
+      ctx.textAlign = 'left';
+
+      if (ticks.value && doMove.value) {
+        ctx.strokeStyle = c.ink2;
+        ctx.lineWidth = 2;
+        for (var m = 0; m <= 10; m++) {
+          var gx = lerp(x0, x1, f(m / 10));
+          ctx.beginPath();
+          ctx.moveTo(gx, ty + 34); ctx.lineTo(gx, ty + 46);
+          ctx.stroke();
+        }
+      }
+
+      var bx = doMove.value ? lerp(x0, x1, e) : (x0 + x1) / 2;
+      var size = 36 * (doScale.value ? Math.max(0, lerp(0.5, 1.5, e)) : 1);
+      var alpha = doFade.value ? clamp(lerp(0.15, 1, e), 0, 1) : 1;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = c.topic;
+      ctx.fillRect(bx - size / 2, ty - size / 2, size, size);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.ink;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx - size / 2, ty - size / 2, size, size);
+    }
+  });
+
+  redraw();
+})();
+</script>
+</body>
+</html>

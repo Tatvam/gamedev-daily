@@ -54,7 +54,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 
 ## Track 5: Springs, constraints, and soft bodies
 
-- [ ] **Springs and the law of Hooke** — How a spring pulls back in proportion to how far it is stretched. Demo: drag a weight on a spring and release it with sliders for stiffness and rest length.
+- [x] **Springs and the law of Hooke** — How a spring pulls back in proportion to how far it is stretched. Demo: drag a weight on a spring and release it with sliders for stiffness and rest length. (published 2026-11-26, springs-hookes-law)
 - [ ] **Damping** — How damping removes energy and what under-damped, critically damped and over-damped motion look like. Demo: a damping slider changes the motion of a spring and its position graph.
 - [ ] **Stiff springs and instability** — Why very stiff springs explode at large timesteps and how substeps tame them. Demo: raise a stiffness slider until the system blows up and then add substeps to make it stable again.
 - [ ] **Distance constraints** — How moving positions directly keeps two points a fixed distance apart. Demo: drag one end of a rigid stick with a slider for constraint iterations.
