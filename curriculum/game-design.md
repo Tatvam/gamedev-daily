@@ -51,7 +51,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 - [x] **Perceived fairness and pseudo-random distribution** — Why true randomness feels unfair in streaks and how raising the chance after each miss fixes it. Demo: Attack with a nominal 25 percent critical hit chance under true random and pseudo-random distribution, with histograms of streak lengths. (published 2026-11-24, pseudo-random-distribution)
 - [x] **Pity timers** — How guaranteed rewards after a run of bad luck cap the worst case. Demo: Open loot boxes thousands of times with a slider for the pity threshold and a chart of how many openings each rare item took. (published 2026-11-25, pity-timers)
 - [x] **Shuffle bags** — How drawing from a bag without replacement keeps variety while preventing droughts and floods. Demo: A falling piece generator switches between pure random and a shuffled bag, with a chart of the longest wait for each piece. (published 2026-11-26, shuffle-bags)
-- [ ] **Loot tables and rarity** — How weighted drop tables work and how long it really takes to collect a full set. Demo: Edit drop weights for five items, run a thousand drops, and chart the number of drops needed to collect every item.
+- [x] **Loot tables and rarity** — How weighted drop tables work and how long it really takes to collect a full set. Demo: Edit drop weights for five items, run a thousand drops, and chart the number of drops needed to collect every item. (published 2026-11-27, loot-tables-rarity)
 
 ## Track 5: Combat, puzzles and emergent systems
 

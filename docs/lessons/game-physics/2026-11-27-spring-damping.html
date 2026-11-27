@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Damping: making springs settle · Game Dev Daily</title>
+<meta name="description" content="How a force against the velocity lets a spring settle, and how one damping ratio picks under-damped, critically damped or over-damped motion.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Damping: making springs settle</h1>
+  <p class="lede">How a force against the velocity lets a spring settle, and how one damping ratio picks under-damped, critically damped or over-damped motion.</p>
+</header>
+
+<section data-section="hook">
+  <p>Yesterday's lantern on a spring never stops bouncing. Put that spring behind a follow camera and the screen bobs for the whole level. Guess a "friction" number and the camera either still wobbles or drags behind the player as if through syrup.</p>
+  <p>Damping is the dial between those two failures, and one number, the damping ratio, tells you where on the dial you are.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A force against the velocity</h2>
+  <p><dfn>Damping</dfn> is anything that takes energy out of motion. For a spring, the simplest damping is a force that pushes against the velocity:</p>
+<pre><code>Fdamp = -c * v</code></pre>
+  <p>In words: the faster the body moves, the harder the damper pushes back, always in the opposite direction. A body standing still feels nothing. The number <code>c</code> is the <dfn>damping coefficient</dfn>. It is force per unit of speed, so with mass in kilograms and distance in pixels it is in kg/s.</p>
+  <p>A real version is a <dfn>dashpot</dfn>: a piston in oil, as in a car's shock absorber.</p>
+  <p>Add it to the spring from yesterday:</p>
+<pre><code>F = -k * x - c * v</code></pre>
+  <p>In words: the spring pulls the body back towards rest in proportion to the stretch <code>x</code>, and the damper resists any movement at all, in either direction. Gravity is added on top as before.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Left: a mass hanging from a ceiling by a spring and a damper side by side. The spring force is minus k x, the damper force is minus c v. Right: a graph of offset from rest against time for three damping ratios. With ratio 0.2 the curve swings past zero several times with shrinking swings. With ratio 1 it falls smoothly to zero quickly without crossing. With ratio 2.5 it creeps down slowly and is still above zero at the end.">
+      <rect class="d-fill" x="40" y="24" width="200" height="12"/>
+      <path class="d-stroke" d="M90 36 V46 L100 52 L80 64 L100 76 L80 88 L100 100 L80 112 L100 124 L90 130 V150"/>
+      <path class="d-stroke" d="M190 36 V84 M178 84 H202 M172 66 V114 H208 V66 M190 114 V150"/>
+      <rect class="d-accent-soft" x="60" y="150" width="160" height="40" rx="4"/>
+      <text class="d-text" x="140" y="175" text-anchor="middle">mass m</text>
+      <path class="d-stroke" d="M248 156 V180"/>
+      <polygon class="d-accent-fill" points="242,178 254,178 248,188"/>
+      <text class="d-label" x="256" y="176">v</text>
+      <g text-anchor="middle">
+        <text class="d-text" x="90" y="214">spring</text>
+        <text class="d-mono" x="90" y="232">−k·x</text>
+        <text class="d-text" x="190" y="214">damper</text>
+        <text class="d-mono" x="190" y="232">−c·v</text>
+      </g>
+      <path class="d-thin" d="M330 50 V200 M330 140 H620"/>
+      <text class="d-muted" x="336" y="42">offset from rest</text>
+      <text class="d-muted" x="322" y="144" text-anchor="end">0</text>
+      <text class="d-muted" x="620" y="176" text-anchor="end">time</text>
+      <path class="d-accent" d="M330.0 60.0 L335.6 63.8 L341.2 74.1 L346.8 89.3 L352.4 107.3 L358.0 126.2 L363.6 144.2 L369.2 159.6 L374.8 171.5 L380.4 179.0 L386.0 182.0 L391.6 180.9 L397.2 176.1 L402.8 168.5 L408.4 159.3 L414.0 149.3 L419.6 139.7 L425.2 131.2 L430.8 124.5 L436.4 120.1 L442.0 118.0 L447.6 118.2 L453.2 120.3 L458.8 124.1 L464.4 128.8 L470.0 134.0 L475.6 139.2 L481.2 143.8 L486.8 147.5 L492.4 150.1 L498.0 151.5 L503.6 151.6 L509.2 150.7 L514.8 148.9 L520.4 146.4 L526.0 143.7 L531.6 141.0 L537.2 138.5 L542.8 136.4 L548.4 134.9 L554.0 134.1 L559.6 133.9 L565.2 134.2 L570.8 135.1 L576.4 136.3 L582.0 137.7 L587.6 139.2 L593.2 140.5 L598.8 141.7 L604.4 142.5 L610.0 143.1"/>
+      <path class="d-good" d="M330.0 60.0 L335.6 63.2 L341.2 70.5 L346.8 79.4 L352.4 88.6 L358.0 97.2 L363.6 105.0 L369.2 111.6 L374.8 117.2 L380.4 121.9 L386.0 125.7 L391.6 128.7 L397.2 131.2 L402.8 133.2 L408.4 134.7 L414.0 135.9 L419.6 136.8 L425.2 137.6 L430.8 138.1 L436.4 138.6 L442.0 138.9 L447.6 139.2 L453.2 139.4 L458.8 139.5 L464.4 139.6 L470.0 139.7 L481.2 139.8 L498.0 139.9 L509.2 140.0 L610.0 140.0"/>
+      <path class="d-dash" d="M330.0 60.0 L335.6 62.5 L341.2 66.8 L346.8 71.3 L352.4 75.7 L358.0 79.7 L363.6 83.6 L369.2 87.1 L374.8 90.5 L380.4 93.6 L386.0 96.6 L391.6 99.3 L397.2 101.9 L402.8 104.3 L408.4 106.6 L414.0 108.7 L419.6 110.7 L425.2 112.6 L430.8 114.3 L436.4 115.9 L442.0 117.5 L447.6 118.9 L453.2 120.2 L458.8 121.5 L464.4 122.7 L470.0 123.8 L475.6 124.8 L481.2 125.8 L486.8 126.7 L492.4 127.5 L498.0 128.3 L503.6 129.0 L509.2 129.7 L514.8 130.4 L520.4 131.0 L526.0 131.6 L531.6 132.1 L537.2 132.6 L542.8 133.1 L548.4 133.5 L554.0 133.9 L559.6 134.3 L565.2 134.7 L570.8 135.0 L576.4 135.3 L582.0 135.6 L587.6 135.9 L593.2 136.2 L598.8 136.4 L604.4 136.6 L610.0 136.8"/>
+      <path class="d-accent" d="M340 216 H362"/>
+      <text class="d-text" x="368" y="220">ζ = 0.2, under</text>
+      <path class="d-good" d="M480 216 H502"/>
+      <text class="d-text" x="508" y="220">ζ = 1, critical</text>
+      <path class="d-dash" d="M340 238 H362"/>
+      <text class="d-text" x="368" y="242">ζ = 2.5, over</text>
+    </svg>
+    <figcaption>Left: a spring and a damper share the load. The spring cares how far the body is from rest; the damper cares how fast it moves. Right: the same release with three amounts of damping. Only the critical curve gets to zero quickly without crossing it.</figcaption>
+  </figure>
+
+  <h3>One step by hand</h3>
+  <p>Use the demo's numbers: mass 1 kg, stiffness <code>k = 40</code>, damping <code>c = 2.53</code> kg/s (where that comes from is below). The weight passes its hanging point moving down at 200 px/s. Screen y points down.</p>
+  <ul>
+    <li>At the hanging point the spring and gravity cancel, so only the damper acts: <code>-2.53 * 200 = -506</code>, that is 506 upward.</li>
+    <li>Acceleration: <code>-506 / 1 = -506</code> px/s².</li>
+    <li>One step of 1/60 s, velocity first: <code>200 - 506/60 = 191.6</code> px/s. Then position moves <code>191.6/60 = 3.19</code> px.</li>
+    <li>Without damping it would have moved 3.33 px.</li>
+  </ul>
+
+  <h2>One number instead of c: the damping ratio</h2>
+  <p>Alone, <code>c</code> means nothing: 10 nearly stops a light, soft spring and barely touches a heavy, stiff one. What matters is how it compares with the <dfn>critical damping</dfn>:</p>
+<pre><code>cCritical = 2 * sqrt(k * m)</code></pre>
+  <p>In words: stiffer springs and heavier bodies need more damping to stop overshooting. For <code>k = 40</code> and 1 kg that is <code>2 * sqrt(40) = 12.65</code> kg/s.</p>
+  <p>The <dfn>damping ratio</dfn>, written with the Greek letter zeta (<code>ζ</code>), is how much damping you have compared with that:</p>
+<pre><code>c = 2 * zeta * sqrt(k * m)</code></pre>
+  <p>In words: choose the ratio, then compute <code>c</code> from it. A ratio of 0.2 gives <code>2 * 0.2 * 6.325 = 2.53</code>, the value used in the step above. Change the stiffness or mass and the motion keeps its character.</p>
+  <p>The ratio splits the motion into three kinds:</p>
+  <ul>
+    <li><strong>Under-damped</strong>, <code>0 &lt; ζ &lt; 1</code>: the body overshoots and swings, and each swing is smaller than the last by the same fraction. Zero means no damping at all: it swings forever.</li>
+    <li><strong>Critically damped</strong>, <code>ζ = 1</code>: the body comes back as fast as it can without ever passing the rest point.</li>
+    <li><strong>Over-damped</strong>, <code>ζ &gt; 1</code>: no overshoot, but the body creeps the last part of the way. The larger the ratio, the slower.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Real physics versus game physics</p>
+    <p>Critical damping is the fastest return that never overshoots, which is why it is the usual answer for cameras and anything that must not wobble. It is not always the fastest to look still. In the demo, a ratio of 0.8 overshoots by less than a pixel and is within 1 px of rest after 0.72 s, while critical damping takes 1.07 s. Games also pick ratios well below 1 on purpose for menus and squashy characters, because a small overshoot reads as life. Choose by feel.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The demo starts with no damping, yesterday's bug: the left weight never stops, while the grey, critically damped one settles in about a second. Try the presets. Watch the settle time readout: it falls as you raise the ratio to about 0.8, then climbs again through 1 and keeps climbing as you go over-damped. Try 0.8 and compare it with critical. Then change the stiffness: the motion keeps its shape.</p>
+
+  <figure class="demo" data-demo="damping">
+    <canvas id="damping"></canvas>
+    <figcaption>The green arrow is the damping force, always against the velocity arrow. The dashed graph lines are the decay envelope. To repeat the step worked by hand, press "Under-damped", let it settle, focus the canvas and press the down arrow (adds 200 px/s). Space pulls, R resets, and you can drag the weight.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's spring with the same numbers, a fixed step of 1/60 s and semi-implicit Euler. The weight starts 80 px below where it hangs still.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local mass = 1
+local stiffness = 40        <span class="c">-- kg/s^2</span>
+local dampingRatio = 0.2    <span class="c">-- 0 = none, 1 = critical</span>
+local restLength = 120      <span class="c">-- pixels</span>
+local gravity = 600         <span class="c">-- pixels per second squared, down</span>
+local anchorY = 40
+<span class="c">-- hangs still at restLength + mass * gravity / stiffness = 135 px below</span>
+local weight = { y = anchorY + 135 + 80, vy = 0 }
+local accumulator = 0
+
+<span class="c">-- Turn the ratio into a damping coefficient c (kg/s)</span>
+local function dampingCoefficient()
+<span class="k">  return 2 * dampingRatio * math.sqrt(stiffness * mass)</span>
+end
+
+local function step(dt)
+  local stretch = (weight.y - anchorY) - restLength
+  local springForce = -stiffness * stretch
+  <span class="c">-- the anchor never moves, so weight.vy is how fast the stretch changes</span>
+<span class="k">  local dampingForce = -dampingCoefficient() * weight.vy</span>
+  local force = springForce + dampingForce + mass * gravity
+  weight.vy = weight.vy + force / mass * dt   <span class="c">-- velocity first</span>
+  weight.y = weight.y + weight.vy * dt        <span class="c">-- then position</span>
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.line(200, anchorY, 200, weight.y)
+  love.graphics.circle("fill", 200, weight.y, 14)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># On a RigidBody2D hanging from a fixed point. Godot applies gravity.</span>
+extends RigidBody2D
+
+@export var anchor := Vector2(200, 40)   <span class="c"># global position</span>
+@export var stiffness := 40.0
+@export var rest_length := 120.0
+@export var damping_ratio := 0.2
+
+func _physics_process(_delta: float) -&gt; void:
+    var d := global_position - anchor
+    var length := d.length()
+    if length &lt; 0.0001:
+        return
+    var dir := d / length
+    var c := 2.0 * damping_ratio * sqrt(stiffness * mass)
+<span class="k">    var stretch_speed := linear_velocity.dot(dir)
+    var f := -stiffness * (length - rest_length) - c * stretch_speed</span>
+    apply_central_force(f * dir)</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// On a GameObject with a Rigidbody2D. Unity works in metres.</span>
+using UnityEngine;
+
+public class DampedSpring2D : MonoBehaviour
+{
+    public Vector2 anchor = new Vector2(0f, 4f);
+    public float stiffness = 40f;
+    public float restLength = 1.2f;
+    public float dampingRatio = 0.2f;
+    Rigidbody2D body;
+
+    void Awake() { body = GetComponent&lt;Rigidbody2D&gt;(); }
+
+    void FixedUpdate()
+    {
+        Vector2 d = body.position - anchor;
+        float length = d.magnitude;
+        if (length &lt; 0.0001f) return;
+        Vector2 dir = d / length;
+        float c = 2f * dampingRatio * Mathf.Sqrt(stiffness * body.mass);
+        <span class="c">// linearVelocity is called velocity before Unity 6</span>
+<span class="k">        float stretchSpeed = Vector2.Dot(body.linearVelocity, dir);
+        float f = -stiffness * (length - restLength) - c * stretchSpeed;</span>
+        body.AddForce(f * dir);
+    }
+}</code></pre>
+  </div>
+  <p>In 2D the engine versions damp only the velocity along the spring, so the weight still swings sideways freely. Ready-made versions: Godot's <code>DampedSpringJoint2D</code> has a <code>damping</code> property, and Unity's <code>SpringJoint2D</code> takes a <code>dampingRatio</code> next to its <code>frequency</code>.</p>
+  <p>Body damping is different: Godot's <code>linear_damp</code> and Unity's <code>linearDamping</code> (<code>drag</code> before Unity 6) slow the whole velocity all the time, like air. Godot also applies a small default linear damping from the project settings, so an undamped spring may still settle slowly there.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Damping the world velocity instead of the stretch speed.</strong> With a fixed anchor they are the same. On a moving cart they are not: the lantern resists the cart's motion and trails behind as if in syrup. Damp the difference between the two ends' velocities.</li>
+    <li><strong>Multiplying the velocity by 0.98 every frame.</strong> The amount then depends on the frame rate, and on nothing about the spring.</li>
+    <li><strong>Tuning <code>c</code> by hand and then changing the spring.</strong> A camera that was smooth at <code>k = 40</code> wobbles at <code>k = 160</code> with the same <code>c</code>, because the ratio has halved. Store the ratio and compute <code>c</code>.</li>
+    <li><strong>Too much damping explodes.</strong> With semi-implicit Euler, once <code>c * dt / m</code> passes about 2, each step reverses the velocity and makes it bigger. At 60 steps per second and 1 kg that is near <code>c = 120</code>, which a very stiff spring with a high ratio can reach. Use substeps, or apply the damping as <code>v = v / (1 + c * dt / m)</code>, the stable form from the drag lesson.</li>
+    <li><strong>Treating over-damping as "safe".</strong> A ratio of 3 takes about four times as long as critical damping to settle in the demo. Sluggish is a bug too.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Engines expose the ratio because designers can reason about it. Unity's <code>SpringJoint2D</code> uses a damping ratio and a frequency, and Box2D tunes its spring joints the same way in its version 3 API. Unity's <code>WheelCollider</code> suspension has a spring value and a separate damper value.</p>
+  <p>Damped springs also drive cameras that settle and UI that pops into place. Unity's <code>Mathf.SmoothDamp</code> eases a value to a target without overshooting, as a critically damped spring does.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Make your camera follow a target with a damped spring: the target is the anchor, the rest length is zero, and the camera is the weight. Expose a stiffness and a damping ratio.</p>
+  <p>Teleport the target 300 pixels and watch. You are done when a ratio of 1 never overshoots, a ratio of 0.4 overshoots and settles, and doubling the stiffness makes the camera faster without changing that character.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Damping is a force against the velocity, <code>-c * v</code>.</li>
+    <li>The coefficient <code>c</code> means little alone. Choose a damping ratio and compute <code>c = 2 * ζ * sqrt(k * m)</code>.</li>
+    <li>Below 1 the body overshoots and swings; at 1 it returns fastest without overshoot; above 1 it creeps.</li>
+    <li>For a spring between two moving things, damp the speed at which the stretch changes, not the world velocity.</li>
+    <li>Very large damping can explode. Keep <code>c * dt / m</code> well below 2.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson raises the stiffness until the spring blows up, and shows how substeps make it stable again.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Spring Physics</cite>, part of his Game Physics article series on Gaffer On Games. Springs and damping in a game loop.</li>
+    <li>Ian Millington, <cite>Game Physics Engine Development</cite>. Covers spring forces and damping in a particle engine.</li>
+    <li>David Halliday, Robert Resnick and Jearl Walker, <cite>Fundamentals of Physics</cite>. The chapter on oscillations treats the damped harmonic oscillator.</li>
+    <li>Godot Engine documentation, <cite>DampedSpringJoint2D</cite> and <cite>RigidBody2D</cite> class references, and Unity Manual, <cite>Spring Joint 2D</cite>. The built-in springs and body damping settings.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STEP = 1 / 60;          // fixed timestep, seconds
+  var MASS = 1;               // kg
+  var GRAVITY = 600;          // px/s², down
+  var REST = 120;             // rest length, px
+  var RADIUS = 14;            // weight radius, px
+  var ANCHOR_Y = 48;          // anchor height on the canvas, px
+  var HISTORY = 240;          // graph samples: 4 s at 60 steps per second
+  var GRAPH_H = 90;
+  var GRAPH_BOTTOM_GAP = 44;  // keeps the bottom-right corner free for the Pause button
+  var GRAPH_RANGE = 100;      // graph shows offsets from -100 to +100 px
+  var PULL = 80;              // px below the hanging point
+  var KICK = 200;             // px/s added by an arrow key
+  var FORCE_SCALE = 0.04;     // px of arrow per unit of force
+  var VEL_SCALE = 0.12;       // px of arrow per px/s
+  var ARROW_MAX = 90;
+  var SETTLE_PX = 1;          // "settled" means within 1 px of the hanging point
+  var SETTLE_SPEED = 10;      // and slower than 10 px/s
+  var SETTLE_HOLD = 0.5;      // for at least half a second
+
+  var DEFAULT_RATIO = 0;
+  var DEFAULT_K = 40;
+
+  var ui = DemoKit.controls('[data-demo="damping"]');
+  var ratio = ui.slider({ label: 'Damping ratio ζ', min: 0, max: 3, step: 0.05, value: DEFAULT_RATIO,
+    onInput: disturb });
+  var stiffness = ui.slider({ label: 'Stiffness k', min: 20, max: 200, step: 5, value: DEFAULT_K, unit: ' kg/s²',
+    onInput: disturb });
+  ui.button({ label: 'No damping (0)', onClick: function () { preset(0); } });
+  ui.button({ label: 'Under-damped (0.2)', onClick: function () { preset(0.2); } });
+  ui.button({ label: 'Critical (1)', onClick: function () { preset(1); } });
+  ui.button({ label: 'Over-damped (2.5)', onClick: function () { preset(2.5); } });
+  var compare = ui.toggle({ label: 'Compare with critical damping (ζ = 1)', value: true });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  ui.button({ label: 'Pull down 80 px and let go', onClick: function () { pull(); } });
+  ui.button({ label: 'Reset', onClick: function () { reset(); } });
+  var coefOut = ui.readout({ label: 'Damping coefficient' });
+  var kindOut = ui.readout({ label: 'Motion' });
+  var settleOut = ui.readout({ label: 'Settle time (within 1 px)' });
+
+  // Two weights: "main" uses the slider ratio, "ghost" is always critically damped.
+  // y is the distance below the anchor, v the velocity, both with y pointing down.
+  var main, ghost, simTime, accumulator, history, dragging;
+  var sceneBottom = 250;      // largest y below the anchor the weight may be dragged to
+
+  function newBody() {
+    return { y: 0, v: 0, t0: null, enter: null, settled: null, a0: null };
+  }
+
+  function hangY() { return REST + MASS * GRAVITY / stiffness.value; }
+  function coefficient(z) { return 2 * z * Math.sqrt(stiffness.value * MASS); }
+
+  // Start measuring from now. a0 is the release offset, or null when not released from rest.
+  function startMeasure(b, a0) {
+    b.t0 = simTime;
+    b.enter = null;
+    b.settled = null;
+    b.a0 = a0;
+  }
+
+  function stopMeasure(b) {
+    b.t0 = null;
+    b.enter = null;
+    b.settled = null;
+    b.a0 = null;
+  }
+
+  function release(b, offset) {
+    b.y = hangY() + offset;
+    b.v = 0;
+    startMeasure(b, offset);
+  }
+
+  function pull() {
+    var offset = Math.min(PULL, sceneBottom - hangY());
+    release(main, offset);
+    release(ghost, offset);
+  }
+
+  function reset() {
+    ratio.set(DEFAULT_RATIO);
+    stiffness.set(DEFAULT_K);
+    main = newBody();
+    ghost = newBody();
+    simTime = 0;
+    accumulator = 0;
+    history = [];
+    dragging = false;
+    pull();
+  }
+
+  function disturb() {
+    stopMeasure(main);
+    stopMeasure(ghost);
+  }
+
+  function preset(z) {
+    ratio.set(z);
+    pull();
+  }
+
+  function kick(dv) {
+    main.v += dv;
+    ghost.v += dv;
+    startMeasure(main, null);
+    startMeasure(ghost, null);
+  }
+
+  function stepBody(b, z, dt) {
+    var stretch = b.y - REST;
+    var springForce = -stiffness.value * stretch;
+    var dampingForce = -coefficient(z) * b.v;
+    var force = springForce + dampingForce + MASS * GRAVITY;
+    b.v += force / MASS * dt;      // semi-implicit Euler: velocity first
+    b.y += b.v * dt;               // then position
+    return isFinite(b.y) && Math.abs(b.y) < 5000;
+  }
+
+  function track(b) {
+    if (b.t0 === null || b.settled !== null) return;
+    var off = b.y - hangY();
+    if (Math.abs(off) < SETTLE_PX && Math.abs(b.v) < SETTLE_SPEED) {
+      if (b.enter === null) b.enter = simTime;
+      if (simTime - b.enter >= SETTLE_HOLD) b.settled = b.enter - b.t0;
+    } else {
+      b.enter = null;
+    }
+  }
+
+  function step(dt) {
+    simTime += dt;
+    if (!dragging) {
+      var ok = stepBody(main, ratio.value, dt) && stepBody(ghost, 1, dt);
+      if (!ok) { reset(); return; }
+      track(main);
+      track(ghost);
+    }
+    var hang = hangY();
+    history.push({ a: main.y - hang, b: ghost.y - hang });
+    if (history.length > HISTORY) history.shift();
+  }
+
+  function grab(p) {
+    var y = DemoKit.clamp(p.y - ANCHOR_Y, RADIUS + 10 - ANCHOR_Y, sceneBottom);
+    main.y = y; main.v = 0;
+    ghost.y = y; ghost.v = 0;
+    stopMeasure(main);
+    stopMeasure(ghost);
+  }
+
+  function arrow(ctx, x1, y1, x2, y2, color) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 3) return;
+    var ux = dx / len, uy = dy / len;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux * 7, y2 - uy * 7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux * 10 - uy * 5, y2 - uy * 10 + ux * 5);
+    ctx.lineTo(x2 - ux * 10 + uy * 5, y2 - uy * 10 - ux * 5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function clampLen(v) { return DemoKit.clamp(v, -ARROW_MAX, ARROW_MAX); }
+
+  function drawSpring(ctx, x, ay, by, color) {
+    var len = by - ay;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, ay);
+    if (Math.abs(len) < 1) { ctx.stroke(); return; }
+    var dir = len > 0 ? 1 : -1;
+    var L = Math.abs(len);
+    var coils = 14, amp = 7, lead = Math.min(8, L * 0.1);
+    ctx.lineTo(x, ay + dir * lead);
+    for (var i = 0; i < coils; i++) {
+      var t = lead + (L - 2 * lead) * (i + 0.5) / coils;
+      ctx.lineTo(x + (i % 2 === 0 ? amp : -amp), ay + dir * t);
+    }
+    ctx.lineTo(x, by - dir * lead);
+    ctx.lineTo(x, by);
+    ctx.stroke();
+  }
+
+  function drawHangTick(ctx, x, hy, color, label) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x - 36, hy);
+    ctx.lineTo(x - 22, hy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (label) {
+      ctx.fillStyle = color;
+      ctx.textAlign = 'right';
+      ctx.fillText('hangs here', x - 40, hy + 4);
+    }
+  }
+
+  function fmtSettle(b) {
+    if (b.t0 === null) return 'press Pull to measure';
+    if (b.settled === null) return 'still moving';
+    return b.settled.toFixed(2) + ' s';
+  }
+
+  function motionKind(z) {
+    if (z < 0.001) return 'undamped: never settles';
+    if (z < 0.999) return 'under-damped: overshoots, swings shrink';
+    if (z <= 1.001) return 'critically damped: fastest without overshoot';
+    return 'over-damped: no overshoot, slow creep';
+  }
+
+  reset();
+
+  DemoKit.canvas('#damping', {
+    height: 460,
+    drag: true,
+    keys: true,
+    label: 'A weight on a damped spring next to a critically damped one. Drag the weight and let go, or use the presets, and compare how quickly each settles. A graph below shows the offset from the hanging point over time.',
+    onResize: function (s) {
+      sceneBottom = s.height - GRAPH_BOTTOM_GAP - GRAPH_H - 10 - RADIUS - ANCHOR_Y;
+    },
+    onDown: function (p, s) {
+      if (p.y > s.height - GRAPH_BOTTOM_GAP - GRAPH_H - 6) return;
+      dragging = true;
+      grab(p);
+    },
+    onMove: function (p) { if (dragging) grab(p); },
+    onUp: function () {
+      if (!dragging) return;
+      dragging = false;
+      var offset = main.y - hangY();
+      release(main, offset);
+      release(ghost, offset);
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'arrowdown') kick(KICK);
+      else if (key === 'arrowup') kick(-KICK);
+      else if (key === 'space') pull();
+      else if (key === 'r') reset();
+    },
+    update: function (dt) {
+      accumulator += Math.min(dt, 0.25);
+      var guard = 0;
+      while (accumulator >= STEP && guard < 20) {
+        step(STEP);
+        accumulator -= STEP;
+        guard += 1;
+      }
+      if (guard === 20) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors;
+      var z = ratio.value;
+      var both = compare.value;
+      var mx = both ? Math.round(s.width * 0.32) : Math.round(s.width * 0.5);
+      var gx = Math.round(s.width * 0.70);
+      var hang = hangY();
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+
+      // Ceiling.
+      var left = mx - 50, right = (both ? gx : mx) + 50;
+      ctx.fillStyle = c.surface2;
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      ctx.fillRect(left, ANCHOR_Y - 18, right - left, 10);
+      ctx.strokeRect(left + 0.5, ANCHOR_Y - 17.5, right - left - 1, 9);
+
+      // Labels above the ceiling.
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.topic;
+      ctx.fillText('yours: ζ = ' + z.toFixed(2), mx, 18);
+      if (both) {
+        ctx.fillStyle = c.ink2;
+        ctx.fillText('critical: ζ = 1', gx, 18);
+      }
+
+      if (debug.value) {
+        drawHangTick(ctx, mx, ANCHOR_Y + hang, c.ink2, true);
+        if (both) drawHangTick(ctx, gx, ANCHOR_Y + hang, c.ink3, false);
+      }
+
+      // Ghost first, so the main weight draws on top.
+      if (both) {
+        drawSpring(ctx, gx, ANCHOR_Y, ANCHOR_Y + ghost.y, c.ink3);
+        ctx.fillStyle = c.ink3;
+        ctx.beginPath(); ctx.arc(gx, ANCHOR_Y, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(gx, ANCHOR_Y + ghost.y, RADIUS, 0, Math.PI * 2); ctx.fill();
+      }
+      drawSpring(ctx, mx, ANCHOR_Y, ANCHOR_Y + main.y, c.ink2);
+      ctx.fillStyle = c.ink;
+      ctx.beginPath(); ctx.arc(mx, ANCHOR_Y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = c.topic;
+      var by = ANCHOR_Y + main.y;
+      ctx.beginPath(); ctx.arc(mx, by, RADIUS, 0, Math.PI * 2); ctx.fill();
+
+      if (debug.value && !dragging) {
+        var vLen = clampLen(main.v * VEL_SCALE);
+        var dLen = clampLen(-coefficient(z) * main.v * FORCE_SCALE);
+        arrow(ctx, mx - 24, by, mx - 24, by + vLen, c.ink2);
+        arrow(ctx, mx + 24, by, mx + 24, by + dLen, c.good);
+        if (Math.abs(vLen) >= 3) {
+          ctx.fillStyle = c.ink2;
+          ctx.textAlign = 'right';
+          ctx.fillText('v', mx - 30, by + vLen / 2 + 4);
+        }
+        if (Math.abs(dLen) >= 3) {
+          ctx.fillStyle = c.good;
+          ctx.textAlign = 'left';
+          ctx.fillText('damping', mx + 32, by + dLen / 2 + 4);
+        }
+      }
+
+      // Graph of offset from the hanging point over time.
+      var gx0 = 12, gx1 = s.width - 12;
+      var gy1 = s.height - GRAPH_BOTTOM_GAP, gy0 = gy1 - GRAPH_H;
+      var mid = (gy0 + gy1) / 2;
+      var scale = (GRAPH_H / 2 - 4) / GRAPH_RANGE;
+      ctx.fillStyle = c.surface2;
+      ctx.fillRect(gx0, gy0, gx1 - gx0, GRAPH_H);
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1;
+      for (var k = 1; k < 4; k++) {
+        var tx = Math.round(gx0 + (gx1 - gx0) * k / 4) + 0.5;
+        ctx.beginPath(); ctx.moveTo(tx, gy0); ctx.lineTo(tx, gy1); ctx.stroke();
+      }
+      ctx.strokeStyle = c.ink3;
+      ctx.beginPath(); ctx.moveTo(gx0, Math.round(mid) + 0.5); ctx.lineTo(gx1, Math.round(mid) + 0.5); ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(gx0, gy0, gx1 - gx0, GRAPH_H);
+      ctx.clip();
+      var n = history.length;
+      var startIndex = HISTORY - n;
+      function colX(i) { return gx0 + (gx1 - gx0) * (startIndex + i) / (HISTORY - 1); }
+
+      // Decay envelope of the main weight, for under-damped releases from rest.
+      if (debug.value && main.a0 !== null && main.t0 !== null && z > 0 && z <= 0.9 && n > 1) {
+        var omega = Math.sqrt(stiffness.value / MASS);
+        var amp = Math.abs(main.a0) / Math.sqrt(1 - z * z);
+        ctx.strokeStyle = c.good;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        for (var sign = -1; sign <= 1; sign += 2) {
+          ctx.beginPath();
+          var started = false;
+          for (var j = 0; j < n; j++) {
+            var tj = simTime - (n - 1 - j) * STEP;
+            if (tj < main.t0) continue;
+            var e = amp * Math.exp(-z * omega * (tj - main.t0));
+            var ey = mid + sign * e * scale;
+            if (!started) { ctx.moveTo(colX(j), ey); started = true; } else ctx.lineTo(colX(j), ey);
+          }
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+
+      function curve(key, color, width) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        for (var i = 0; i < n; i++) {
+          var py = mid + history[i][key] * scale;
+          if (i === 0) ctx.moveTo(colX(i), py); else ctx.lineTo(colX(i), py);
+        }
+        ctx.stroke();
+      }
+      if (n > 1) {
+        if (both) curve('b', c.ink3, 1.5);
+        curve('a', c.topic, 2);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = c.ink2;
+      ctx.textAlign = 'left';
+      ctx.fillText('offset from hang point, last 4 s', gx0 + 4, gy0 - 6);
+      ctx.textAlign = 'right';
+      ctx.fillText('now', gx1 - 4, gy0 - 6);
+
+      var cNow = coefficient(z), cCrit = coefficient(1);
+      coefOut.set('c = ' + cNow.toFixed(2) + ' kg/s (critical: ' + cCrit.toFixed(2) + ')');
+      kindOut.set(motionKind(z));
+      settleOut.set(both ? 'yours ' + fmtSettle(main) + ' · critical ' + fmtSettle(ghost) : 'yours ' + fmtSettle(main));
+    }
+  });
+})();
+</script>
+</body>
+</html>

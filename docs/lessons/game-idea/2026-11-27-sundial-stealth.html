@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sundial Stealth: wind the sun, hide in what it casts · Game Dev Daily</title>
+<meta name="description" content="A stealth game where you turn the sun forward to move the shadows you hide in, and the day only runs one way. Playable prototype and Lua code.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="10">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Sundial Stealth: wind the sun, hide in what it casts</h1>
+  <p class="lede">A stealth game where you turn the sun forward to move the shadows you hide in, and the day only runs one way. Playable prototype and Lua code.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a thief who stole the hand of the courtyard sundial, and now the sun goes where you push it. The guards only see you in sunlight, so every shadow is a hiding place you can move, but the day only turns forward and the gate locks at sunset.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: read the light, turn the hour, slip through</h2>
+  <p>The courtyard is seen from above: stone pillars, two guards, and a gem on a pedestal. You enter at the bottom left, take the gem, and leave by the gate on the right.</p>
+  <p>Guards have a <dfn>vision cone</dfn>: a wedge in front of them, with a limited range, inside which they can notice you. Here they notice you only when you are standing in sunlight. Inside a shadow you are invisible, even in the middle of a cone.</p>
+  <p>You have one tool: the time of day. Winding it forward moves the sun across the sky, which swings every shadow around its pillar and stretches or shrinks it. Morning shadows are long and point west. At noon they are short stubs pointing north. In the evening they grow long again, pointing east.</p>
+  <p>Every ten seconds you are looking at the gap between where you are and where you want to be, and asking "is there an hour when a shadow covers that?" Every minute you make one crossing of the courtyard. Every session is a string of courtyards, each with its own pillars and its own budget of daylight.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read the light and find the next safe shadow, wind the sun forward until a shadow covers the gap, then slip across while the guards look away, which leads back to reading the light. Beside it, two longer loops: every minute one crossing of the courtyard, and every session a string of courtyards, each with a fixed budget of daylight.">
+      <defs>
+        <marker id="ss-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Read the light</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">where is it dark next?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Wind the sun</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">forward only</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Slip across</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">while the guard turns</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#ss-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#ss-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#ss-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one crossing of</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">the courtyard</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">new courtyards,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">one day of light each</text>
+    </svg>
+    <figcaption>The short loop is a question about light; the minute loop spends daylight to answer it.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>Sunlight is visibility.</strong> A guard spots you only if you are in sunlight, inside their cone, and no pillar stands between you. Being seen fills an alarm meter in about half a second; a full meter sends you and the gem back to the start.</li>
+    <li><strong>The sun is yours, but it turns one way.</strong> The day runs from 6:00 to 18:00. You can move it forward as fast or as slowly as you like, and never back. Getting caught does not refund the hours you spent.</li>
+    <li><strong>Guards keep their own time.</strong> They patrol in real time. The sun decides where you can hide; the guards decide when you can move.</li>
+    <li><strong>Goal.</strong> Carry the gem out of the right-hand gate before sunset. A good run uses fewer hours and raises no alarms.</li>
+  </ul>
+
+  <h3>How a pillar casts its shadow</h3>
+  <p>Seen from above, a round pillar's shadow is a <dfn>capsule</dfn>: the pillar's circle dragged in a straight line, away from the sun. Two numbers describe it. The direction is opposite the sun's direction across the sky. The length is the pillar's height divided by the tangent of the sun's <dfn>elevation</dfn>, its angle above the horizon. A low sun has a small tangent, so the shadow is long; a high sun gives a short one.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Left: a side view of a pillar of height h lit by a sun at elevation angle e, casting a shadow of length h divided by tan e along the ground. Right: a top view of the same pillar as a circle, with its shadow drawn as a capsule stretching away from the sun, and a point that counts as in shadow when its distance to the capsule's centre line is at most the pillar radius.">
+      <defs>
+        <marker id="ss-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <text class="d-label" x="150" y="22" text-anchor="middle">Side view</text>
+      <path class="d-stroke" d="M20 180 H300"/>
+      <rect class="d-box" x="236" y="80" width="24" height="100"/>
+      <text class="d-text" x="272" y="134">h</text>
+      <path class="d-accent" d="M248 80 L48 180"/>
+      <path class="d-thin" d="M96 180 A 48 48 0 0 0 91 158"/>
+      <text class="d-text" x="104" y="170">e</text>
+      <rect class="d-fill" x="48" y="176" width="188" height="8"/>
+      <text class="d-muted" x="142" y="206" text-anchor="middle">shadow length = h / tan(e)</text>
+      <circle class="d-accent-fill" cx="292" cy="56" r="10"/>
+      <text class="d-muted" x="300" y="36" text-anchor="middle">sun</text>
+
+      <path class="d-dash" d="M330 30 V210"/>
+
+      <text class="d-label" x="490" y="22" text-anchor="middle">Top view</text>
+      <path class="d-fill" opacity="0.35" d="M560 112 L432 64 A 26 26 0 0 0 414 112 L542 160 A 26 26 0 0 0 560 112 Z"/>
+      <circle class="d-box" cx="551" cy="136" r="26"/>
+      <path class="d-accent" d="M551 136 L423 88"/>
+      <path class="d-accent" d="M586 149 L612 159" marker-end="url(#ss-arrow2)"/>
+      <text class="d-muted" x="600" y="186" text-anchor="middle">to the sun</text>
+      <circle class="d-accent-fill" cx="492" cy="95" r="4"/>
+      <path class="d-thin" d="M492 95 L486 111"/>
+      <text class="d-muted" x="400" y="150" text-anchor="middle">distance to the</text>
+      <text class="d-muted" x="400" y="166" text-anchor="middle">line ≤ radius</text>
+    </svg>
+    <figcaption>The whole shadow test is one question: is the point within one pillar radius of the line from the pillar's centre to the shadow's tip?</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>Most stealth games treat light as part of the level, or give you a way to put lights out one at a time. Here the player owns the light source for the whole level, and the constraint is that it only moves forward. The player fantasy is the thief who bends the day to their route. The tension is that every hour you wind to cover one gap may uncover another, and the generous morning shadows never come back.</p>
+  <p>The hardest part to build is level layout, not code. A pillar's shadow sweeps a whole fan of ground through the day, so moving one pillar changes every hour of the level. You will want a debug view that draws the ground each pillar covers at every hour.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>You start in the long shadow of the first pillar at dawn. Look at where the gem sits: no morning shadow reaches it. Wind the sun forward, watch the shadows swing, and find the hours when one covers the pedestal.</p>
+
+  <figure class="demo wide" data-demo="sundial-stealth">
+    <canvas id="sundial-stealth"></canvas>
+    <figcaption>Controls: arrow keys or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to sneak (click the canvas first), hold <kbd>E</kbd> to wind the sun forward. On a phone, press and hold anywhere on the courtyard to walk toward that point, and drag the Time of day slider to the right to wind the sun; it will not go back. <kbd>R</kbd> or Restart starts the day again. Nothing moves until you do. The outlined circle is you, drawn dashed while you are hidden; red wedges are the guards' views, and pillars block them. With reduced motion, press Play first.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: where the sun is, whether a point is in shadow, and whether a guard can see it. One helper, the distance from a point to a segment, answers both "is this point in a shadow capsule?" and "does a pillar block the view?". Names and numbers match the demo; movement and drawing are left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local hour = 6                          <span class="c">-- the day runs from 6:00 to 18:00</span>
+local pillars = { { x = 3.0, y = 8.5, r = 0.55, h = 2.2 },
+                  { x = 7.0, y = 2.8, r = 0.55, h = 2.4 } }  <span class="c">-- and five more</span>
+local function segDist(px, py, ax, ay, bx, by)  <span class="c">-- point to segment a-b</span>
+  local dx, dy = bx - ax, by - ay
+  local len2 = dx * dx + dy * dy
+  local t = len2 &gt; 0 and ((px - ax) * dx + (py - ay) * dy) / len2 or 0
+  t = math.max(0, math.min(1, t))
+  local qx, qy = ax + dx * t - px, ay + dy * t - py
+  return math.sqrt(qx * qx + qy * qy)
+end
+local function sun()
+  local a = math.pi * (hour - 6) / 12                <span class="c">-- 0 at dawn, pi at dusk</span>
+  local elevation = math.rad(10 + 55 * math.sin(a))  <span class="c">-- 10 degrees up to 65</span>
+  return -math.cos(a), -math.sin(a), 1 / math.tan(elevation)
+end
+<span class="k">local function inShadow(x, y)
+  local dx, dy, len = sun()               -- shadows point away from the sun
+  for _, p in ipairs(pillars) do
+    local L = p.h * len
+    if segDist(x, y, p.x, p.y, p.x + dx * L, p.y + dy * L) &lt;= p.r then return true end
+  end
+  return false
+end</span>
+local function canSee(g, x, y)          <span class="c">-- g = { x, y, facing, range, half }</span>
+  if inShadow(x, y) then return false end
+  local dx, dy = x - g.x, y - g.y
+  if dx * dx + dy * dy &gt; g.range * g.range then return false end
+  local diff = (math.atan2(dy, dx) - g.facing + math.pi) % (2 * math.pi) - math.pi
+  if math.abs(diff) &gt; g.half then return false end
+  for _, p in ipairs(pillars) do        <span class="c">-- a pillar in the way blocks the view</span>
+    if segDist(p.x, p.y, g.x, g.y, x, y) &lt; p.r then return false end
+  end
+  return true
+end
+function love.update(dt)
+  if love.keyboard.isDown("e") then
+    hour = math.min(18, hour + 1.5 * dt)  <span class="c">-- forward only: no key turns it back</span>
+  end
+end</code></pre>
+  </div>
+  <p>The world uses screen directions: x grows to the right (east) and y grows downward (south). So at 6:00 the sun direction is east and the shadow vector <code>(-cos a, -sin a)</code> is <code>(-1, 0)</code>, pointing west; at noon it is <code>(0, -1)</code>, pointing north. The elevation never reaches zero, because <code>1 / tan(0)</code> would make an endless shadow.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Winding becomes free.</strong> If the day is long enough that hours never run short, players wind the sun to whatever suits them and the one-way rule stops mattering. Record how many hours good players have left at the exit; if it is more than a quarter of the day, shorten the day.</li>
+    <li><strong>One perfect hour.</strong> If every pillar happens to cover the route at, say, 15:00, the level collapses into "wind to 15:00 and walk". Lay out pillars so that no single hour links the whole route.</li>
+    <li><strong>Shadows you cannot read.</strong> Players must tell at a glance whether they are hidden. Draw the hero differently in shadow (the demo uses a dashed outline). Ask testers "are you hidden right now?" at random moments.</li>
+    <li><strong>Caught by a shadow edge.</strong> A shadow sliding off you feels unfair if the alarm is instant. The half-second meter forgives grazes.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Light and shadow as the core of stealth is well explored. <cite>Thief: The Dark Project</cite> shows how visible you are with an on-screen light gem, and lets you douse torches with water arrows. <cite>Mark of the Ninja</cite> also hides you in darkness and lets you break lights. In both, light sources are objects in the level that you switch off one at a time.</p>
+  <p>Many open-world games have a day and night cycle that runs on its own clock. Sundial Stealth makes the sun the player's only verb, keeps one courtyard on screen, and treats daylight as a budget that cannot be refunded. I do not know of a game built on exactly that rule, but I have not seen every stealth game, so one may exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with circles for pillars, capsule shadows drawn as thick lines with round ends, one guard who walks back and forth, and a hero who changes look in shadow. Skip the gem: put a goal zone on the far side that no single hour fully shades.</p>
+  <p>Hand it to a friend and say only "get across without being seen". The one question: <strong>do they stop and wind the sun to make a shadow before they move, or do they just run and hope?</strong> If they plan with the sun, the idea works. If they run, the guards are too slow or the shadows too generous; tighten one and test again.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> one courtyard, round pillars only, two guards, a gem and a gate, with a score for hours used and alarms raised.</li>
+    <li><strong>One-month version:</strong> ten courtyards, walls and archways that cast rectangular shadows, a second floor where rooftop shadows fall into the yard, and a courtyard where clouds briefly hide the sun.</li>
+    <li><strong>Cut first:</strong> guard investigation behaviour, noise and alert states. Spotted or not spotted is enough while you learn whether winding the sun is fun.</li>
+    <li><strong>Hardest part:</strong> level layout. Build the per-hour shadow coverage view before your second level.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: the guards also grow sleepy as afternoon turns to evening, so their cones shorten when the shadows are longest, and waiting for dusk becomes a tempting but risky plan.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Christopher W. Totten, <cite>An Architectural Approach to Level Design</cite> (CRC Press). On using light, sight lines and space to guide and hide the player.</li>
+    <li>Steve Swink, <cite>Game Feel: A Game Designer's Guide to Virtual Sensation</cite> (Morgan Kaufmann, 2008). On making a single control, like winding the sun, feel responsive.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On resources, meaningful choices and testing early.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var W = 16, H = 10, SPEED = 2.6, BODY = 0.25, WIND = 1.5, HUD = 36;
+  var START = { x: 0.8, y: 8.6 }, GEM = { x: 8.2, y: 1.5 };
+  var EXIT_Y0 = 4, EXIT_Y1 = 6, ENTRY_Y0 = 8, ENTRY_Y1 = 9.6;
+  var PILLARS = [
+    { x: 3.0, y: 8.5, r: 0.55, h: 2.2 }, { x: 4.6, y: 4.6, r: 0.6, h: 2.6 },
+    { x: 7.2, y: 7.4, r: 0.5, h: 2.2 }, { x: 7.0, y: 2.8, r: 0.55, h: 2.4 },
+    { x: 10.6, y: 4.4, r: 0.6, h: 2.6 }, { x: 12.6, y: 7.6, r: 0.5, h: 2.2 },
+    { x: 13.2, y: 2.4, r: 0.5, h: 2.2 }
+  ];
+  var MOVE = { arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0],
+               arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1] };
+
+  var thief, hour, started, carrying, alarms, alert, over, msg, msgKind, guards, handle = null;
+  var off = null, octx = null;
+
+  function fmt(h) {
+    var m = Math.round(h * 60), hh = Math.floor(m / 60), mm = m % 60;
+    return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  function restart() {
+    thief = { x: START.x, y: START.y };
+    hour = 6; started = false; carrying = false; alarms = 0; alert = 0; over = '';
+    guards = [
+      { patrol: true, x: 8, y: 6.2, x0: 3.5, x1: 13.5, dir: -1, speed: 1.1, facing: Math.PI, range: 3.5, half: 0.55, sees: false },
+      { patrol: false, x: 10.8, y: 1.4, base: Math.PI * 0.85, amp: 1.1, t: 0, facing: Math.PI * 0.85, range: 4.2, half: 0.5, sees: false }
+    ];
+    msg = 'Sneak to the gem. The sun only winds forward.'; msgKind = '';
+    if (sunSlider) sunSlider.set(6);
+    if (handle) handle.redraw();
+  }
+
+  function sun() {
+    var a = Math.PI * (hour - 6) / 12;
+    var elev = (10 + 55 * Math.sin(a)) * Math.PI / 180;
+    return { dx: -Math.cos(a), dy: -Math.sin(a), len: 1 / Math.tan(elev), a: a };
+  }
+
+  function segDist(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy, t = 0;
+    if (len2 > 0) t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    var qx = ax + dx * t - px, qy = ay + dy * t - py;
+    return Math.sqrt(qx * qx + qy * qy);
+  }
+
+  function inShadow(x, y) {
+    var s = sun();
+    return PILLARS.some(function (p) {
+      var L = p.h * s.len;
+      return segDist(x, y, p.x, p.y, p.x + s.dx * L, p.y + s.dy * L) <= p.r;
+    });
+  }
+
+  function canSee(g, x, y) {
+    if (inShadow(x, y)) return false;
+    var dx = x - g.x, dy = y - g.y;
+    if (dx * dx + dy * dy > g.range * g.range) return false;
+    var TAU = Math.PI * 2;
+    var diff = ((Math.atan2(dy, dx) - g.facing + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    if (Math.abs(diff) > g.half) return false;
+    return !PILLARS.some(function (p) { return segDist(p.x, p.y, g.x, g.y, x, y) < p.r; });
+  }
+
+  function layout(s) {
+    var S = Math.max(8, Math.min((s.width - 16) / W, (s.height - HUD - 44) / H));
+    return { S: S, ox: Math.round((s.width - S * W) / 2), oy: HUD };
+  }
+
+  function setMsg(text, kind) { msg = text; msgKind = kind || ''; }
+
+  function update(dt, s) {
+    if (over) return;
+    var mx = 0, my = 0;
+    s.keys.forEach(function (k) { if (MOVE[k]) { mx += MOVE[k][0]; my += MOVE[k][1]; } });
+    if (s.pointer.down) {
+      var L = layout(s);
+      var tx = (s.pointer.x - L.ox) / L.S - thief.x, ty = (s.pointer.y - L.oy) / L.S - thief.y;
+      var d = Math.sqrt(tx * tx + ty * ty);
+      if (d > 0.1) { mx = tx / d; my = ty / d; }
+    }
+    var winding = s.keys.has('e');
+    if (mx || my || winding) started = true;
+    if (!started) return;
+
+    if (winding && hour < 18) { hour = Math.min(18, hour + WIND * dt); sunSlider.set(hour); }
+
+    var m = Math.sqrt(mx * mx + my * my);
+    if (m > 0) {
+      thief.x += mx / m * SPEED * dt; thief.y += my / m * SPEED * dt;
+    }
+    var inExit = thief.y > EXIT_Y0 && thief.y < EXIT_Y1;
+    thief.x = Math.max(BODY, Math.min(inExit ? W + 0.2 : W - BODY, thief.x));
+    thief.y = Math.max(BODY, Math.min(H - BODY, thief.y));
+    PILLARS.forEach(function (p) {
+      var dx = thief.x - p.x, dy = thief.y - p.y, d = Math.sqrt(dx * dx + dy * dy), min = p.r + BODY;
+      if (d < min && d > 0) { thief.x = p.x + dx / d * min; thief.y = p.y + dy / d * min; }
+    });
+
+    var seen = false;
+    guards.forEach(function (g) {
+      if (g.patrol) {
+        g.x += g.dir * g.speed * dt;
+        if (g.x > g.x1) { g.x = g.x1; g.dir = -1; }
+        if (g.x < g.x0) { g.x = g.x0; g.dir = 1; }
+        g.facing = g.dir > 0 ? 0 : Math.PI;
+      } else {
+        g.t += dt;
+        g.facing = g.base + g.amp * Math.sin(0.6 * g.t);
+      }
+      g.sees = canSee(g, thief.x, thief.y);
+      if (g.sees) seen = true;
+    });
+    alert = seen ? alert + 2.2 * dt : Math.max(0, alert - dt);
+    if (alert >= 1) {
+      alarms++; alert = 0; carrying = false;
+      thief.x = START.x; thief.y = START.y;
+      setMsg('Spotted! Back to the gate. The hours stay spent.', 'bad');
+    }
+
+    if (!carrying && Math.hypot(thief.x - GEM.x, thief.y - GEM.y) < 0.55) {
+      carrying = true; setMsg('Got the gem. Out by the gate on the right!', 'good');
+    }
+    if (carrying && thief.x > W) {
+      over = 'won';
+      setMsg('Escaped at ' + fmt(hour) + ' with ' + alarms + (alarms === 1 ? ' alarm.' : ' alarms.'), 'good');
+    } else if (hour >= 18) {
+      over = 'lost'; setMsg('Sunset. The gate is locked. Restart to try again.', 'bad');
+    }
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, L = layout(s), S = L.S, ox = L.ox, oy = L.oy;
+    function X(x) { return ox + x * S; }
+    function Y(y) { return oy + y * S; }
+    var sn = sun();
+
+    // HUD: time of day bar, gem and alarms
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink; ctx.font = '600 14px ' + FONT;
+    ctx.fillText(fmt(hour), 10, 18);
+    ctx.textAlign = 'right'; ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2;
+    ctx.fillText((carrying ? 'Gem: carried' : 'Gem: on pedestal') + '   Alarms: ' + alarms, w - 10, 18);
+    ctx.fillStyle = c.surface2; ctx.fillRect(10, 24, w - 20, 6);
+    ctx.fillStyle = hour > 16.5 ? c.bad : c.warn; ctx.fillRect(10, 24, (w - 20) * (hour - 6) / 12, 6);
+
+    // Courtyard ground, sunlight tint, shadows
+    ctx.fillStyle = c.surface2; ctx.fillRect(X(0), Y(0), W * S, H * S);
+    ctx.fillStyle = c.warn; ctx.globalAlpha = 0.14; ctx.fillRect(X(0), Y(0), W * S, H * S); ctx.globalAlpha = 1;
+    var cw = ctx.canvas.width, ch = ctx.canvas.height;
+    if (!off || off.width !== cw || off.height !== ch) {
+      off = document.createElement('canvas'); off.width = cw; off.height = ch; octx = off.getContext('2d');
+    }
+    octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, cw, ch);
+    octx.setTransform(ctx.getTransform());
+    octx.save(); octx.beginPath(); octx.rect(X(0), Y(0), W * S, H * S); octx.clip();
+    octx.strokeStyle = '#000'; octx.lineCap = 'round';
+    PILLARS.forEach(function (p) {
+      var len = p.h * sn.len;
+      octx.lineWidth = p.r * 2 * S;
+      octx.beginPath(); octx.moveTo(X(p.x), Y(p.y)); octx.lineTo(X(p.x + sn.dx * len), Y(p.y + sn.dy * len)); octx.stroke();
+    });
+    octx.restore();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.42; ctx.drawImage(off, 0, 0); ctx.restore();
+
+    // Walls with the entry gap (left) and the exit gap (right)
+    ctx.strokeStyle = c.ink2; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(ENTRY_Y0)); ctx.lineTo(X(0), Y(0)); ctx.lineTo(X(W), Y(0)); ctx.lineTo(X(W), Y(EXIT_Y0));
+    ctx.moveTo(X(W), Y(EXIT_Y1)); ctx.lineTo(X(W), Y(H)); ctx.lineTo(X(0), Y(H)); ctx.lineTo(X(0), Y(ENTRY_Y1));
+    ctx.stroke();
+    ctx.fillStyle = c.good; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'right';
+    ctx.fillText('Exit', X(W) - 6, Y(EXIT_Y0) - 6);
+    ctx.strokeStyle = c.good; ctx.setLineDash([4, 4]); ctx.beginPath();
+    ctx.moveTo(X(W), Y(EXIT_Y0)); ctx.lineTo(X(W), Y(EXIT_Y1)); ctx.stroke(); ctx.setLineDash([]);
+
+    // Sun marker on the courtyard edge
+    var sx = W / 2 + Math.cos(sn.a) * (W / 2 - 0.35), sy = H / 2 + Math.sin(sn.a) * (H / 2 - 0.35);
+    ctx.fillStyle = c.warn; ctx.beginPath(); ctx.arc(X(sx), Y(sy), Math.max(5, S * 0.3), 0, Math.PI * 2); ctx.fill();
+
+    // Gem
+    if (!carrying) {
+      ctx.fillStyle = c.topic; ctx.beginPath();
+      ctx.moveTo(X(GEM.x), Y(GEM.y - 0.3)); ctx.lineTo(X(GEM.x + 0.22), Y(GEM.y));
+      ctx.lineTo(X(GEM.x), Y(GEM.y + 0.3)); ctx.lineTo(X(GEM.x - 0.22), Y(GEM.y)); ctx.fill();
+    }
+
+    // Guard cones and bodies
+    guards.forEach(function (g) {
+      ctx.fillStyle = c.bad; ctx.globalAlpha = g.sees ? 0.32 : 0.13;
+      ctx.beginPath(); ctx.moveTo(X(g.x), Y(g.y));
+      ctx.arc(X(g.x), Y(g.y), g.range * S, g.facing - g.half, g.facing + g.half); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(X(g.x), Y(g.y), S * 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = c.bg; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(X(g.x), Y(g.y)); ctx.lineTo(X(g.x + Math.cos(g.facing) * 0.3), Y(g.y + Math.sin(g.facing) * 0.3)); ctx.stroke();
+    });
+
+    // Pillars
+    PILLARS.forEach(function (p) {
+      ctx.fillStyle = c.surface; ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), p.r * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    });
+
+    // Thief: solid in sunlight, dashed when hidden; alarm arc around it
+    var hidden = inShadow(thief.x, thief.y);
+    ctx.beginPath(); ctx.arc(X(thief.x), Y(thief.y), BODY * S, 0, Math.PI * 2);
+    ctx.lineWidth = 2; ctx.strokeStyle = c.ink;
+    if (hidden) { ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]); }
+    else { ctx.fillStyle = c.ink; ctx.fill(); }
+    if (carrying) {
+      ctx.fillStyle = c.topic; ctx.fillRect(X(thief.x) - 3, Y(thief.y - BODY) - 9, 6, 6);
+    }
+    if (alert > 0) {
+      ctx.strokeStyle = c.bad; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.arc(X(thief.x), Y(thief.y), BODY * S + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, alert)); ctx.stroke();
+    }
+
+    // Message line
+    var my = oy + H * S + 22;
+    ctx.textAlign = 'left'; ctx.font = '600 13px ' + FONT;
+    if (ctx.measureText(msg).width > w - 100) ctx.font = '600 11px ' + FONT;
+    ctx.fillStyle = msgKind === 'good' ? c.good : msgKind === 'bad' ? c.bad : c.ink2;
+    ctx.fillText(started || over ? msg : 'Move or wind the sun to begin.', 10, my);
+    ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink3;
+    ctx.fillText(hidden ? 'Hidden in shadow' : 'In sunlight', 10, my + 18);
+  }
+
+  var ui = DemoKit.controls('[data-demo="sundial-stealth"]');
+  var sunSlider = null;
+  sunSlider = ui.slider({
+    label: 'Time of day (forward only)', min: 6, max: 18, step: 0.25, value: 6, format: fmt,
+    onInput: function (v) {
+      if (over || v < hour) { sunSlider.set(hour); return; }
+      hour = v; started = true;
+      if (handle) handle.redraw();
+    }
+  });
+  ui.button({ label: 'Restart (R)', onClick: restart });
+
+  restart();
+  handle = DemoKit.canvas('#sundial-stealth', {
+    aspect: 16 / 12,
+    minHeight: 280,
+    maxHeight: 420,
+    keys: true,
+    drag: true,
+    label: 'Sundial Stealth prototype: a top-down courtyard with seven pillars whose shadows move with the time of day, two guards with vision cones, a gem and an exit gate.',
+    update: update,
+    draw: draw,
+    onKey: function (key, isDown) {
+      if (key === 'r' && isDown) restart();
+    }
+  });
+})();
+</script>
+</body>
+</html>

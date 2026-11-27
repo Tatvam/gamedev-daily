@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shader fire: rising noise, a shape and a colour ramp · Game Dev Daily</title>
+<meta name="description" content="Scroll noise upwards, let it eat into a cone that fades with height, and map the result through a colour ramp: a campfire in about six lines.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-27">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="12">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Shader fire: rising noise, a shape and a colour ramp</h1>
+  <p class="lede">Scroll noise upwards, let it eat into a cone that fades with height, and map the result through a colour ramp: a campfire in about six lines.</p>
+</header>
+
+<section data-section="hook">
+  <p>A torch on a dungeon wall or a campfire at a rest point has to move, or the scene looks like a painting. Hand-drawn frames take time and loop visibly. A small shader makes a flame that never repeats, in any size and any colour, from noise you already know how to make.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A flame is a heat value, then a colour</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. For fire, split that work in two. First compute one number per pixel, the <dfn>heat</dfn>: about 1 in the white-hot core, 0 at the edge of the flame, below 0 outside it. Then turn heat into colour with a <dfn>colour ramp</dfn>, a function that maps 0 to dark red, the middle to orange and yellow, and 1 to near white. All the shape and movement lives in the heat; the ramp only paints it.</p>
+  <p>The heat itself comes from two ingredients added together: a smooth shape that says where the flame is allowed to be, and noise that moves upwards and breaks the shape's edges apart.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Four steps of a shader flame. One: fbm noise, sampled at y minus scroll, so its blobs move upwards. Two: a shape, a cone that is 1 at the base and 0 at the tip and the sides. Three: heat equals shape plus noise minus one half times turbulence, which gives a ragged flame. Four: a colour ramp turns heat into colour: below 0 is clear, 0 to 0.35 goes red to orange, 0.35 to 0.65 orange to yellow, 0.65 to 1 yellow to white.">
+      <rect class="d-box" x="20" y="20" width="180" height="130" rx="6"/>
+      <text class="d-text" x="110" y="42" text-anchor="middle">1. noise, rising</text>
+      <ellipse class="d-accent-soft" cx="62" cy="88" rx="16" ry="24"/>
+      <ellipse class="d-accent-soft" cx="108" cy="100" rx="14" ry="20"/>
+      <ellipse class="d-accent-soft" cx="146" cy="78" rx="12" ry="18"/>
+      <path class="d-accent" d="M180 118 V64 M173 72 L180 64 L187 72"/>
+      <text class="d-mono" x="110" y="140" text-anchor="middle">fbm(x, y - scroll)</text>
+
+      <text class="d-text" x="215" y="90" text-anchor="middle">+</text>
+
+      <rect class="d-box" x="230" y="20" width="180" height="130" rx="6"/>
+      <text class="d-text" x="320" y="42" text-anchor="middle">2. shape</text>
+      <path class="d-accent-soft" d="M270 120 L320 56 L370 120 Z"/>
+      <text class="d-muted" x="320" y="114" text-anchor="middle">1</text>
+      <text class="d-muted" x="384" y="66">0</text>
+      <text class="d-mono" x="320" y="140" text-anchor="middle">1 - h - |x| * 5</text>
+
+      <text class="d-text" x="425" y="90" text-anchor="middle">=</text>
+
+      <rect class="d-box" x="440" y="20" width="180" height="130" rx="6"/>
+      <text class="d-text" x="530" y="42" text-anchor="middle">3. heat</text>
+      <path class="d-accent-soft" d="M490 120 L498 96 L506 104 L512 76 L520 88 L528 54 L536 82 L544 72 L550 98 L558 92 L570 120 Z"/>
+      <ellipse class="d-accent-soft" cx="540" cy="60" rx="4" ry="7"/>
+      <text class="d-mono" x="530" y="140" text-anchor="middle">shape + (n-0.5)*turb</text>
+
+      <path class="d-stroke" d="M530 150 V188 M524 180 L530 188 L536 180"/>
+
+      <rect class="d-box" x="20" y="190" width="600" height="100" rx="6"/>
+      <text class="d-text" x="36" y="212">4. colour ramp: heat in, colour out</text>
+      <rect class="d-fill" x="40" y="224" width="140" height="32"/>
+      <rect class="d-accent-soft" x="180" y="224" width="140" height="32"/>
+      <rect class="d-accent-soft" x="320" y="224" width="140" height="32"/>
+      <rect class="d-accent-soft" x="460" y="224" width="140" height="32"/>
+      <text class="d-text" x="110" y="245" text-anchor="middle">clear</text>
+      <text class="d-text" x="250" y="245" text-anchor="middle">red to orange</text>
+      <text class="d-text" x="390" y="245" text-anchor="middle">orange to yellow</text>
+      <text class="d-text" x="530" y="245" text-anchor="middle">yellow to white</text>
+      <text class="d-muted" x="180" y="278" text-anchor="middle">0</text>
+      <text class="d-muted" x="320" y="278" text-anchor="middle">0.35</text>
+      <text class="d-muted" x="460" y="278" text-anchor="middle">0.65</text>
+      <text class="d-muted" x="596" y="278" text-anchor="middle">1</text>
+    </svg>
+    <figcaption>Noise plus a shape gives heat; the ramp turns heat into colour. Pixels with heat below 0 are transparent.</figcaption>
+  </figure>
+
+  <h3>1. Coordinates with the origin at the foot of the flame</h3>
+  <p>Put (0, 0) where the flame stands, with y pointing up and one unit equal to the screen height. Then "how high up the flame am I" is simply <code>uv.y</code>, and "how far from the middle" is <code>abs(uv.x)</code>.</p>
+<pre><code>vec2 uv = (gl_FragCoord.xy - vec2(0.5 * u_resolution.x, 0.22 * u_resolution.y)) / u_resolution.y;</code></pre>
+
+  <h3>2. Noise that rises</h3>
+  <p>Take the fbm (fractal Brownian motion: several layers of value noise added together) from the procedural materials lesson, and sample it at a point that slides down over time:</p>
+<pre><code>float n = fbm(vec2(uv.x * 6.0, uv.y * 3.0 - u_scroll));</code></pre>
+  <p>If the sample point moves down, the pattern appears to move up. The x scale is twice the y scale, so blobs come out taller than they are wide, which reads as licking flames. <code>u_scroll</code> grows by <code>2 * speed</code> noise cells per second and wraps at 64, because the hash repeats every 64 cells and a small number keeps float precision.</p>
+
+  <h3>3. A shape that fades with height</h3>
+<pre><code>float h = uv.y / u_height;     // 0 at the base, 1 at the tip
+float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;</code></pre>
+  <p>Read it as a cone: 1 in the middle of the base, falling to 0 at the tip and 0.2 units to each side. The <code>max</code> handles the bottom: below the base, <code>-uv.y * 14.0</code> is the larger term, so the heat dies within a short distance instead of running down the screen. Alone, through the ramp, it looks like a traffic cone.</p>
+
+  <h3>4. Let the noise bite</h3>
+<pre><code>float heat = shape + (n - 0.5) * u_turbulence;</code></pre>
+  <p><code>n - 0.5</code> is centred on zero, so the noise pushes heat up in some places and down in others. In the thick core the shape is big and survives. Near the edges and the tip the shape is small, so a dip in the noise takes it below zero and a hole opens; a bump lifts a blob above zero and a tongue of flame breaks free. Because the noise rises, those tongues rise too. <dfn>Turbulence</dfn> is just how hard the noise bites.</p>
+
+  <h3>5. Heat to colour</h3>
+<pre><code>vec3 fire = ramp(heat);
+float alpha = smoothstep(0.0, 0.1, heat);</code></pre>
+  <p>The ramp is three <code>mix</code> calls in a row, each with a <code>smoothstep</code> over its part of the range. The alpha fades the edge over the first 0.1 of heat, so the outline is soft. Swap the four ramp colours and the same flame becomes a blue spirit fire: shape and colour are independent.</p>
+
+  <div class="callout">
+    <p class="callout-title">Which way is up</p>
+    <p>WebGL's <code>gl_FragCoord</code> has (0, 0) at the bottom-left with y up, which is what fire wants. LÖVE's <code>screen_coords</code> and Godot's <code>UV</code> have (0, 0) at the top-left with y down, so those versions flip y first. Unity's mesh UVs start at the bottom-left with y up, like WebGL. If your flame burns downwards, this is why.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Walk through <em>Stage</em> from the top. The coordinates stage shows the origin as a yellow cross at the foot of the fire. The noise stage shows the grey blobs drifting upwards; the shape stage shows the cone; the heat stage shows the cone eaten by the noise. Then set <em>Turbulence</em> to 0: the flame becomes a smooth cone with bands of colour and stops moving, because all the motion comes from the noise. Raise it past 1 and sparks break away from the tip.</p>
+
+  <figure class="demo wide" data-demo="fire">
+    <canvas id="fire-shader"></canvas>
+    <figcaption>One fragment shader draws everything, including the logs. In the ramp stage, the strip along the top shows the ramp itself, from heat 0 on the left to 1 on the right.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The LÖVE version draws a rectangle only a little larger than the flame, with the shader set, so pixels away from the fire cost nothing. <code>u_base</code> is the foot of the flame in pixels and <code>u_size</code> is how many pixels make one unit; with the numbers below they match the demo.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local height = 0.55          <span class="c">-- flame height, in units of the window height</span>
+local speed = 1.0
+local turbulence = 0.8
+local CAMPFIRE = {
+  { 0.55, 0.05, 0.02 },      <span class="c">-- coolest visible flame</span>
+  { 1.00, 0.35, 0.02 },
+  { 1.00, 0.75, 0.15 },
+  { 1.00, 0.97, 0.80 },      <span class="c">-- hottest</span>
+}
+local scroll = 0
+local shader
+
+local pixelcode = [[
+uniform vec2 u_base;         // the foot of the flame, in pixels
+uniform float u_size;        // pixels per unit
+uniform float u_scroll;
+uniform float u_height;
+uniform float u_turbulence;
+uniform vec3 u_c0;
+uniform vec3 u_c1;
+uniform vec3 u_c2;
+uniform vec3 u_c3;
+
+float hash(vec2 c)
+{
+  c = mod(c, 64.0);
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float valueNoise(vec2 p)
+{
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p)
+{
+  float sum = 0.0;
+  float amp = 0.5;
+  for (int k = 0; k &lt; 4; k++) {
+    sum += amp * valueNoise(p);
+    p = p * 2.0 + vec2(5.3, 1.7);
+    amp *= 0.5;
+  }
+  return sum / 0.9375;
+}
+
+vec3 ramp(float x)
+{
+  vec3 c = mix(u_c0, u_c1, smoothstep(0.0, 0.35, x));
+  c = mix(c, u_c2, smoothstep(0.35, 0.65, x));
+  return mix(c, u_c3, smoothstep(0.65, 1.0, x));
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec2 uv = (screen_coords - u_base) / u_size;
+  uv.y = -uv.y;                     // LÖVE's y points down; flames go up
+  float n = fbm(vec2(uv.x * 6.0, uv.y * 3.0 - u_scroll));
+  float h = uv.y / u_height;
+  float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;
+  float heat = shape + (n - 0.5) * u_turbulence;
+  float alpha = smoothstep(0.0, 0.1, heat);
+  return vec4(ramp(heat), alpha) * color;
+}
+]]
+
+function love.load()
+  shader = love.graphics.newShader(pixelcode)
+end
+
+function love.update(dt)
+<span class="k">  scroll = (scroll + dt * speed * 2.0) % 64</span>   <span class="c">-- the noise repeats every 64 cells</span>
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+  local bx, by = 0.5 * w, 0.78 * h          <span class="c">-- 22% up from the bottom, as in the demo</span>
+  love.graphics.clear(0.02, 0.03, 0.08)
+  shader:send("u_base", { bx, by })
+  shader:send("u_size", h)
+  shader:send("u_scroll", scroll)
+  shader:send("u_height", height)
+  shader:send("u_turbulence", turbulence)
+  shader:send("u_c0", CAMPFIRE[1])
+  shader:send("u_c1", CAMPFIRE[2])
+  shader:send("u_c2", CAMPFIRE[3])
+  shader:send("u_c3", CAMPFIRE[4])
+  love.graphics.setShader(shader)
+  <span class="c">-- a box a little larger than the flame: pixels outside it are never shaded</span>
+<span class="k">  love.graphics.rectangle("fill", bx - 0.3 * h, by - 1.5 * height * h, 0.6 * h, (1.5 * height + 0.1) * h)</span>
+  love.graphics.setShader()
+  love.graphics.setColor(0.30, 0.18, 0.10)  <span class="c">-- two logs in front of the flame</span>
+  love.graphics.setLineWidth(0.07 * h)
+  love.graphics.line(bx - 0.24 * h, by + 0.07 * h, bx + 0.17 * h, by - 0.01 * h)
+  love.graphics.line(bx + 0.24 * h, by + 0.07 * h, bx - 0.17 * h, by - 0.01 * h)
+  love.graphics.setColor(1, 1, 1)
+end</code></pre>
+<pre data-lang="GLSL"><code>precision highp float;       // the hash needs 32-bit floats
+
+uniform vec2 u_resolution;
+uniform float u_scroll;      // how far the noise has risen, in noise cells (wraps at 64)
+uniform float u_height;      // flame height, in units of the canvas height
+uniform float u_turbulence;  // how hard the noise bites into the shape
+uniform vec3 u_c0;           // colour ramp: coolest visible flame
+uniform vec3 u_c1;
+uniform vec3 u_c2;
+uniform vec3 u_c3;           // colour ramp: hottest
+uniform float u_stage;       // 0 coordinates, 1 noise, 2 shape, 3 heat, 4 ramp, 5 final
+
+float hash(vec2 c) {
+  c = mod(c, 64.0);
+  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// four octaves of value noise, result from 0 to 1
+float fbm(vec2 p) {
+  float sum = 0.0;
+  float amp = 0.5;
+  for (int k = 0; k &lt; 4; k++) {
+    sum += amp * valueNoise(p);
+    p = p * 2.0 + vec2(5.3, 1.7);
+    amp *= 0.5;
+  }
+  return sum / 0.9375;       // 0.5 + 0.25 + 0.125 + 0.0625
+}
+
+// heat 0..1 in, colour out
+vec3 ramp(float x) {
+  vec3 c = mix(u_c0, u_c1, smoothstep(0.0, 0.35, x));
+  c = mix(c, u_c2, smoothstep(0.35, 0.65, x));
+  c = mix(c, u_c3, smoothstep(0.65, 1.0, x));
+  return c;
+}
+
+float capsule(vec2 p, vec2 a, vec2 b, float r) {
+  vec2 pa = p - a;
+  vec2 ba = b - a;
+  float k = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * k) - r;
+}
+
+void main() {
+  // (0, 0) at the foot of the flame, y up, 1 unit = the canvas height
+  vec2 uv = (gl_FragCoord.xy - vec2(0.5 * u_resolution.x, 0.22 * u_resolution.y)) / u_resolution.y;
+
+  float n = fbm(vec2(uv.x * 6.0, uv.y * 3.0 - u_scroll));      // 1. noise that rises
+  float h = uv.y / u_height;                                     // 2. 0 at the base, 1 at the tip
+  float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;
+  float heat = shape + (n - 0.5) * u_turbulence;                 // 3. noise bites the shape
+  vec3 fire = ramp(heat);                                        // 4. heat becomes colour
+  float alpha = smoothstep(0.0, 0.1, heat);
+
+  // the campfire scene: night sky, ground, glow, flame, then the logs in front
+  vec3 col = mix(vec3(0.02, 0.03, 0.08), vec3(0.08, 0.10, 0.22), clamp(uv.y + 0.4, 0.0, 1.0));
+  if (uv.y &lt; -0.06) col = vec3(0.10, 0.07, 0.06);
+  col += u_c1 * 0.35 * exp(-3.0 * length(uv * vec2(1.0, 1.6)));
+  col = mix(col, fire, alpha);
+  float logs = min(capsule(uv, vec2(-0.24, -0.07), vec2(0.17, 0.01), 0.035),
+                   capsule(uv, vec2(0.24, -0.07), vec2(-0.17, 0.01), 0.035));
+  vec3 wood = mix(vec3(0.20, 0.12, 0.07), vec3(0.45, 0.26, 0.13), smoothstep(-0.08, 0.03, uv.y));
+  col = mix(col, wood, 1.0 - smoothstep(0.0, 0.004, logs));
+
+  // the stage selector: show an intermediate value instead of the final colour
+  float px = 2.0 / u_resolution.y;
+  vec3 coords = vec3(uv.x + 0.5, uv.y, 0.25);
+  vec2 g = abs(fract(uv * 10.0) - 0.5);
+  if (max(g.x, g.y) &gt; 0.46) coords = mix(coords, vec3(1.0), 0.3);
+  if (abs(uv.x) &lt; px || abs(uv.y) &lt; px) coords = vec3(1.0, 0.85, 0.2);
+
+  vec3 shown = col;
+  if (u_stage &lt; 4.5) {
+    shown = fire * alpha;
+    if (gl_FragCoord.y &gt; 0.93 * u_resolution.y) shown = ramp(gl_FragCoord.x / u_resolution.x);
+  }
+  if (u_stage &lt; 3.5) shown = vec3(clamp(heat, 0.0, 1.0));
+  if (u_stage &lt; 2.5) shown = vec3(clamp(shape, 0.0, 1.0));
+  if (u_stage &lt; 1.5) shown = vec3(n);
+  if (u_stage &lt; 0.5) shown = coords;
+  gl_FragColor = vec4(shown, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. A ShaderMaterial on a ColorRect. The flame stands 10% up from the
+// rect's bottom edge, and 1 unit is the rect's height.
+shader_type canvas_item;
+
+uniform vec2 rect_size = vec2(300.0, 400.0);   // set this to the ColorRect's size
+uniform float flame_height : hint_range(0.2, 0.8) = 0.55;
+uniform float speed = 1.0;
+uniform float turbulence : hint_range(0.0, 1.5) = 0.8;
+
+const vec3 C0 = vec3(0.55, 0.05, 0.02);
+const vec3 C1 = vec3(1.00, 0.35, 0.02);
+const vec3 C2 = vec3(1.00, 0.75, 0.15);
+const vec3 C3 = vec3(1.00, 0.97, 0.80);
+
+float hash(vec2 c) {
+    c = mod(c, 64.0);
+    return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float value_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    for (int k = 0; k &lt; 4; k++) {
+        sum += amp * value_noise(p);
+        p = p * 2.0 + vec2(5.3, 1.7);
+        amp *= 0.5;
+    }
+    return sum / 0.9375;
+}
+
+vec3 ramp(float x) {
+    vec3 c = mix(C0, C1, smoothstep(0.0, 0.35, x));
+    c = mix(c, C2, smoothstep(0.35, 0.65, x));
+    return mix(c, C3, smoothstep(0.65, 1.0, x));
+}
+
+void fragment() {
+    // UV has (0, 0) at the top-left with y down: flip y so the flame rises.
+    vec2 uv = vec2((UV.x - 0.5) * rect_size.x / rect_size.y, 0.9 - UV.y);
+    float scroll = mod(TIME * speed * 2.0, 64.0);
+<span class="k">    float n = fbm(vec2(uv.x * 6.0, uv.y * 3.0 - scroll));</span>
+    float h = uv.y / flame_height;
+    float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;
+<span class="k">    float heat = shape + (n - 0.5) * turbulence;</span>
+    COLOR = vec4(ramp(heat), smoothstep(0.0, 0.1, heat));
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline. An unlit, alpha-blended shader for a square Quad.
+// The flame stands 10% up from the bottom edge; 1 unit is the quad's height.
+Shader "GameDevDaily/Fire"
+{
+    Properties
+    {
+        _Height ("Flame height", Range(0.2, 0.8)) = 0.55
+        _Speed ("Speed", Range(0, 3)) = 1
+        _Turbulence ("Turbulence", Range(0, 1.5)) = 0.8
+    }
+    SubShader
+    {
+        Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
+        Blend SrcAlpha OneMinusSrcAlpha
+        ZWrite Off
+        Cull Off
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            float _Height, _Speed, _Turbulence;
+            static const float3 C0 = float3(0.55, 0.05, 0.02);
+            static const float3 C1 = float3(1.00, 0.35, 0.02);
+            static const float3 C2 = float3(1.00, 0.75, 0.15);
+            static const float3 C3 = float3(1.00, 0.97, 0.80);
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert (appdata_base v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.uv = v.texcoord.xy;
+                return o;
+            }
+
+            float hash (float2 c)
+            {
+                c = c - 64.0 * floor(c / 64.0);   // GLSL mod; HLSL fmod differs below zero
+                return frac(sin(dot(c, float2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            float valueNoise (float2 p)
+            {
+                float2 i = floor(p);
+                float2 f = frac(p);
+                float2 u = f * f * (3.0 - 2.0 * f);
+                return lerp(lerp(hash(i), hash(i + float2(1, 0)), u.x),
+                            lerp(hash(i + float2(0, 1)), hash(i + float2(1, 1)), u.x), u.y);
+            }
+
+            float fbm (float2 p)
+            {
+                float sum = 0.0;
+                float amp = 0.5;
+                for (int k = 0; k &lt; 4; k++)
+                {
+                    sum += amp * valueNoise(p);
+                    p = p * 2.0 + float2(5.3, 1.7);
+                    amp *= 0.5;
+                }
+                return sum / 0.9375;
+            }
+
+            float3 ramp (float x)
+            {
+                float3 c = lerp(C0, C1, smoothstep(0.0, 0.35, x));
+                c = lerp(c, C2, smoothstep(0.35, 0.65, x));
+                return lerp(c, C3, smoothstep(0.65, 1.0, x));
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                float2 uv = float2(i.uv.x - 0.5, i.uv.y - 0.1);   // UV is y up already
+                float scroll = fmod(_Time.y * _Speed * 2.0, 64.0);
+<span class="k">                float n = fbm(float2(uv.x * 6.0, uv.y * 3.0 - scroll));</span>
+                float h = uv.y / _Height;
+                float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;
+<span class="k">                float heat = shape + (n - 0.5) * _Turbulence;</span>
+                return float4(ramp(heat), smoothstep(0.0, 0.1, heat));
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+  </div>
+  <p>Godot and Unity compute <code>scroll</code> from the engine clock, so changing <code>speed</code> at run time makes the noise jump; if you animate speed, add up the scroll in a script as the Lua does. The Unity tab is for the Built-in render pipeline. In URP, use Shader Graph: <em>Time</em> into the offset of <em>Tiling And Offset</em>, into <em>Gradient Noise</em>; add that to your shape, then colour it with <em>Sample Gradient</em>, a ramp you edit in the inspector. On colour: the demo, LÖVE and Godot 2D (without HDR 2D) blend in sRGB, so the ramp numbers mean the same thing. In a Unity project in Linear colour space, numbers typed into a shader are treated as linear and the flame comes out paler; wrap the ramp colours in <code>GammaToLinearSpace()</code> from <code>UnityCG.cginc</code>.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The fire burns downwards.</strong> In a y-down coordinate system, <code>uv.y * 3.0 - scroll</code> moves the pattern towards the bottom of the screen. Flip y first, as the LÖVE and Godot versions do.</li>
+    <li><strong>Multiplying instead of adding.</strong> <code>shape * n</code> darkens the flame in patches but never lifts a tongue above the outline, so the silhouette stays a cone. Adding <code>n - 0.5</code> lets the edge move both in and out.</li>
+    <li><strong>Unbounded scroll.</strong> Feeding raw time into the noise works for a minute, then the sine hash runs out of float precision and the flame turns blocky. Wrap the scroll at the noise's period.</li>
+    <li><strong><code>mediump</code> on phones.</strong> The sine hash needs 32-bit floats. Ask for <code>highp</code>, or replace the hash with a small tileable noise texture, which is also cheaper.</li>
+    <li><strong>A flame that is mostly white.</strong> The core is too big for the ramp. Lower the shape or move the ramp's last stop up.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>Four octaves of value noise is 16 hashes, which means 16 sines, plus about a dozen mixes per pixel. On a 256 by 256 pixel torch that is nothing. Across a full phone screen of two to three million pixels it is heavy, which is why the LÖVE version shades only a box around the flame. Fire is also transparent, and every transparent layer on the same pixel is another full run of the shader; ten overlapping torches cost ten times as much where they overlap. If you need many fires, put the noise in a tileable texture and scroll that instead: one texture read replaces 16 sines.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Games draw fire in several ways and often mix them: flipbook sprite sheets of pre-rendered flames, particle systems, and shaders like this one. The engines ship the parts: Unity's Shader Graph has the Gradient Noise, Tiling And Offset and Sample Gradient nodes, and Godot's NoiseTexture2D can generate a seamless noise texture to scroll. The same three steps, noise, mask and ramp, also make smoke, magic auras and lava; only the shape and the ramp change.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Make the up and down arrow keys change <code>height</code> between 0.3 and 0.75 in steps of 0.05, using <code>love.keypressed</code>.</li>
+    <li>Add a second ramp table with blue colours and a key that swaps between the two.</li>
+    <li>Make the flame lean in the wind: before computing <code>n</code>, add <code>uv.x = uv.x - 0.15 * uv.y * uv.y;</code> and see the tip bend while the base stays put.</li>
+  </ol>
+  <p>You are done when the flame changes height, changes colour and leans to one side while its base stays on the logs.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Compute heat first, colour second: shape and motion live in one number, the ramp paints it.</li>
+    <li>Sampling noise at <code>y - scroll</code> makes the pattern rise; stretching it vertically makes it look like flame.</li>
+    <li><code>heat = shape + (n - 0.5) * turbulence</code>: the noise only breaks through where the shape is thin, at the edges and the tip.</li>
+    <li>Swap the ramp colours for a new kind of fire without touching the shape.</li>
+    <li>Shade only a box around the flame, wrap the scroll, and use a noise texture when you need many fires.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, screen effects begin: full-screen passes, where the whole finished frame goes through one shader.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Patricio Gonzalez Vivo and Jen Lowe, <cite>The Book of Shaders</cite>, chapters on noise and fractal Brownian motion.</li>
+    <li>Inigo Quilez, <cite>2D distance functions</cite> (the segment distance used for the logs) and <cite>fBM</cite>.</li>
+    <li>LÖVE wiki, <cite>love.graphics.newShader</cite>, <cite>Shader:send</cite> and <cite>love.graphics.setBlendMode</cite>.</li>
+    <li>Godot documentation, <cite>CanvasItem shaders</cite> and <cite>NoiseTexture2D</cite>.</li>
+    <li>Unity documentation, <cite>ShaderLab command: Blend</cite>, <cite>Built-in shader variables</cite> and the Shader Graph node library.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision highp float;       // the hash needs 32-bit floats",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform float u_scroll;      // how far the noise has risen, in noise cells (wraps at 64)",
+    "uniform float u_height;      // flame height, in units of the canvas height",
+    "uniform float u_turbulence;  // how hard the noise bites into the shape",
+    "uniform vec3 u_c0;           // colour ramp: coolest visible flame",
+    "uniform vec3 u_c1;",
+    "uniform vec3 u_c2;",
+    "uniform vec3 u_c3;           // colour ramp: hottest",
+    "uniform float u_stage;       // 0 coordinates, 1 noise, 2 shape, 3 heat, 4 ramp, 5 final",
+    "",
+    "float hash(vec2 c) {",
+    "  c = mod(c, 64.0);",
+    "  return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453);",
+    "}",
+    "",
+    "float valueNoise(vec2 p) {",
+    "  vec2 i = floor(p);",
+    "  vec2 f = fract(p);",
+    "  vec2 u = f * f * (3.0 - 2.0 * f);",
+    "  float a = hash(i);",
+    "  float b = hash(i + vec2(1.0, 0.0));",
+    "  float c = hash(i + vec2(0.0, 1.0));",
+    "  float d = hash(i + vec2(1.0, 1.0));",
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+    "}",
+    "",
+    "// four octaves of value noise, result from 0 to 1",
+    "float fbm(vec2 p) {",
+    "  float sum = 0.0;",
+    "  float amp = 0.5;",
+    "  for (int k = 0; k < 4; k++) {",
+    "    sum += amp * valueNoise(p);",
+    "    p = p * 2.0 + vec2(5.3, 1.7);",
+    "    amp *= 0.5;",
+    "  }",
+    "  return sum / 0.9375;       // 0.5 + 0.25 + 0.125 + 0.0625",
+    "}",
+    "",
+    "// heat 0..1 in, colour out",
+    "vec3 ramp(float x) {",
+    "  vec3 c = mix(u_c0, u_c1, smoothstep(0.0, 0.35, x));",
+    "  c = mix(c, u_c2, smoothstep(0.35, 0.65, x));",
+    "  c = mix(c, u_c3, smoothstep(0.65, 1.0, x));",
+    "  return c;",
+    "}",
+    "",
+    "float capsule(vec2 p, vec2 a, vec2 b, float r) {",
+    "  vec2 pa = p - a;",
+    "  vec2 ba = b - a;",
+    "  float k = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);",
+    "  return length(pa - ba * k) - r;",
+    "}",
+    "",
+    "void main() {",
+    "  // (0, 0) at the foot of the flame, y up, 1 unit = the canvas height",
+    "  vec2 uv = (gl_FragCoord.xy - vec2(0.5 * u_resolution.x, 0.22 * u_resolution.y)) / u_resolution.y;",
+    "",
+    "  float n = fbm(vec2(uv.x * 6.0, uv.y * 3.0 - u_scroll));      // 1. noise that rises",
+    "  float h = uv.y / u_height;                                     // 2. 0 at the base, 1 at the tip",
+    "  float shape = 1.0 - max(h, -uv.y * 14.0) - abs(uv.x) * 5.0;",
+    "  float heat = shape + (n - 0.5) * u_turbulence;                 // 3. noise bites the shape",
+    "  vec3 fire = ramp(heat);                                        // 4. heat becomes colour",
+    "  float alpha = smoothstep(0.0, 0.1, heat);",
+    "",
+    "  // the campfire scene: night sky, ground, glow, flame, then the logs in front",
+    "  vec3 col = mix(vec3(0.02, 0.03, 0.08), vec3(0.08, 0.10, 0.22), clamp(uv.y + 0.4, 0.0, 1.0));",
+    "  if (uv.y < -0.06) col = vec3(0.10, 0.07, 0.06);",
+    "  col += u_c1 * 0.35 * exp(-3.0 * length(uv * vec2(1.0, 1.6)));",
+    "  col = mix(col, fire, alpha);",
+    "  float logs = min(capsule(uv, vec2(-0.24, -0.07), vec2(0.17, 0.01), 0.035),",
+    "                   capsule(uv, vec2(0.24, -0.07), vec2(-0.17, 0.01), 0.035));",
+    "  vec3 wood = mix(vec3(0.20, 0.12, 0.07), vec3(0.45, 0.26, 0.13), smoothstep(-0.08, 0.03, uv.y));",
+    "  col = mix(col, wood, 1.0 - smoothstep(0.0, 0.004, logs));",
+    "",
+    "  // the stage selector: show an intermediate value instead of the final colour",
+    "  float px = 2.0 / u_resolution.y;",
+    "  vec3 coords = vec3(uv.x + 0.5, uv.y, 0.25);",
+    "  vec2 g = abs(fract(uv * 10.0) - 0.5);",
+    "  if (max(g.x, g.y) > 0.46) coords = mix(coords, vec3(1.0), 0.3);",
+    "  if (abs(uv.x) < px || abs(uv.y) < px) coords = vec3(1.0, 0.85, 0.2);",
+    "",
+    "  vec3 shown = col;",
+    "  if (u_stage < 4.5) {",
+    "    shown = fire * alpha;",
+    "    if (gl_FragCoord.y > 0.93 * u_resolution.y) shown = ramp(gl_FragCoord.x / u_resolution.x);",
+    "  }",
+    "  if (u_stage < 3.5) shown = vec3(clamp(heat, 0.0, 1.0));",
+    "  if (u_stage < 2.5) shown = vec3(clamp(shape, 0.0, 1.0));",
+    "  if (u_stage < 1.5) shown = vec3(n);",
+    "  if (u_stage < 0.5) shown = coords;",
+    "  gl_FragColor = vec4(shown, 1.0);",
+    "}"
+  ].join("\n");
+
+  var RAMPS = {
+    campfire: [[0.55, 0.05, 0.02], [1.00, 0.35, 0.02], [1.00, 0.75, 0.15], [1.00, 0.97, 0.80]],
+    spirit: [[0.05, 0.10, 0.45], [0.10, 0.40, 0.95], [0.40, 0.80, 1.00], [0.90, 1.00, 1.00]],
+    cursed: [[0.05, 0.30, 0.05], [0.20, 0.75, 0.10], [0.60, 1.00, 0.30], [0.95, 1.00, 0.85]]
+  };
+
+  var handle = null;
+  var scroll = 0;
+  function changed() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="fire"]');
+  var height = ui.slider({ label: 'Height', min: 0.3, max: 0.75, step: 0.05, value: 0.55, onInput: changed });
+  var speed = ui.slider({ label: 'Speed', min: 0, max: 3, step: 0.1, value: 1, onInput: changed });
+  var turbulence = ui.slider({ label: 'Turbulence', min: 0, max: 1.5, step: 0.05, value: 0.8, onInput: changed });
+  var palette = ui.select({
+    label: 'Colour ramp',
+    options: [
+      { value: 'campfire', label: 'Campfire' },
+      { value: 'spirit', label: 'Spirit (blue)' },
+      { value: 'cursed', label: 'Cursed (green)' }
+    ],
+    value: 'campfire',
+    onChange: changed
+  });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Coordinates (origin at the base)' },
+      { value: '1', label: '2. Rising noise n' },
+      { value: '2', label: '3. Shape' },
+      { value: '3', label: '4. Heat = shape + noise' },
+      { value: '4', label: '5. Heat through the colour ramp' },
+      { value: '5', label: '6. Final campfire' }
+    ],
+    value: '5',
+    onChange: changed
+  });
+
+  function rampColor(i) { return RAMPS[palette.value][i]; }
+
+  handle = DemoKit.shader('#fire-shader', {
+    fragment: fragment,
+    aspect: 16 / 10,
+    minHeight: 300,
+    maxHeight: 440,
+    label: 'A live fragment shader drawing a campfire at night: a flickering flame rises from two crossed logs and lights the ground. Sliders set the flame height, speed and turbulence, a menu picks the colour ramp, and a stage menu shows each intermediate value: coordinates, noise, shape, heat and the ramp.',
+    update: function (dt) {
+      scroll = (scroll + dt * speed.value * 2) % 64;
+    },
+    uniforms: {
+      u_scroll: function () { return scroll; },
+      u_height: function () { return height.value; },
+      u_turbulence: function () { return turbulence.value; },
+      u_c0: function () { return rampColor(0); },
+      u_c1: function () { return rampColor(1); },
+      u_c2: function () { return rampColor(2); },
+      u_c3: function () { return rampColor(3); },
+      u_stage: function () { return Number(stage.value); }
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTA Online: the six-minute load a player fixed · Game Dev Daily</title>
+<meta name="description" content="How two hidden loops made GTA Online load for minutes, how a player found them without source code, and how to spot quadratic work in your own loader.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-27">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>GTA Online: the six-minute load a player fixed</h1>
+  <p class="lede">How two hidden loops made GTA Online load for minutes, how a player found them without source code, and how to spot quadratic work in your own loader.</p>
+</header>
+
+<section data-section="hook">
+  <p>For years, PC players of GTA Online sat through loading screens that could run for several minutes before they reached the game. Faster computers barely helped. In early 2021 a player who goes by t0st took the game apart to see why, and found that most of the wait came from two small loops working against each other in the worst possible way.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: nothing, at first</h2>
+  <p>Earlier pages in this series were about hardware limits. Here the PC had plenty of memory and a fast drive. The limit was the shape of the code, and it only showed up once the data grew large.</p>
+  <p>t0st did not have the game's source code. He used a <dfn>profiler</dfn>, a tool that samples what a program is doing many times a second, and saw that during loading one processor core stayed fully busy for minutes. He then read the machine code of the busy functions, a process called <dfn>disassembly</dfn>, to work out what they were doing. On his own PC, an older AMD FX-8350 machine, getting into GTA Online took about six minutes.</p>
+
+  <h2>The two loops</h2>
+  <p>The busy code was reading a text file of about 10 megabytes in <dfn>JSON</dfn>, a common text format for structured data. It listed the items players can buy in the online mode, about 63,000 of them. Two things went wrong.</p>
+  <p><strong>Loop one: measuring the text again and again.</strong> The reader pulled values out of the text with <code>sscanf</code>, a standard C function that reads values from a string. The version of <code>sscanf</code> the game used first measured the whole remaining string with <code>strlen</code>, which walks byte by byte until it finds the end. So every small read near the start of the file walked through nearly 10 megabytes just to learn where the text ended, and then read a few bytes. The next read did it again.</p>
+  <p><strong>Loop two: checking for duplicates one by one.</strong> Each item that was read was stored in a plain list, and before storing it the code compared it with every item already in the list to make sure it was not a duplicate. The last item needs about 63,000 comparisons. Added up, that is roughly 63,000 × 63,000 ÷ 2, close to two billion comparisons.</p>
+  <p>Both loops have the same shape. The work for one item grows with the number of items, so the total grows with the <em>square</em> of the number of items. This is called <dfn>quadratic</dfn> time. Twice the items means about four times the work.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 316" role="img" aria-label="Two staircases of cells for eight items. On the left, each row walks from its item to the end of the text, so the rows get shorter: 44 cells in total. On the right, each row compares the new item with every stored item, so the rows get longer: 28 comparisons in total. Both staircases are triangles whose area grows with the square of the item count.">
+      <text class="d-text" x="20" y="24">Loop one: walk to the end of the text</text>
+      <text class="d-muted" x="20" y="44">row = one item read, cells = bytes walked</text>
+      <text class="d-text" x="346" y="24">Loop two: compare with every stored item</text>
+      <text class="d-muted" x="346" y="44">row = one item stored, cells = comparisons</text>
+      <text class="d-muted" x="34" y="77" text-anchor="end">1</text>
+      <rect class="d-accent-fill" x="44" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="68" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="92" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="116" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="140" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="164" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="62" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="62" width="21" height="20"/>
+      <text class="d-muted" x="34" y="101" text-anchor="end">2</text>
+      <rect class="d-box" x="44" y="86" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="68" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="92" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="116" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="140" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="164" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="86" width="21" height="20"/>
+      <text class="d-muted" x="34" y="125" text-anchor="end">3</text>
+      <rect class="d-box" x="44" y="110" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="110" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="92" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="116" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="140" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="164" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="110" width="21" height="20"/>
+      <text class="d-muted" x="34" y="149" text-anchor="end">4</text>
+      <rect class="d-box" x="44" y="134" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="134" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="92" y="134" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="116" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="140" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="164" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="134" width="21" height="20"/>
+      <text class="d-muted" x="34" y="173" text-anchor="end">5</text>
+      <rect class="d-box" x="44" y="158" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="158" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="92" y="158" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="116" y="158" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="140" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="164" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="158" width="21" height="20"/>
+      <text class="d-muted" x="34" y="197" text-anchor="end">6</text>
+      <rect class="d-box" x="44" y="182" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="182" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="92" y="182" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="116" y="182" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="140" y="182" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="164" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="188" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="182" width="21" height="20"/>
+      <text class="d-muted" x="34" y="221" text-anchor="end">7</text>
+      <rect class="d-box" x="44" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="92" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="116" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="140" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="164" y="206" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="188" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="212" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="206" width="21" height="20"/>
+      <text class="d-muted" x="34" y="245" text-anchor="end">8</text>
+      <rect class="d-box" x="44" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="68" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="92" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="116" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="140" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="164" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-box" x="188" y="230" width="21" height="20" opacity="0.35"/>
+      <rect class="d-accent-fill" x="212" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="236" y="230" width="21" height="20"/>
+      <text class="d-muted" x="370" y="77" text-anchor="end">1</text>
+      <rect class="d-accent-fill" x="380" y="62" width="21" height="20"/>
+      <text class="d-muted" x="370" y="101" text-anchor="end">2</text>
+      <rect class="d-accent-fill" x="380" y="86" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="86" width="21" height="20"/>
+      <text class="d-muted" x="370" y="125" text-anchor="end">3</text>
+      <rect class="d-accent-fill" x="380" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="110" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="110" width="21" height="20"/>
+      <text class="d-muted" x="370" y="149" text-anchor="end">4</text>
+      <rect class="d-accent-fill" x="380" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="134" width="21" height="20"/>
+      <rect class="d-accent-soft" x="452" y="134" width="21" height="20"/>
+      <text class="d-muted" x="370" y="173" text-anchor="end">5</text>
+      <rect class="d-accent-fill" x="380" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="452" y="158" width="21" height="20"/>
+      <rect class="d-accent-soft" x="476" y="158" width="21" height="20"/>
+      <text class="d-muted" x="370" y="197" text-anchor="end">6</text>
+      <rect class="d-accent-fill" x="380" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="452" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="476" y="182" width="21" height="20"/>
+      <rect class="d-accent-soft" x="500" y="182" width="21" height="20"/>
+      <text class="d-muted" x="370" y="221" text-anchor="end">7</text>
+      <rect class="d-accent-fill" x="380" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="452" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="476" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="500" y="206" width="21" height="20"/>
+      <rect class="d-accent-soft" x="524" y="206" width="21" height="20"/>
+      <text class="d-muted" x="370" y="245" text-anchor="end">8</text>
+      <rect class="d-accent-fill" x="380" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="404" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="428" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="452" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="476" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="500" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="524" y="230" width="21" height="20"/>
+      <rect class="d-accent-soft" x="548" y="230" width="21" height="20"/>
+      <text class="d-muted" x="44" y="276">2 + 3 + … + 9 = 44 cells for 8 items</text>
+      <text class="d-muted" x="380" y="276">0 + 1 + … + 7 = 28 for 8 items</text>
+      <text class="d-text" x="320" y="304" text-anchor="middle">Double the items and each triangle grows about four times.</text>
+    </svg>
+    <figcaption>The dark cell in each row is the useful work. The light cells are the extra work, and they form a triangle. A triangle's area grows with the square of its side.</figcaption>
+  </figure>
+
+  <h2>The fix</h2>
+  <p>t0st wrote a small patch, a proof of concept, that changed the game's code as it ran. It measured the text once and remembered the length, so the reader stopped walking to the end each time. It also worked around the slow duplicate check. On his machine, by his own measurements as reported in the press, removing the duplicate check alone took loading from about six minutes to about four and a half, fixing the length measurement alone brought it to about two minutes fifty, and both together brought it to about one minute fifty seconds.</p>
+  <p>The proper repair for loop two is a <dfn>hash table</dfn>: a structure that turns each key into a slot number, so checking "have I seen this item?" takes one quick look instead of a walk through the whole list. Once both loops are fixed, the work for each item stays the same no matter how many items there are. That is <dfn>linear</dfn> time.</p>
+  <p>Rockstar confirmed to PC Gamer that he had found a real problem in the PC loading code, and shipped its own fix in a GTA Online update in March 2021. t0st said Rockstar paid him $10,000 through its bug bounty program, which he described as an exception, since the program normally rewards security reports.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>If the work you do for each item depends on how many items there are, your loop is quadratic. Look for a scan, a search or a copy hiding inside a loop, including inside a library call.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The first demo loads a tiny file of 12 items. Let it play, or press <em>Step</em>. Watch the highlight sweep to the end of the text before each item is read, then watch each new item get compared with every stored item. Switch on each fix and compare the step counts.</p>
+
+  <figure class="demo" data-demo="loader-steps">
+    <canvas id="loader-steps"></canvas>
+    <figcaption>One step is walking past one item of text, reading one item, or one duplicate check. With no fixes the 12-item file costs 168 steps; with both fixes it costs 37.</figcaption>
+  </figure>
+
+  <p>The second demo uses the same step counts at full size. Drag <em>Items in the file</em> up towards 63,000 and watch the curve bend upwards, then switch on the fixes and watch it fall flat against the bottom.</p>
+
+  <figure class="demo" data-demo="load-growth">
+    <canvas id="load-growth"></canvas>
+    <figcaption>The dashed curve is the loader with no fixes. The solid curve is the loader with the fixes you chose. "Steps per item" stays fixed only when both loops are fixed. This counts steps in a simplified model of the two loops, not seconds in the real game.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>A small catalogue loader in Lua with both fixes as switches, using the demo's names. Lua strings know their own length, so Lua does not have the <code>strlen</code> trap itself. It has a close cousin: cutting off the part you have read with <code>rest:sub(...)</code> copies all the text that is left, every time. That is the same walk to the end. Start with <code>N = 12</code>, then try 5,000 and 20,000 with the fixes on and off.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- Load "name,price" lines, with the two fixes as switches</span>
+local FIX_LENGTH = true  <span class="c">-- fix 1: never re-walk the text that is left</span>
+local FIX_HASH = true    <span class="c">-- fix 2: find duplicates with a hash set</span>
+local N = 12             <span class="c">-- items in the file</span>
+
+local function makeCatalog(n)
+  local lines = {}
+  for i = 1, n do
+    lines[i] = "item_" .. i .. "," .. (i * 7 % 1000)
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+local function loadCatalog(text)
+  local items, seen = {}, {}
+  local pos, rest = 1, text
+  while true do
+    local name, price, nextPos
+    if FIX_LENGTH then
+<span class="k">      name, price, nextPos = text:match("^([^,\n]+),(%d+)\n()", pos)</span>
+      pos = nextPos
+    else
+      name, price = rest:match("^([^,\n]+),(%d+)\n")
+      if name then
+<span class="k">        rest = rest:sub(#name + #price + 3)  -- copies all that is left</span>
+      end
+    end
+    if not name then break end
+
+    local dup = false
+    if FIX_HASH then
+<span class="k">      dup = seen[name] == true             -- one look, any size</span>
+      seen[name] = true
+    else
+      for i = 1, #items do                 <span class="c">-- compare with every stored item</span>
+        if items[i].name == name then dup = true end
+      end
+    end
+    if not dup then
+      items[#items + 1] = { name = name, price = tonumber(price) }
+    end
+  end
+  return items
+end
+
+local result, seconds
+function love.load()
+  local text = makeCatalog(N)
+  local start = love.timer.getTime()
+  result = loadCatalog(text)
+  seconds = love.timer.getTime() - start
+end
+
+function love.draw()
+  love.graphics.print(#result .. " items in " .. string.format("%.3f", seconds) .. " s", 20, 20)
+end</code></pre>
+  </div>
+  <p>The fixed parser keeps a position number, <code>pos</code>, and asks <code>match</code> to start there; the <code>()</code> at the end of the pattern returns the position just after the line. A Lua table is a hash table, so <code>seen[name]</code> is the hash set.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Testing only with small data.</strong> At 1,000 items the second demo needs about a million steps, a blink for a computer. Test loaders with ten times the data you expect.</li>
+    <li><strong>Loops hidden in library calls.</strong> <code>sscanf</code> walking to the end of its input surprised many programmers. In Lua, <code>string.sub</code> copies, and <code>table.insert(t, 1, x)</code> and <code>table.remove(t, 1)</code> shift every element. Inside a loop, each becomes quadratic.</li>
+    <li><strong>Data that grows after release.</strong> A live game's catalogues and save files get longer with every update. Code that was fine at launch can be slow years later.</li>
+    <li><strong>Fixing by deleting a check.</strong> A patch that skips a duplicate check is fine for an experiment, but the check may exist for a reason. Make it fast instead of removing it.</li>
+    <li><strong>Guessing instead of measuring.</strong> t0st found the problem with a profiler. Profile before you rewrite.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>This is the rare story in this series where the fix came from a player. t0st published his write-up on his blog and shared the patch's source on GitHub.</p>
+  <p>The lesson for today: the constraint here was not the hardware but the growth of the data, and that constraint is everywhere now. A web game that parses a large JSON file on every start, a mobile game that searches thousands of owned items each frame, or a server that checks every player against every other player all hit the same wall. The repair is usually the same: remember what you already measured, and use a hash table instead of a search.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find one loader or start-up routine in your own project, or use the Lua code above. Time it with your real data, then with ten times as much (copy the data or generate fake entries). If the time grows about ten times, it is linear. If it grows about a hundred times, find the hidden loop and fix it. You are done when ten times the data costs about ten times the time.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>GTA Online's PC loading spent minutes reading one 10 MB JSON file of about 63,000 items.</li>
+    <li>Two loops were quadratic: <code>sscanf</code> measured the rest of the text on every read, and each item was checked against every stored item for duplicates.</li>
+    <li>A player found both with a profiler and disassembly, and on his PC a patch cut loading from about six minutes to under two.</li>
+    <li>Rockstar confirmed the problem, shipped a fix in March 2021 and, by t0st's account, paid him a $10,000 bounty.</li>
+    <li>Remember lengths and positions instead of re-measuring, use hash tables for "have I seen this?", and test with ten times the data.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next we start the procedural generation track with Rogue, which built a new dungeon every game by placing rooms in a three by three grid and joining them with corridors.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>Written without live verification: no source page could be opened in this session, so none are linked. The facts and numbers here come from search summaries of the works below, which agree with each other; the times for each separate fix appeared in fewer reports than the combined figure. The demos' step counts are this page's own model, not measurements of the game.</p>
+  <ul>
+    <li>t0st, <cite>How I cut GTA Online loading times by 70%</cite>, on his blog nee.lv (28 February 2021). The primary source; read this first.</li>
+    <li>PC Gamer, <cite>Rockstar thanks GTA Online player who fixed poor load times, official update coming</cite>.</li>
+    <li>PC Gamer, <cite>GTA Online load time fix released, shaves off actual minutes of waiting for some</cite>.</li>
+    <li>Kotaku, <cite>Rockstar pays modder $10,000 for fixing GTA load times</cite>.</li>
+    <li>GameSpot, <cite>GTA Online Update Coming To Fix Load Times, Modder Collects $10,000 Bounty</cite>.</li>
+    <li>Tom's Hardware, <cite>GTAV Fan Fixes GTA Online's Super Lengthy Load Times</cite>.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  function fmt(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + ' billion';
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + ' million';
+    return Math.round(n).toLocaleString('en-US');
+  }
+
+  /* ---------------- Demo 1: the loader, step by step ---------------- */
+  var N = 12, SLOTS = 16;
+  var fix1 = false, fix2 = false;
+  var phase, i, sweep, cmp, lengthKnown, list, table, counts, cur, acc;
+
+  function hashSlot(k) { return (k * 7 + 3) % SLOTS; }
+
+  function restart() {
+    phase = 'measure'; i = 0; sweep = -1; cmp = 0; lengthKnown = false;
+    list = []; table = []; for (var k = 0; k < SLOTS; k++) table.push(-1);
+    counts = { measure: 0, read: 0, dedupe: 0 };
+    cur = null; acc = 0;
+    if (h1) h1.redraw();
+  }
+
+  function nextItem() {
+    i++;
+    if (i >= N) { phase = 'done'; cur = null; } else { phase = 'measure'; }
+  }
+
+  // Do exactly one unit of work (free bookkeeping in between costs nothing).
+  function step() {
+    var guard = 0;
+    while (phase !== 'done' && guard++ < 10) {
+      if (phase === 'measure') {
+        if (fix1 && lengthKnown) { phase = 'read'; continue; }
+        if (sweep < 0) sweep = i;
+        counts.measure++;
+        cur = { kind: 'measure', cell: sweep, item: i };
+        sweep++;
+        if (sweep > N) { sweep = -1; lengthKnown = true; phase = 'read'; }
+        return;
+      }
+      if (phase === 'read') {
+        counts.read++;
+        cur = { kind: 'read', cell: i, item: i };
+        phase = 'dedupe'; cmp = 0;
+        return;
+      }
+      if (phase === 'dedupe') {
+        if (fix2) {
+          var s = hashSlot(i);
+          counts.dedupe++;
+          table[s] = i;
+          cur = { kind: 'hash', slot: s, item: i };
+          nextItem();
+          return;
+        }
+        if (cmp < list.length) {
+          counts.dedupe++;
+          cur = { kind: 'compare', slot: cmp, item: i };
+          cmp++;
+          if (cmp === list.length) { list.push(i); nextItem(); }
+          return;
+        }
+        list.push(i);
+        nextItem();
+        continue;
+      }
+    }
+  }
+
+  var ui1 = DemoKit.controls('[data-demo="loader-steps"]');
+  var t1 = ui1.toggle({ label: 'Fix 1: measure the text once', value: false,
+    onChange: function (v) { fix1 = v; restart(); } });
+  var t2 = ui1.toggle({ label: 'Fix 2: hash table for duplicates', value: false,
+    onChange: function (v) { fix2 = v; restart(); } });
+  var rate = ui1.slider({ label: 'Speed', min: 1, max: 30, step: 1, value: 6, unit: ' steps/s' });
+  ui1.button({ label: 'Step', onClick: function () { step(); h1.redraw(); } });
+  ui1.button({ label: 'Restart', onClick: function () { restart(); } });
+  var totalOut = ui1.readout({ label: 'Total steps' });
+
+  var h1 = null;
+  restart();
+
+  function statusText() {
+    if (phase === 'done') return 'Done: 12 items loaded in ' + (counts.measure + counts.read + counts.dedupe) + ' steps.';
+    if (!cur) return 'Press Step or Play to start loading.';
+    var n = cur.item + 1;
+    if (cur.kind === 'measure') return 'Finding the end of the text (' + (fix1 ? 'once' : 'again, for item ' + n) + ')';
+    if (cur.kind === 'read') return 'Reading item ' + n;
+    if (cur.kind === 'compare') return 'Is item ' + n + ' a duplicate? Check stored item ' + (list[cur.slot] + 1);
+    return 'Item ' + n + ' goes to slot ' + cur.slot + ': one look';
+  }
+
+  h1 = DemoKit.canvas('#loader-steps', {
+    height: 340,
+    label: 'A row of 12 item cells and an end marker. A highlight sweeps to the end before each read, then the item is checked against stored items in a list or a hash table. Bars count the steps.',
+    update: function (dt) {
+      acc += dt * rate.value;
+      var n = 0;
+      while (acc >= 1 && n < 40) { step(); acc -= 1; n++; }
+      if (phase === 'done') acc = 0;
+    },
+    draw: function (ctx, s) {
+      var c = s.colors, W = s.width, pad = 12;
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+
+      // Text buffer
+      ctx.fillStyle = c.ink2; ctx.textAlign = 'left';
+      ctx.fillText('The file: 12 items, then the end', pad, 14);
+      var cw = (W - 2 * pad) / (N + 1), y0 = 28, ch = 30;
+      for (var k = 0; k <= N; k++) {
+        var x = pad + k * cw;
+        var done = k < i || phase === 'done';
+        ctx.fillStyle = done && k < N ? c.surface2 : c.surface;
+        var sweepHit = cur && cur.kind === 'measure' && cur.cell === k;
+        var active = cur && k === cur.item && k < N && phase !== 'done';
+        if (sweepHit) ctx.fillStyle = c.warn;
+        else if (active) ctx.fillStyle = c.topic;
+        ctx.fillRect(x + 1, y0, cw - 2, ch);
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 1.5, y0 + 0.5, cw - 3, ch - 1);
+        ctx.fillStyle = (sweepHit || active) ? c.bg : (k === N ? c.ink3 : c.ink);
+        ctx.textAlign = 'center';
+        ctx.font = (cw < 26 ? '11px' : '13px') + ' system-ui, sans-serif';
+        ctx.fillText(k === N ? 'end' : String(k + 1), x + cw / 2, y0 + ch / 2);
+      }
+
+      // Storage
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textAlign = 'left'; ctx.fillStyle = c.ink2;
+      ctx.fillText(fix2 ? 'Stored: a hash table with 16 slots' : 'Stored: a plain list, checked in order', pad, 82);
+      var sw = (W - 2 * pad) / SLOTS, sy = 96, sh = 28;
+      for (var m = 0; m < SLOTS; m++) {
+        var sx = pad + m * sw;
+        var val = fix2 ? table[m] : (m < list.length ? list[m] : -1);
+        var hit = cur && (cur.kind === 'compare' || cur.kind === 'hash') && cur.slot === m && phase !== 'done';
+        ctx.fillStyle = hit ? c.warn : (val >= 0 ? c.surface2 : c.surface);
+        ctx.fillRect(sx + 1, sy, sw - 2, sh);
+        ctx.strokeStyle = c.line;
+        ctx.strokeRect(sx + 1.5, sy + 0.5, sw - 3, sh - 1);
+        if (val >= 0) {
+          ctx.fillStyle = hit ? c.bg : c.ink;
+          ctx.textAlign = 'center';
+          ctx.font = (sw < 24 ? '11px' : '13px') + ' system-ui, sans-serif';
+          ctx.fillText(String(val + 1), sx + sw / 2, sy + sh / 2);
+        }
+      }
+
+      // Status line
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.textAlign = 'left'; ctx.fillStyle = c.ink;
+      ctx.fillText(statusText(), pad, 146);
+
+      // Bars
+      var rows = [
+        ['Finding the end', counts.measure],
+        ['Reading items', counts.read],
+        ['Duplicate checks', counts.dedupe]
+      ];
+      var bx = pad, by = 176, bw = W - 2 * pad, maxV = 90;
+      for (var r = 0; r < rows.length; r++) {
+        var yy = by + r * 44;
+        ctx.fillStyle = c.ink2; ctx.textAlign = 'left';
+        ctx.fillText(rows[r][0] + ': ' + rows[r][1], bx, yy);
+        ctx.fillStyle = c.surface2;
+        ctx.fillRect(bx, yy + 10, bw, 12);
+        ctx.fillStyle = r === 1 ? c.good : c.topic;
+        ctx.fillRect(bx, yy + 10, bw * Math.min(rows[r][1] / maxV, 1), 12);
+      }
+      totalOut.set(String(counts.measure + counts.read + counts.dedupe));
+    }
+  });
+
+  /* ---------------- Demo 2: how the work grows ---------------- */
+  var MAXN = 63000;
+  function work(n, f1, f2) {
+    var measure = f1 ? n + 1 : (n + 1) * (n + 2) / 2 - 1;
+    var dedupe = f2 ? n : n * (n - 1) / 2;
+    return measure + n + dedupe;
+  }
+
+  var ui2 = DemoKit.controls('[data-demo="load-growth"]');
+  var nSl = ui2.slider({ label: 'Items in the file', min: 1000, max: MAXN, step: 1000, value: 20000,
+    onInput: function () { h2.redraw(); } });
+  var g1 = ui2.toggle({ label: 'Fix 1: measure the text once', value: false, onChange: function () { h2.redraw(); } });
+  var g2 = ui2.toggle({ label: 'Fix 2: hash table for duplicates', value: false, onChange: function () { h2.redraw(); } });
+  var stepsOut = ui2.readout({ label: 'Total steps' });
+  var perOut = ui2.readout({ label: 'Steps per item' });
+  var ratioOut = ui2.readout({ label: 'Compared with both fixes' });
+
+  var h2 = DemoKit.canvas('#load-growth', {
+    height: 300,
+    animate: false,
+    label: 'A chart of loading work against the number of items. The unfixed loader curves steeply upward; with both fixes it is a nearly flat line.',
+    draw: function (ctx, s) {
+      var c = s.colors, W = s.width, H = s.height;
+      var L = W < 420 ? 64 : 84, R = 14, T = 16, B = 44;
+      var pw = W - L - R, ph = H - T - B;
+      var maxY = work(MAXN, false, false);
+      function px(n) { return L + pw * n / MAXN; }
+      function py(v) { return T + ph * (1 - v / maxY); }
+
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      // grid and axis labels
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.fillStyle = c.ink3; ctx.textAlign = 'right';
+      for (var b = 0; b <= 4; b++) {
+        var v = b * 1e9;
+        var y = Math.round(py(v)) + 0.5;
+        ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + pw, y); ctx.stroke();
+        ctx.fillText(b === 0 ? '0' : b + ' bn', L - 6, y);
+      }
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      var xt = W < 420 ? [0, 30000, 60000] : [0, 20000, 40000, 60000];
+      for (var q = 0; q < xt.length; q++) {
+        ctx.fillText(xt[q] === 0 ? '0' : (xt[q] / 1000) + 'k', px(xt[q]), T + ph + 6);
+      }
+      ctx.fillText('items in the file', L + pw / 2, T + ph + 24);
+
+      // curves
+      function curve(f1, f2, color, width, dash) {
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        for (var k = 0; k <= 100; k++) {
+          var n = MAXN * k / 100;
+          var X = px(n), Y = py(work(n, f1, f2));
+          if (k === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      curve(false, false, c.ink3, 1.5, [5, 4]);
+      curve(g1.value, g2.value, c.topic, 3, []);
+
+      // marker
+      var n0 = nSl.value;
+      var w0 = work(n0, g1.value, g2.value);
+      var mx = px(n0), my = py(w0);
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(mx, T); ctx.lineTo(mx, T + ph); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = c.topic;
+      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = c.ink; ctx.textBaseline = 'bottom';
+      var label = fmt(w0) + ' steps';
+      ctx.font = '13px system-ui, sans-serif';
+      var tw = ctx.measureText(label).width;
+      ctx.textAlign = mx + 8 + tw > L + pw ? 'right' : 'left';
+      var lx = ctx.textAlign === 'right' ? mx - 8 : mx + 8;
+      var ly = Math.max(my - 8, T + 16);
+      ctx.fillText(label, lx, ly);
+
+      var best = work(n0, true, true);
+      stepsOut.set(fmt(w0));
+      perOut.set(fmt(w0 / n0));
+      ratioOut.set(Math.round(w0 / best).toLocaleString('en-US') + ' times the work');
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -51,7 +51,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Hashing coordinates** — How a hash turns a grid position into a repeatable random value without storing anything. Demo: pan across an endless star field generated from cell coordinates with a seed slider. (published 2026-11-24, hashing-grid-coordinates)
 - [x] **Distributions** — How adding or reshaping uniform random numbers makes bell curves and biased results. Demo: choose the number of dice and a bias curve and watch a histogram fill up. (published 2026-11-25, random-distributions-bias)
 - [x] **Random points in shapes** — Why naive random points in a circle bunch up at the centre and how to fix it. Demo: an A/B view scatters points with the naive and corrected methods. (published 2026-11-26, random-points-in-circle)
-- [ ] **Weighted random choice** — How to pick items with different chances from a loot table. Demo: weight sliders for five items drive a roll button and a results chart.
+- [x] **Weighted random choice** — How to pick items with different chances from a loot table. Demo: weight sliders for five items drive a roll button and a results chart. (published 2026-11-27, weighted-random-loot)
 - [ ] **Shuffle bags** — How drawing from a shuffled bag prevents long streaks while keeping the odds. Demo: compare the streaks of pure random and bag random draws with a bag size slider.
 
 ## Track 5: Noise and geometry
