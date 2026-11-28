@@ -55,7 +55,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 
 ## Track 5: Screen effects and post-processing
 
-- [ ] **Full-screen passes** — How post-processing draws the finished frame to a texture and runs a shader over it, as with a screen shader in Godot or a full-screen pass in Unity. Demo: toggle simple effects such as invert and greyscale on a small animated scene with a strength slider.
+- [x] **Full-screen passes** — How post-processing draws the finished frame to a texture and runs a shader over it, as with a screen shader in Godot or a full-screen pass in Unity. Demo: toggle simple effects such as invert and greyscale on a small animated scene with a strength slider. (published 2026-11-28, full-screen-passes)
 - [ ] **Pixelation** — How snapping UVs to a grid lowers the apparent resolution. Demo: a pixel size slider pixelates an animated scene.
 - [ ] **Vignette** — How darkening towards the edges focuses attention on the centre. Demo: sliders for radius, softness and strength shape the vignette.
 - [ ] **Chromatic aberration** — How sampling the red, green and blue channels at slightly different offsets imitates a lens. Demo: a strength slider and a radial toggle split the colours of a scene.

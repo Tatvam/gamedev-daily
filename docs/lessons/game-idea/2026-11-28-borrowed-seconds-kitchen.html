@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borrowed Seconds Kitchen: steal time from one pan to save another · Game Dev Daily</title>
+<meta name="description" content="A cooking game where you never touch the food, only move seconds between pan timers, and every second you take must come from another dish.">
+<meta name="gdd:topic" content="game-idea">
+<meta name="gdd:date" content="2026-11-28">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="9">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-idea">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Borrowed Seconds Kitchen: steal time from one pan to save another</h1>
+  <p class="lede">A cooking game where you never touch the food, only move seconds between pan timers, and every second you take must come from another dish.</p>
+</header>
+
+<section data-section="hook">
+  <p>You are a cook with a stopped pocket watch, and you can pull five seconds out of one pan and push them into another. Four dishes, four waiters on their way, and the seconds are never free: every dish you rescue cooks some other dish faster.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The core loop: spot the mismatch, find a donor, move five seconds</h2>
+  <p>There is a stove with four pans. Each pan holds a dish with two clocks: the <dfn>cook timer</dfn>, the seconds until the dish is done, and the <dfn>pickup</dfn>, the seconds until its waiter arrives to take it. Both count down at the same speed, so on their own they never drift apart. Only you can change that.</p>
+  <p>Your one verb is the <dfn>transfer</dfn>: drag from one pan to another and five seconds move from the first pan's cook timer to the second's. The <dfn>donor</dfn> loses five seconds and finishes sooner. The receiver gains five and finishes later. The total of all cook timers never changes.</p>
+  <p>Every ten seconds you read the stove: which dish is off, and which can give or take five seconds? Every minute you run one service of a dozen dishes. Every session is a week of services, each adding a new kind of dish or a new rule.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A loop of three steps: read the stove and find a dish off its mark, find a donor that can spare or absorb five seconds, then drag to move the seconds, which leads back to reading the stove. Beside it, two longer loops: every minute one service of twelve dishes, and every session a week of services that each add a new dish or rule.">
+      <defs>
+        <marker id="bk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <rect class="d-accent-soft" x="110" y="16" width="190" height="54" rx="8"/>
+      <text class="d-text" x="205" y="39" text-anchor="middle">Read the stove</text>
+      <text class="d-muted" x="205" y="57" text-anchor="middle">which dish is off?</text>
+
+      <rect class="d-accent-soft" x="236" y="160" width="180" height="54" rx="8"/>
+      <text class="d-text" x="326" y="183" text-anchor="middle">Find a donor</text>
+      <text class="d-muted" x="326" y="201" text-anchor="middle">who can spare 5 s?</text>
+
+      <rect class="d-accent-soft" x="10" y="160" width="190" height="54" rx="8"/>
+      <text class="d-text" x="105" y="183" text-anchor="middle">Move the seconds</text>
+      <text class="d-muted" x="105" y="201" text-anchor="middle">one drag, five seconds</text>
+
+      <path class="d-accent" d="M266 72 L310 156" marker-end="url(#bk-arrow)"/>
+      <path class="d-accent" d="M234 187 L204 187" marker-end="url(#bk-arrow)"/>
+      <path class="d-accent" d="M108 156 L150 74" marker-end="url(#bk-arrow)"/>
+      <text class="d-label" x="205" y="122" text-anchor="middle">every 10 seconds</text>
+
+      <path class="d-dash" d="M432 30 V230"/>
+
+      <rect class="d-box" x="450" y="20" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="44" text-anchor="middle">Every minute</text>
+      <text class="d-muted" x="540" y="66" text-anchor="middle">one service of</text>
+      <text class="d-muted" x="540" y="84" text-anchor="middle">twelve dishes</text>
+
+      <rect class="d-box" x="450" y="138" width="180" height="84" rx="8"/>
+      <text class="d-label" x="540" y="162" text-anchor="middle">Every session</text>
+      <text class="d-muted" x="540" y="184" text-anchor="middle">a week of services,</text>
+      <text class="d-muted" x="540" y="202" text-anchor="middle">a new rule each day</text>
+    </svg>
+    <figcaption>The short loop is bookkeeping under pressure: every fix is paid for by another pan.</figcaption>
+  </figure>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><strong>The window.</strong> A dish is perfect if it is done when its waiter arrives and has not burnt yet. A done dish burns five seconds after it finishes. So it must finish in the five seconds before pickup: that span is its <dfn>finish window</dfn>.</li>
+    <li><strong>Transfers are zero-sum.</strong> One drag moves exactly five seconds from donor to receiver. Both pans must hold a dish. If the donor is pushed five or more seconds past done, it burns on the spot.</li>
+    <li><strong>Outcomes.</strong> Done in the window: perfect. Still cooking at pickup: sent back raw. Done too early: burnt before the waiter comes. Either way, a new dish arrives a moment later.</li>
+    <li><strong>Goal.</strong> Serve as many of the twelve dishes perfectly as you can.</li>
+  </ul>
+
+  <h3>Reading one pan</h3>
+  <p>Each pan is drawn as a timeline running to the right from "now". The green band is the finish window, ending at the pickup mark. The dot is the moment the dish will be done. Since everything slides left at the same speed, the dot only moves relative to its band when you transfer.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Two pan timelines running right from a now line. In pan one the done dot sits two seconds right of its pickup mark, so the dish would be raw. In pan two the dot sits left of its window, so it would burn. An arrow shows a transfer of five seconds from pan one to pan two: pan one's dot moves five seconds left into its window and pan two's dot moves five seconds right into its window.">
+      <defs>
+        <marker id="bk-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path class="d-accent-fill" d="M0 0 L10 5 L0 10 Z"/>
+        </marker>
+      </defs>
+      <path class="d-dash" d="M120 20 V210"/>
+      <text class="d-muted" x="120" y="16" text-anchor="middle">now</text>
+
+      <text class="d-text" x="20" y="74">Pan 1</text>
+      <path class="d-thin" d="M120 70 H620"/>
+      <rect class="d-accent-soft" x="300" y="58" width="60" height="24"/>
+      <path class="d-stroke" d="M360 50 V90"/>
+      <text class="d-muted" x="360" y="44" text-anchor="middle">pickup</text>
+      <circle class="d-fill" cx="384" cy="70" r="8" opacity="0.45"/>
+      <circle class="d-accent-fill" cx="324" cy="70" r="8"/>
+      <path class="d-accent" d="M376 96 L334 96" marker-end="url(#bk-arrow2)"/>
+      <text class="d-label" x="356" y="114" text-anchor="middle">gives 5 s</text>
+      <text class="d-muted" x="470" y="74">was raw, now in window</text>
+
+      <text class="d-text" x="20" y="164">Pan 2</text>
+      <path class="d-thin" d="M120 160 H620"/>
+      <rect class="d-accent-soft" x="420" y="148" width="60" height="24"/>
+      <path class="d-stroke" d="M480 140 V180"/>
+      <text class="d-muted" x="480" y="134" text-anchor="middle">pickup</text>
+      <circle class="d-fill" cx="384" cy="160" r="8" opacity="0.45"/>
+      <circle class="d-accent-fill" cx="444" cy="160" r="8"/>
+      <path class="d-accent" d="M392 192 L434 192" marker-end="url(#bk-arrow2)"/>
+      <text class="d-label" x="414" y="210" text-anchor="middle">gets 5 s</text>
+      <text class="d-muted" x="200" y="196">was going to burn</text>
+    </svg>
+    <figcaption>One transfer fixed both pans because their errors were opposite. Usually they are not, and you have to borrow.</figcaption>
+  </figure>
+
+  <h3>What makes it different</h3>
+  <p>Cooking games usually test your hands. Here the cook never moves. The player fantasy is the kitchen wizard who bends time, and the constraint is that time is a fixed pot shared by every pan. The interesting moments are <em>loans</em>: a dish that is fine today gives five seconds to save a neighbour, and you plan to pay it back from the next dish that arrives with seconds to spare. If that dish never comes, your loan burns.</p>
+  <p>The code is small. The hardest part to build is the dealer that chooses each new dish. If it deals at random, the books often cannot balance and losses feel unfair; if it always deals the exact fix, there is nothing to plan. The prototype tilts each new dish toward balancing the stove, with one step of random error.</p>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The kitchen starts closed, so you can study the first four pans. The risotto will burn, the steak and the dumplings will be raw. Two transfers fix all of them. Then press Start and keep up as new dishes arrive: look for dots outside their bands and dishes that can lend.</p>
+
+  <figure class="demo wide" data-demo="borrowed-seconds">
+    <canvas id="borrowed-seconds"></canvas>
+    <figcaption>Controls: drag from one pan's row to another's to move 5 seconds from the first to the second. Or tap (or press <kbd>1</kbd> to <kbd>4</kbd> after clicking the canvas) the donor, then the receiver. <kbd>Space</kbd> or Start opens the kitchen; <kbd>R</kbd> or Restart begins the shift again. A green dot is in its window, amber will be raw, red will burn. With reduced motion, press Play first.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The heart of the mechanic in LÖVE: two clocks per pan, a transfer that keeps the total fixed, and a judge that runs when either clock runs out. The <code>need</code> function tells the dealer, or a hint system, how many transfers a pan needs. Names and numbers match the demo; drawing and input are left out.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local CHUNK = 5    <span class="c">-- one transfer moves five seconds</span>
+local WINDOW = 5   <span class="c">-- a done dish burns five seconds later</span>
+local pans = {     <span class="c">-- cook: seconds until done, pickup: seconds until the waiter</span>
+  { dish = "Risotto", cook = 10.0, pickup = 22 },
+  { dish = "Steak",   cook = 18.5, pickup = 16 },
+}
+local served, lost = 0, 0
+
+local function finish(pan, perfect)
+  pan.dish = nil
+  if perfect then served = served + 1 else lost = lost + 1 end
+end
+
+<span class="k">local function transfer(from, to)
+  local a, b = pans[from], pans[to]
+  if from == to or not a.dish or not b.dish then return end
+  a.cook = a.cook - CHUNK            -- the donor finishes sooner
+  b.cook = b.cook + CHUNK            -- the receiver later; the total stays the same
+  if a.cook &lt;= -WINDOW then finish(a, false) end  -- took too much: burnt
+end</span>
+
+local function need(pan)             <span class="c">-- transfers to receive (negative: to give)</span>
+  return math.floor((pan.pickup - pan.cook) / CHUNK)
+end
+
+function love.update(dt)
+  for _, pan in ipairs(pans) do
+    if pan.dish then
+      pan.cook = pan.cook - dt
+      pan.pickup = pan.pickup - dt
+      if pan.cook &lt;= -WINDOW then finish(pan, false)        <span class="c">-- burnt</span>
+      elseif pan.pickup &lt;= 0 then finish(pan, pan.cook &lt;= 0) <span class="c">-- raw if not done</span>
+      end
+    end
+  end
+end</code></pre>
+  </div>
+  <p>Check <code>need</code> with the risotto: pickup 22 minus cook 10 is 12, divided by 5 is 2.4, rounded down is 2. Two transfers in take it to 20, which is done two seconds before the waiter. The steak gives <code>floor(-2.5 / 5) = -1</code>: it must give one. Because the window is exactly as wide as a transfer, every dish has one right number of transfers.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>It becomes a sum, not a game.</strong> If every new dish arrives with an exact partner, players stop reading the stove and just count. Keep some imbalance so loans are needed, and test whether players ever say "I'll pay it back later".</li>
+    <li><strong>It becomes unwinnable.</strong> If the dealer is fully random, the stove's total need drifts, and some dishes are doomed the moment they arrive. Log the sum of <code>need</code> over the shift; if it often goes beyond two in either direction, tilt the dealer harder.</li>
+    <li><strong>The board is unreadable.</strong> Two numbers per pan is too much to compare at speed. Draw the gap, not the clocks: a dot and a band. In testing, point at a pan and ask "raw, perfect or burnt?"</li>
+    <li><strong>Waiters in a pile.</strong> If several pickups land within a second, the player cannot fix them all in time. Space pickups at least two seconds apart.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>In <cite>Overcooked</cite>, food left on the stove burns and can start a fire, and players race around a kitchen to chop, cook and plate. Restaurant time-management games such as the <cite>Diner Dash</cite> series are about serving customers before their patience runs out. In both, you are the bottleneck.</p>
+  <p>Borrowed Seconds Kitchen removes movement entirely and makes time itself the resource, a fixed amount you move between dishes. I do not know of a game built on exactly this zero-sum transfer, but I have not played every cooking game, so one may exist.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn: the first playtest</h2>
+  <p>In one sitting, build the Lua above with four rows of rectangles, a dot and a band per pan, and keys 1 to 4 for donor then receiver. Skip art: just count perfect and lost dishes, and use the demo's tilted dealer.</p>
+  <p>Give it to a friend and say only "serve the dishes perfectly". The one question: <strong>do they ever take seconds from a pan that was already fine, on purpose, to save another?</strong> That loan is the whole game. If they only ever fix pairs that cancel, the dealer is too kind; deal more lopsided dishes and test again.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li><strong>Weekend version:</strong> four pans, one service of twelve dishes, the tilted dealer, and a score of perfect dishes.</li>
+    <li><strong>One-month version:</strong> a week of services; dishes that cannot donate (a soufflé), dishes with wider windows (a stew), a fifth pan unlocked mid-week, and tables whose dishes must all go out together.</li>
+    <li><strong>Cut first:</strong> customers, tips, upgrades and decoration. If moving seconds is not fun with four dots, none of that will save it.</li>
+    <li><strong>Hardest part:</strong> the dealer. Spend your tuning time on how new dishes are chosen, not on the timers.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Twist to try: seconds can only flow between neighbouring pans, so the stove's layout turns into a little pipeline and the middle pans become your bank.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Ernest Adams and Joris Dormans, <cite>Game Mechanics: Advanced Game Design</cite> (New Riders, 2012). On internal economies, resources that flow between parts of a system, and how to balance them.</li>
+    <li>Jesse Schell, <cite>The Art of Game Design: A Book of Lenses</cite> (CRC Press). On resources, meaningful choices and testing a core loop early.</li>
+    <li>Katie Salen and Eric Zimmerman, <cite>Rules of Play: Game Design Fundamentals</cite> (MIT Press, 2003). On how a small set of rules creates interesting decisions.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  var CHUNK = 5, WINDOW = 5, TOTAL = 12, SPAN = 40, HUD = 42, FOOT = 46;
+  var NAMES = ['Risotto', 'Steak', 'Salmon', 'Dumplings', 'Curry', 'Omelette',
+               'Gnocchi', 'Pancakes', 'Paella', 'Ramen', 'Tofu', 'Lamb'];
+  // First four dishes: n = transfers the dish must receive, u = where it lands in its window.
+  var FIRST = [{ n: 2, u: -2, p: 22 }, { n: -1, u: -2.5, p: 16 },
+               { n: 0, u: -1.5, p: 28 }, { n: -1, u: -3, p: 34 }];
+
+  var pans, rng, started, over, served, burnt, raw, dealt, clock, selected, drag, tokens;
+  var msg = '', msgKind = '', best = 0, handle = null;
+
+  function setMsg(text, kind) { msg = text; msgKind = kind || ''; }
+
+  function fmt(t) {
+    var sec = Math.floor(t), m = Math.floor(sec / 60), r = sec % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
+  function need(pan) { return Math.floor((pan.pickup - pan.cook) / CHUNK); }
+
+  function status(pan) {
+    var d = pan.cook - pan.pickup;
+    if (d > 0) return 'raw';
+    if (d < -WINDOW) return 'burn';
+    return 'ok';
+  }
+
+  function makeDish(pan, n, u, p) {
+    pan.dish = NAMES[dealt % NAMES.length];
+    pan.pickup = p;
+    pan.cook = p + u - CHUNK * n;
+    pan.shown = pan.cook;
+    dealt++;
+  }
+
+  // The dealer: tilt each new dish toward balancing the stove, with one step of random error.
+  function dealNew(pan) {
+    var sum = 0;
+    pans.forEach(function (q) { if (q.dish) sum += need(q); });
+    var n = Math.max(-2, Math.min(2, -sum + Math.floor(rng() * 3) - 1));
+    var u = -4.5 + rng() * 4;
+    var p = 18 + Math.floor(rng() * 13);
+    makeDish(pan, n, u, p);
+  }
+
+  function restart() {
+    rng = DemoKit.rng(11);
+    pans = [0, 1, 2, 3].map(function () {
+      return { dish: null, cook: 0, pickup: 0, shown: 0, refill: 0, fx: null };
+    });
+    dealt = 0; served = 0; burnt = 0; raw = 0; clock = 0;
+    started = false; over = false; selected = -1; drag = null; tokens = [];
+    FIRST.forEach(function (f, i) { makeDish(pans[i], f.n, f.u, f.p); });
+    setMsg('Drag pan to pan to move 5 s. Plan, then press Start or Space.', '');
+    if (handle) handle.redraw();
+  }
+
+  function start() {
+    if (started || over) return;
+    started = true;
+    setMsg('Kitchen open. Keep every dot inside its green band.', '');
+    if (handle) handle.redraw();
+  }
+
+  function finish(pan, result) {
+    if (result === 'perfect') served++; else if (result === 'burnt') burnt++; else raw++;
+    pan.fx = { text: result === 'perfect' ? 'Perfect!' : result === 'burnt' ? 'Burnt' : 'Raw, sent back',
+               kind: result === 'perfect' ? 'good' : 'bad', t: 1.6 };
+    pan.dish = null; pan.refill = 2.5;
+    if (selected >= 0 && pans[selected] === pan) selected = -1;
+  }
+
+  function transfer(from, to) {
+    if (over || from === to || from < 0 || to < 0) return;
+    var a = pans[from], b = pans[to];
+    if (!a.dish || !b.dish) { setMsg('Both pans need a dish to trade seconds.', 'bad'); return; }
+    var name = a.dish;
+    a.cook -= CHUNK; b.cook += CHUNK;
+    tokens.push({ from: from, to: to, t: 0 });
+    if (a.cook <= -WINDOW) { finish(a, 'burnt'); setMsg('Took too much: the ' + name + ' burnt.', 'bad'); }
+    else setMsg('5 s from pan ' + (from + 1) + ' to pan ' + (to + 1) + '.', '');
+  }
+
+  function pick(i) {
+    if (over || i < 0) return;
+    if (selected < 0) {
+      if (pans[i].dish) { selected = i; setMsg('Pan ' + (i + 1) + ' gives. Now choose who gets 5 s.', ''); }
+    } else if (selected === i) {
+      selected = -1; setMsg('Cancelled.', '');
+    } else {
+      transfer(selected, i); selected = -1;
+    }
+  }
+
+  function update(dt) {
+    tokens.forEach(function (t) { t.t += dt * 3; });
+    tokens = tokens.filter(function (t) { return t.t < 1; });
+    pans.forEach(function (p) {
+      if (p.dish) p.shown += (p.cook - p.shown) * Math.min(1, dt * 14);
+      if (p.fx) { p.fx.t -= dt; if (p.fx.t <= 0) p.fx = null; }
+    });
+    if (!started || over) return;
+    clock += dt;
+    pans.forEach(function (p) {
+      if (p.dish) {
+        p.cook -= dt; p.pickup -= dt; p.shown -= dt;
+        if (p.cook <= -WINDOW) finish(p, 'burnt');
+        else if (p.pickup <= 0) finish(p, p.cook <= 0 ? 'perfect' : 'raw');
+      } else if (dealt < TOTAL) {
+        p.refill -= dt;
+        if (p.refill <= 0) dealNew(p);
+      }
+    });
+    if (dealt >= TOTAL && pans.every(function (p) { return !p.dish; })) {
+      over = true; selected = -1; drag = null;
+      best = Math.max(best, served);
+      setMsg('Shift over: ' + served + ' of ' + TOTAL + ' perfect (best ' + best + '). Restart to cook again.',
+             served >= 9 ? 'good' : '');
+    }
+  }
+
+  function layout(s) {
+    var labelW = s.width < 480 ? 108 : 132;
+    var tx0 = labelW + 6, tx1 = s.width - 16;
+    return { top: HUD, rowH: (s.height - HUD - FOOT) / 4, labelW: labelW,
+             tx0: tx0, tx1: tx1, pxs: (tx1 - tx0) / SPAN };
+  }
+
+  function rowAt(L, y) {
+    var i = Math.floor((y - L.top) / L.rowH);
+    return i >= 0 && i < 4 ? i : -1;
+  }
+
+  function wrap(ctx, text, maxW) {
+    var words = text.split(' '), lines = [''];
+    words.forEach(function (wd) {
+      var cur = lines[lines.length - 1], test = cur ? cur + ' ' + wd : wd;
+      if (ctx.measureText(test).width > maxW && cur) lines.push(wd); else lines[lines.length - 1] = test;
+    });
+    return lines.slice(0, 2);
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors, w = s.width, h = s.height, L = layout(s);
+    function X(t) { return L.tx0 + Math.max(0, Math.min(SPAN, t)) * L.pxs; }
+    function colFor(st) { return st === 'ok' ? c.good : st === 'raw' ? c.warn : c.bad; }
+    var hover = drag && drag.moved ? rowAt(L, drag.y) : -1;
+    var giver = drag ? drag.from : selected;
+
+    // HUD
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.font = '600 14px ' + FONT; ctx.fillStyle = c.ink;
+    ctx.fillText('Perfect ' + served + ' / ' + TOTAL, 10, 18);
+    ctx.textAlign = 'right'; ctx.font = '12px ' + FONT; ctx.fillStyle = c.ink2;
+    ctx.fillText('Lost ' + (burnt + raw) + '   ' + (over ? 'Closed' : started ? 'Open ' + fmt(clock) : 'Not open yet'), w - 10, 18);
+    ctx.font = '11px ' + FONT; ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left'; ctx.fillText('now', L.tx0 - 8, 36);
+    ctx.textAlign = 'right'; ctx.fillText('+' + SPAN + ' s', L.tx1, 36);
+
+    // Now line
+    ctx.strokeStyle = c.ink3; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(L.tx0, L.top); ctx.lineTo(L.tx0, L.top + L.rowH * 4); ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (var i = 0; i < 4; i++) {
+      var p = pans[i], y0 = L.top + i * L.rowH, mid = y0 + L.rowH / 2;
+      if (i === giver || (i === hover && hover !== giver)) {
+        ctx.fillStyle = c.topic; ctx.globalAlpha = i === giver ? 0.12 : 0.07;
+        ctx.fillRect(4, y0 + 2, w - 8, L.rowH - 4); ctx.globalAlpha = 1;
+      }
+      if (i > 0) {
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(8, y0); ctx.lineTo(w - 8, y0); ctx.stroke();
+      }
+      // Pan icon with burn ring
+      var r = Math.max(9, Math.min(15, L.rowH * 0.28));
+      ctx.fillStyle = p.dish && p.cook <= 0 ? c.warn : c.surface2;
+      ctx.strokeStyle = i === giver ? c.topic : c.ink2; ctx.lineWidth = i === giver ? 3 : 1.5;
+      ctx.beginPath(); ctx.arc(22, mid, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = c.ink; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText(String(i + 1), 22, mid + 4);
+      if (p.dish && p.cook < 0) {
+        ctx.strokeStyle = c.bad; ctx.lineWidth = 3; ctx.beginPath();
+        ctx.arc(22, mid, r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, -p.cook / WINDOW));
+        ctx.stroke();
+      }
+      // Name and state
+      ctx.textAlign = 'left'; ctx.font = '600 12px ' + FONT; ctx.fillStyle = p.dish ? c.ink : c.ink3;
+      ctx.fillText(p.dish || 'empty', 44, mid - 3);
+      ctx.font = '11px ' + FONT; ctx.fillStyle = c.ink3;
+      var info = '';
+      if (p.dish) info = p.cook > 0 ? 'done in ' + Math.ceil(p.cook) + ' s' : 'burns in ' + Math.max(0, Math.ceil(WINDOW + p.cook)) + ' s';
+      else if (dealt < TOTAL && !over) info = 'next dish soon';
+      ctx.fillText(info, 44, mid + 12);
+
+      if (p.dish) {
+        ctx.strokeStyle = c.line; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(L.tx0, mid); ctx.lineTo(L.tx1, mid); ctx.stroke();
+        // Finish window and pickup mark
+        var b0 = X(p.pickup - WINDOW), b1 = X(p.pickup);
+        ctx.fillStyle = c.good; ctx.globalAlpha = 0.22;
+        ctx.fillRect(b0, mid - 9, Math.max(2, b1 - b0), 18); ctx.globalAlpha = 1;
+        ctx.strokeStyle = c.good; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(b1, mid - 12); ctx.lineTo(b1, mid + 12); ctx.stroke();
+        ctx.font = '10px ' + FONT; ctx.fillStyle = c.ink2;
+        ctx.textAlign = b1 > L.tx1 - 20 ? 'right' : 'center';
+        ctx.fillText('pickup ' + Math.ceil(p.pickup), b1, mid - 15);
+        // Ghost of where the dot would go
+        var ghost = null;
+        if (i === giver && hover !== giver) ghost = p.shown - CHUNK;
+        if (i === hover && hover !== giver && giver >= 0 && pans[giver].dish) ghost = p.shown + CHUNK;
+        if (ghost !== null) {
+          ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.arc(X(ghost), mid, 7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        }
+        // Done dot
+        var col = colFor(status(p));
+        ctx.fillStyle = col; ctx.strokeStyle = c.bg; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(X(p.shown), mid, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        if (p.shown > SPAN) {
+          ctx.fillStyle = col; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'left';
+          ctx.fillText('>', L.tx1 + 4, mid + 4);
+        }
+      }
+      if (p.fx) {
+        ctx.globalAlpha = Math.min(1, p.fx.t * 2);
+        ctx.fillStyle = p.fx.kind === 'good' ? c.good : c.bad;
+        ctx.font = '600 13px ' + FONT; ctx.textAlign = 'center';
+        ctx.fillText(p.fx.text, (L.tx0 + L.tx1) / 2, mid + (p.dish ? 22 : 5));
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Flying "5 s" tokens
+    tokens.forEach(function (t) {
+      var ya = L.top + (t.from + 0.5) * L.rowH, yb = L.top + (t.to + 0.5) * L.rowH;
+      var y = ya + (yb - ya) * t.t, x = L.tx0 + 18;
+      ctx.fillStyle = c.topic; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = c.bg; ctx.font = '600 10px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText('5 s', x, y + 3);
+    });
+
+    // Drag line
+    if (drag && drag.moved) {
+      var fy = L.top + (drag.from + 0.5) * L.rowH;
+      ctx.strokeStyle = c.topic; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(22, fy); ctx.lineTo(drag.x, drag.y); ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+
+    // Message
+    ctx.textAlign = 'left'; ctx.font = '600 12px ' + FONT;
+    ctx.fillStyle = msgKind === 'good' ? c.good : msgKind === 'bad' ? c.bad : c.ink2;
+    var lines = wrap(ctx, msg, w - 100);
+    lines.forEach(function (ln, k) { ctx.fillText(ln, 10, h - FOOT + 18 + k * 16); });
+  }
+
+  var ui = DemoKit.controls('[data-demo="borrowed-seconds"]');
+  ui.button({ label: 'Start (Space)', onClick: start });
+  ui.button({ label: 'Restart (R)', onClick: restart });
+
+  restart();
+  handle = DemoKit.canvas('#borrowed-seconds', {
+    height: 380,
+    keys: true,
+    drag: true,
+    label: 'Borrowed Seconds Kitchen prototype: four pans shown as timelines, each with a done dot and a green finish window ending at the waiter pickup. Drag between pans to move five seconds.',
+    update: function (dt) { update(dt); },
+    draw: draw,
+    onDown: function (pt, s) {
+      if (over) return;
+      var i = rowAt(layout(s), pt.y);
+      drag = i >= 0 ? { from: i, x: pt.x, y: pt.y, x0: pt.x, y0: pt.y, moved: false } : null;
+    },
+    onMove: function (pt) {
+      if (!drag || !pt.down) return;
+      drag.x = pt.x; drag.y = pt.y;
+      if (Math.abs(pt.y - drag.y0) + Math.abs(pt.x - drag.x0) > 10) drag.moved = true;
+    },
+    onUp: function (pt, s) {
+      if (!drag) return;
+      var from = drag.from, moved = drag.moved, i = rowAt(layout(s), pt.y);
+      drag = null;
+      if (i < 0) return;
+      if (moved && i !== from) {
+        if (pans[from].dish) { transfer(from, i); selected = -1; }
+      } else if (!moved) {
+        pick(i);
+      }
+    },
+    onKey: function (key, isDown) {
+      if (!isDown) return;
+      if (key === 'space') start();
+      else if (key === 'r') restart();
+      else if (key >= '1' && key <= '4' && key.length === 1) pick(Number(key) - 1);
+    }
+  });
+})();
+</script>
+</body>
+</html>

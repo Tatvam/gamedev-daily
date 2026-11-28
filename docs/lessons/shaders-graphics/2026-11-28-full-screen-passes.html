@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full-screen passes: one shader over the whole frame · Game Dev Daily</title>
+<meta name="description" content="Draw the game into a texture, then draw that texture over the screen through one shader: the pattern behind every post-processing effect.">
+<meta name="gdd:topic" content="shaders-graphics">
+<meta name="gdd:date" content="2026-11-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="shaders-graphics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Full-screen passes: one shader over the whole frame</h1>
+  <p class="lede">Draw the game into a texture, then draw that texture over the screen through one shader: the pattern behind every post-processing effect.</p>
+</header>
+
+<section data-section="hook">
+  <p>The player dies and the whole world drains to grey. A flashback turns everything sepia. You could add greyscale to every sprite, tile and particle shader, but you would miss one. A full-screen pass does it once, for everything, after the frame is drawn.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Draw the frame twice: once into a texture, once through a shader</h2>
+  <p>A fragment shader is a small function that runs once per pixel and returns a colour. Until now, its inputs were coordinates and a few uniforms. A full-screen pass gives it one more input: the colour the game already drew at this pixel.</p>
+  <p>To get that colour, the frame is drawn in two passes. A <dfn>pass</dfn> is one round of drawing into one target.</p>
+  <ol>
+    <li><strong>Pass 1: draw the game as usual</strong>, but into an off-screen texture instead of the screen. A texture you can draw into is called a <dfn>render target</dfn>; LÖVE calls it a Canvas, Godot a Viewport or the screen texture, Unity a RenderTexture.</li>
+    <li><strong>Pass 2: draw one shape that covers the whole screen</strong>, usually a quad made of two triangles, textured with that render target and drawn with your <dfn>post-processing</dfn> shader. The shape covers every pixel, so the shader runs once for every pixel on screen.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="Pass 1: the game scene of sprites and tiles is drawn into a frame texture instead of the screen. Pass 2: a full-screen quad runs the post shader, which samples the frame texture at the pixel's own UV and returns a new colour to the screen. The HUD is drawn onto the screen after pass 2, so the effect does not touch it.">
+      <text class="d-muted" x="20" y="22">Pass 1: draw the game into a texture</text>
+      <rect class="d-box" x="20" y="34" width="170" height="62" rx="6"/>
+      <text class="d-text" x="105" y="61" text-anchor="middle">Game scene</text>
+      <text class="d-muted" x="105" y="81" text-anchor="middle">sprites, tiles</text>
+      <path class="d-stroke" d="M190 65 H234 M226 59 L234 65 L226 71"/>
+      <rect class="d-accent-soft" x="240" y="34" width="170" height="62" rx="6"/>
+      <text class="d-text" x="325" y="61" text-anchor="middle">Frame texture</text>
+      <text class="d-muted" x="325" y="81" text-anchor="middle">render target</text>
+
+      <rect class="d-box" x="460" y="34" width="160" height="62" rx="6"/>
+      <text class="d-text" x="540" y="61" text-anchor="middle">HUD</text>
+      <text class="d-muted" x="540" y="81" text-anchor="middle">health, score</text>
+
+      <path class="d-accent" d="M325 96 V158 M319 150 L325 158 L331 150"/>
+      <text class="d-label" x="334" y="128">sampled at uv</text>
+      <path class="d-stroke" d="M540 96 V158 M534 150 L540 158 L546 150"/>
+      <text class="d-label" x="549" y="128">drawn after</text>
+
+      <text class="d-muted" x="20" y="150">Pass 2: one full-screen draw</text>
+      <rect class="d-box" x="20" y="162" width="170" height="70" rx="6"/>
+      <path class="d-thin" d="M44 222 H112 V174 H44 Z M44 222 L112 174"/>
+      <text class="d-text" x="152" y="194" text-anchor="middle">quad,</text>
+      <text class="d-text" x="152" y="214" text-anchor="middle">2 tris</text>
+      <path class="d-stroke" d="M190 197 H234 M226 191 L234 197 L226 203"/>
+      <rect class="d-accent-soft" x="240" y="162" width="190" height="70" rx="6"/>
+      <text class="d-text" x="335" y="190" text-anchor="middle">post shader</text>
+      <text class="d-mono" x="335" y="214" text-anchor="middle">post(texel(uv))</text>
+      <path class="d-stroke" d="M430 197 H474 M466 191 L474 197 L466 203"/>
+      <rect class="d-box" x="480" y="162" width="140" height="70" rx="6"/>
+      <text class="d-text" x="550" y="202" text-anchor="middle">Screen</text>
+    </svg>
+    <figcaption>The game never draws to the screen directly. Its pixels become the input of one more shader, which writes the final colours. Anything drawn after pass 2, like the HUD, is left alone.</figcaption>
+  </figure>
+
+  <h3>What goes in, what comes out</h3>
+  <p>Inside the pass, the shader for one pixel does three things: work out its screen UV (0 to 1 across the screen), read the frame texture at that UV, and return a changed colour.</p>
+<pre><code>vec2 uv = gl_FragCoord.xy / u_resolution;   // where am I on screen, 0 to 1
+vec3 src = texture2D(u_frame, uv).rgb;      // what the game drew here
+gl_FragColor = vec4(post(src), 1.0);        // what I want it to be</code></pre>
+  <p>The simplest effects only need <code>src</code>. Take a green ground pixel, <code>(0.25, 0.60, 0.30)</code>:</p>
+  <ul>
+    <li><strong>Invert</strong> is <code>1.0 - src</code>, which gives <code>(0.75, 0.40, 0.70)</code>, a pink.</li>
+    <li><strong>Greyscale</strong> is a weighted average: <code>dot(src, vec3(0.2126, 0.7152, 0.0722))</code>, which gives about 0.50 in all three channels. Green weighs most because our eyes are most sensitive to it.</li>
+    <li><strong>Sepia</strong> is three weighted averages, one per output channel, that lean towards brown.</li>
+  </ul>
+  <p>A <dfn>strength</dfn> uniform blends between the two with <code>mix(src, post(src), u_strength)</code>, so the world can fade to grey over a second instead of switching at once.</p>
+
+  <div class="callout">
+    <p class="callout-title">Origins and why they do not matter yet</p>
+    <p>WebGL's <code>gl_FragCoord</code> has (0, 0) at the bottom-left. LÖVE's texture coordinates and Godot's <code>SCREEN_UV</code> start at the top-left. In a pass that reads the texel at the same UV it writes, that makes no difference: the picture is read and written the same way up. It starts to matter when you offset the lookup, as blur and chromatic aberration do. In Unity, a render texture can be stored upside down on some graphics APIs; <code>Graphics.Blit</code> handles that for a simple pass like this one.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>The left of the split line is the frame as the game drew it; the right is the same pixels after the pass. Step through <em>Stage</em>: the screen UV that every pixel uses to read the frame, the frame texture itself, the effect at full strength, then the final result. Drag <em>Strength</em> slowly down to 0 and watch greyscale fade back to colour. Then switch <em>HUD drawn after the pass</em> off: the pink health bar turns grey with the world, because now it is part of the frame texture.</p>
+
+  <figure class="demo wide" data-demo="postpass">
+    <canvas id="postpass-shader"></canvas>
+    <figcaption>One shader draws this. The scene function plays the part of the frame texture: for effects that read only their own pixel, calling it at the pixel's UV gives the same answer as reading a texture. Effects that read neighbouring pixels, like blur, need a real texture.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>In LÖVE the render target is a Canvas. Draw the scene into it, switch back to the screen, then draw the canvas through the post shader. The HUD is drawn last, without the shader. Press space to cycle the effects.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local effect = 2             <span class="c">-- 0 none, 1 invert, 2 greyscale, 3 sepia</span>
+local strength = 1.0         <span class="c">-- 0 = untouched, 1 = full effect</span>
+local time = 0
+local frame                  <span class="c">-- the render target: a Canvas the size of the window</span>
+local post
+
+local pixelcode = [[
+uniform float u_effect;
+uniform float u_strength;
+
+vec3 post(vec3 c)
+{
+  if (u_effect &gt; 2.5) {
+    return min(vec3(dot(c, vec3(0.393, 0.769, 0.189)),
+                    dot(c, vec3(0.349, 0.686, 0.168)),
+                    dot(c, vec3(0.272, 0.534, 0.131))), 1.0);
+  }
+  if (u_effect &gt; 1.5) return vec3(dot(c, vec3(0.2126, 0.7152, 0.0722)));
+  if (u_effect &gt; 0.5) return 1.0 - c;
+  return c;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+{
+  vec4 src = Texel(tex, texture_coords);       // what the game drew here
+  return vec4(mix(src.rgb, post(src.rgb), u_strength), src.a) * color;
+}
+]]
+
+function love.load()
+  frame = love.graphics.newCanvas()
+  post = love.graphics.newShader(pixelcode)
+end
+
+function love.keypressed(key)
+  if key == "space" then effect = (effect + 1) % 4 end
+end
+
+function love.update(dt)
+  time = time + dt
+end
+
+local function drawScene(w, h)
+  love.graphics.clear(0.25, 0.45, 0.85)                        <span class="c">-- sky</span>
+  love.graphics.setColor(1.00, 0.85, 0.25)
+  love.graphics.circle("fill", 0.25 * w, 0.28 * h, 0.12 * h)   <span class="c">-- sun</span>
+  love.graphics.setColor(0.25, 0.60, 0.30)
+  love.graphics.rectangle("fill", 0, 0.7 * h, w, 0.3 * h)      <span class="c">-- ground</span>
+  local bx = (0.5 + 0.3 * math.sin(time * 0.7)) * w
+  local by = (0.63 - 0.4 * math.abs(math.sin(time * 2.2))) * h
+  love.graphics.setColor(0.90, 0.20, 0.25)
+  love.graphics.circle("fill", bx, by, 0.07 * h)               <span class="c">-- bouncing ball</span>
+end
+
+local function drawHud(h)
+  love.graphics.setColor(0.10, 0.10, 0.12)
+  love.graphics.rectangle("fill", 0.05 * h, 0.08 * h, 0.4 * h, 0.06 * h)
+  love.graphics.setColor(0.95, 0.25, 0.45)
+  love.graphics.rectangle("fill", 0.06 * h, 0.09 * h, 0.266 * h, 0.04 * h)
+end
+
+function love.draw()
+  local w, h = love.graphics.getDimensions()
+<span class="k">  love.graphics.setCanvas(frame)</span>          <span class="c">-- pass 1: into the texture</span>
+  drawScene(w, h)
+  love.graphics.setCanvas()                 <span class="c">-- back to the screen</span>
+  love.graphics.setColor(1, 1, 1)
+  post:send("u_effect", effect)
+  post:send("u_strength", strength)
+<span class="k">  love.graphics.setShader(post)</span>           <span class="c">-- pass 2: the whole frame, once</span>
+  love.graphics.draw(frame, 0, 0)
+  love.graphics.setShader()
+  drawHud(h)                                <span class="c">-- after the pass: stays in colour</span>
+  love.graphics.setColor(1, 1, 1)
+end</code></pre>
+<pre data-lang="GLSL"><code>precision mediump float;
+
+uniform vec2 u_resolution;
+uniform vec2 u_ball;         // ball centre: x as a fraction of the width, y in screen heights
+uniform float u_effect;      // 0 none, 1 invert, 2 greyscale, 3 sepia
+uniform float u_strength;    // 0 = untouched, 1 = full effect
+uniform float u_split;       // pixels left of this fraction of the width skip the pass
+uniform float u_hudAfter;    // 1 = HUD drawn after the pass, 0 = HUD inside the frame
+uniform float u_stage;       // 0 screen UV, 1 frame texture, 2 effect alone, 3 final
+
+// ---- pass 2: the post-processing function. Colour in, colour out. ----
+vec3 post(vec3 c) {
+  if (u_effect &gt; 2.5) {
+    return min(vec3(dot(c, vec3(0.393, 0.769, 0.189)),
+                    dot(c, vec3(0.349, 0.686, 0.168)),
+                    dot(c, vec3(0.272, 0.534, 0.131))), 1.0);
+  }
+  if (u_effect &gt; 1.5) return vec3(dot(c, vec3(0.2126, 0.7152, 0.0722)));
+  if (u_effect &gt; 0.5) return 1.0 - c;
+  return c;
+}
+
+// ---- pass 1 stand-in: what the game drew. p is in screen heights, y up. ----
+vec3 scene(vec2 p, float aspect) {
+  vec3 col = vec3(0.25, 0.45, 0.85);                                   // sky
+  float sun = length(p - vec2(0.25 * aspect, 0.72)) - 0.12;
+  col = mix(col, vec3(1.0, 0.85, 0.25), 1.0 - smoothstep(0.0, 0.004, sun));
+  if (p.y &lt; 0.3) col = vec3(0.25, 0.60, 0.30);                         // ground
+  float ball = length(p - vec2(u_ball.x * aspect, u_ball.y)) - 0.07;
+  col = mix(col, vec3(0.90, 0.20, 0.25), 1.0 - smoothstep(0.0, 0.004, ball));
+  return col;
+}
+
+// the HUD: a health bar, 70% full. rgb is its colour, a is 1 where it covers.
+vec4 hud(vec2 p) {
+  vec2 q = p - vec2(0.05, 0.86);
+  float inside = step(0.0, q.x) * step(q.x, 0.4) * step(0.0, q.y) * step(q.y, 0.06);
+  vec3 c = vec3(0.10, 0.10, 0.12);
+  if (q.x &gt; 0.01 &amp;&amp; q.x &lt; 0.276 &amp;&amp; q.y &gt; 0.01 &amp;&amp; q.y &lt; 0.05) c = vec3(0.95, 0.25, 0.45);
+  return vec4(c, inside);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;          // screen UV, (0, 0) bottom-left
+  float aspect = u_resolution.x / u_resolution.y;
+  vec2 p = vec2(uv.x * aspect, uv.y);
+
+  vec4 ui = hud(p);
+  vec3 src = scene(p, aspect);                       // in a real pass: texture2D(u_frame, uv)
+  if (u_hudAfter &lt; 0.5) src = mix(src, ui.rgb, ui.a); // HUD baked into the frame
+  vec3 fx = post(src);
+  vec3 result = mix(src, fx, u_strength);
+  if (uv.x &lt; u_split) result = src;                  // the untouched side of the split
+  if (u_hudAfter &gt; 0.5) result = mix(result, ui.rgb, ui.a); // HUD drawn on top afterwards
+  if (u_split &gt; 0.0 &amp;&amp; u_split &lt; 1.0 &amp;&amp; abs(gl_FragCoord.x - u_split * u_resolution.x) &lt; 1.5) {
+    result = vec3(1.0);
+  }
+
+  // the stage selector: show an intermediate value instead of the final colour
+  vec2 g = abs(fract(uv * 10.0) - 0.5);
+  vec3 uvView = vec3(uv, 0.0);
+  if (max(g.x, g.y) &gt; 0.47) uvView = mix(uvView, vec3(1.0), 0.35);
+
+  vec3 shown = result;
+  if (u_stage &lt; 2.5) shown = fx;
+  if (u_stage &lt; 1.5) shown = src;
+  if (u_stage &lt; 0.5) shown = uvView;
+  gl_FragColor = vec4(shown, 1.0);
+}</code></pre>
+<pre data-lang="Godot shader"><code>// Godot 4. Add a CanvasLayer with a ColorRect child, set the ColorRect's
+// anchors to Full Rect and its Mouse Filter to Ignore, and give it a
+// ShaderMaterial with this shader. Put the HUD on a CanvasLayer with a
+// higher layer number so it is drawn after the effect.
+shader_type canvas_item;
+
+uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_nearest;
+uniform float effect : hint_range(0.0, 3.0, 1.0) = 2.0;   // 0 none, 1 invert, 2 grey, 3 sepia
+uniform float strength : hint_range(0.0, 1.0) = 1.0;
+
+vec3 post(vec3 c) {
+    if (effect &gt; 2.5) {
+        return min(vec3(dot(c, vec3(0.393, 0.769, 0.189)),
+                        dot(c, vec3(0.349, 0.686, 0.168)),
+                        dot(c, vec3(0.272, 0.534, 0.131))), vec3(1.0));
+    }
+    if (effect &gt; 1.5) return vec3(dot(c, vec3(0.2126, 0.7152, 0.0722)));
+    if (effect &gt; 0.5) return 1.0 - c;
+    return c;
+}
+
+void fragment() {
+<span class="k">    vec3 src = texture(screen_texture, SCREEN_UV).rgb;</span>   // what was drawn below this rect
+    COLOR = vec4(mix(src, post(src), strength), 1.0);
+}</code></pre>
+<pre data-lang="Unity (HLSL)"><code>// Built-in render pipeline. Make a material with this shader and assign it
+// to the ScreenEffect script (next tab) on the camera.
+Shader "GameDevDaily/ScreenEffect"
+{
+    Properties
+    {
+        _MainTex ("Frame", 2D) = "white" {}
+        _Effect ("Effect (0 none, 1 invert, 2 grey, 3 sepia)", Range(0, 3)) = 2
+        _Strength ("Strength", Range(0, 1)) = 1
+    }
+    SubShader
+    {
+        Cull Off ZWrite Off ZTest Always
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+
+            sampler2D _MainTex;     // Graphics.Blit puts the frame here
+            float _Effect;
+            float _Strength;
+
+            float3 post (float3 c)
+            {
+                if (_Effect &gt; 2.5)
+                {
+                    return saturate(float3(dot(c, float3(0.393, 0.769, 0.189)),
+                                           dot(c, float3(0.349, 0.686, 0.168)),
+                                           dot(c, float3(0.272, 0.534, 0.131))));
+                }
+                if (_Effect &gt; 1.5) return dot(c, float3(0.2126, 0.7152, 0.0722)).xxx;
+                if (_Effect &gt; 0.5) return 1.0 - c;
+                return c;
+            }
+
+            fixed4 frag (v2f_img i) : SV_Target
+            {
+<span class="k">                float3 src = tex2D(_MainTex, i.uv).rgb;</span>
+                return float4(lerp(src, post(src), _Strength), 1.0);
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+<pre data-lang="C# (Unity)"><code>// Built-in render pipeline only. Add to the camera.
+using UnityEngine;
+
+[RequireComponent(typeof(Camera))]
+public class ScreenEffect : MonoBehaviour
+{
+    public Material material;   // uses GameDevDaily/ScreenEffect
+
+    void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        // source is pass 1, the finished frame. Blit draws a full-screen
+        // quad into destination with the material's shader.
+<span class="k">        Graphics.Blit(source, destination, material);</span>
+    }
+}</code></pre>
+  </div>
+  <p>The Unity tabs are for the Built-in render pipeline. URP does not call <code>OnRenderImage</code>. In URP (2022.2 and later) add a <em>Full Screen Pass Renderer Feature</em> to the renderer asset and give it a material made from a Shader Graph with the <em>Fullscreen</em> material type; inside the graph, the <em>URP Sample Buffer</em> node set to <em>BlitSource</em> gives you the frame colour, and the rest is the same maths. In every engine, anything drawn before the pass is affected by it, so draw the HUD afterwards.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>The HUD turns grey too.</strong> Everything drawn before the pass goes through it. Draw the HUD after the pass, as the demo's toggle shows; in Godot, put it on a higher CanvasLayer.</li>
+    <li><strong>The render target is the wrong size.</strong> Make it match the window and recreate it when the window is resized, or the frame comes out stretched or blurry. <code>love.graphics.newCanvas()</code> with no arguments uses the window size at the time you call it.</li>
+    <li><strong>A full-screen ColorRect eats your clicks.</strong> In Godot, set its Mouse Filter to Ignore.</li>
+    <li><strong>Colour space changes the answer.</strong> The greyscale weights are defined for linear colour. The demo, LÖVE and Godot 2D (without HDR 2D) store sRGB-encoded values, so there the result is a close approximation, which is what most games ship. In a Unity project set to Linear colour space the frame is linear, so the weights are exact but invert looks different: mid grey on screen is about 0.21 in linear, and <code>1.0 - 0.21</code> is not mid grey.</li>
+    <li><strong>Forgetting to clear the canvas.</strong> If pass 1 does not clear the render target, last frame's pixels stay under this frame.</li>
+  </ul>
+  <h3>What it costs</h3>
+  <p>The maths here is trivial: invert is three subtractions, greyscale is one dot product. The branches on <code>u_effect</code> are cheap too, because every pixel takes the same path. The real cost is memory traffic. A 1080 by 2400 phone screen has about 2.6 million pixels; at 4 bytes each, a pass reads about 10 MB and writes about 10 MB, so 60 frames a second moves over 1.2 GB per second for one simple effect. Phone GPUs also draw in small tiles kept on the chip, and switching render targets forces the whole frame out to main memory and back. So on mobile, merge your effects into one pass (one shader that does tint, greyscale and vignette together) instead of chaining several, and consider rendering the frame at a lower resolution.</p>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Nearly every modern engine ends its frame with full-screen passes. Unity's post-processing (the Volume system in URP and HDRP) runs bloom, colour grading and vignette as full-screen passes, and Godot's Environment resource has built-in adjustments for brightness, contrast and saturation. Godot's documentation describes custom post-processing in 2D exactly as above: a full-screen ColorRect whose shader reads the screen texture.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Start from the LÖVE program.</p>
+  <ol>
+    <li>Add a "damage" effect: when you press <code>d</code>, set <code>strength</code> to 1 with <code>effect = 1</code> (invert), then make <code>love.update</code> lower <code>strength</code> by <code>dt * 3</code> each frame until it reaches 0. You get a flash that fades in a third of a second.</li>
+    <li>Add a fifth effect, a red tint: <code>vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))) * vec3(1.0, 0.3, 0.3)</code>. Remember to update the <code>% 4</code>.</li>
+    <li>Handle <code>love.resize(w, h)</code> by creating a new canvas of the new size.</li>
+  </ol>
+  <p>You are done when pressing <code>d</code> flashes the world but not the health bar, and resizing the window keeps the picture sharp.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A full-screen pass draws the game into a texture, then draws that texture over the screen through one shader.</li>
+    <li>The post shader runs once per screen pixel: the colour the game drew goes in, a new colour comes out.</li>
+    <li><code>mix(src, post(src), strength)</code> lets any effect fade in and out.</li>
+    <li>Draw the HUD after the pass unless you want it affected.</li>
+    <li>The cost is reading and writing the whole frame, not the maths; on phones, combine effects into one pass.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next, the pass starts reading from somewhere other than its own pixel: snapping the lookup UV to a grid gives pixelation.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>LÖVE wiki, <cite>love.graphics.newCanvas</cite>, <cite>love.graphics.setCanvas</cite> and <cite>love.graphics.newShader</cite>.</li>
+    <li>Godot documentation, <cite>Custom post-processing</cite> and <cite>Screen-reading shaders</cite>.</li>
+    <li>Unity documentation, <cite>MonoBehaviour.OnRenderImage</cite>, <cite>Graphics.Blit</cite> and <cite>Full Screen Pass Renderer Feature</cite> (URP).</li>
+    <li>ITU-R Recommendation BT.709, the source of the 0.2126, 0.7152, 0.0722 luminance weights.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var fragment = [
+    "precision mediump float;",
+    "",
+    "uniform vec2 u_resolution;",
+    "uniform vec2 u_ball;         // ball centre: x as a fraction of the width, y in screen heights",
+    "uniform float u_effect;      // 0 none, 1 invert, 2 greyscale, 3 sepia",
+    "uniform float u_strength;    // 0 = untouched, 1 = full effect",
+    "uniform float u_split;       // pixels left of this fraction of the width skip the pass",
+    "uniform float u_hudAfter;    // 1 = HUD drawn after the pass, 0 = HUD inside the frame",
+    "uniform float u_stage;       // 0 screen UV, 1 frame texture, 2 effect alone, 3 final",
+    "",
+    "// ---- pass 2: the post-processing function. Colour in, colour out. ----",
+    "vec3 post(vec3 c) {",
+    "  if (u_effect > 2.5) {",
+    "    return min(vec3(dot(c, vec3(0.393, 0.769, 0.189)),",
+    "                    dot(c, vec3(0.349, 0.686, 0.168)),",
+    "                    dot(c, vec3(0.272, 0.534, 0.131))), 1.0);",
+    "  }",
+    "  if (u_effect > 1.5) return vec3(dot(c, vec3(0.2126, 0.7152, 0.0722)));",
+    "  if (u_effect > 0.5) return 1.0 - c;",
+    "  return c;",
+    "}",
+    "",
+    "// ---- pass 1 stand-in: what the game drew. p is in screen heights, y up. ----",
+    "vec3 scene(vec2 p, float aspect) {",
+    "  vec3 col = vec3(0.25, 0.45, 0.85);                                   // sky",
+    "  float sun = length(p - vec2(0.25 * aspect, 0.72)) - 0.12;",
+    "  col = mix(col, vec3(1.0, 0.85, 0.25), 1.0 - smoothstep(0.0, 0.004, sun));",
+    "  if (p.y < 0.3) col = vec3(0.25, 0.60, 0.30);                         // ground",
+    "  float ball = length(p - vec2(u_ball.x * aspect, u_ball.y)) - 0.07;",
+    "  col = mix(col, vec3(0.90, 0.20, 0.25), 1.0 - smoothstep(0.0, 0.004, ball));",
+    "  return col;",
+    "}",
+    "",
+    "// the HUD: a health bar, 70% full. rgb is its colour, a is 1 where it covers.",
+    "vec4 hud(vec2 p) {",
+    "  vec2 q = p - vec2(0.05, 0.86);",
+    "  float inside = step(0.0, q.x) * step(q.x, 0.4) * step(0.0, q.y) * step(q.y, 0.06);",
+    "  vec3 c = vec3(0.10, 0.10, 0.12);",
+    "  if (q.x > 0.01 && q.x < 0.276 && q.y > 0.01 && q.y < 0.05) c = vec3(0.95, 0.25, 0.45);",
+    "  return vec4(c, inside);",
+    "}",
+    "",
+    "void main() {",
+    "  vec2 uv = gl_FragCoord.xy / u_resolution;          // screen UV, (0, 0) bottom-left",
+    "  float aspect = u_resolution.x / u_resolution.y;",
+    "  vec2 p = vec2(uv.x * aspect, uv.y);",
+    "",
+    "  vec4 ui = hud(p);",
+    "  vec3 src = scene(p, aspect);                       // in a real pass: texture2D(u_frame, uv)",
+    "  if (u_hudAfter < 0.5) src = mix(src, ui.rgb, ui.a); // HUD baked into the frame",
+    "  vec3 fx = post(src);",
+    "  vec3 result = mix(src, fx, u_strength);",
+    "  if (uv.x < u_split) result = src;                  // the untouched side of the split",
+    "  if (u_hudAfter > 0.5) result = mix(result, ui.rgb, ui.a); // HUD drawn on top afterwards",
+    "  if (u_split > 0.0 && u_split < 1.0 && abs(gl_FragCoord.x - u_split * u_resolution.x) < 1.5) {",
+    "    result = vec3(1.0);",
+    "  }",
+    "",
+    "  // the stage selector: show an intermediate value instead of the final colour",
+    "  vec2 g = abs(fract(uv * 10.0) - 0.5);",
+    "  vec3 uvView = vec3(uv, 0.0);",
+    "  if (max(g.x, g.y) > 0.47) uvView = mix(uvView, vec3(1.0), 0.35);",
+    "",
+    "  vec3 shown = result;",
+    "  if (u_stage < 2.5) shown = fx;",
+    "  if (u_stage < 1.5) shown = src;",
+    "  if (u_stage < 0.5) shown = uvView;",
+    "  gl_FragColor = vec4(shown, 1.0);",
+    "}"
+  ].join("\n");
+
+  var handle = null;
+  var time = 0;
+  function changed() { if (handle) handle.redraw(); }
+
+  var ui = DemoKit.controls('[data-demo="postpass"]');
+  var effect = ui.select({
+    label: 'Effect',
+    options: [
+      { value: '0', label: 'None' },
+      { value: '1', label: 'Invert' },
+      { value: '2', label: 'Greyscale' },
+      { value: '3', label: 'Sepia' }
+    ],
+    value: '2',
+    onChange: changed
+  });
+  var strength = ui.slider({ label: 'Strength', min: 0, max: 1, step: 0.05, value: 1, onInput: changed });
+  var split = ui.slider({ label: 'Split (left side skips the pass)', min: 0, max: 1, step: 0.01, value: 0.5, onInput: changed });
+  var hudAfter = ui.toggle({ label: 'HUD drawn after the pass', value: true, onChange: changed });
+  var stage = ui.select({
+    label: 'Stage',
+    options: [
+      { value: '0', label: '1. Screen UV (where each pixel reads)' },
+      { value: '1', label: '2. Frame texture (pass 1)' },
+      { value: '2', label: '3. Effect at full strength' },
+      { value: '3', label: '4. Final: strength, split and HUD' }
+    ],
+    value: '3',
+    onChange: changed
+  });
+
+  function ball() {
+    return [0.5 + 0.3 * Math.sin(time * 0.7), 0.37 + 0.4 * Math.abs(Math.sin(time * 2.2))];
+  }
+
+  handle = DemoKit.shader('#postpass-shader', {
+    fragment: fragment,
+    aspect: 16 / 10,
+    minHeight: 280,
+    maxHeight: 420,
+    label: 'A live fragment shader showing a small game scene: blue sky, a yellow sun, green ground, a bouncing red ball and a pink health bar. A full-screen pass recolours the right side of a split line. Controls choose the effect (none, invert, greyscale, sepia), its strength, the split position, whether the HUD is drawn after the pass, and a stage that shows the screen UV, the frame texture, the effect alone or the final image.',
+    update: function (dt) {
+      time = (time + dt) % 3600;
+    },
+    uniforms: {
+      u_ball: function () { return ball(); },
+      u_effect: function () { return Number(effect.value); },
+      u_strength: function () { return strength.value; },
+      u_split: function () { return split.value; },
+      u_hudAfter: function () { return hudAfter.value ? 1 : 0; },
+      u_stage: function () { return Number(stage.value); }
+    }
+  });
+})();
+</script>
+</body>
+</html>

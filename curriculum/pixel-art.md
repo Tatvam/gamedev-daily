@@ -52,7 +52,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its l
 - [x] **Top-down and side-view conventions** — How the camera angle changes the way walls, floors and objects are drawn. Demo: toggle one small room between a side view and a three-quarter top-down view. (published 2026-11-25, side-and-three-quarter-views)
 - [x] **Props larger than one tile** — How trees, houses and rocks span several tiles and how their draw order creates overlap. Demo: drag a character in front of and behind a tree with a toggle for sorting by vertical position. (published 2026-11-26, props-larger-than-tile)
 - [x] **Depth with atmospheric perspective** — How lowering contrast and shifting colour with distance separates background layers from gameplay. Demo: sliders control the fade and tint of three layers of procedural hills. (published 2026-11-27, atmospheric-perspective-layers)
-- [ ] **Animated tiles** — How a few looping frames bring water, lava and grass to life. Demo: a frame count toggle and a speed slider drive an animated water tile repeated across a pond.
+- [x] **Animated tiles** — How a few looping frames bring water, lava and grass to life. Demo: a frame count toggle and a speed slider drive an animated water tile repeated across a pond. (published 2026-11-28, animated-water-tiles)
 
 ## Track 5: Characters and animation
 

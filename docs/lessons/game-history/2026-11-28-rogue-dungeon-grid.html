@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rogue: a new dungeon from a three by three grid · Game Dev Daily</title>
+<meta name="description" content="How Rogue built a fresh dungeon floor every game from nine grid cells, a random tree of corridors and a few extra loops, and how to build one yourself.">
+<meta name="gdd:topic" content="game-history">
+<meta name="gdd:date" content="2026-11-28">
+<meta name="gdd:level" content="beginner">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-history">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Rogue: a new dungeon from a three by three grid</h1>
+  <p class="lede">How Rogue built a fresh dungeon floor every game from nine grid cells, a random tree of corridors and a few extra loops, and how to build one yourself.</p>
+</header>
+
+<section data-section="hook">
+  <p>Play a game with hand-built levels a few times and you learn them by heart: the trap is behind the second door, the key is in the far corner. Rogue, a dungeon game for Unix computers from around 1980, never let you learn the map, because it drew a new one every time you went down the stairs. The way it did this is short enough to rebuild in an afternoon, and it never makes a floor you cannot finish.</p>
+</section>
+
+<section data-section="concept">
+  <h2>The constraint: a text screen and a wish to be surprised</h2>
+  <p>Rogue was written by Michael Toy and Glenn Wichman, and Ken Arnold joined them later; the copyright line in the 1981 source names all three. It ran on terminals that showed text only. In version 5.4 the map is fixed at 80 columns by 24 rows, the size of a common terminal. Walls were <code>-</code> and <code>|</code>, floors were dots, corridors were <code>#</code> and the player was <code>@</code>.</p>
+  <p>A goal often attributed to the authors is a game that would surprise even the people who wrote it. Hand-made levels cannot do that, so Rogue makes each level from a <dfn>seed</dfn>: a starting number for a random number generator, which then produces the same sequence of numbers every time. In the version 5.4 source the seed is the clock time plus the program's process number, so each game is different.</p>
+  <p>Random is easy. Random <em>and always playable</em> is the hard part. Rooms must not overlap, they must fit on the screen, and every room must be reachable. Rogue gets all three from one simple structure.</p>
+
+  <h2>The trick, step by step</h2>
+  <p>The descriptions below come from the game's source code, which is public. Version 3.6 (1981) and version 5.4 build levels the same way, apart from small details.</p>
+  <p><strong>1. Cut the screen into nine cells.</strong> The map is split into a three by three grid. On an 80 by 24 screen each cell is 26 columns by 8 rows. Each cell can hold at most one room, and each room stays inside its cell, so two rooms can never overlap. That one rule replaces all the collision checks a free placement would need.</p>
+  <p><strong>2. Leave a few cells empty.</strong> The game picks zero to three cells to be <dfn>gone rooms</dfn>. A gone room has no walls or floor. It is a single point where corridors meet, so floors look less like a neat noughts-and-crosses board.</p>
+  <p><strong>3. Size and place each room.</strong> Every other cell gets a room of random width and height, at a random spot inside the cell. Rooms deeper in the dungeon are more often dark.</p>
+  <p><strong>4. Link the rooms with a tree.</strong> Each room may only connect to the cells directly beside it, above it or below it, never diagonally. This list of allowed links is fixed in the code. The builder starts in a random room and keeps adding a corridor to a random neighbour that is not linked yet. When the current room has no unlinked neighbours, it jumps to a random room that is already linked and carries on. It stops when all nine are in.</p>
+  <p>The result is a <dfn>spanning tree</dfn>: a set of links that reaches every room with no loops. Nine rooms need exactly eight corridors. Because every new corridor reaches a room that was not linked before, the whole floor is always connected. That is the guarantee.</p>
+  <p><strong>5. Add a few loops.</strong> A tree has exactly one route between any two rooms, which makes running from a monster dull. So the builder tries a random number of extra corridors, zero to four, each between neighbours that are not linked yet. Some tries find nothing and are skipped.</p>
+  <p><strong>6. Dig the corridors.</strong> A corridor starts at a door on the wall facing the neighbour, runs straight, makes one sideways jog at a random point, and runs straight to the door on the other room.</p>
+  <p>After that the game drops in the stairs, the player, gold and monsters, each on a random floor tile.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 290" role="img" aria-label="Left: a map cut into a three by three grid of cells. Seven cells hold rectangular rooms of different sizes, two cells hold only a junction point. Corridors with one jog each join neighbouring rooms. Right: the same nine rooms as a graph. Eight solid links form a tree that reaches every room, one dashed link adds a loop, and three faint links were allowed but not used.">
+      <text class="d-text" x="20" y="26">The map: one room per cell</text>
+      <text class="d-text" x="370" y="26">The graph: which rooms are linked</text>
+
+      <!-- cell grid -->
+      <rect class="d-dash" x="20" y="40" width="288" height="192"/>
+      <path class="d-dash" d="M116 40 V232 M212 40 V232 M20 104 H308 M20 168 H308"/>
+
+      <!-- corridors (tree) -->
+      <path class="d-accent" d="M90 70 H108 V76 H128"/>
+      <path class="d-accent" d="M202 74 H230 V72 H262"/>
+      <path class="d-accent" d="M262 72 V100 H270 V116"/>
+      <path class="d-accent" d="M160 96 V102 H150 V110"/>
+      <path class="d-accent" d="M74 130 H100 V140 H130"/>
+      <path class="d-accent" d="M50 158 V166 H70 V176"/>
+      <path class="d-accent" d="M104 204 H130 V200 H160"/>
+      <path class="d-accent" d="M160 200 H190 V196 H220"/>
+      <!-- extra corridor -->
+      <path class="d-good" stroke-dasharray="5 4" d="M186 126 H204 V130 H222"/>
+
+      <!-- rooms -->
+      <rect class="d-box" x="30" y="48" width="60" height="40"/>
+      <text class="d-text" x="60" y="72" text-anchor="middle">1</text>
+      <rect class="d-box" x="128" y="52" width="74" height="44"/>
+      <text class="d-text" x="165" y="78" text-anchor="middle">2</text>
+      <circle class="d-accent-fill" cx="262" cy="72" r="5"/>
+      <text class="d-muted" x="262" y="58" text-anchor="middle">3 gone</text>
+      <rect class="d-box" x="26" y="114" width="48" height="44"/>
+      <text class="d-text" x="50" y="140" text-anchor="middle">4</text>
+      <rect class="d-box" x="130" y="110" width="56" height="50"/>
+      <text class="d-text" x="158" y="139" text-anchor="middle">5</text>
+      <rect class="d-box" x="222" y="116" width="78" height="36"/>
+      <text class="d-text" x="261" y="138" text-anchor="middle">6</text>
+      <rect class="d-box" x="40" y="176" width="64" height="48"/>
+      <text class="d-text" x="72" y="204" text-anchor="middle">7</text>
+      <circle class="d-accent-fill" cx="160" cy="200" r="5"/>
+      <text class="d-muted" x="160" y="222" text-anchor="middle">8 gone</text>
+      <rect class="d-box" x="220" y="178" width="70" height="46"/>
+      <text class="d-text" x="255" y="205" text-anchor="middle">9</text>
+
+      <!-- graph: allowed but unused links -->
+      <path class="d-dash" d="M400 72 V136 M490 136 V200 M580 136 V200"/>
+      <!-- tree links -->
+      <path class="d-accent" d="M400 72 H580 M580 72 V136 M490 72 V136 M490 136 H400 M400 136 V200 M400 200 H580"/>
+      <!-- extra link -->
+      <path class="d-good" stroke-dasharray="5 4" d="M490 136 H580"/>
+      <!-- nodes -->
+      <circle class="d-accent-soft" cx="400" cy="72" r="14"/><text class="d-text" x="400" y="77" text-anchor="middle">1</text>
+      <circle class="d-accent-soft" cx="490" cy="72" r="14"/><text class="d-text" x="490" y="77" text-anchor="middle">2</text>
+      <circle class="d-box" cx="580" cy="72" r="9"/><text class="d-muted" x="602" y="77">3</text>
+      <circle class="d-accent-soft" cx="400" cy="136" r="14"/><text class="d-text" x="400" y="141" text-anchor="middle">4</text>
+      <circle class="d-accent-soft" cx="490" cy="136" r="14"/><text class="d-text" x="490" y="141" text-anchor="middle">5</text>
+      <circle class="d-accent-soft" cx="580" cy="136" r="14"/><text class="d-text" x="580" y="141" text-anchor="middle">6</text>
+      <circle class="d-accent-soft" cx="400" cy="200" r="14"/><text class="d-text" x="400" y="205" text-anchor="middle">7</text>
+      <circle class="d-box" cx="490" cy="200" r="9"/><text class="d-muted" x="490" y="226" text-anchor="middle">8</text>
+      <circle class="d-accent-soft" cx="580" cy="200" r="14"/><text class="d-text" x="580" y="205" text-anchor="middle">9</text>
+
+      <!-- legend -->
+      <path class="d-accent" d="M20 266 H50"/>
+      <text class="d-muted" x="58" y="270">tree corridor (8, reaches every room)</text>
+      <path class="d-good" stroke-dasharray="5 4" d="M300 266 H330"/>
+      <text class="d-muted" x="338" y="270">extra corridor (a loop)</text>
+      <path class="d-dash" d="M500 266 H530"/>
+      <text class="d-muted" x="538" y="270">allowed, unused</text>
+    </svg>
+    <figcaption>Every room only ever links to the cells beside, above or below it. Eight tree links reach all nine rooms. The dashed extra link between rooms 5 and 6 gives the player a second route.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Build the guarantee first, then add the variety. Here the tree makes the floor playable and the extra links make it interesting. Random choices never get the chance to break the first part.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Press <em>Restart</em>, then <em>Step</em>, to watch one floor being built: the empty cells first, then the rooms one by one, then each corridor. The newest piece is drawn in the topic colour. Turn on <em>Show link graph</em> to see the tree grow on top of the map. Then drag <em>Seed</em>: the same seed always gives the same floor, and no seed ever gives a room you cannot reach. Switch off <em>Extra corridors</em> to see the bare tree, with only one route between any two rooms.</p>
+
+  <figure class="demo wide" data-demo="rogue-grid">
+    <canvas id="rogue-grid"></canvas>
+    <figcaption>Walls are dark, floors are light, doors are orange and corridors are grey. Solid graph links belong to the tree; dashed links are extra corridors. The demo uses its own random number generator, so a seed here will not give the same floor as the same seed in the Lua code or in Rogue.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same builder in Lua for LÖVE, with the demo's names and numbers. Rooms are numbered 1 to 9, left to right and top to bottom, and <code>NEIGHBOURS</code> is the fixed list of allowed links. Press space to try the next seed.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- A Rogue-style floor: 3 by 3 cells, a tree of corridors, a few extra loops</span>
+local COLS, ROWS, CW, CH = 78, 24, 26, 8
+local NEIGHBOURS = { {2,4}, {1,3,5}, {2,6}, {1,5,7}, {2,4,6,8}, {3,5,9}, {4,8}, {5,7,9}, {6,8} }
+local map, rooms, rng
+local seed = 42
+
+local function rand(a, b) return rng:random(a, b) end
+local function put(x, y, ch) map[y + 1][x + 1] = ch end  <span class="c">-- x, y start at 0</span>
+
+local function placeRoom(i, gone)
+  local cx, cy = ((i - 1) % 3) * CW, math.floor((i - 1) / 3) * CH
+  if gone then                                       <span class="c">-- just a junction point</span>
+    local r = { gone = true, x = rand(cx + 3, cx + CW - 4), y = rand(cy + 2, cy + CH - 3) }
+    put(r.x, r.y, "#")
+    return r
+  end
+  local w, h = rand(5, 22), rand(4, 6)               <span class="c">-- size includes the walls</span>
+<span class="k">  local r = { x = rand(cx + 1, cx + CW - 1 - w), y = rand(cy + 1, cy + CH - 1 - h), w = w, h = h }</span>
+  for y = r.y, r.y + h - 1 do
+    for x = r.x, r.x + w - 1 do
+      local ch = "."
+      if y == r.y or y == r.y + h - 1 then ch = "-"
+      elseif x == r.x or x == r.x + w - 1 then ch = "|" end
+      put(x, y, ch)
+    end
+  end
+  return r
+end
+
+local function doorSpot(r, side)                     <span class="c">-- a spot on the facing wall</span>
+  if r.gone then return r.x, r.y end
+  if side == "right" then return r.x + r.w - 1, rand(r.y + 1, r.y + r.h - 2) end
+  if side == "left" then return r.x, rand(r.y + 1, r.y + r.h - 2) end
+  if side == "down" then return rand(r.x + 1, r.x + r.w - 2), r.y + r.h - 1 end
+  return rand(r.x + 1, r.x + r.w - 2), r.y           <span class="c">-- "up"</span>
+end
+
+local function dig(a, b)
+  if a > b then a, b = b, a end                      <span class="c">-- b is right of a, or below it</span>
+  local A, B, across = rooms[a], rooms[b], (b - a == 1)
+  local sx, sy = doorSpot(A, across and "right" or "down")
+  local ex, ey = doorSpot(B, across and "left" or "up")
+  put(sx, sy, A.gone and "#" or "+")
+  put(ex, ey, B.gone and "#" or "+")
+  if across then
+    local turn = rand(sx + 1, ex - 1)                <span class="c">-- the one sideways jog</span>
+    for x = sx + 1, ex - 1 do
+      if x == turn then
+        for y = math.min(sy, ey), math.max(sy, ey) do put(x, y, "#") end
+      else
+        put(x, x &lt; turn and sy or ey, "#")
+      end
+    end
+  else
+    local turn = rand(sy + 1, ey - 1)
+    for y = sy + 1, ey - 1 do
+      if y == turn then
+        for x = math.min(sx, ex), math.max(sx, ex) do put(x, y, "#") end
+      else
+        put(y &lt; turn and sx or ex, y, "#")
+      end
+    end
+  end
+end
+
+local function freeNeighbours(i, taken)
+  local free = {}
+  for _, n in ipairs(NEIGHBOURS[i]) do
+    if not taken[n] then free[#free + 1] = n end
+  end
+  return free
+end
+
+local function generate()
+  rng = love.math.newRandomGenerator(seed)
+  map, rooms = {}, {}
+  for y = 1, ROWS do
+    map[y] = {}
+    for x = 1, COLS do map[y][x] = " " end
+  end
+  local gone, count, goneCount = {}, 0, rand(0, 3)   <span class="c">-- step 2: empty cells</span>
+  while count &lt; goneCount do
+    local i = rand(1, 9)
+    if not gone[i] then gone[i] = true; count = count + 1 end
+  end
+  for i = 1, 9 do rooms[i] = placeRoom(i, gone[i]) end
+
+  local inGraph, linked = {}, {}                     <span class="c">-- step 4: the spanning tree</span>
+  for i = 1, 9 do linked[i] = {} end
+  local function link(a, b) linked[a][b] = true; linked[b][a] = true; dig(a, b) end
+  local cur, joined = rand(1, 9), 1
+  inGraph[cur] = true
+  while joined &lt; 9 do
+    local free = freeNeighbours(cur, inGraph)
+    if #free == 0 then
+      repeat cur = rand(1, 9) until inGraph[cur]     <span class="c">-- jump to a linked room</span>
+    else
+      local n = free[rand(1, #free)]
+<span class="k">      inGraph[n] = true; joined = joined + 1; link(cur, n)</span>
+    end
+  end
+
+  for _ = 1, rand(0, 4) do                           <span class="c">-- step 5: extra loops</span>
+    local a = rand(1, 9)
+    local free = freeNeighbours(a, linked[a])
+    if #free &gt; 0 then link(a, free[rand(1, #free)]) end
+  end
+end
+
+function love.load() generate() end
+
+function love.keypressed(key)
+  if key == "space" then seed = seed + 1; generate() end
+end
+
+function love.draw()
+  for y = 1, ROWS do
+    for x = 1, COLS do
+      love.graphics.print(map[y][x], 10 + (x - 1) * 10, 10 + (y - 1) * 16)
+    end
+  end
+  love.graphics.print("seed " .. seed .. "  (space for the next one)", 10, 410)
+end</code></pre>
+  </div>
+  <p>The gaps between cells are wide enough that a corridor always has at least one square to jog in: a room's right wall is at most column 24 of its cell, and the next room starts at column 27 or later. Each character is drawn on its own at a fixed spacing, because LÖVE's default font is not monospaced.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Linking rooms at random.</strong> Joining random pairs of rooms can leave a group of rooms cut off from the rest. Grow a tree, where each new link must reach a room outside the tree, and connectivity is guaranteed.</li>
+    <li><strong>Stopping at the tree.</strong> A pure tree has many dead ends and one route between any two rooms. A few extra links make chases and escapes possible.</li>
+    <li><strong>Rooms that touch the cell edge.</strong> If a room can fill its whole cell, the corridor to its neighbour may have no room to turn, or no room at all. Keep a margin, as the demo does.</li>
+    <li><strong>Unseeded randomness.</strong> If you cannot replay a level from its seed, you cannot reproduce the bug a player reports on it. Print the seed somewhere in debug builds. The 5.4 source lets a debug build take a fixed seed.</li>
+    <li><strong>A loop that can run forever.</strong> "Pick a random room until it is linked" ends only because at least one room is linked. Write down why every <code>repeat</code> loop in a generator must finish.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Rogue was shared widely on university Unix systems and gave its name to a genre: <dfn>roguelikes</dfn>, games with generated levels, turn-based moves and permanent death. Hack was inspired by it, and NetHack grew out of Hack. The source shows that Rogue kept the same grid for its whole life and layered depth on top: dark rooms grow more common as you descend, version 5.4 adds rare maze rooms, and deeper corridors sometimes hide squares that the player has to search for.</p>
+  <p>The grid of room slots returns later in this track. Spelunky lays out each level as a four by four grid of rooms and picks a guaranteed path through it before filling in the rest.</p>
+  <p>The lesson for today: when content has to be both random and correct, split the problem. Give each piece a slot so pieces cannot collide, build a structure that guarantees the rule you care about, and only then add randomness on top. The same pattern makes daily-challenge seeds shareable in modern games, keeps generated quest chains completable and makes procedural levels testable: run ten thousand seeds and check that every floor is connected.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Run the Lua code and add a check. After <code>generate()</code>, start a flood fill from the first floor tile you find and spread through every non-space character. Count the floor dots it reaches and compare with all the floor dots on the map. Then loop over seeds 1 to 1000 and print any seed where the two counts differ. You are done when the loop prints nothing. For a bonus, remove the tree step, link random pairs instead, and watch the bad seeds appear.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>Rogue builds each floor from a three by three grid of cells with at most one room per cell, so rooms never overlap.</li>
+    <li>Zero to three cells become gone rooms: a single junction point instead of a room.</li>
+    <li>Corridors first form a spanning tree over the nine cells, which guarantees every room can be reached.</li>
+    <li>Zero to four extra corridor tries then add loops, and each corridor makes one random sideways jog.</li>
+    <li>A seed makes the whole floor repeatable. Build the guarantee first, then add the randomness.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Next is Pitfall!, where David Crane generated 255 jungle screens from one byte stepped through a reversible shift register, so the player could walk the world in both directions.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <p>The algorithm on this page was checked against the Rogue source files linked below, which were opened in this session. The history (who wrote the game and where, and how it spread) could not be checked live, because general reference sites were not reachable. It is limited to what is widely documented and to the names in the source's copyright line. The demo's numbers are this page's own simplified version: Rogue lets rooms fill almost the whole cell, and it uses its own random number generator.</p>
+  <ul>
+    <li>Michael Toy, Ken Arnold and Glenn Wichman, Rogue 3.6 source, <cite><a href="https://raw.githubusercontent.com/RoguelikeRestorationProject/rogue3.6/master/rooms.c">rooms.c</a></cite> ("Draw the nine rooms on the screen", 1981) and <cite><a href="https://raw.githubusercontent.com/RoguelikeRestorationProject/rogue3.6/master/passages.c">passages.c</a></cite>, as kept by the Roguelike Restoration Project.</li>
+    <li>Michael Toy, Ken Arnold and Glenn Wichman, Rogue 5.4.4 source, <cite><a href="https://raw.githubusercontent.com/Davidslv/rogue/master/rooms.c">rooms.c</a></cite>, <cite><a href="https://raw.githubusercontent.com/Davidslv/rogue/master/passages.c">passages.c</a></cite> and <cite><a href="https://raw.githubusercontent.com/Davidslv/rogue/master/main.c">main.c</a></cite> (how the seed is chosen), archived by David Silva.</li>
+    <li>Glenn Wichman, <cite>A Brief History of Rogue</cite>. A first-hand account by one of the authors.</li>
+    <li>David L. Craddock, <cite>Dungeon Hacks</cite>, a book on the history of Rogue and the roguelikes that followed it.</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var COLS = 78, ROWS = 24, CW = 26, CH = 8;
+  // 0-based room indices; shown to the reader as 1..9
+  var NEIGHBOURS = [[1, 3], [0, 2, 4], [1, 5], [0, 4, 6], [1, 3, 5, 7], [2, 4, 8], [3, 7], [4, 6, 8], [5, 7]];
+  var EMPTY = 0, FLOOR = 1, WALL = 2, DOOR = 3, PASS = 4;
+
+  var level = null;     // { rooms, events, stairs, hero }
+  var shown = 0;        // number of visible events applied
+  var seedValue = 42;
+  var showGrid = true, showGraph = false, useExtra = true;
+
+  function build(seed) {
+    var r = DemoKit.rng(seed);
+    function rand(a, b) { return a + Math.floor(r() * (b - a + 1)); }
+    var rooms = [], events = [], i;
+    for (i = 0; i < 9; i++) rooms.push({ gone: false, cx: (i % 3) * CW, cy: Math.floor(i / 3) * CH });
+
+    var goneCount = rand(0, 3), made = 0, guard = 0;
+    while (made < goneCount && guard++ < 1000) {
+      var g = rand(0, 8);
+      if (!rooms[g].gone) { rooms[g].gone = true; made++; events.push({ kind: 'gone', i: g }); }
+    }
+    if (goneCount === 0) events.push({ kind: 'nogone' });
+
+    for (i = 0; i < 9; i++) {
+      var rm = rooms[i];
+      if (rm.gone) {
+        rm.x = rand(rm.cx + 3, rm.cx + CW - 4);
+        rm.y = rand(rm.cy + 2, rm.cy + CH - 3);
+        rm.w = 1; rm.h = 1;
+      } else {
+        rm.w = rand(5, 22); rm.h = rand(4, 6);
+        rm.x = rand(rm.cx + 1, rm.cx + CW - 1 - rm.w);
+        rm.y = rand(rm.cy + 1, rm.cy + CH - 1 - rm.h);
+      }
+      events.push({ kind: 'room', i: i });
+    }
+
+    function doorSpot(rm, side) {
+      if (rm.gone) return [rm.x, rm.y];
+      if (side === 'right') return [rm.x + rm.w - 1, rand(rm.y + 1, rm.y + rm.h - 2)];
+      if (side === 'left') return [rm.x, rand(rm.y + 1, rm.y + rm.h - 2)];
+      if (side === 'down') return [rand(rm.x + 1, rm.x + rm.w - 2), rm.y + rm.h - 1];
+      return [rand(rm.x + 1, rm.x + rm.w - 2), rm.y];
+    }
+
+    function dig(a, b) {
+      if (a > b) { var t = a; a = b; b = t; }
+      var A = rooms[a], B = rooms[b], across = (b - a === 1);
+      var s = doorSpot(A, across ? 'right' : 'down');
+      var e = doorSpot(B, across ? 'left' : 'up');
+      var tiles = [], doors = [], x, y, turn;
+      (A.gone ? tiles : doors).push(s);
+      (B.gone ? tiles : doors).push(e);
+      if (across) {
+        turn = rand(s[0] + 1, e[0] - 1);
+        for (x = s[0] + 1; x <= e[0] - 1; x++) {
+          if (x === turn) {
+            for (y = Math.min(s[1], e[1]); y <= Math.max(s[1], e[1]); y++) tiles.push([x, y]);
+          } else tiles.push([x, x < turn ? s[1] : e[1]]);
+        }
+      } else {
+        turn = rand(s[1] + 1, e[1] - 1);
+        for (y = s[1] + 1; y <= e[1] - 1; y++) {
+          if (y === turn) {
+            for (x = Math.min(s[0], e[0]); x <= Math.max(s[0], e[0]); x++) tiles.push([x, y]);
+          } else tiles.push([y < turn ? s[0] : e[0], y]);
+        }
+      }
+      return { tiles: tiles, doors: doors };
+    }
+
+    function freeNeighbours(i, taken) {
+      var out = [];
+      for (var k = 0; k < NEIGHBOURS[i].length; k++) if (!taken[NEIGHBOURS[i][k]]) out.push(NEIGHBOURS[i][k]);
+      return out;
+    }
+
+    // Spanning tree
+    var inGraph = [], linked = [];
+    for (i = 0; i < 9; i++) { inGraph.push(false); linked.push([false, false, false, false, false, false, false, false, false]); }
+    var cur = rand(0, 8), joined = 1, jumpedTo = -1;
+    inGraph[cur] = true;
+    events.push({ kind: 'start', i: cur });
+    guard = 0;
+    while (joined < 9 && guard++ < 10000) {
+      var free = freeNeighbours(cur, inGraph);
+      if (free.length === 0) {
+        var g2 = 0;
+        do { cur = rand(0, 8); } while (!inGraph[cur] && g2++ < 10000);
+        jumpedTo = cur;
+        continue;
+      }
+      var n = free[rand(0, free.length - 1)];
+      inGraph[n] = true; joined++;
+      linked[cur][n] = linked[n][cur] = true;
+      var d = dig(cur, n);
+      events.push({ kind: 'tree', a: cur, b: n, tiles: d.tiles, doors: d.doors, jumped: jumpedTo });
+      jumpedTo = -1;
+    }
+
+    // Extra corridors
+    var tries = rand(0, 4);
+    if (tries === 0) events.push({ kind: 'noextra', extra: true });
+    for (var k = 0; k < tries; k++) {
+      var a = rand(0, 8);
+      var fr = freeNeighbours(a, linked[a]);
+      if (fr.length === 0) { events.push({ kind: 'extrafail', a: a, extra: true, n: k + 1, of: tries }); continue; }
+      var b = fr[rand(0, fr.length - 1)];
+      linked[a][b] = linked[b][a] = true;
+      var d2 = dig(a, b);
+      events.push({ kind: 'extra', a: a, b: b, tiles: d2.tiles, doors: d2.doors, extra: true, n: k + 1, of: tries });
+    }
+
+    // Stairs and player, from a separate stream so they stay put when extras are hidden
+    var r2 = DemoKit.rng(seed * 31 + 7);
+    function rand2(a, b) { return a + Math.floor(r2() * (b - a + 1)); }
+    function floorSpot() {
+      var idx, gg = 0;
+      do { idx = rand2(0, 8); } while (rooms[idx].gone && gg++ < 1000);
+      var rr = rooms[idx];
+      return [rand2(rr.x + 1, rr.x + rr.w - 2), rand2(rr.y + 1, rr.y + rr.h - 2)];
+    }
+    var stairs = floorSpot(), hero = floorSpot(), g3 = 0;
+    while (hero[0] === stairs[0] && hero[1] === stairs[1] && g3++ < 100) hero = floorSpot();
+    events.push({ kind: 'place', stairs: stairs, hero: hero });
+
+    return { rooms: rooms, events: events };
+  }
+
+  function visibleEvents() {
+    var out = [];
+    for (var i = 0; i < level.events.length; i++) {
+      if (!useExtra && level.events[i].extra) continue;
+      out.push(level.events[i]);
+    }
+    return out;
+  }
+
+  function describe(ev) {
+    if (!ev) return 'Nine empty cells, each 26 by 8. Press Step.';
+    var R = function (i) { return 'room ' + (i + 1); };
+    switch (ev.kind) {
+      case 'gone': return 'Cell ' + (ev.i + 1) + ' will hold no room, only a junction point.';
+      case 'nogone': return 'No cells are left empty this time.';
+      case 'room':
+        var rm = level.rooms[ev.i];
+        return rm.gone ? 'Cell ' + (ev.i + 1) + ': a junction point only.'
+          : 'Cell ' + (ev.i + 1) + ': a room ' + rm.w + ' wide and ' + rm.h + ' high.';
+      case 'start': return 'Linking starts at ' + R(ev.i) + '.';
+      case 'tree':
+        return (ev.jumped >= 0 ? 'No free neighbours, so jump to ' + R(ev.jumped) + '. ' : '') +
+          'Tree corridor: ' + R(ev.a) + ' to ' + R(ev.b) + '.';
+      case 'noextra': return 'Zero extra corridor tries this time: the floor stays a pure tree.';
+      case 'extrafail': return 'Extra try ' + ev.n + ' of ' + ev.of + ': ' + R(ev.a) + ' is already linked to all its neighbours. Skipped.';
+      case 'extra': return 'Extra try ' + ev.n + ' of ' + ev.of + ': loop corridor ' + R(ev.a) + ' to ' + R(ev.b) + '.';
+      case 'place': return 'Stairs (green) and player (circle) go on random floor tiles. Done.';
+    }
+    return '';
+  }
+
+  var ui = DemoKit.controls('[data-demo="rogue-grid"]');
+  var seedSlider = ui.slider({ label: 'Seed', min: 1, max: 999, step: 1, value: seedValue,
+    onInput: function (v) { seedValue = v; regenerate(true); } });
+  ui.button({ label: 'Step', onClick: function () {
+    var n = visibleEvents().length;
+    if (shown < n) shown++;
+    refresh();
+  } });
+  ui.button({ label: 'Build all', onClick: function () { shown = visibleEvents().length; refresh(); } });
+  ui.button({ label: 'Restart', onClick: function () { shown = 0; refresh(); } });
+  ui.button({ label: 'New seed', onClick: function () {
+    seedValue = (seedValue * 37 + 11) % 999 + 1;
+    seedSlider.set(seedValue);
+    regenerate(true);
+  } });
+  ui.toggle({ label: 'Show grid cells', value: true, onChange: function (v) { showGrid = v; refresh(); } });
+  ui.toggle({ label: 'Show link graph', value: false, onChange: function (v) { showGraph = v; refresh(); } });
+  ui.toggle({ label: 'Extra corridors', value: true, onChange: function (v) {
+    useExtra = v; shown = visibleEvents().length; refresh();
+  } });
+  var stepOut = ui.readout({ label: 'Last step' });
+  var levelOut = ui.readout({ label: 'This floor' });
+
+  var handle = null;
+
+  function regenerate(full) {
+    level = build(seedValue);
+    shown = full ? visibleEvents().length : 0;
+    refresh();
+  }
+
+  function refresh() {
+    var evs = visibleEvents();
+    if (shown > evs.length) shown = evs.length;
+    stepOut.set('Step ' + shown + ' of ' + evs.length + '. ' + describe(shown > 0 ? evs[shown - 1] : null));
+    var rooms = 0, gone = 0, tree = 0, extra = 0;
+    for (var i = 0; i < evs.length; i++) {
+      var e = evs[i];
+      if (e.kind === 'room') { if (level.rooms[e.i].gone) gone++; else rooms++; }
+      if (e.kind === 'tree') tree++;
+      if (e.kind === 'extra') extra++;
+    }
+    levelOut.set(rooms + ' rooms, ' + gone + ' junction points, ' + tree + ' tree corridors + ' + extra + ' extra');
+    if (handle) handle.redraw();
+  }
+
+  function drawMap(ctx, s) {
+    if (!level) return;
+    var c = s.colors, W = s.width, H = s.height;
+    var t = Math.min(W / COLS, H / ROWS);
+    var ox = (W - t * COLS) / 2, oy = (H - t * ROWS) / 2;
+    var evs = visibleEvents();
+    var grid = [], x, y, i, k;
+    for (y = 0; y < ROWS; y++) { grid.push([]); for (x = 0; x < COLS; x++) grid[y].push(0); }
+    var fresh = [];          // tiles added by the newest event
+    var placed = null, last = shown > 0 ? evs[shown - 1] : null;
+    var links = [];
+
+    function setT(px, py, v, isNew) {
+      if (px < 0 || py < 0 || px >= COLS || py >= ROWS) return;
+      grid[py][px] = v;
+      if (isNew) fresh.push([px, py]);
+    }
+
+    for (i = 0; i < shown; i++) {
+      var e = evs[i], isNew = (i === shown - 1);
+      if (e.kind === 'room') {
+        var rm = level.rooms[e.i];
+        if (rm.gone) setT(rm.x, rm.y, PASS, isNew);
+        else {
+          for (y = rm.y; y < rm.y + rm.h; y++) for (x = rm.x; x < rm.x + rm.w; x++) {
+            var edge = (x === rm.x || x === rm.x + rm.w - 1 || y === rm.y || y === rm.y + rm.h - 1);
+            setT(x, y, edge ? WALL : FLOOR, isNew);
+          }
+        }
+      } else if (e.kind === 'tree' || e.kind === 'extra') {
+        for (k = 0; k < e.tiles.length; k++) setT(e.tiles[k][0], e.tiles[k][1], PASS, isNew);
+        for (k = 0; k < e.doors.length; k++) setT(e.doors[k][0], e.doors[k][1], DOOR, isNew);
+        links.push({ a: e.a, b: e.b, extra: e.kind === 'extra', isNew: isNew });
+      } else if (e.kind === 'place') {
+        placed = e;
+      }
+    }
+
+    // Map background
+    ctx.fillStyle = c.surface;
+    ctx.fillRect(ox, oy, t * COLS, t * ROWS);
+
+    // Cells marked gone (shaded under everything else)
+    for (i = 0; i < shown; i++) {
+      if (evs[i].kind !== 'gone') continue;
+      var cg = level.rooms[evs[i].i];
+      ctx.fillStyle = c.surface2;
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(ox + cg.cx * t + 2, oy + cg.cy * t + 2, CW * t - 4, CH * t - 4);
+      ctx.globalAlpha = 1;
+    }
+
+    var colour = {};
+    colour[FLOOR] = c.line; colour[WALL] = c.ink2; colour[DOOR] = c.warn; colour[PASS] = c.ink3;
+    for (y = 0; y < ROWS; y++) for (x = 0; x < COLS; x++) {
+      var v = grid[y][x];
+      if (v === EMPTY) continue;
+      ctx.fillStyle = colour[v];
+      ctx.fillRect(ox + x * t, oy + y * t, Math.ceil(t), Math.ceil(t));
+    }
+    // Highlight the newest piece
+    if (fresh.length) {
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = c.topic;
+      for (k = 0; k < fresh.length; k++) ctx.fillRect(ox + fresh[k][0] * t, oy + fresh[k][1] * t, Math.ceil(t), Math.ceil(t));
+      ctx.globalAlpha = 1;
+    }
+
+    if (showGrid) {
+      ctx.strokeStyle = c.ink3; ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(ox + 0.5, oy + 0.5, t * COLS - 1, t * ROWS - 1);
+      ctx.beginPath();
+      for (k = 1; k < 3; k++) {
+        ctx.moveTo(ox + k * CW * t, oy); ctx.lineTo(ox + k * CW * t, oy + ROWS * t);
+        ctx.moveTo(ox, oy + k * CH * t); ctx.lineTo(ox + COLS * t, oy + k * CH * t);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (t >= 5) {
+        ctx.fillStyle = c.ink3; ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        for (k = 0; k < 9; k++) {
+          ctx.fillText(String(k + 1), ox + ((k % 3) + 1) * CW * t - 3, oy + (Math.floor(k / 3) + 1) * CH * t - 1);
+        }
+      }
+    }
+
+    if (placed) {
+      ctx.fillStyle = c.good;
+      ctx.fillRect(ox + placed.stairs[0] * t - 1, oy + placed.stairs[1] * t - 1, Math.ceil(t) + 2, Math.ceil(t) + 2);
+      ctx.fillStyle = c.topic;
+      ctx.beginPath();
+      ctx.arc(ox + (placed.hero[0] + 0.5) * t, oy + (placed.hero[1] + 0.5) * t, Math.max(3, t * 0.75), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (showGraph) {
+      var cen = function (idx) {
+        var rr = level.rooms[idx];
+        return [ox + (rr.x + rr.w / 2) * t, oy + (rr.y + rr.h / 2) * t];
+      };
+      var roomShown = [];
+      for (i = 0; i < shown; i++) if (evs[i].kind === 'room') roomShown[evs[i].i] = true;
+      ctx.lineWidth = Math.max(2, t * 0.35);
+      for (k = 0; k < links.length; k++) {
+        var L = links[k], p = cen(L.a), q = cen(L.b);
+        ctx.strokeStyle = L.extra ? c.good : c.topic;
+        ctx.setLineDash(L.extra ? [6, 5] : []);
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      var rad = Math.max(7, t * 1.1);
+      var startIdx = -1;
+      for (i = 0; i < shown; i++) if (evs[i].kind === 'start') startIdx = evs[i].i;
+      ctx.font = Math.round(Math.max(11, rad * 1.1)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (k = 0; k < 9; k++) {
+        if (!roomShown[k]) continue;
+        var pc = cen(k);
+        ctx.fillStyle = c.surface;
+        ctx.strokeStyle = (k === startIdx) ? c.warn : c.topic;
+        ctx.lineWidth = (k === startIdx) ? 3 : 2;
+        ctx.beginPath(); ctx.arc(pc[0], pc[1], level.rooms[k].gone ? rad * 0.7 : rad, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = c.ink;
+        ctx.fillText(String(k + 1), pc[0], pc[1] + 0.5);
+      }
+    }
+
+    // Outline the room that the last step was about
+    if (last && (last.kind === 'start')) {
+      var sr = level.rooms[last.i];
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+      ctx.strokeRect(ox + sr.cx * t + 2, oy + sr.cy * t + 2, CW * t - 4, CH * t - 4);
+    }
+  }
+
+  handle = DemoKit.canvas('#rogue-grid', {
+    aspect: 78 / 25,
+    minHeight: 110,
+    maxHeight: 360,
+    animate: false,
+    label: 'A 78 by 24 tile dungeon map split into nine cells. Step through how rooms are placed one per cell and joined by a tree of corridors plus a few extra loops.',
+    draw: drawMap
+  });
+
+  regenerate(true);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skeletal animation: bones, forward and inverse kinematics · Game Dev Daily</title>
+<meta name="description" content="How a bone hierarchy turns local rotations into world positions, how two-bone IK works backwards from a target, and how Godot and Unity skin and solve.">
+<meta name="gdd:topic" content="game-engine">
+<meta name="gdd:date" content="2026-11-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="godot+unity">
+<meta name="gdd:minutes" content="13">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-engine">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Skeletal animation: bones, forward and inverse kinematics</h1>
+  <p class="lede">How a bone hierarchy turns local rotations into world positions, how two-bone IK works backwards from a target, and how Godot and Unity skin and solve.</p>
+</header>
+
+<section data-section="hook">
+  <p>Your character's walk cycle looks fine on flat ground. On a slope, one foot floats in the air and the other sinks into the hill. The clip was authored for flat ground. The fix is not a new clip: let the engine bend the knee so the foot lands where the ground really is.</p>
+</section>
+
+<section data-section="concept">
+  <h2>A skeleton is a transform hierarchy with a mesh on top</h2>
+  <p>A <dfn>bone</dfn> is a transform: a position, rotation and scale relative to its parent bone. A <dfn>skeleton</dfn> is a tree of bones, usually rooted at the hips. It is the same parent-child hierarchy as a scene tree, so moving the upper arm carries the forearm and hand with it.</p>
+  <p>The bones are never drawn. The character's mesh, or its cut-out sprite pieces in 2D, follows them through <dfn>skinning</dfn>. Every vertex stores one or more <dfn>bone weights</dfn>, numbers that say how strongly each bone pulls it. A vertex near the elbow might be 60% upper arm and 40% forearm.</p>
+
+  <h2>Forward kinematics: angles in, positions out</h2>
+  <p><dfn>Forward kinematics</dfn> (FK) means you set each bone's local rotation and the hierarchy works out where everything ends up. Animation clips work this way: they store local rotations per bone, per keyframe. Working out the result is a walk down the chain:</p>
+<pre><code>world = parentWorld + localAngle
+joint = parentJoint + length * direction(world)</code></pre>
+  <p>In 2D the angles simply add. In 3D the walk multiplies rotations as quaternions or matrices, but the idea is identical. FK is cheap and predictable.</p>
+
+  <h2>Inverse kinematics: position in, angles out</h2>
+  <p>Often you know where the hand or foot must be, not the angles that put it there. <dfn>Inverse kinematics</dfn> (IK) solves that backwards problem: given a <dfn>target</dfn> position, find the local rotations.</p>
+  <p>For two bones, such as upper arm and forearm or thigh and shin, there is an exact answer. The shoulder, the elbow and the target form a triangle. You know all three sides: the two bone lengths <code>L1</code> and <code>L2</code>, and the distance <code>d</code> from shoulder to target. The law of cosines gives the angles.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 310" role="img" aria-label="Left: forward kinematics. A three bone arm from shoulder to elbow to wrist to hand, with local angles a1 at the shoulder and a2 at the elbow, each measured from the parent's direction. World angle equals parent plus local. Right: inverse kinematics. A triangle with the shoulder, the elbow and the target, sides L1, L2 and d, and angles A at the shoulder and B at the elbow found with the law of cosines.">
+      <text class="d-text" x="20" y="28">Forward kinematics</text>
+      <text class="d-muted" x="20" y="48">local angles in, positions out</text>
+      <path class="d-dash" d="M50 215 H140"/>
+      <path class="d-dash" d="M160 150 L222 114"/>
+      <path class="d-stroke" d="M50 215 L160 150 L262 186 L302 170"/>
+      <circle class="d-accent-fill" cx="50" cy="215" r="6"/>
+      <circle class="d-accent-fill" cx="160" cy="150" r="6"/>
+      <circle class="d-accent-fill" cx="262" cy="186" r="6"/>
+      <circle class="d-accent-fill" cx="302" cy="170" r="4"/>
+      <text class="d-label" x="112" y="208">a1</text>
+      <text class="d-label" x="208" y="146">a2</text>
+      <text class="d-muted" x="50" y="240" text-anchor="middle">shoulder</text>
+      <text class="d-muted" x="160" y="132" text-anchor="middle">elbow</text>
+      <text class="d-muted" x="262" y="212" text-anchor="middle">wrist</text>
+      <text class="d-muted" x="306" y="156" text-anchor="middle">hand</text>
+      <text class="d-mono" x="20" y="272">world = parent + local</text>
+      <text class="d-mono" x="20" y="292">joint = parent + L * dir</text>
+
+      <path class="d-dash" d="M334 20 V296"/>
+
+      <text class="d-text" x="352" y="28">Inverse kinematics</text>
+      <text class="d-muted" x="352" y="48">target in, angles out</text>
+      <path class="d-stroke" d="M382 214 L472 108 L596 214"/>
+      <path class="d-dash" d="M382 214 H587"/>
+      <circle class="d-accent-fill" cx="382" cy="214" r="6"/>
+      <circle class="d-accent-fill" cx="472" cy="108" r="6"/>
+      <circle class="d-accent" cx="596" cy="214" r="9"/>
+      <text class="d-label" x="414" y="154" text-anchor="end">L1</text>
+      <text class="d-label" x="546" y="154">L2</text>
+      <text class="d-label" x="489" y="232" text-anchor="middle">d</text>
+      <text class="d-label" x="410" y="206">A</text>
+      <text class="d-label" x="472" y="140" text-anchor="middle">B</text>
+      <text class="d-muted" x="596" y="240" text-anchor="middle">target</text>
+      <text class="d-mono" x="352" y="272">cos B = (L1² + L2² - d²) / (2·L1·L2)</text>
+      <text class="d-mono" x="352" y="292">cos A = (L1² + d² - L2²) / (2·L1·d)</text>
+    </svg>
+    <figcaption>FK adds each local angle to its parent's world angle. Two-bone IK builds the shoulder, elbow, target triangle and reads the angles off it.</figcaption>
+  </figure>
+
+  <p>With <code>B</code> and <code>A</code> known, the two local rotations are:</p>
+<pre><code>shoulder = angleToTarget - bend * A
+elbow    = bend * (180° - B)</code></pre>
+  <p><code>bend</code> is 1 or -1. Every reachable target has two solutions, elbow up or elbow down, and you must pick one. Real rigs use a <dfn>pole target</dfn> (Unity calls it a hint), a point the knee or elbow should point towards.</p>
+  <p>Two cases need care. If the target is further than <code>L1 + L2</code>, no triangle exists: clamp <code>d</code> and the arm points straight at the target. If it is closer than <code>|L1 - L2|</code>, the arm folds as far as it can. Longer chains, like a tail or a tentacle, have no exact formula. Engines use iterative solvers such as <dfn>CCD</dfn> (cyclic coordinate descent, rotating one joint at a time towards the target) and <dfn>FABRIK</dfn> (dragging joint positions forwards and backwards along the chain).</p>
+
+  <h2>What happens, in what order, and who owns the data</h2>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 110" role="img" aria-label="Five steps in a row: clips write local poses, IK and scripts adjust the locals, the engine composes world transforms, skinning moves the vertices, and the frame is drawn.">
+      <rect class="d-box" x="8" y="20" width="112" height="70" rx="8"/>
+      <text class="d-text" x="64" y="50" text-anchor="middle">1. Clips write</text>
+      <text class="d-muted" x="64" y="70" text-anchor="middle">local poses</text>
+      <path class="d-stroke" d="M120 55 H134 M129 50 L134 55 L129 60"/>
+      <rect class="d-accent-soft" x="136" y="20" width="112" height="70" rx="8"/>
+      <text class="d-text" x="192" y="50" text-anchor="middle">2. IK adjusts</text>
+      <text class="d-muted" x="192" y="70" text-anchor="middle">a few locals</text>
+      <path class="d-stroke" d="M248 55 H262 M257 50 L262 55 L257 60"/>
+      <rect class="d-box" x="264" y="20" width="112" height="70" rx="8"/>
+      <text class="d-text" x="320" y="50" text-anchor="middle">3. FK walk</text>
+      <text class="d-muted" x="320" y="70" text-anchor="middle">world transforms</text>
+      <path class="d-stroke" d="M376 55 H390 M385 50 L390 55 L385 60"/>
+      <rect class="d-box" x="392" y="20" width="112" height="70" rx="8"/>
+      <text class="d-text" x="448" y="50" text-anchor="middle">4. Skinning</text>
+      <text class="d-muted" x="448" y="70" text-anchor="middle">moves vertices</text>
+      <path class="d-stroke" d="M504 55 H518 M513 50 L518 55 L513 60"/>
+      <rect class="d-box" x="520" y="20" width="112" height="70" rx="8"/>
+      <text class="d-text" x="576" y="50" text-anchor="middle">5. Draw</text>
+      <text class="d-muted" x="576" y="70" text-anchor="middle">the frame</text>
+    </svg>
+    <figcaption>IK is a correction applied after the animation has posed the skeleton, and before anything is drawn.</figcaption>
+  </figure>
+  <p>The skeleton owns the current local pose of every bone and its <dfn>rest pose</dfn> (Unity calls the stored version the bind pose), the pose the mesh was modelled in. The mesh owns the weights. Clips are read-only data. Gameplay owns the IK target, for example "the ground under the left foot", usually found with a raycast. IK must run after the animation writes its pose, or the animation overwrites it.</p>
+
+  <h2>Godot and Unity</h2>
+  <p><strong>Godot 4, 2D:</strong> a <code>Skeleton2D</code> node holds <code>Bone2D</code> children. A <code>Bone2D</code> is a <code>Node2D</code>, so bones are ordinary scene nodes with a rest pose. A <code>Polygon2D</code> is skinned to the skeleton through its skeleton property and weights painted in its UV editor. For IK, Godot 4 has modification resources such as <code>SkeletonModification2DTwoBoneIK</code>, <code>SkeletonModification2DCCDIK</code> and <code>SkeletonModification2DFABRIK</code>, collected in a <code>SkeletonModificationStack2D</code> on the skeleton. As far as we know these are still marked experimental, so check your version's class reference.</p>
+  <p><strong>Godot 4, 3D:</strong> a <code>Skeleton3D</code> stores its bones as indexed data inside one node, not as child nodes. You read and write them by index, for example <code>find_bone()</code> and <code>set_bone_pose_rotation()</code>, and a <code>BoneAttachment3D</code> lets a node, such as a sword, follow a bone. Godot 4.3 added <code>SkeletonModifier3D</code>, a base class for nodes that adjust the pose after animation. Which IK modifiers ship on top of it has changed between 4.x releases.</p>
+  <p><strong>Unity (2022 LTS and Unity 6):</strong> bones are ordinary <code>Transform</code>s in the GameObject hierarchy. A <code>SkinnedMeshRenderer</code> lists them and the mesh stores the weights and bind poses. Humanoid rigs get built-in IK: enable IK Pass on the Animator layer, then call <code>SetIKPosition</code> and <code>SetIKPositionWeight</code> inside <code>OnAnimatorIK</code>. The Animation Rigging package adds constraints such as Two Bone IK Constraint for any rig. In 2D, the 2D Animation package adds the Sprite Skin component and an IK Manager 2D with Limb, CCD and FABRIK solvers.</p>
+  <p>The trade-off: Unity's bones-as-Transforms are easy to inspect and parent things to, but each is a full GameObject. Godot's Skeleton3D keeps bones as compact data, at the cost of addressing them by index.</p>
+
+  <div class="callout">
+    <p class="callout-title">Rule of thumb</p>
+    <p>Animate with FK, correct with IK. Clips give the motion its character; IK only fixes the few joints that must touch the world, such as feet on the ground and hands on a ledge or a weapon.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>In <strong>FK</strong> mode, drag any bone or use the sliders: only that bone's local angle changes, but the world angle of everything below it changes too. Switch to <strong>IK</strong> and drag the target ring. The shoulder and elbow sliders now move by themselves, because IK writes the same local rotations FK reads. Drag the target outside the outer circle to see the arm straighten. Press <strong>Flip elbow</strong> for the other solution. Set <strong>Skin</strong> to rigid weights, bend the elbow hard, and watch the skin tear; smooth weights fix it. On the focused canvas, the arrow keys move the target in IK mode.</p>
+
+  <figure class="demo" data-demo="skeleton">
+    <canvas id="skeleton"></canvas>
+    <figcaption>Bones are drawn as tapered shapes, joints as dots. With Show construction on, dashed lines mark each bone's zero direction (its parent's direction) with an arc for its local angle, and the reach circles and IK triangle appear. Left out: 3D rotations, joint limits, pole targets and blending IK in and out with a weight.</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The same arm as the demo in LÖVE 11: lengths 120, 100 and 40, a starting pose of 30, 40 and 10 degrees, and the same two-bone solve. Only the shoulder and elbow are solved; the hand keeps its FK rotation. The Godot and Unity tabs solve the same triangle on real nodes and let the engine compose the hierarchy.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code><span class="c">-- main.lua for LÖVE 11. Tab switches FK and IK, F flips the elbow.</span>
+<span class="c">-- FK: Q/A turn the shoulder, W/S the elbow, E/D the hand. IK: the wrist follows the mouse.</span>
+local L1, L2, L3 = 120, 100, 40                  <span class="c">-- upper arm, forearm, hand</span>
+local shoulderX, shoulderY = 300, 300
+local angles = { math.rad(30), math.rad(40), math.rad(10) }   <span class="c">-- local rotations</span>
+local bend = 1                                   <span class="c">-- 1 or -1: which way the elbow points</span>
+local mode = "fk"
+
+local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+
+<span class="c">-- Forward kinematics: each world angle is the parent's plus the local one.</span>
+local function forward()
+  local lengths = { L1, L2, L3 }
+  local x, y, world = shoulderX, shoulderY, 0
+  local joints = { { x, y } }
+  for i = 1, 3 do
+<span class="k">    world = world + angles[i]
+    x = x + lengths[i] * math.cos(world)
+    y = y + lengths[i] * math.sin(world)</span>
+    joints[i + 1] = { x, y }
+  end
+  return joints
+end
+
+<span class="c">-- Inverse kinematics: the two local rotations that put the wrist on the target.</span>
+local function solveTwoBone(tx, ty)
+  local dx, dy = tx - shoulderX, ty - shoulderY
+  local d = math.sqrt(dx * dx + dy * dy)
+  d = clamp(d, math.abs(L1 - L2) + 0.001, L1 + L2 - 0.001)   <span class="c">-- out of reach: clamp</span>
+<span class="k">  local B = math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1))
+  local A = math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1))
+  angles[1] = math.atan2(dy, dx) - bend * A
+  angles[2] = bend * (math.pi - B)</span>
+  <span class="c">-- angles[3], the hand, is left alone: it stays FK</span>
+end
+
+function love.update(dt)
+  local turn = math.rad(90) * dt
+  if love.keyboard.isDown("e") then angles[3] = angles[3] - turn end
+  if love.keyboard.isDown("d") then angles[3] = angles[3] + turn end
+  if mode == "ik" then
+    solveTwoBone(love.mouse.getPosition())
+  else
+    if love.keyboard.isDown("q") then angles[1] = angles[1] - turn end
+    if love.keyboard.isDown("a") then angles[1] = angles[1] + turn end
+    if love.keyboard.isDown("w") then angles[2] = angles[2] - turn end
+    if love.keyboard.isDown("s") then angles[2] = angles[2] + turn end
+  end
+end
+
+function love.keypressed(key)
+  if key == "tab" then
+    if mode == "fk" then mode = "ik" else mode = "fk" end
+  elseif key == "f" then
+    bend = -bend
+  end
+end
+
+function love.draw()
+  local j = forward()
+  for i = 1, 3 do
+    love.graphics.line(j[i][1], j[i][2], j[i + 1][1], j[i + 1][2])
+    love.graphics.circle("line", j[i][1], j[i][2], 6)
+  end
+  love.graphics.circle("line", shoulderX, shoulderY, L1 + L2)   <span class="c">-- the reach</span>
+  love.graphics.print(string.format("%s  shoulder %.0f  elbow %.0f  hand %.0f", mode,
+    math.deg(angles[1]), math.deg(angles[2]), math.deg(angles[3])), 10, 10)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># two_bone_ik.gd for Godot 4. Scene tree:</span>
+<span class="c">#   Arm (Node2D, this script)</span>
+<span class="c">#     Upper (Node2D) at the shoulder</span>
+<span class="c">#       Lower (Node2D) at position (120, 0)</span>
+<span class="c">#         Hand (Node2D) at position (100, 0)</span>
+<span class="c"># Add a Sprite2D or Line2D under each bone to see it. Bones point along local +X.</span>
+<span class="c"># Bone2D nodes under a Skeleton2D work the same way, since Bone2D extends Node2D.</span>
+extends Node2D
+
+@export var ik_enabled := true
+@export var bend := 1.0   <span class="c"># 1 or -1; Enter (ui_accept) flips it</span>
+
+@onready var upper: Node2D = $Upper
+@onready var lower: Node2D = $Upper/Lower
+@onready var hand: Node2D = $Upper/Lower/Hand
+
+func _process(_delta: float) -&gt; void:
+    if Input.is_action_just_pressed("ui_accept"):
+        bend = -bend
+    if not ik_enabled:
+        return   <span class="c"># FK: the bones keep whatever rotations they have</span>
+    var l1 := lower.position.length()
+    var l2 := hand.position.length()
+    <span class="c"># target in Arm's space, measured from the shoulder</span>
+    var t := to_local(get_global_mouse_position()) - upper.position
+    var d := clampf(t.length(), absf(l1 - l2) + 0.001, l1 + l2 - 0.001)
+    var b := acos(clampf((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2), -1.0, 1.0))
+    var a := acos(clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0))
+<span class="k">    upper.rotation = t.angle() - bend * a
+    lower.rotation = bend * (PI - b)</span>
+    <span class="c"># Godot composes the hierarchy: hand.global_position is now on the target,</span>
+    <span class="c"># or as close as the arm can reach.</span></code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// TwoBoneIK2D.cs for Unity 2022 LTS or Unity 6. Hierarchy:</span>
+<span class="c">//   Arm (this script)</span>
+<span class="c">//     Upper        at the shoulder</span>
+<span class="c">//       Lower      local position (1.2, 0, 0)</span>
+<span class="c">//         Hand     local position (1.0, 0, 0)</span>
+<span class="c">//   Target         any GameObject; drag it in the Scene view while playing</span>
+<span class="c">// Give each bone a child sprite to see it. Bones point along local +X, scale 1.</span>
+using UnityEngine;
+
+public class TwoBoneIK2D : MonoBehaviour
+{
+    public Transform upper, lower, hand, target;
+    public bool ikEnabled = true;
+    public float bend = 1f;   <span class="c">// 1 or -1: which way the elbow points</span>
+
+    <span class="c">// LateUpdate runs after the Animator has written this frame's pose,</span>
+    <span class="c">// so the IK corrects the animation instead of being overwritten by it.</span>
+    void LateUpdate()
+    {
+        if (!ikEnabled || target == null) return;
+        float l1 = lower.localPosition.magnitude;
+        float l2 = hand.localPosition.magnitude;
+        <span class="c">// target in Arm's space, measured from the shoulder</span>
+        Vector2 t = transform.InverseTransformPoint(target.position) - upper.localPosition;
+        float d = Mathf.Clamp(t.magnitude, Mathf.Abs(l1 - l2) + 0.001f, l1 + l2 - 0.001f);
+        float b = Mathf.Acos(Mathf.Clamp((l1 * l1 + l2 * l2 - d * d) / (2f * l1 * l2), -1f, 1f));
+        float a = Mathf.Acos(Mathf.Clamp((l1 * l1 + d * d - l2 * l2) / (2f * l1 * d), -1f, 1f));
+<span class="k">        float shoulder = Mathf.Atan2(t.y, t.x) - bend * a;
+        float elbow = bend * (Mathf.PI - b);</span>
+        upper.localRotation = Quaternion.Euler(0f, 0f, shoulder * Mathf.Rad2Deg);
+        lower.localRotation = Quaternion.Euler(0f, 0f, elbow * Mathf.Rad2Deg);
+    }
+}</code></pre>
+  </div>
+  <p>Unity's Y axis points up and Godot's points down, so the same <code>bend</code> value bends the elbow the opposite way on screen. Flip it if your elbow points the wrong way.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>IK that runs too early.</strong> If your solver runs before the animation system writes the pose, the clip overwrites it and nothing seems to happen, or the arm flickers. In Unity, solve in <code>LateUpdate</code> or <code>OnAnimatorIK</code>. In Godot, use the engine's modification or modifier system, or keep the bones you solve off the animation tracks.</li>
+    <li><strong>The elbow pops to the other side.</strong> Near a fully straight arm, the two solutions meet, and a tiny change can flip a bone. Fix the bend with a pole target, and keep targets slightly inside full reach.</li>
+    <li><strong>Mixing up local and world.</strong> Bone rotations are relative to the parent. Measuring the target in world space gives an arm that is right only while the character is unrotated. Convert the target into the chain's parent space first, as both engine tabs do.</li>
+    <li><strong>Scaled bones.</strong> Non-uniform scale on a parent bone distorts the lengths the solver reads. Keep bone scale at 1 and scale the mesh or the root instead.</li>
+    <li><strong>Rigid weights at joints.</strong> One bone per vertex makes the skin tear at the elbow, as in the demo. Blend weights across the joint; rigs add helper bones where even blended skin loses volume.</li>
+    <li><strong>Performance.</strong> Skinning usually runs on the GPU, but every bone still costs a transform update per frame. Use fewer bones on distant characters.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Almost every animated 3D character in a modern game is a mesh skinned to a skeleton, and 2D games use the same idea through tools such as Esoteric Software's Spine or the engines' own 2D skeletons. Foot placement on uneven ground and hands gripping weapons or ledges are the classic uses of two-bone IK. Unreal Engine has a Two Bone IK node in its animation graphs, alongside the Godot and Unity features above.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Build the three-node arm from the GDScript or C# tab, with a sprite on each bone. Make it follow a target, then add a pole: instead of a fixed <code>bend</code>, set it to 1 or -1 depending on which side of the shoulder-to-target line a second "pole" object sits. You are done when dragging the pole from one side of the arm to the other makes the elbow swap sides, and the hand still lands on the target.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A skeleton is a transform hierarchy; skinning makes the mesh follow it through per-vertex bone weights.</li>
+    <li>Forward kinematics turns local rotations into world positions by walking down the chain. Animation clips are FK data.</li>
+    <li>Inverse kinematics works backwards from a target. Two bones have an exact law-of-cosines solution with two mirror answers; longer chains use CCD or FABRIK.</li>
+    <li>IK writes ordinary local rotations, and it must run after the animation has posed the skeleton.</li>
+    <li>Godot 2D and Unity treat bones as scene objects; Godot's Skeleton3D stores them as indexed data in one node.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>Track 5 starts with sound: how audio buses route music, effects and voice, and how ducking keeps dialogue clear.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Jason Gregory, <cite>Game Engine Architecture</cite>, the chapter on animation systems (skeletons, poses and skinning).</li>
+    <li>Godot Engine documentation, <cite>2D skeletons</cite> tutorial, and the class references for <cite>Skeleton2D</cite>, <cite>Bone2D</cite>, <cite>Skeleton3D</cite> and <cite>SkeletonModifier3D</cite> (Godot 4).</li>
+    <li>Unity Technologies, Unity Manual, <cite>Inverse Kinematics</cite> (humanoid IK with OnAnimatorIK), the <cite>Animation Rigging</cite> package documentation, and the <cite>2D Animation</cite> package documentation on 2D IK.</li>
+    <li>Andreas Aristidou and Joan Lasenby, <cite>FABRIK: A fast, iterative solver for the Inverse Kinematics problem</cite>, Graphical Models (2011).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var L1 = 120, L2 = 100, L3 = 40;          // upper arm, forearm, hand (design units)
+  var LENS = [L1, L2, L3];
+  var DEG = Math.PI / 180;
+  var ang = [30 * DEG, 40 * DEG, 10 * DEG];  // local rotations, same as the Lua
+  var mode = 'fk';
+  var bend = 1;
+  var target = { x: 0, y: 0 };               // design units, relative to the shoulder
+  var reach = { d: 0, status: 'in' };
+  var skin = 'off';
+  var showConstruction = true;
+  var dragBone = -1;
+  var draggingTarget = false;
+  var handle = null;
+
+  function wrap(a) {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a <= -Math.PI) a += 2 * Math.PI;
+    return a;
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // Forward kinematics. joints[i] is where bone i starts; joints[3] is the hand tip.
+  function forward() {
+    var x = 0, y = 0, world = 0;
+    var joints = [{ x: 0, y: 0 }];
+    var worlds = [];
+    for (var i = 0; i < 3; i++) {
+      world += ang[i];
+      worlds.push(world);
+      x += LENS[i] * Math.cos(world);
+      y += LENS[i] * Math.sin(world);
+      joints.push({ x: x, y: y });
+    }
+    return { joints: joints, worlds: worlds };
+  }
+
+  // Two-bone IK, identical to the Lua solveTwoBone.
+  function solve() {
+    var dx = target.x, dy = target.y;
+    var raw = Math.sqrt(dx * dx + dy * dy);
+    var d = clamp(raw, Math.abs(L1 - L2) + 0.001, L1 + L2 - 0.001);
+    var B = Math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1));
+    var A = Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
+    ang[0] = wrap(Math.atan2(dy, dx) - bend * A);
+    ang[1] = wrap(bend * (Math.PI - B));
+    reach.d = raw;
+    reach.status = raw > L1 + L2 ? 'far' : (raw < Math.abs(L1 - L2) ? 'near' : 'in');
+  }
+
+  // ---- controls ----
+  var ui = DemoKit.controls('[data-demo="skeleton"]');
+  var modeSel = ui.select({
+    label: 'Mode',
+    options: [
+      { value: 'fk', label: 'FK: set the rotations' },
+      { value: 'ik', label: 'IK: drag the target' }
+    ],
+    value: 'fk',
+    onChange: function (v) { setMode(v === 'ik' ? 'ik' : 'fk'); }
+  });
+  var sShoulder = ui.slider({ label: 'Shoulder (local)', min: -180, max: 180, step: 1, value: 30, unit: '°',
+    onInput: function (v) { takeFK(); ang[0] = v * DEG; refresh(); } });
+  var sElbow = ui.slider({ label: 'Elbow (local)', min: -180, max: 180, step: 1, value: 40, unit: '°',
+    onInput: function (v) { takeFK(); ang[1] = v * DEG; refresh(); } });
+  var sWrist = ui.slider({ label: 'Hand (local)', min: -90, max: 90, step: 1, value: 10, unit: '°',
+    onInput: function (v) { ang[2] = v * DEG; refresh(); } });
+  var flip = ui.toggle({ label: 'Flip elbow', value: false,
+    onChange: function (on) { bend = on ? -1 : 1; if (mode === 'ik') solve(); refresh(); } });
+  ui.select({
+    label: 'Skin',
+    options: [
+      { value: 'off', label: 'Off (bones only)' },
+      { value: 'rigid', label: 'Rigid weights (one bone per vertex)' },
+      { value: 'smooth', label: 'Smooth weights (blended at the elbow)' }
+    ],
+    value: 'off',
+    onChange: function (v) { skin = v; refresh(); }
+  });
+  ui.toggle({ label: 'Show construction', value: true,
+    onChange: function (on) { showConstruction = on; refresh(); } });
+  var rLocal = ui.readout({ label: 'Local rotations' });
+  var rWorld = ui.readout({ label: 'World rotations' });
+  var rTarget = ui.readout({ label: 'IK target' });
+
+  function deg(a) { return Math.round(a / DEG); }
+
+  function setMode(m) {
+    mode = m;
+    if (mode === 'ik') {
+      var fk = forward();
+      target.x = fk.joints[2].x;   // start the target on the wrist, so nothing jumps
+      target.y = fk.joints[2].y;
+      solve();
+    }
+    refresh();
+  }
+
+  // Touching a shoulder or elbow rotation hands control back to FK.
+  function takeFK() {
+    if (mode === 'ik') {
+      mode = 'fk';
+      modeSel.set('fk');
+    }
+  }
+
+  function refresh() {
+    sShoulder.set(deg(wrap(ang[0])));
+    sElbow.set(deg(wrap(ang[1])));
+    sWrist.set(deg(ang[2]));
+    var fk = forward();
+    rLocal.set('shoulder ' + deg(wrap(ang[0])) + '°, elbow ' + deg(wrap(ang[1])) + '°, hand ' + deg(ang[2]) + '°');
+    rWorld.set(deg(wrap(fk.worlds[0])) + '°, ' + deg(wrap(fk.worlds[1])) + '°, ' + deg(wrap(fk.worlds[2])) + '°');
+    if (mode !== 'ik') rTarget.set('not used in FK');
+    else if (reach.status === 'far') rTarget.set('out of reach: d = ' + Math.round(reach.d) + ' > ' + (L1 + L2) + ', arm straightened');
+    else if (reach.status === 'near') rTarget.set('too close: d = ' + Math.round(reach.d) + ' < ' + Math.abs(L1 - L2) + ', arm folded');
+    else rTarget.set('reached: d = ' + Math.round(reach.d) + ' of ' + (L1 + L2));
+    if (handle) handle.redraw();
+  }
+
+  // ---- view mapping: the shoulder sits in the middle of the canvas ----
+  function scale(s) { return Math.min(s.width / 600, s.height / 560); }
+  function toScreen(p, s) {
+    var k = scale(s);
+    return { x: s.width / 2 + p.x * k, y: s.height / 2 + p.y * k };
+  }
+  function toDesign(p, s) {
+    var k = scale(s);
+    return { x: (p.x - s.width / 2) / k, y: (p.y - s.height / 2) / k };
+  }
+
+  function distToSegment(p, a, b) {
+    var vx = b.x - a.x, vy = b.y - a.y;
+    var len2 = vx * vx + vy * vy;
+    var t = len2 > 0 ? clamp(((p.x - a.x) * vx + (p.y - a.y) * vy) / len2, 0, 1) : 0;
+    var cx = a.x + vx * t - p.x, cy = a.y + vy * t - p.y;
+    return Math.sqrt(cx * cx + cy * cy);
+  }
+
+  function pointerDown(p, s) {
+    var q = toDesign(p, s);
+    if (mode === 'ik') {
+      draggingTarget = true;
+      target.x = q.x; target.y = q.y;
+      solve();
+      refresh();
+      return;
+    }
+    var fk = forward();
+    var best = -1, bestDist = 34 / scale(s);
+    for (var i = 0; i < 3; i++) {
+      var dd = distToSegment(q, fk.joints[i], fk.joints[i + 1]);
+      if (dd < bestDist) { bestDist = dd; best = i; }
+    }
+    dragBone = best;
+    pointerMove(p, s);
+  }
+
+  function pointerMove(p, s) {
+    if (!p.down) return;
+    var q = toDesign(p, s);
+    if (mode === 'ik' && draggingTarget) {
+      target.x = q.x; target.y = q.y;
+      solve();
+      refresh();
+    } else if (mode === 'fk' && dragBone >= 0) {
+      var fk = forward();
+      var start = fk.joints[dragBone];
+      var dx = q.x - start.x, dy = q.y - start.y;
+      if (dx * dx + dy * dy < 4) return;
+      var parentWorld = dragBone > 0 ? fk.worlds[dragBone - 1] : 0;
+      var local = wrap(Math.atan2(dy, dx) - parentWorld);
+      if (dragBone === 2) local = clamp(local, -90 * DEG, 90 * DEG);
+      ang[dragBone] = local;
+      refresh();
+    }
+  }
+
+  function pointerUp() {
+    dragBone = -1;
+    draggingTarget = false;
+  }
+
+  function onKey(key, isDown) {
+    if (!isDown) return;
+    if (key === 'f') { flip.set(!flip.value); bend = flip.value ? -1 : 1; if (mode === 'ik') solve(); refresh(); return; }
+    if (mode !== 'ik') return;
+    var step = 10;
+    if (key === 'arrowleft') target.x -= step;
+    else if (key === 'arrowright') target.x += step;
+    else if (key === 'arrowup') target.y -= step;
+    else if (key === 'arrowdown') target.y += step;
+    else return;
+    solve();
+    refresh();
+  }
+
+  // ---- drawing ----
+  function line(ctx, a, b) {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  function boneShape(ctx, a, b, width) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var nx = -dy / len * width, ny = dx / len * width;
+    var mx = a.x + dx * 0.18, my = a.y + dy * 0.18;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(mx + nx, my + ny);
+    ctx.lineTo(b.x, b.y);
+    ctx.lineTo(mx - nx, my - ny);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Linear blend skinning of a tube modelled straight along +x (the rest pose).
+  function skinVertex(vx, vy, fk, wLower) {
+    var a1 = fk.worlds[0], a2 = fk.worlds[1];
+    // via the upper arm: bone starts at the origin in the rest pose
+    var ux = Math.cos(a1) * vx - Math.sin(a1) * vy;
+    var uy = Math.sin(a1) * vx + Math.cos(a1) * vy;
+    // via the forearm: bone starts at (L1, 0) in the rest pose
+    var lx = vx - L1, ly = vy;
+    var e = fk.joints[1];
+    var fx = e.x + Math.cos(a2) * lx - Math.sin(a2) * ly;
+    var fy = e.y + Math.sin(a2) * lx + Math.cos(a2) * ly;
+    return { x: ux + (fx - ux) * wLower, y: uy + (fy - uy) * wLower };
+  }
+
+  function lowerWeight(x) {
+    if (skin === 'rigid') return x >= L1 ? 1 : 0;
+    var t = clamp((x - (L1 - 30)) / 60, 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  function drawSkin(ctx, s, fk, c) {
+    var N = 26, top = [], bot = [];
+    for (var i = 0; i <= N; i++) {
+      var x = -12 + (L1 + L2 + 12) * i / N;
+      var half = 20 - 6 * (x / (L1 + L2));
+      var w = lowerWeight(x);
+      top.push(toScreen(skinVertex(x, -half, fk, w), s));
+      bot.push(toScreen(skinVertex(x, half, fk, w), s));
+    }
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = c.topic;
+    for (var j = 0; j < N; j++) {
+      ctx.beginPath();
+      ctx.moveTo(top[j].x, top[j].y);
+      ctx.lineTo(top[j + 1].x, top[j + 1].y);
+      ctx.lineTo(bot[j + 1].x, bot[j + 1].y);
+      ctx.lineTo(bot[j].x, bot[j].y);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.topic;
+    ctx.lineWidth = 1;
+    for (var r = 0; r <= N; r++) line(ctx, top[r], bot[r]);
+    ctx.lineWidth = 2;
+    for (var m = 0; m < N; m++) { line(ctx, top[m], top[m + 1]); line(ctx, bot[m], bot[m + 1]); }
+    // the hand is rigidly attached to the hand bone
+    var k = scale(s), wj = toScreen(fk.joints[2], s), a3 = fk.worlds[2];
+    ctx.save();
+    ctx.translate(wj.x, wj.y);
+    ctx.rotate(a3);
+    ctx.globalAlpha = 0.22;
+    ctx.fillRect(-4 * k, -12 * k, (L3 + 8) * k, 24 * k);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-4 * k, -12 * k, (L3 + 8) * k, 24 * k);
+    ctx.restore();
+  }
+
+  function draw(ctx, s) {
+    var c = s.colors;
+    var k = scale(s);
+    var fk = forward();
+    var J = [];
+    for (var i = 0; i < 4; i++) J.push(toScreen(fk.joints[i], s));
+    var S = J[0];
+
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+
+    // reach circles
+    if (showConstruction || mode === 'ik') {
+      ctx.setLineDash([4, 5]);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(S.x, S.y, (L1 + L2) * k, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(S.x, S.y, Math.abs(L1 - L2) * k, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (skin !== 'off') drawSkin(ctx, s, fk, c);
+
+    // construction: each bone's zero direction and its local angle
+    if (showConstruction) {
+      ctx.lineWidth = 1;
+      for (var b = 0; b < 3; b++) {
+        var parentWorld = b > 0 ? fk.worlds[b - 1] : 0;
+        var j0 = J[b];
+        var ref = 44 * k + 12;
+        ctx.setLineDash([3, 4]);
+        ctx.strokeStyle = c.ink3;
+        line(ctx, j0, { x: j0.x + Math.cos(parentWorld) * ref, y: j0.y + Math.sin(parentWorld) * ref });
+        ctx.setLineDash([]);
+        var r = 18 + 6 * (2 - b);
+        ctx.strokeStyle = c.warn;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(j0.x, j0.y, r, parentWorld, parentWorld + ang[b], ang[b] < 0);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        var mid = parentWorld + ang[b] / 2;
+        ctx.fillStyle = c.warn;
+        ctx.textAlign = 'center';
+        ctx.fillText(deg(wrap(ang[b])) + '°', j0.x + Math.cos(mid) * (r + 14), j0.y + Math.sin(mid) * (r + 14) + 4);
+      }
+      if (mode === 'ik') {
+        // the IK triangle: shoulder, elbow, wrist
+        ctx.setLineDash([2, 4]);
+        ctx.strokeStyle = c.topic;
+        line(ctx, S, J[2]);
+        ctx.setLineDash([]);
+      }
+    }
+
+    // bones
+    ctx.strokeStyle = c.ink;
+    ctx.fillStyle = c.surface2;
+    ctx.lineWidth = 1.5;
+    for (var n = 0; n < 3; n++) {
+      if (dragBone === n) ctx.fillStyle = c.topic; else ctx.fillStyle = c.surface2;
+      boneShape(ctx, J[n], J[n + 1], (n === 2 ? 6 : 10) * Math.max(k, 0.6));
+    }
+    // joints
+    for (var q = 0; q < 3; q++) {
+      ctx.fillStyle = c.topic;
+      ctx.beginPath(); ctx.arc(J[q].x, J[q].y, 5, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // target
+    if (mode === 'ik') {
+      var T = toScreen(target, s);
+      if (reach.status !== 'in') {
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = c.bad;
+        ctx.lineWidth = 1.5;
+        line(ctx, J[2], T);
+        ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = reach.status === 'in' ? c.good : c.bad;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(T.x, T.y, 11, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 1;
+      line(ctx, { x: T.x - 16, y: T.y }, { x: T.x + 16, y: T.y });
+      line(ctx, { x: T.x, y: T.y - 16 }, { x: T.x, y: T.y + 16 });
+    }
+
+    // labels
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(mode === 'ik' ? 'IK: drag the target ring' : 'FK: drag a bone to rotate it', 10, 20);
+    ctx.fillStyle = c.ink2;
+    ctx.fillText(mode === 'ik' ? 'IK solves shoulder and elbow; the hand stays FK' : 'world = parent + local', 10, 38);
+  }
+
+  handle = DemoKit.canvas('#skeleton', {
+    aspect: 1.4,
+    minHeight: 320,
+    maxHeight: 460,
+    animate: false,
+    drag: true,
+    keys: true,
+    label: 'A three bone arm. In FK mode drag a bone to rotate it; in IK mode drag a target and the arm reaches for it.',
+    onDown: pointerDown,
+    onMove: pointerMove,
+    onUp: pointerUp,
+    onKey: onKey,
+    draw: draw
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stiff springs and substeps · Game Dev Daily</title>
+<meta name="description" content="Why a spring that is too stiff for its timestep explodes, how to predict the limit from one number, and how substeps make it stable again.">
+<meta name="gdd:topic" content="game-physics">
+<meta name="gdd:date" content="2026-11-28">
+<meta name="gdd:level" content="intermediate">
+<meta name="gdd:engine" content="agnostic">
+<meta name="gdd:minutes" content="11">
+<link rel="stylesheet" href="../../assets/site.css">
+<script src="../../assets/site.js"></script>
+<script src="../../assets/demo-kit.js"></script>
+</head>
+<body class="lesson" data-topic="game-physics">
+<main>
+<article>
+
+<header class="lesson-head">
+  <h1>Stiff springs and substeps</h1>
+  <p class="lede">Why a spring that is too stiff for its timestep explodes, how to predict the limit from one number, and how substeps make it stable again.</p>
+</header>
+
+<section data-section="hook">
+  <p>The car's suspension feels soft, so you double the spring stiffness. Then you double it again, and the car buzzes and shoots off the screen with a position of <code>NaN</code>. The spring is fine. It is too stiff for your timestep, and one formula says exactly where that line is.</p>
+</section>
+
+<section data-section="concept">
+  <h2>Watch it break, one step at a time</h2>
+  <p>Take the spring from the last two lessons, lying flat with no gravity or damping, with a 1 kg block on the end. Its offset from rest is <code>x</code> pixels and the force is <code>-k * x</code>. Step it with semi-implicit Euler at 60 steps per second. Set <code>k = 20000</code>, pull the block 10 px right, and do one step by hand:</p>
+  <ul>
+    <li>Force: <code>-20000 * 10 = -200000</code>. Acceleration: <code>-200000</code> px/s².</li>
+    <li>Velocity: <code>0 - 200000 / 60 = -3333</code> px/s.</li>
+    <li>Position: <code>10 - 3333 / 60 = 10 - 55.6 = -45.6</code> px.</li>
+  </ul>
+  <p>The block started 10 px right of rest and landed 45.6 px left of it: further away than it started. The next force is four and a half times bigger, and so is the next jump:</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Step</th><th class="num">Offset x</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td class="num">10.0 px</td></tr>
+      <tr><td>1</td><td class="num">−45.6 px</td></tr>
+      <tr><td>2</td><td class="num">152.0 px</td></tr>
+      <tr><td>3</td><td class="num">−494.8 px</td></tr>
+      <tr><td>4</td><td class="num">1607.3 px</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Each step multiplies the offset by about −3.25. That is what "the spring exploded" means: the error of one step feeds a bigger error in the next.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" role="img" aria-label="A graph of offset against step number. The dashed curve shows the real spring swinging gently around rest with an amplitude of 10 pixels. The solid line shows the simulated steps: plus 10, then minus 45.6, then plus 152, then an arrow pointing down off the chart to minus 495.">
+      <g text-anchor="middle">
+        <text class="d-muted" x="80" y="16">step 0</text>
+        <text class="d-muted" x="200" y="16">step 1</text>
+        <text class="d-muted" x="320" y="16">step 2</text>
+        <text class="d-muted" x="440" y="16">step 3</text>
+      </g>
+      <path class="d-thin" d="M60 120 H620"/>
+      <text class="d-muted" x="56" y="124" text-anchor="end">rest</text>
+      <path class="d-dash" d="M80.0 114.0 L92.0 114.2 L104.0 114.7 L116.0 115.4 L128.0 116.5 L140.0 117.7 L152.0 119.1 L164.0 120.5 L176.0 121.9 L188.0 123.1 L200.0 124.2 L212.0 125.1 L224.0 125.7 L236.0 126.0 L248.0 125.9 L260.0 125.5 L272.0 124.8 L284.0 123.9 L296.0 122.7 L308.0 121.4 L320.0 120.0 L332.0 118.6 L344.0 117.3 L356.0 116.1 L368.0 115.1 L380.0 114.5 L392.0 114.1 L404.0 114.0 L416.0 114.3 L428.0 114.9 L440.0 115.8"/>
+      <path class="d-accent" d="M80 114 L200 147.3 L320 28.8 L440 200"/>
+      <path class="d-accent" d="M440 200 V232"/>
+      <polygon class="d-accent-fill" points="433,228 447,228 440,240"/>
+      <circle class="d-accent-fill" cx="80" cy="114" r="5"/>
+      <circle class="d-accent-fill" cx="200" cy="147.3" r="5"/>
+      <circle class="d-accent-fill" cx="320" cy="28.8" r="5"/>
+      <text class="d-label" x="88" y="100">x = 10</text>
+      <text class="d-label" x="200" y="174" text-anchor="middle">x = −45.6</text>
+      <text class="d-label" x="334" y="34">x = 152</text>
+      <text class="d-label" x="454" y="226">x = −495, off the chart</text>
+      <path class="d-dash" d="M60 214 H90"/>
+      <text class="d-muted" x="96" y="218">what the real spring does</text>
+    </svg>
+    <figcaption>The real spring (dashed) swings 10 px either side of rest. The simulated block (solid) overshoots further every step.</figcaption>
+  </figure>
+
+  <h2>The one number that predicts it</h2>
+  <p>A spring has a natural speed. Its <dfn>angular frequency</dfn>, written with the Greek letter omega, is</p>
+<pre><code>omega = sqrt(k / m)</code></pre>
+  <p>In words: stiffer springs and lighter bodies swing faster. It is in radians per second; one full swing takes <code>2 * pi / omega</code> seconds. For <code>k = 20000</code> and 1 kg, omega is 141.4, or 22.5 swings per second.</p>
+  <p>Omega times the timestep says how far through its swing the spring moves in one step. For semi-implicit Euler without damping:</p>
+<pre><code>stable when  omega * dt &lt; 2</code></pre>
+  <p>In words: a step must be shorter than about a third of a swing (2 / 2π = 0.32). Ours is <code>141.4 / 60 = 2.36</code>, over the line. Turned around, it gives the stiffest spring a timestep allows:</p>
+<pre><code>kMax = 4 * m / (dt * dt)</code></pre>
+  <p>In words: halve the timestep and you may use four times the stiffness. At 60 steps per second and 1 kg the limit is 14400. At 30 steps per second it is only 3600. Explicit Euler is worse: on an undamped spring it gains energy at every step size.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 120" role="img" aria-label="A number line of omega times dt from 0 to 3. From 0 to 1 is marked accurate. From 1 to 2 is marked stable but wrong, with swings that are too wide and too fast. Above 2 is marked explodes.">
+      <rect class="d-accent-soft" x="40" y="40" width="180" height="28" rx="4"/>
+      <rect class="d-fill" x="220" y="40" width="180" height="28" rx="4"/>
+      <path class="d-bad" d="M400 54 H600"/>
+      <path class="d-bad" d="M400 40 V68"/>
+      <g text-anchor="middle">
+        <text class="d-text" x="130" y="59">accurate</text>
+        <text class="d-text" x="310" y="59">stable but wrong</text>
+        <text class="d-text" x="500" y="34">explodes</text>
+        <text class="d-mono" x="40" y="88">0</text>
+        <text class="d-mono" x="220" y="88">1</text>
+        <text class="d-mono" x="400" y="88">2</text>
+        <text class="d-mono" x="580" y="88">3</text>
+      </g>
+      <text class="d-muted" x="320" y="110" text-anchor="middle">omega · dt, how far through its swing the spring moves in one step</text>
+    </svg>
+    <figcaption>Stable is not right. Between 1 and 2 the spring stays bounded but swings too wide and too fast.</figcaption>
+  </figure>
+  <p>At <code>omega * dt = 1.9</code> the block in a quick test swings about three times too far and 30% too fast. Aim for 1 or less.</p>
+
+  <h2>The fix: substeps</h2>
+  <p>A <dfn>substep</dfn> is a smaller step taken several times inside one fixed step. The game still ticks 60 times per second; only the spring takes <code>n</code> steps of <code>h = dt / n</code>.</p>
+<pre><code>n = ceil(omega * dt / 1)</code></pre>
+  <p>In words: the fewest substeps that bring <code>omega * h</code> down to 1. For <code>k = 20000</code> that is <code>ceil(2.36) = 3</code>, so <code>omega * h = 0.79</code>, and the 10 px pull now swings at most 10.9 px. The cost is <code>n</code> times the spring work, which is cheap next to raising the tick rate of the whole game.</p>
+
+  <div class="callout">
+    <p class="callout-title">Real physics versus game physics</p>
+    <p>A spring swinging 22.5 times per second is close to the most a 60 Hz screen can show (30), so players see a blur or a rigid rod. If a spring should look rigid, do not fight the timestep: soften it until it looks right, or use a rigid constraint, the next lesson.</p>
+  </div>
+</section>
+
+<section data-section="demo">
+  <h2>Try it</h2>
+  <p>Both blocks have the same spring and pull. The top one takes one step per tick; the bottom one splits each tick into substeps. Raise the stiffness past 14400 and the top block blows up while the bottom one keeps swinging. Drop the physics rate to 30 and the top fails at 3600. Use slow motion to see each jump past rest, and set substeps to 1 to see both fail.</p>
+
+  <figure class="demo wide" data-demo="stiff">
+    <canvas id="stiff"></canvas>
+    <figcaption>Drag either block, or use the arrow keys, to pull both to the same place and release them together. Debug drawing shows the previous tick's position (outline) and the velocity (arrow).</figcaption>
+  </figure>
+</section>
+
+<section data-section="code">
+  <h2>The code</h2>
+  <p>The demo's bottom block with "Auto substeps" on: 1 kg, a fixed tick of 1/60 s, released 40 px from rest.</p>
+
+  <div class="code-tabs">
+<pre data-lang="Lua"><code>local STEP = 1 / 60
+local MAX_OMEGA_H = 1       <span class="c">-- stay well under the hard limit of 2</span>
+local mass = 1
+local stiffness = 20000     <span class="c">-- kg/s^2: over the limit of 14400 at 60 Hz</span>
+local block = { x = 40, v = 0 }   <span class="c">-- offset from rest, pixels</span>
+local accumulator = 0
+
+<span class="c">-- Fewest substeps that keep omega * h at or below MAX_OMEGA_H</span>
+local function substepsFor(k, m, dt)
+  local omega = math.sqrt(k / m)
+<span class="k">  return math.max(1, math.ceil(omega * dt / MAX_OMEGA_H))</span>
+end
+
+local function springStep(h)
+  local force = -stiffness * block.x
+  block.v = block.v + force / mass * h    <span class="c">-- velocity first</span>
+  block.x = block.x + block.v * h         <span class="c">-- then position</span>
+end
+
+local function step(dt)
+  local n = substepsFor(stiffness, mass, dt)   <span class="c">-- 3 for these numbers</span>
+<span class="k">  local h = dt / n
+  for i = 1, n do
+    springStep(h)
+  end</span>
+end
+
+function love.update(dt)
+  accumulator = accumulator + math.min(dt, 0.25)
+  while accumulator &gt;= STEP do
+    step(STEP)
+    accumulator = accumulator - STEP
+  end
+end
+
+function love.draw()
+  love.graphics.line(40, 100, 200 + block.x, 100)
+  love.graphics.rectangle("fill", 200 + block.x - 14, 86, 28, 28)
+end</code></pre>
+<pre data-lang="GDScript"><code><span class="c"># A spring you integrate yourself, such as a camera or UI offset.</span>
+extends Node2D
+
+@export var stiffness := 20000.0
+@export var mass := 1.0
+var offset := 40.0
+var speed := 0.0
+
+func _physics_process(delta: float) -&gt; void:
+    var omega := sqrt(stiffness / mass)
+<span class="k">    var n := maxi(1, ceili(omega * delta))
+    var h := delta / n
+    for i in n:</span>
+        speed += -stiffness * offset / mass * h
+        offset += speed * h
+    position.x = 200.0 + offset</code></pre>
+<pre data-lang="C# (Unity)"><code><span class="c">// The same hand-made spring in FixedUpdate.</span>
+using UnityEngine;
+
+public class SubsteppedSpring : MonoBehaviour
+{
+    public float stiffness = 20000f;
+    public float mass = 1f;
+    float offset = 0.4f;   <span class="c">// metres</span>
+    float speed;
+
+    void FixedUpdate()
+    {
+        float dt = Time.fixedDeltaTime;
+        float omega = Mathf.Sqrt(stiffness / mass);
+<span class="k">        int n = Mathf.Max(1, Mathf.CeilToInt(omega * dt));
+        float h = dt / n;
+        for (int i = 0; i &lt; n; i++)</span>
+        {
+            speed += -stiffness * offset / mass * h;
+            offset += speed * h;
+        }
+        transform.localPosition = new Vector3(offset, 0f, 0f);
+    }
+}</code></pre>
+  </div>
+  <p>The limit depends only on <code>k / m</code> and <code>dt</code>, so it is the same in pixels and in metres. A spring force on an engine body cannot be substepped this way, because the engine integrates the body once per tick. Then the options are a higher tick rate (Godot: Project Settings &gt; Physics &gt; Common &gt; Physics Ticks per Second; Unity: Project Settings &gt; Time &gt; Fixed Timestep) or the engine's own joints, such as <code>DampedSpringJoint2D</code> in Godot and <code>SpringJoint2D</code> in Unity. I have not measured how they cope with extreme stiffness, so test them at your tick rate.</p>
+</section>
+
+<section data-section="pitfalls">
+  <h2>Pitfalls</h2>
+  <ul>
+    <li><strong>Forgetting mass.</strong> A spring fine on a 10 kg crate explodes on a 0.1 kg coin: omega is ten times larger.</li>
+    <li><strong>Hoping damping saves it.</strong> It tightens the limit. With the damping ratio zeta from the last lesson, semi-implicit Euler needs <code>(omega * dt)² + 4 * zeta * omega * dt &lt; 4</code>. At zeta = 1 that is <code>omega * dt &lt; 0.83</code>.</li>
+    <li><strong>A variable timestep.</strong> A spring tuned at 144 frames per second has <code>omega * dt</code> 2.4 times bigger at 60, and one slow frame can push it over 2.</li>
+    <li><strong>Substepping everything.</strong> Collision detection and game logic inside the loop cost <code>n</code> times as much. Substep only the stiff forces.</li>
+    <li><strong>Many springs on one point.</strong> Their stiffnesses add up. Use the sum for omega, or the point explodes although each spring passes alone.</li>
+  </ul>
+</section>
+
+<section data-section="in-the-wild">
+  <h2>In real games</h2>
+  <p>Substepping is built into some physics engines. Version 3 of Box2D takes a substep count as an argument of its world step function, <code>b2World_Step(worldId, timeStep, subStepCount)</code>, and its author, Erin Catto, has written about choosing a substepping solver because it handles stiff joints and stacks better. The research paper <cite>Small Steps in Physics Simulation</cite> from NVIDIA makes the same argument for position-based solvers.</p>
+  <p>The default ticks of Unity (50 per second) and Godot (60) set a ceiling on how stiff a hand-written spring can be, and a spring that "randomly" explodes usually has a frame-rate-driven timestep or a light body.</p>
+</section>
+
+<section data-section="exercise">
+  <h2>Your turn (15 minutes)</h2>
+  <p>Find a spring in your own project: a camera follow, a squash effect, a suspension. Print <code>sqrt(k / m) * dt</code> for it once per tick, using the sum of all spring stiffnesses that act on the same body.</p>
+  <p>Raise <code>k</code> until it explodes and check that this happens where the number passes 2 (or the damped limit). Then add the <code>substepsFor</code> loop. You are done when the printed <code>omega * h</code> stays at 1 or less for every stiffness the game allows.</p>
+</section>
+
+<section data-section="takeaways">
+  <h2>Takeaways</h2>
+  <ul>
+    <li>A spring explodes when one step carries the body past rest by more than it started with, so each error feeds a bigger one.</li>
+    <li>The number that matters is <code>omega * dt</code> with <code>omega = sqrt(k / m)</code>. Semi-implicit Euler without damping is stable below 2 and accurate around 1 or less.</li>
+    <li>The stiffest spring a timestep allows is <code>4 * m / dt²</code>. Halving the step allows four times the stiffness.</li>
+    <li>Substeps shrink the step only for the stiff part. Pick <code>n = ceil(omega * dt)</code>.</li>
+    <li>Damping, light bodies and several springs on one point all lower the limit.</li>
+  </ul>
+</section>
+
+<section data-section="next">
+  <h2>Next</h2>
+  <p>The next lesson skips stiffness altogether: a distance constraint moves the two points directly so a rigid stick stays exactly its length, at any timestep.</p>
+</section>
+
+<section data-section="sources">
+  <h2>Further reading</h2>
+  <ul>
+    <li>Glenn Fiedler, <cite>Integration Basics</cite> (Gaffer On Games). How different integrators behave on a spring.</li>
+    <li>Erin Catto, <cite>Solver2D</cite> (Box2D blog, 2024). Compares solvers and explains why the Box2D 3 solver uses substeps.</li>
+    <li>Miles Macklin, Kier Storey, Michelle Lu, Pierre Terdiman, Nuttapong Chentanez, Stefan Jeschke and Matthias Müller, <cite>Small Steps in Physics Simulation</cite> (Symposium on Computer Animation, 2019).</li>
+  </ul>
+</section>
+
+</article>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MASS = 1;            // kg
+  var START = 40;          // pixels from rest when released
+  var BLOW_UP = 1e5;       // pixels: beyond this the lane counts as exploded
+  var MAX_OMEGA_H = 1;     // target for auto substeps, same as the Lua
+  var DEFAULTS = { k: 6000, rate: '60', n: 3, speed: '1' };
+
+  function substepsFor(k, m, dt) {
+    var omega = Math.sqrt(k / m);
+    return Math.max(1, Math.ceil(omega * dt / MAX_OMEGA_H));
+  }
+
+  function makeLane() {
+    return { x: START, v: 0, prevX: START, steps: 0, exploded: false, blewAt: 0, widest: START, history: [] };
+  }
+
+  var top = makeLane();
+  var bottom = makeLane();
+  var accumulator = 0;
+  var dragging = false;
+  var keyOffset = START;
+
+  function releaseAt(offset) {
+    [top, bottom].forEach(function (lane) {
+      lane.x = offset;
+      lane.v = 0;
+      lane.prevX = offset;
+      lane.steps = 0;
+      lane.exploded = false;
+      lane.blewAt = 0;
+      lane.widest = Math.abs(offset);
+      lane.history = [];
+    });
+    accumulator = 0;
+  }
+
+  // One semi-implicit Euler step of length h. The same as springStep in the Lua.
+  function springStep(lane, k, h) {
+    var force = -k * lane.x;
+    lane.v += force / MASS * h;
+    lane.x += lane.v * h;
+  }
+
+  // One game tick of length dt, split into n substeps.
+  function tick(lane, k, dt, n) {
+    if (lane.exploded) return;
+    lane.prevX = lane.x;
+    var h = dt / n;
+    for (var i = 0; i < n; i++) springStep(lane, k, h);
+    lane.steps += 1;
+    if (!isFinite(lane.x) || Math.abs(lane.x) > BLOW_UP) {
+      lane.exploded = true;
+      lane.blewAt = lane.steps;
+      lane.x = lane.x > 0 ? BLOW_UP : -BLOW_UP;
+      lane.v = 0;
+    } else {
+      lane.widest = Math.max(lane.widest, Math.abs(lane.x));
+    }
+    lane.history.push(lane.x);
+    if (lane.history.length > 600) lane.history.shift();
+  }
+
+  var ui = DemoKit.controls('[data-demo="stiff"]');
+  var stiffness = ui.slider({ label: 'Stiffness k', min: 500, max: 30000, step: 500, value: DEFAULTS.k, unit: ' kg/s²', onInput: info });
+  var rate = ui.select({ label: 'Physics rate', value: DEFAULTS.rate, onChange: info, options: [
+    { value: '30', label: '30 per second' },
+    { value: '60', label: '60 per second' },
+    { value: '120', label: '120 per second' }
+  ] });
+  var substeps = ui.slider({ label: 'Substeps (bottom block)', min: 1, max: 8, step: 1, value: DEFAULTS.n, onInput: info });
+  var auto = ui.toggle({ label: 'Auto substeps (omega · h ≤ 1)', value: false, onChange: info });
+  var speed = ui.select({ label: 'Speed', value: DEFAULTS.speed, options: [
+    { value: '1', label: 'Normal' },
+    { value: '0.1', label: 'Slow motion (1/10)' },
+    { value: '0.025', label: 'Very slow (1/40)' }
+  ] });
+  var debug = ui.toggle({ label: 'Show debug drawing', value: true });
+  var omegaOut = ui.readout({ label: 'omega · dt per step (limit 2)' });
+  var limitOut = ui.readout({ label: 'Blows up above' });
+  ui.button({ label: 'Release again', onClick: function () { keyOffset = START; releaseAt(START); } });
+  ui.button({ label: 'Reset', onClick: function () {
+    stiffness.set(DEFAULTS.k);
+    rate.set(DEFAULTS.rate);
+    substeps.set(DEFAULTS.n);
+    auto.set(false);
+    speed.set(DEFAULTS.speed);
+    debug.set(true);
+    keyOffset = START;
+    releaseAt(START);
+    info();
+  } });
+
+  function stepLength() { return 1 / Number(rate.value); }
+  function bottomSubsteps() {
+    return auto.value ? substepsFor(stiffness.value, MASS, stepLength()) : substeps.value;
+  }
+
+  function info() {
+    var dt = stepLength();
+    var n = bottomSubsteps();
+    var wdt = Math.sqrt(stiffness.value / MASS) * dt;
+    omegaOut.set('top ' + wdt.toFixed(2) + ', bottom ' + (wdt / n).toFixed(2));
+    var kTop = Math.round(4 * MASS / (dt * dt));
+    limitOut.set('top k = ' + kTop + ', bottom k = ' + (kTop * n * n));
+  }
+  info();
+
+  function layout(s) {
+    var wall = 14;
+    var restX = wall + DemoKit.clamp(s.width * 0.42, 110, 320);
+    var laneH = (s.height - 36) / 2;
+    return { wall: wall, restX: restX, laneH: laneH };
+  }
+  function rowY(L, index) { return index * L.laneH + 62; }
+
+  function dragTo(p, s) {
+    var L = layout(s);
+    var offset = DemoKit.clamp(p.x - L.restX, L.wall + 20 - L.restX, s.width - 20 - L.restX);
+    keyOffset = offset;
+    releaseAt(offset);
+  }
+
+  function line(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawLane(ctx, s, L, lane, index, title) {
+    var c = s.colors;
+    var W = s.width;
+    var y0 = index * L.laneH;
+    var y = rowY(L, index);
+    var BOX = 26;
+    var minX = L.wall + 20;
+    var maxX = W - 20;
+
+    ctx.textAlign = 'left';
+    ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = c.ink;
+    ctx.fillText(title, L.wall, y0 + 18);
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    if (lane.exploded) {
+      ctx.fillStyle = c.bad;
+      ctx.fillText('blew up after ' + lane.blewAt + ' ticks', L.wall, y0 + 34);
+    } else {
+      ctx.fillStyle = lane.widest > START * 1.5 ? c.warn : c.good;
+      ctx.fillText('widest swing ' + Math.round(lane.widest) + ' px (true: ' + START + ' px)', L.wall, y0 + 34);
+    }
+
+    // Wall and rest mark.
+    ctx.strokeStyle = c.ink2;
+    ctx.lineWidth = 3;
+    line(ctx, L.wall, y - 20, L.wall, y + 20);
+    ctx.strokeStyle = c.ink3;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    line(ctx, L.restX, y - 18, L.restX, y + 18);
+    ctx.setLineDash([]);
+
+    var bx = DemoKit.clamp(L.restX + lane.x, minX, maxX);
+    var off = bx !== L.restX + lane.x;
+
+    // Spring zigzag from the wall to the block.
+    var end = bx - BOX / 2;
+    var coils = 12;
+    ctx.strokeStyle = lane.exploded ? c.bad : c.ink2;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(L.wall, y);
+    var start = L.wall + 6;
+    ctx.lineTo(start, y);
+    var span = Math.max(4, end - start - 6);
+    for (var i = 1; i <= coils; i++) {
+      ctx.lineTo(start + span * (i - 0.5) / coils, y + (i % 2 ? -7 : 7));
+    }
+    ctx.lineTo(start + span, y);
+    ctx.lineTo(end, y);
+    ctx.stroke();
+
+    // Previous position and velocity.
+    if (debug.value && !lane.exploded) {
+      var px = DemoKit.clamp(L.restX + lane.prevX, minX, maxX);
+      ctx.strokeStyle = c.ink3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(px - BOX / 2, y - BOX / 2, BOX, BOX);
+      ctx.setLineDash([]);
+      var len = DemoKit.clamp(lane.v * 0.02, -90, 90);
+      if (Math.abs(len) > 2) {
+        var ay = y - BOX / 2 - 8;
+        ctx.strokeStyle = c.topic;
+        ctx.fillStyle = c.topic;
+        ctx.lineWidth = 2;
+        line(ctx, bx, ay, bx + len, ay);
+        var dir = len > 0 ? 1 : -1;
+        ctx.beginPath();
+        ctx.moveTo(bx + len, ay);
+        ctx.lineTo(bx + len - dir * 7, ay - 4);
+        ctx.lineTo(bx + len - dir * 7, ay + 4);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // The block.
+    ctx.fillStyle = lane.exploded || off ? c.bad : c.topic;
+    ctx.fillRect(bx - BOX / 2, y - BOX / 2, BOX, BOX);
+
+    // Graph of the offset after each tick.
+    var gTop = y + 26;
+    var gBottom = y0 + L.laneH - 6;
+    var gMid = (gTop + gBottom) / 2;
+    var half = (gBottom - gTop) / 2;
+    var range = START * 2.5;
+    ctx.strokeStyle = c.line;
+    ctx.lineWidth = 1;
+    line(ctx, L.wall, gMid, W - L.wall, gMid);
+    ctx.fillStyle = c.ink3;
+    ctx.textAlign = 'left';
+    ctx.fillText('offset per tick', L.wall + 2, gTop + 10);
+
+    var spacing = 3;
+    var count = Math.min(lane.history.length, Math.floor((W - 2 * L.wall) / spacing));
+    if (count > 1) {
+      ctx.strokeStyle = lane.exploded ? c.bad : c.topic;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var j = 0; j < count; j++) {
+        var value = lane.history[lane.history.length - count + j];
+        var gx = W - L.wall - (count - 1 - j) * spacing;
+        var gy = gMid - DemoKit.clamp(value / range, -1, 1) * half;
+        if (j === 0) ctx.moveTo(gx, gy);
+        else ctx.lineTo(gx, gy);
+      }
+      ctx.stroke();
+    }
+  }
+
+  DemoKit.canvas('#stiff', {
+    height: 380,
+    drag: true,
+    keys: true,
+    label: 'Two blocks on identical stiff springs. The top block takes one step per tick and explodes when the spring is too stiff. The bottom block takes several substeps per tick and stays stable.',
+    update: function (dt) {
+      if (dragging) return;
+      var step = stepLength();
+      var n = bottomSubsteps();
+      var k = stiffness.value;
+      accumulator += dt * Number(speed.value);
+      var guard = 0;
+      while (accumulator >= step && guard < 30) {
+        tick(top, k, step, 1);
+        tick(bottom, k, step, n);
+        accumulator -= step;
+        guard += 1;
+      }
+      if (guard === 30) accumulator = 0;
+    },
+    draw: function (ctx, s) {
+      var L = layout(s);
+      var n = bottomSubsteps();
+      drawLane(ctx, s, L, top, 0, 'One step per tick');
+      drawLane(ctx, s, L, bottom, 1, n + (n === 1 ? ' substep' : ' substeps') + ' per tick');
+      ctx.strokeStyle = s.colors.line;
+      ctx.lineWidth = 1;
+      line(ctx, 0, Math.round(L.laneH) + 0.5, s.width, Math.round(L.laneH) + 0.5);
+      ctx.fillStyle = s.colors.ink3;
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('Drag a block, or use the arrow keys', L.wall, s.height - 14);
+    },
+    onDown: function (p, s) {
+      var L = layout(s);
+      for (var i = 0; i < 2; i++) {
+        if (Math.abs(p.y - rowY(L, i)) < 30) {
+          dragging = true;
+          break;
+        }
+      }
+      if (dragging) dragTo(p, s);
+    },
+    onMove: function (p, s) {
+      if (dragging) dragTo(p, s);
+    },
+    onUp: function () { dragging = false; },
+    onKey: function (key, isDown, s) {
+      if (!isDown) return;
+      var L = layout(s);
+      var lo = L.wall + 20 - L.restX;
+      var hi = s.width - 20 - L.restX;
+      if (key === 'arrowleft') keyOffset = DemoKit.clamp(keyOffset - 10, lo, hi);
+      else if (key === 'arrowright') keyOffset = DemoKit.clamp(keyOffset + 10, lo, hi);
+      else return;
+      releaseAt(keyOffset);
+    }
+  });
+})();
+</script>
+</body>
+</html>

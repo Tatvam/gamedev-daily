@@ -55,7 +55,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 
 ## Track 5: Combat, puzzles and emergent systems
 
-- [ ] **Anatomy of an attack** — How start-up, active and recovery frames create commitment and openings. Demo: A sword swing with sliders for each phase, a frame timeline, and a dummy that strikes back during recovery.
+- [x] **Anatomy of an attack** — How start-up, active and recovery frames create commitment and openings. Demo: A sword swing with sliders for each phase, a frame timeline, and a dummy that strikes back during recovery. (published 2026-11-28, attack-startup-active-recovery)
 - [ ] **Telegraphing** — How wind-up poses, flashes and sounds give players a fair chance to react. Demo: Dodge an enemy's attack with a slider for wind-up length and toggles for a flash and a sound cue, with your success rate shown.
 - [ ] **Enemy design and roles** — How enemies with clear, different jobs ask different questions of the player. Demo: An arena where you choose which of a charger, a shooter and a shield carrier to spawn and see how each one changes how you move.
 - [ ] **Encounter design** — How combining enemy types and terrain creates challenges that no single enemy can. Demo: Place two enemy types and cover blocks on a small map, then fight the encounter and compare it with the same enemies fought alone.

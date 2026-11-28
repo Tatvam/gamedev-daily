@@ -52,7 +52,7 @@ How to use: take the FIRST unchecked item, top to bottom. After publishing its p
 - [x] **Sprite animation: AnimatedSprite2D in Godot, Animator in Unity** — How a sprite sheet and a frame timer create animation, and how frame durations change its feel. Demo: A procedurally drawn walk cycle plays beside its sprite sheet with a highlighted current frame and sliders for frame rate and per-frame hold time. (published 2026-11-25, sprite-sheet-animation)
 - [x] **Tweens and easing** — How Godot's Tween and Unity coroutines or tween libraries move values along easing curves instead of at constant speed. Demo: Pick an easing function from a list and watch a box move, scale and fade with it while the curve is plotted alongside. (published 2026-11-26, tweens-and-easing)
 - [x] **Animation state machines: AnimationTree in Godot, Animator Controller in Unity** — How states, transitions and blend parameters choose and mix animations. Demo: A speed slider blends a stick figure between idle, walk and run while a graph shows the active state, transition progress and blend weights. (published 2026-11-27, animation-state-machines)
-- [ ] **Skeletal animation** — How bones in a hierarchy move a character, and how forward and inverse kinematics differ. Demo: Rotate the bones of a procedural arm directly, then switch to inverse kinematics and drag the hand to a target.
+- [x] **Skeletal animation** — How bones in a hierarchy move a character, and how forward and inverse kinematics differ. Demo: Rotate the bones of a procedural arm directly, then switch to inverse kinematics and drag the hand to a target. (published 2026-11-28, skeletal-animation-ik)
 
 ## Track 5: Audio, UI and physics
 
